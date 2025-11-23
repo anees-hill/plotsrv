@@ -11,3 +11,6 @@ dependencies = [
     "pytest>=9.0.1",
     "uvicorn>=0.38.0",
 ]
+
+[dependency-groups]
+dev = ["seaborn>=0.13.2"]
