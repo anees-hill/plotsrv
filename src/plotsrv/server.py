@@ -6,7 +6,8 @@ import threading
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
+from fastapi.responses import Response, HTMLResponse
+
 
 import matplotlib
 
@@ -202,3 +203,80 @@ def stop_plot_server() -> None:
     global _SERVER
     if _SERVER is not None:
         _SERVER.should_exit = True
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> HTMLResponse:
+    """
+    Simple HTML viewer for the current plot.
+
+    Shows the current plot image and a 'Refresh' button that
+    reloads the image with a cache-busting query parameter.
+    """
+    html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>plotsrv – current plot</title>
+        <style>
+            body {
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                margin: 1.5rem;
+                max-width: 900px;
+            }
+            h1 {
+                font-size: 1.4rem;
+                margin-bottom: 1rem;
+            }
+            #plot-container {
+                border: 1px solid #ddd;
+                padding: 1rem;
+                border-radius: 8px;
+                background: #fafafa;
+            }
+            #plot {
+                max-width: 100%;
+                height: auto;
+                display: block;
+                margin-bottom: 1rem;
+            }
+            button {
+                padding: 0.4rem 0.8rem;
+                border-radius: 4px;
+                border: 1px solid #ccc;
+                cursor: pointer;
+                background: #f5f5f5;
+            }
+            button:hover {
+                background: #e9e9e9;
+            }
+            .note {
+                font-size: 0.85rem;
+                color: #666;
+                margin-top: 0.5rem;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>plotsrv – current plot</h1>
+        <div id="plot-container">
+            <img id="plot" src="/plot" alt="Current plot (or none yet)" />
+            <button type="button" onclick="refreshPlot()">Refresh</button>
+            <div class="note">
+                If no plot has been published yet, you may see a broken image until your code calls <code>refresh_plot_server</code> or <code>plt.show()</code>.
+            </div>
+        </div>
+
+        <script>
+            function refreshPlot() {
+                const img = document.getElementById("plot");
+                const base = "/plot";
+                const url = base + "?_ts=" + Date.now(); // cache buster
+                img.src = url;
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
