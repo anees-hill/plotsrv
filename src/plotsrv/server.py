@@ -5,8 +5,11 @@ import io
 import threading
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import Response
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import Response, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 import matplotlib
 
@@ -26,6 +29,11 @@ except Exception:
 
 app = FastAPI()
 
+# For static ui files
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+if STATIC_DIR.exists():
+        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 # Module-level state ----------
 
 _LATEST_PLOT_PNG: Optional[bytes] = None
@@ -41,13 +49,25 @@ _SHOW_PATCHED = False
 
 # FastAPI route ----------
 
-
 @app.get("/plot")
-def get_plot() -> Response:
+def get_plot(download: bool = False) -> Response:
     if _LATEST_PLOT_PNG is None:
         raise HTTPException(status_code=404, detail="No plot has been published yet.")
-    return Response(_LATEST_PLOT_PNG, media_type="image/png")
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = 'attachment; filename="plotsrv_plot.png"'
+    return Response(_LATEST_PLOT_PNG, media_type="image/png", headers=headers)
 
+# plotsrv server shutdown trigger
+@app.post("/shutdown")
+def shutdown(background_tasks: BackgroundTasks) -> dict:
+    """
+    Trigger plotsrv to shut down from the browser.
+    """
+    # Run stop_plot_server after the response is sent.
+    background_tasks.add_task(stop_plot_server)
+    return {"status": "shutting_down"}
+ 
 
 # Server internals ----------
 
@@ -202,3 +222,184 @@ def stop_plot_server() -> None:
     global _SERVER
     if _SERVER is not None:
         _SERVER.should_exit = True
+
+
+@app.get("/", response_class=HTMLResponse)
+def index() -> HTMLResponse:
+    """
+    Simple HTML viewer for the current plot with header, logo,
+    and controls for refresh/export/shutdown.
+    """
+    html = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <title>plotsrv – current plot</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <style>
+        :root {
+          --bg: #f5f5f5;
+          --border: #ddd;
+          --accent: #444;
+          --button-bg: #ffffff;
+          --button-bg-hover: #f0f0f0;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+          margin: 0;
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          background: var(--bg);
+          color: #222;
+        }
+
+        .header {
+          background: #ffffff;
+          border-bottom: 1px solid var(--border);
+          padding: 0.5rem 1rem;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+
+        .header-logo {
+          height: 28px;
+          width: auto;
+          display: block;
+        }
+
+        .header-title {
+          font-weight: 600;
+          font-size: 1rem;
+          color: #555;
+        }
+
+        .page {
+          max-width: 1100px;
+          margin: 1.5rem auto;
+          padding: 0 1rem 2rem;
+        }
+
+        .plot-card {
+          background: #fff;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          padding: 1rem 1rem 0.75rem;
+          box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+        }
+
+        .plot-frame {
+          border-radius: 6px;
+          overflow: hidden;
+          border: 1px solid #eee;
+          background: #fafafa;
+        }
+
+        #plot {
+          max-width: 100%;
+          height: auto;
+          display: block;
+        }
+
+        .controls {
+          margin-top: 0.75rem;
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+
+        .controls button {
+          flex: 0 0 auto;
+          padding: 0.4rem 0.9rem;
+          border-radius: 4px;
+          border: 1px solid var(--border);
+          background: var(--button-bg);
+          cursor: pointer;
+          font-size: 0.9rem;
+        }
+
+        .controls button:hover {
+          background: var(--button-bg-hover);
+        }
+
+        .controls button.danger {
+          border-color: #e48b8b;
+          color: #792424;
+          background: #ffecec;
+        }
+
+        .controls button.danger:hover {
+          background: #ffdede;
+        }
+
+        .note {
+          margin-top: 0.4rem;
+          font-size: 0.8rem;
+          color: #666;
+        }
+
+        @media (max-width: 600px) {
+          .page {
+            margin-top: 1rem;
+          }
+        }
+      </style>
+    </head>
+    <body>
+      <header class="header">
+        <img src="/static/plotsrv_logo.jpg" alt="plotsrv logo" class="header-logo" />
+        <div class="header-title">Live viewer</div>
+      </header>
+
+      <main class="page">
+        <section class="plot-card">
+          <div class="plot-frame">
+            <img id="plot" src="/plot" alt="Current plot (or none yet)" />
+          </div>
+
+          <div class="controls">
+            <button type="button" onclick="refreshPlot()">Refresh</button>
+            <button type="button" onclick="exportImage()">Export image</button>
+            <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
+          </div>
+
+          <div class="note" id="status">
+            If no plot has been published yet, you may see a broken image until your code calls
+            <code>refresh_plot_server</code> or <code>plt.show()</code>.
+          </div>
+        </section>
+      </main>
+
+      <script>
+        function refreshPlot() {
+          const img = document.getElementById("plot");
+          const base = "/plot";
+          const url = base + "?_ts=" + Date.now(); // cache buster
+          img.src = url;
+        }
+
+        function exportImage() {
+          // Navigate to /plot?download=1 to trigger a download
+          const url = "/plot?download=1&_ts=" + Date.now();
+          window.location.href = url;
+        }
+
+        function terminateServer() {
+          fetch("/shutdown", { method: "POST" })
+            .then(() => {
+              const status = document.getElementById("status");
+              status.textContent = "plotsrv server is shutting down…";
+            })
+            .catch(() => {
+              const status = document.getElementById("status");
+              status.textContent = "Failed to contact server (it may already be down).";
+            });
+        }
+      </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
+
