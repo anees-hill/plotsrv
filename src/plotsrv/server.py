@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 from matplotlib.figure import Figure
 
 import pandas as pd
+
 try:
     import polars as pl
 except Exception:
@@ -38,7 +39,7 @@ app = FastAPI()
 # For static ui files
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Module-level state ----------
 
@@ -48,7 +49,7 @@ _SERVER: Optional[uvicorn.Server] = None
 _SERVER_RUNNING: bool = False
 _DEFAULT_PORT: int = 8000
 
-_LATEST_KIND: str = "none" # "plot", "table", or "none"
+_LATEST_KIND: str = "none"  # "plot", "table", or "none"
 _LATEST_TABLE_HTML: Optional[str] = None
 
 _MAX_TABLE_ROWS_SIMPLE: int = 200
@@ -60,6 +61,7 @@ _SHOW_PATCHED = False
 
 # FastAPI route ----------
 
+
 @app.get("/plot")
 def get_plot(download: bool = False) -> Response:
     if _LATEST_PLOT_PNG is None:
@@ -68,6 +70,7 @@ def get_plot(download: bool = False) -> Response:
     if download:
         headers["Content-Disposition"] = 'attachment; filename="plotsrv_plot.png"'
     return Response(_LATEST_PLOT_PNG, media_type="image/png", headers=headers)
+
 
 # plotsrv server shutdown trigger
 @app.post("/shutdown")
@@ -78,7 +81,7 @@ def shutdown(background_tasks: BackgroundTasks) -> dict:
     # Run stop_plot_server after the response is sent.
     background_tasks.add_task(stop_plot_server)
     return {"status": "shutting_down"}
- 
+
 
 # Server internals ----------
 
@@ -121,6 +124,7 @@ def _fig_to_png_bytes(fig: Figure) -> bytes:
     buf.seek(0)
     return buf.read()
 
+
 def _df_to_html_simple(df: "pd.DataFrame") -> str:
     """
     Render a simple HTML table for the first N rows of a DataFrame.
@@ -136,7 +140,9 @@ def _df_to_html_simple(df: "pd.DataFrame") -> str:
         escape=True,
     )
 
+
 # Core refresh logic ----------
+
 
 def refresh_plot_server(
     obj: Any = None,
@@ -190,16 +196,10 @@ def refresh_plot_server(
             )
         fig = obj.draw()
 
-    elif (
-        PlotnineGGPlot is not None
-        and isinstance(obj, PlotnineGGPlot)
-    ):
+    elif PlotnineGGPlot is not None and isinstance(obj, PlotnineGGPlot):
         fig = obj.draw()
 
-    elif (
-        hasattr(obj, "draw")
-        and obj.__class__.__module__.startswith("plotnine")
-    ):
+    elif hasattr(obj, "draw") and obj.__class__.__module__.startswith("plotnine"):
         fig = obj.draw()
 
     else:
@@ -265,7 +265,6 @@ def stop_plot_server() -> None:
     global _SERVER
     if _SERVER is not None:
         _SERVER.should_exit = True
-
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -350,7 +349,7 @@ def index() -> HTMLResponse:
         }}
 
         .header {{
-          background: #e3e3e3;
+          background: #ffffff;
           border-bottom: 1px solid var(--border);
           padding: 0.5rem 1rem;
           display: flex;
@@ -476,7 +475,7 @@ def index() -> HTMLResponse:
     </head>
     <body>
       <header class="header">
-        <img src="/static/plotsrv_logo.png" alt="plotsrv logo" class="header-logo" />
+        <img src="/static/plotsrv_logo.jpg" alt="plotsrv logo" class="header-logo" />
         <div class="header-title">plotsrv – live viewer</div>
       </header>
 
@@ -519,5 +518,3 @@ def index() -> HTMLResponse:
     </html>
     """
     return HTMLResponse(content=html)
-
-
