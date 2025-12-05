@@ -1,5 +1,5 @@
-[![CI](https://github.com/anees-hill/plotsrv/actions/workflows/ci.yml/badge.svg)]
-[![codecov](https://codecov.io/gh/%3anees-hill%3E/plotsrv/branch/main/graph/badge.svg)](https://codecov.io/gh/%3Canees-hill%3E/plotsrv)
+![CI](https://github.com/anees-hill/plotsrv/actions/workflows/ci.yml/badge.svg)
+[![codecov](https://codecov.io/github/anees-hill/plotsrv/graph/badge.svg?token=B9D8LB8K2H)](https://codecov.io/github/anees-hill/plotsrv)
 
 ## License
 
