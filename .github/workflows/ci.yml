@@ -27,4 +27,4 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Run tests
-        run: uv run pytest tests
+        run: uv run pytest --cov=plotsrv --cov-report=term-missing
