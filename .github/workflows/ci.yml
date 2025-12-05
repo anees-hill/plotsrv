@@ -30,7 +30,10 @@ jobs:
         with:
           python-version-file: "pyproject.toml"
 
-      - name: Install project and deps
+      - name: Install dev dependencies
+        run: uv sync --dev
+
+      - name: Install project
         run: uv pip install -e .
 
       - name: Run tests
