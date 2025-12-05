@@ -26,3 +26,14 @@ dev = [
     "httpx>=0.28.1",
 ]
 
+[tool.coverage.run]
+source = ["plotsrv"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+fail_under = 85
+omit = [
+  "tests/*",
+]
