@@ -30,6 +30,9 @@ jobs:
         with:
           python-version-file: "pyproject.toml"
 
+      - name: Install project and deps
+        run: uv sync --dev
+
       - name: Run tests
         run: uv run pytest --cov=plotsrv --cov-report=xml
 
