@@ -2,6 +2,10 @@
 name: CI Tests
 
 on:
+  push:
+    branches:
+      - main
+      - testing_coverage_update
   pull_request:
     branches:
       - main
@@ -27,4 +31,9 @@ jobs:
           python-version-file: "pyproject.toml"
 
       - name: Run tests
-        run: uv run pytest --cov=plotsrv --cov-report=term-missing
+        run: uv run pytest --cov=plotsrv --cov-report=xml
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
