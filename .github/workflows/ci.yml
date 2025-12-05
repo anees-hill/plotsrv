@@ -2,6 +2,9 @@
 name: CI Tests
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main
@@ -26,5 +29,16 @@ jobs:
         with:
           python-version-file: "pyproject.toml"
 
+      - name: Install dev dependencies
+        run: uv sync --dev
+
+      - name: Install project
+        run: uv pip install -e .
+
       - name: Run tests
-        run: uv run pytest tests
+        run: uv run pytest --cov=plotsrv --cov-report=xml
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
