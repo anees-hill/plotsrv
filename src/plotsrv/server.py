@@ -159,7 +159,6 @@ def _df_to_html_simple(df: "pd.DataFrame") -> str:
     This is the 'simple' table mode: no JS, just a basic scrollable table.
     """
     trimmed = df.head(_MAX_TABLE_ROWS_SIMPLE)
-    # Basic, clean HTML. You can tweak classes/styles later.
     return trimmed.to_html(
         classes="tbl-simple",
         border=0,
