@@ -1,38 +1,19 @@
-# tests/test_plotsrv_integration.py
+from __future__ import annotations
 
 import time
 
-import matplotlib
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 import pandas as pd
 import pytest
 import requests
 import seaborn as sns
-from typing import Any
 
-from plotsrv.server import (
-    start_plot_server,
-    stop_plot_server,
-    refresh_plot_server,
+from plotsrv import (
+    start_server,
+    stop_server,
+    refresh_view,
+    set_table_view_mode,
 )
-
-_ORIGINAL_SHOW = plt.show
-
-
-def _patched_show(*args: Any, **kwargs: Any) -> None:
-    """
-    Replacement for plt.show that also updates the plot server
-    from the current figure.
-
-    On non-interactive backends like Agg, we skip the original
-    show() call to avoid pointless warnings.
-    """
-    refresh_plot_server()
-
-    backend = matplotlib.get_backend().lower()
-    if "agg" not in backend:
-        _ORIGINAL_SHOW(*args, **kwargs)
 
 
 def _wait_for_status_ok(url: str, timeout: float = 10.0) -> None:
@@ -55,17 +36,19 @@ def _wait_for_status_ok(url: str, timeout: float = 10.0) -> None:
 
 
 @pytest.mark.integration
-def test_plots_are_served_matplotlib_and_plotnine():
+def test_plots_and_tables_served_end_to_end() -> None:
     port = 8765
     base_url = f"http://127.0.0.1:{port}"
     plot_url = f"{base_url}/plot"
+    index_url = f"{base_url}/"
+    table_url = f"{base_url}/table/data"
 
     plotnine = pytest.importorskip("plotnine")
     ggplot = plotnine.ggplot
     aes = plotnine.aes
     geom_point = plotnine.geom_point
 
-    dat = pd.DataFrame(
+    df = pd.DataFrame(
         {
             "age": [10, 20, 30, 40, 50],
             "fare": [5.0, 10.5, 3.2, 7.7, 12.0],
@@ -73,30 +56,48 @@ def test_plots_are_served_matplotlib_and_plotnine():
     )
 
     try:
-        # Start server once, but DO NOT patch plt.show for this test
-        start_plot_server(port=port, auto_on_show=False)
-        _wait_for_status_ok(plot_url)
+        # Start server once
+        start_server(host="127.0.0.1", port=port, auto_on_show=False, quiet=True)
+        _wait_for_status_ok(index_url)
 
-        # --- PART 1: matplotlib / seaborn ---
-        sns.scatterplot(data=dat, x="age", y="fare")
+        # --- PART 1: matplotlib / seaborn plot ---
+        sns.scatterplot(data=df, x="age", y="fare")
         plt.title("CI test scatterplot")
 
-        # Instead of plt.show(), explicitly push the current figure
-        refresh_plot_server()
+        refresh_view()  # use current figure
 
         resp = requests.get(plot_url, timeout=3.0)
         assert resp.status_code == 200
         assert resp.headers["content-type"].startswith("image/")
         assert len(resp.content) > 100
 
-        # --- PART 2: plotnine ---
-        p = ggplot(dat, aes("age", "fare")) + geom_point()
-        refresh_plot_server(p)
+        # --- PART 2: plotnine plot ---
+        p = ggplot(df, aes("age", "fare")) + geom_point()
+        refresh_view(p)
 
         resp2 = requests.get(plot_url, timeout=3.0)
         assert resp2.status_code == 200
         assert resp2.headers["content-type"].startswith("image/")
         assert len(resp2.content) > 100
 
+        # --- PART 3: simple table mode ---
+        set_table_view_mode("simple")
+        refresh_view(df)
+
+        html = requests.get(index_url, timeout=3.0).text
+        assert "<table" in html
+        assert "age" in html and "fare" in html
+
+        # --- PART 4: rich table mode ---
+        set_table_view_mode("rich")
+        refresh_view(df)
+
+        html_rich = requests.get(index_url, timeout=3.0).text
+        assert 'id="table-grid"' in html_rich
+
+        json_rich = requests.get(table_url, timeout=3.0).json()
+        assert json_rich["columns"] == ["age", "fare"]
+        assert json_rich["total_rows"] == len(df)
+
     finally:
-        stop_plot_server()
+        stop_server(join=True)
