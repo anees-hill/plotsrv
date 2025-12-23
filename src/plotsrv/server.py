@@ -158,6 +158,7 @@ def refresh_view(
     obj: Any | None = None,
     *,
     force_plotnine: bool = False,
+    update_status: bool = True,
 ) -> None:
     """
     Update the currently served view.
@@ -184,6 +185,9 @@ def refresh_view(
     png_bytes = fig_to_png_bytes(fig)
     store.set_plot(png_bytes)
     _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+
+    if update_status:
+        store.mark_success(duration_s=None)
 
 
 # ---- matplotlib show (patching)

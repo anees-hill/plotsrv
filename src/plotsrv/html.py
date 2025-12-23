@@ -18,23 +18,44 @@ def render_index(
 ) -> str:
     """
     Return the HTML for the main viewer page.
-
-    kind:
-        "plot", "table", or "none".
-    table_view_mode:
-        "simple" or "rich"; only used when kind=="table".
-    table_html_simple:
-        Pre-rendered HTML for simple mode tables (or None).
     """
 
-    # --- Decide per-kind main content block --------------------------------------
+    # --- Head deps -------------------------------------------------------------
 
     tabulator_head = ""
-    extra_js = ""
+    include_tabulator = kind == "table" and table_view_mode != "simple"
+    extra_css = ""
+
+    if include_tabulator:
+        tabulator_head = """
+        <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
+        <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
+        """
+        extra_css = """
+        .table-grid {
+          width: 100%;
+        }
+        """
+
+    # --- Shared statusline HTML ------------------------------------------------
+
+    statusline_html = """
+      <div class="note" id="statusline">
+        <span><strong>Last updated:</strong> <span id="status-updated">—</span></span>
+        &nbsp;|&nbsp;
+        <span><strong>Duration:</strong> <span id="status-duration">—</span></span>
+        <span id="status-error-wrap" style="display:none;">
+          &nbsp;|&nbsp;
+          <strong style="color:#792424;">Error:</strong>
+          <span id="status-error" style="color:#792424;"></span>
+        </span>
+      </div>
+    """
+
+    # --- Main content ----------------------------------------------------------
 
     if kind == "table":
         if table_view_mode == "simple" and table_html_simple is not None:
-            # SIMPLE table
             main_content = f"""
               <div class="plot-frame">
                 <div class="table-scroll">
@@ -47,49 +68,17 @@ def render_index(
                 <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
               </div>
 
+              {statusline_html}
+
               <div class="note" id="status">
                 Showing up to {max_table_rows_simple} rows (simple table mode).
               </div>
             """
         else:
-            # RICH table: Tabulator grid
-            tabulator_head = """
-            <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
-            <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
-            """
-
-            extra_js = f"""
-            async function loadTable() {{
-              const res = await fetch("/table/data");
-              if (!res.ok) {{
-                console.error("Failed to load table data");
-                return;
-              }}
-              const data = await res.json();
-              const columns = data.columns.map(col => {{ return {{ title: col, field: col }}; }});
-              const rows = data.rows;
-
-              new Tabulator("#table-grid", {{
-                data: rows,
-                columns: columns,
-                height: "600px",
-                layout: "fitDataStretch",
-                pagination: "local",
-                paginationSize: 20,
-                movableColumns: true
-              }});
-            }}
-
-            document.addEventListener("DOMContentLoaded", function () {{
-              if (document.getElementById("table-grid")) {{
-                loadTable();
-              }}
-            }});
-            """
-
+            # Rich table
             main_content = f"""
               <div class="plot-frame">
-                <div id="table-grid" class="table-scroll"></div>
+                <div id="table-grid" class="table-grid"></div>
               </div>
 
               <div class="controls">
@@ -97,13 +86,15 @@ def render_index(
                 <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
               </div>
 
+              {statusline_html}
+
               <div class="note" id="status">
                 Showing up to {max_table_rows_rich} rows (rich table mode).
               </div>
             """
 
     elif kind == "plot":
-        main_content = """
+        main_content = f"""
           <div class="plot-frame">
             <img id="plot" src="/plot" alt="Current plot (or none yet)" />
           </div>
@@ -114,13 +105,15 @@ def render_index(
             <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
           </div>
 
+          {statusline_html}
+
           <div class="note" id="status">
             If no plot has been published yet, you may see a broken image until your code calls
             <code>refresh_view</code> or <code>plt.show()</code>.
           </div>
         """
     else:
-        main_content = """
+        main_content = f"""
           <div class="plot-frame empty">
             <div class="empty-state">
               No plot or table has been published yet.<br />
@@ -132,10 +125,44 @@ def render_index(
             <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
           </div>
 
+          {statusline_html}
+
           <div class="note" id="status"></div>
         """
 
-    # --- Full page ----------------------------------------------------------------
+    # --- JS: extra block for rich tables only ----------------------------------
+
+    table_js = ""
+    if include_tabulator:
+        table_js = f"""
+        async function loadTable() {{
+          const grid = document.getElementById("table-grid");
+          if (!grid) return;
+
+          const res = await fetch("/table/data?_ts=" + Date.now());
+          if (!res.ok) {{
+            console.error("Failed to load table data");
+            return;
+          }}
+
+          const data = await res.json();
+          const columns = data.columns.map(col => ({{ title: col, field: col }}));
+          const rows = data.rows;
+
+          new Tabulator("#table-grid", {{
+            data: rows,
+            columns: columns,
+            height: "600px",
+            layout: "fitDataStretch",
+            pagination: "local",
+            paginationSize: 20,
+            paginationSizeSelector: [10, 20, 50, 100],
+            movableColumns: true
+          }});
+        }}
+        """
+
+    # --- Full page -------------------------------------------------------------
 
     html = f"""
     <!DOCTYPE html>
@@ -230,7 +257,10 @@ def render_index(
         .table-scroll {{
           overflow: auto;
           max-height: 600px;
+          width: 100%;
         }}
+
+        {extra_css}
 
         .controls {{
           margin-top: 0.75rem;
@@ -278,10 +308,41 @@ def render_index(
       </main>
 
       <script>
+        async function refreshStatus() {{
+          try {{
+            const res = await fetch("/status?_ts=" + Date.now());
+            if (!res.ok) return;
+            const s = await res.json();
+
+            const updated = document.getElementById("status-updated");
+            const duration = document.getElementById("status-duration");
+            const errWrap = document.getElementById("status-error-wrap");
+            const err = document.getElementById("status-error");
+
+            if (updated) updated.textContent = s.last_updated ?? "—";
+            if (duration) {{
+              duration.textContent = (s.last_duration_s == null) ? "—" : (Number(s.last_duration_s).toFixed(3) + "s");
+            }}
+
+            if (errWrap && err) {{
+              if (s.last_error) {{
+                err.textContent = s.last_error;
+                errWrap.style.display = "inline";
+              }} else {{
+                err.textContent = "";
+                errWrap.style.display = "none";
+              }}
+            }}
+          }} catch (e) {{
+            // ignore
+          }}
+        }}
+
         function refreshPlot() {{
           const img = document.getElementById("plot");
           if (!img) return;
           img.src = "/plot?_ts=" + Date.now();
+          refreshStatus();
         }}
 
         function exportImage() {{
@@ -300,7 +361,14 @@ def render_index(
             }});
         }}
 
-        {extra_js}
+        {table_js}
+
+        document.addEventListener("DOMContentLoaded", function () {{
+          refreshStatus();
+          if (typeof loadTable === "function") {{
+            loadTable().then(() => refreshStatus());
+          }}
+        }});
       </script>
     </body>
     </html>

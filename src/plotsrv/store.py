@@ -3,10 +3,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+import datetime as dt
+import threading
+
 
 import pandas as pd
 
 ViewKind = Literal["none", "plot", "table"]
+_STATUS_LOCK = threading.Lock()
+_LAST_UPDATED_AT: dt.datetime | None = None
+_LAST_DURATION_S: float | None = None
+_LAST_ERROR: str | None = None
 
 
 @dataclass
@@ -72,6 +79,32 @@ def get_table_html_simple() -> str:
     if _state.table_html_simple is None:
         raise LookupError("No simple table HTML available.")
     return _state.table_html_simple
+
+
+# ---- CLI-error trackers ----------------------------------------------------------
+
+
+def mark_success(duration_s: float | None = None) -> None:
+    global _LAST_UPDATED_AT, _LAST_DURATION_S, _LAST_ERROR
+    with _STATUS_LOCK:
+        _LAST_UPDATED_AT = dt.datetime.now(dt.UTC)
+        _LAST_DURATION_S = duration_s
+        _LAST_ERROR = None
+
+
+def mark_error(error: str) -> None:
+    global _LAST_ERROR
+    with _STATUS_LOCK:
+        _LAST_ERROR = error
+
+
+def get_status() -> dict[str, object]:
+    with _STATUS_LOCK:
+        return {
+            "last_updated": _LAST_UPDATED_AT.isoformat() if _LAST_UPDATED_AT else None,
+            "last_duration_s": _LAST_DURATION_S,
+            "last_error": _LAST_ERROR,
+        }
 
 
 # ---- General ---------------------------------------------------------------------

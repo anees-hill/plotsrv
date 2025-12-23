@@ -19,6 +19,11 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
+@app.get("/status")
+def status() -> dict[str, object]:
+    return store.get_status()
+
+
 @app.get("/plot")
 def get_plot(download: bool = False) -> Response:
     """

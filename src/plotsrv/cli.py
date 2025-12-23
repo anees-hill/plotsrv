@@ -13,8 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     run_p = sub.add_parser(
-        "run",
-        help="Run a decorated function and serve its output via plotsrv",
+        "run", help="Run a function and serve its output via plotsrv"
     )
     run_p.add_argument("target", help="Import path: package.module:function")
     run_p.add_argument(
@@ -32,7 +31,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--once",
         action="store_true",
-        help="Run only once then exit (still starts server briefly to publish output)",
+        help="Run once then exit (server shuts down unless --keep-alive is set)",
+    )
+    run_p.add_argument(
+        "--keep-alive",
+        action="store_true",
+        help="With --once: keep server running after the first run until Ctrl+C",
     )
     run_p.add_argument(
         "--quiet",
@@ -53,23 +57,14 @@ def main(argv: list[str] | None = None) -> int:
             port=args.port,
             refresh_rate=args.refresh_rate,
             once=args.once,
+            keep_alive=args.keep_alive,
             quiet=args.quiet,
         )
         svc = RunnerService(cfg)
 
         try:
             svc.run()
-            # If --once, svc.run() returns immediately
-            if args.once:
-                return 0
-
-            # Otherwise keep alive until Ctrl+C
-            while True:
-                # Do nothing; service has its own loop
-                # (svc.run() already blocks in periodic mode, so this is only
-                # relevant if you later refactor svc.run to use background threads)
-                return 0
-
+            return 0
         except KeyboardInterrupt:
             svc.stop()
             return 0
