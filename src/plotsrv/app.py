@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, BackgroundTasks
 from fastapi.responses import Response, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -21,7 +21,9 @@ if STATIC_DIR.exists():
 
 @app.get("/status")
 def status() -> dict[str, object]:
-    return store.get_status()
+    s = store.get_status()
+    s.update(store.get_service_info())
+    return s
 
 
 @app.get("/plot")
