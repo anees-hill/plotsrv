@@ -88,7 +88,10 @@ def test_index_table_simple_embeds_table_html(client: TestClient) -> None:
     resp = client.get("/")
     text = resp.text
     assert "SIMPLE" in text
-    assert "table-grid" not in text
+
+    # Don't look for "table-grid" substring
+    assert 'id="table-grid"' not in text
+    assert "tabulator-tables" not in text
 
 
 def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
