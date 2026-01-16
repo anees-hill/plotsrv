@@ -139,10 +139,10 @@ def set_service_stop_hook(hook: Callable[[], None]) -> None:
 
 def clear_service_stop_request() -> None:
     """
-    Optional helper: just clears any old hook.
+    Clear any existing service stop hook.
     """
     global _SERVICE_STOP_HOOK
-    _SERVICE_STOP_HOOK = _SERVICE_STOP_HOOK  # no-op (kept for compatibility)
+    _SERVICE_STOP_HOOK = None
 
 
 def request_service_stop() -> bool:
@@ -165,3 +165,41 @@ def request_service_stop() -> bool:
         # Don't crash shutdown endpoint; status will show error elsewhere
         pass
     return True
+
+
+def reset() -> None:
+    """
+    Reset all in-memory state.
+
+    This is mainly used by unit tests to ensure isolation.
+    """
+    global _KIND
+    global _LATEST_PLOT
+    global _LATEST_TABLE_DF
+    global _LATEST_TABLE_HTML_SIMPLE
+    global _STATUS
+    global _SERVICE_INFO
+    global _SERVICE_STOP_HOOK
+
+    # View state
+    _KIND = "none"
+    _LATEST_PLOT = None
+    _LATEST_TABLE_DF = None
+    _LATEST_TABLE_HTML_SIMPLE = None
+
+    # Status info
+    _STATUS = {
+        "last_updated": None,
+        "last_duration_s": None,
+        "last_error": None,
+    }
+
+    # Service info
+    _SERVICE_INFO = {
+        "service_mode": False,
+        "service_target": None,
+        "service_refresh_rate_s": None,
+    }
+
+    # Shutdown hook
+    _SERVICE_STOP_HOOK = None
