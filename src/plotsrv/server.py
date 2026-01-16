@@ -293,7 +293,16 @@ refresh_plot_server = refresh_view
 @app.post("/shutdown")
 def shutdown(background_tasks: BackgroundTasks) -> dict[str, str]:
     """
-    Trigger plotsrv to shut down from the browser.
+    Shutdown endpoint triggered from the browser.
+
+    - If a CLI RunnerService is running, request it to stop cleanly.
+    - Otherwise just stop the uvicorn viewer thread.
     """
-    background_tasks.add_task(stop_server)
+
+    def _do_shutdown() -> None:
+        stopped_service = store.request_service_stop()
+        if not stopped_service:
+            stop_server()
+
+    background_tasks.add_task(_do_shutdown)
     return {"status": "shutting_down"}

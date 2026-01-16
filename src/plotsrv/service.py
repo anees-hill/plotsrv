@@ -1,3 +1,4 @@
+# src/plotsrv/service.py
 from __future__ import annotations
 
 import threading
@@ -79,6 +80,16 @@ class RunnerService:
             quiet=self.cfg.quiet,
         )
 
+        # Tell the UI we are running in service mode
+        store.set_service_info(
+            service_mode=True,
+            target=self.cfg.target,
+            refresh_rate_s=(self.cfg.refresh_rate if not self.cfg.once else None),
+        )
+
+        # Allow /shutdown to stop the service loop cleanly
+        store.set_service_stop_hook(self.stop)
+
         # Always do an initial run so the page has content quickly
         self.run_cycle_once()
 
@@ -87,11 +98,16 @@ class RunnerService:
             if not self.cfg.keep_alive:
                 # Shut down server and exit immediately
                 stop_server()
+                store.set_service_info(
+                    service_mode=False, target=None, refresh_rate_s=None
+                )
                 return
 
-            # Keep the server alive until stopped (Ctrl+C in CLI)
+            # Keep the server alive until stopped (Ctrl+C or /shutdown)
             while not self._stop_event.is_set():
                 self._stop_event.wait(timeout=0.2)
+
+            store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
             return
 
         # periodic mode
@@ -100,6 +116,9 @@ class RunnerService:
                 break
             self.run_cycle_once()
 
+        store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
+
     def stop(self) -> None:
         self._stop_event.set()
+        store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
         stop_server()

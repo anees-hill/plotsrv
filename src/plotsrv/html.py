@@ -40,16 +40,20 @@ def render_index(
     # --- Shared statusline HTML ------------------------------------------------
 
     statusline_html = """
-      <div class="note" id="statusline">
-        <span><strong>Last updated:</strong> <span id="status-updated">—</span></span>
+    <div class="note" id="statusline">
+      <span><strong>Last updated:</strong> <span id="status-updated">—</span> <span id="status-updated-ago"></span></span>
+      &nbsp;|&nbsp;
+      <span><strong>Last run time:</strong> <span id="status-duration">—</span></span>
+      &nbsp;|&nbsp;
+      <span><strong>Mode:</strong> <span id="status-mode">—</span></span>
+      &nbsp;|&nbsp;
+      <span><strong>Server refresh:</strong> <span id="status-srv-refresh">—</span></span>
+      <span id="status-error-wrap" style="display:none;">
         &nbsp;|&nbsp;
-        <span><strong>Duration:</strong> <span id="status-duration">—</span></span>
-        <span id="status-error-wrap" style="display:none;">
-          &nbsp;|&nbsp;
-          <strong style="color:#792424;">Error:</strong>
-          <span id="status-error" style="color:#792424;"></span>
-        </span>
-      </div>
+        <strong style="color:#792424;">Error:</strong>
+        <span id="status-error" style="color:#792424;"></span>
+      </span>
+    </div>
     """
 
     # --- Main content ----------------------------------------------------------
@@ -341,7 +345,29 @@ def render_index(
       </main>
 
       <script>
-        // ---------------- Status ----------------
+        let _autoRefreshTimer = null;
+        let _tabulatorInstance = null;
+
+        function _fmtLocalTime(iso) {{
+          if (!iso) return "—";
+          const d = new Date(iso);
+          if (isNaN(d.getTime())) return iso;
+          return d.toLocaleString();
+        }}
+
+        function _fmtAgo(iso) {{
+          if (!iso) return "";
+          const d = new Date(iso);
+          if (isNaN(d.getTime())) return "";
+          const s = Math.floor((Date.now() - d.getTime()) / 1000);
+          if (s < 0) return "";
+          if (s < 60) return "(" + s + "s ago)";
+          const m = Math.floor(s / 60);
+          if (m < 60) return "(" + m + "m ago)";
+          const h = Math.floor(m / 60);
+          return "(" + h + "h ago)";
+        }}
+
         async function refreshStatus() {{
           try {{
             const res = await fetch("/status?_ts=" + Date.now());
@@ -349,15 +375,20 @@ def render_index(
             const s = await res.json();
 
             const updated = document.getElementById("status-updated");
+            const updatedAgo = document.getElementById("status-updated-ago");
             const duration = document.getElementById("status-duration");
             const errWrap = document.getElementById("status-error-wrap");
             const err = document.getElementById("status-error");
 
-            if (updated) updated.textContent = s.last_updated ?? "—";
+            const mode = document.getElementById("status-mode");
+            const srvRate = document.getElementById("status-srv-refresh");
+
+            if (updated) updated.textContent = _fmtLocalTime(s.last_updated);
+            if (updatedAgo) updatedAgo.textContent = _fmtAgo(s.last_updated);
+
             if (duration) {{
-              duration.textContent = (s.last_duration_s == null)
-                ? "—"
-                : (Number(s.last_duration_s).toFixed(3) + "s");
+              duration.textContent =
+                (s.last_duration_s == null) ? "—" : (Number(s.last_duration_s).toFixed(3) + "s");
             }}
 
             if (errWrap && err) {{
@@ -369,16 +400,29 @@ def render_index(
                 errWrap.style.display = "none";
               }}
             }}
+
+            if (mode) {{
+              mode.textContent = s.service_mode ? "service" : "interactive";
+            }}
+
+            if (srvRate) {{
+              if (s.service_mode && s.service_refresh_rate_s) {{
+                srvRate.textContent = "every " + s.service_refresh_rate_s + "s";
+              }} else if (s.service_mode) {{
+                srvRate.textContent = "once";
+              }} else {{
+                srvRate.textContent = "—";
+              }}
+            }}
           }} catch (e) {{
             // ignore
           }}
         }}
 
-        // ---------------- Plot actions ----------------
         function refreshPlot() {{
           const img = document.getElementById("plot");
           if (!img) return;
-          img.src = "/plot?_ts=" + Date.now();  // cache buster
+          img.src = "/plot?_ts=" + Date.now();
           refreshStatus();
         }}
 
@@ -390,7 +434,7 @@ def render_index(
           fetch("/shutdown", {{ method: "POST" }})
             .then(() => {{
               const status = document.getElementById("status");
-              if (status) status.textContent = "plotsrv server is shutting down…";
+              if (status) status.textContent = "plotsrv is shutting down…";
             }})
             .catch(() => {{
               const status = document.getElementById("status");
@@ -398,11 +442,37 @@ def render_index(
             }});
         }}
 
-        // ---------------- Table JS (rich mode only) ----------------
-        {table_js}
+        async function loadTable() {{
+          const grid = document.getElementById("table-grid");
+          if (!grid) return;
 
-        // ---------------- Auto-refresh ----------------
-        let _autoRefreshTimer = null;
+          const res = await fetch("/table/data?_ts=" + Date.now());
+          if (!res.ok) {{
+            console.error("Failed to load table data");
+            return;
+          }}
+
+          const data = await res.json();
+          const columns = data.columns.map(col => ({{ title: col, field: col }}));
+          const rows = data.rows;
+
+          if (_tabulatorInstance) {{
+            _tabulatorInstance.setColumns(columns);
+            _tabulatorInstance.replaceData(rows);
+            return;
+          }}
+
+          _tabulatorInstance = new Tabulator("#table-grid", {{
+            data: rows,
+            columns: columns,
+            height: "600px",
+            layout: "fitDataStretch",
+            pagination: "local",
+            paginationSize: 20,
+            paginationSizeSelector: [10, 20, 50, 100],
+            movableColumns: true
+          }});
+        }}
 
         function _getAutoRefreshMs() {{
           const sel = document.getElementById("auto-refresh-interval");
@@ -419,20 +489,17 @@ def render_index(
         }}
 
         function _tickAutoRefresh() {{
-          // Prefer plot refresh if plot exists
           const img = document.getElementById("plot");
           if (img) {{
             refreshPlot();
             return;
           }}
 
-          // Rich table: reload if loadTable exists
-          if (typeof loadTable === "function" && document.getElementById("table-grid")) {{
+          if (document.getElementById("table-grid")) {{
             loadTable().then(() => refreshStatus());
             return;
           }}
 
-          // Simple table / empty: just status
           refreshStatus();
         }}
 
@@ -449,7 +516,7 @@ def render_index(
 
           toggle.addEventListener("change", function () {{
             if (toggle.checked) {{
-              _tickAutoRefresh(); // immediate
+              _tickAutoRefresh();
               _startAutoRefresh();
             }} else {{
               _stopAutoRefresh();
@@ -458,25 +525,20 @@ def render_index(
 
           if (interval) {{
             interval.addEventListener("change", function () {{
-              if (toggle.checked) {{
-                _startAutoRefresh(); // restart timer with new interval
-              }}
+              if (toggle.checked) _startAutoRefresh();
             }});
           }}
         }}
 
-        // ---------------- Boot ----------------
         document.addEventListener("DOMContentLoaded", function () {{
           refreshStatus();
-
-          // load rich table if present
-          if (typeof loadTable === "function") {{
+          if (document.getElementById("table-grid")) {{
             loadTable().then(() => refreshStatus());
           }}
-
           _bindAutoRefreshControls();
         }});
       </script>
+
 
     </body>
     </html>
