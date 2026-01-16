@@ -1,7 +1,7 @@
 # * [dev] dependencies are needed to run this script
 
 from plotsrv import plot
-import datetime as dt
+import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from plotnine import *
@@ -14,25 +14,20 @@ from plotsrv import (
 from plotsrv.config import set_table_view_mode
 
 # PLOTS ----------------------
-### PART 1
-# matplotib/seaborn
-
-
-# dat = sns.load_dataset("titanic")
-# sns.scatterplot(data=dat, x="age", y="fare")
-# plt.show()
 
 
 @plot(label="titanic")
-def get_plotnine_plot(randomness=True):
+def test_titanic_plot(randomness=True):
 
     dat = sns.load_dataset("titanic")
+    dat = pl.from_pandas(dat)
 
     if randomness:
-        now = dt.datetime.now()
-        val = now.second
-        dat = pl.from_pandas(dat)
-        dat[1, "fare"] = val
+        cols = ["red", "black", "yellow", "green", "orange", "purple"]
+        col_x = str(np.random.choice(cols))
+        print(f"plot should show {col_x} points")
+    else:
+        col_x = "black"
 
-    p = ggplot(dat, aes("age", "fare")) + geom_point()
+    p = ggplot(dat, aes("age", "fare")) + geom_point(colour=col_x)
     return p

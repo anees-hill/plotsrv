@@ -102,6 +102,23 @@ def render_index(
           <div class="controls">
             <button type="button" onclick="refreshPlot()">Refresh</button>
             <button type="button" onclick="exportImage()">Export image</button>
+
+            <label class="toggle">
+              <input id="auto-refresh-toggle" type="checkbox" />
+              <span>Auto-refresh</span>
+            </label>
+
+            <label class="interval">
+              <span>Every</span>
+              <select id="auto-refresh-interval">
+                <option value="2">2s</option>
+                <option value="5" selected>5s</option>
+                <option value="10">10s</option>
+                <option value="30">30s</option>
+                <option value="60">60s</option>
+              </select>
+            </label>
+
             <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
           </div>
 
@@ -288,6 +305,22 @@ def render_index(
           background: #ffecec;
         }}
 
+        .toggle, .interval {{
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          padding: 0.35rem 0.55rem;
+          border: 1px solid var(--border);
+          border-radius: 4px;
+          background: #fff;
+          font-size: 0.9rem;
+        }}
+
+        .toggle input {{
+          transform: translateY(1px);
+        }}
+
+
         .note {{
           margin-top: 0.5rem;
           font-size: 0.8rem;
@@ -308,6 +341,7 @@ def render_index(
       </main>
 
       <script>
+        // ---------------- Status ----------------
         async function refreshStatus() {{
           try {{
             const res = await fetch("/status?_ts=" + Date.now());
@@ -321,7 +355,9 @@ def render_index(
 
             if (updated) updated.textContent = s.last_updated ?? "—";
             if (duration) {{
-              duration.textContent = (s.last_duration_s == null) ? "—" : (Number(s.last_duration_s).toFixed(3) + "s");
+              duration.textContent = (s.last_duration_s == null)
+                ? "—"
+                : (Number(s.last_duration_s).toFixed(3) + "s");
             }}
 
             if (errWrap && err) {{
@@ -338,10 +374,11 @@ def render_index(
           }}
         }}
 
+        // ---------------- Plot actions ----------------
         function refreshPlot() {{
           const img = document.getElementById("plot");
           if (!img) return;
-          img.src = "/plot?_ts=" + Date.now();
+          img.src = "/plot?_ts=" + Date.now();  // cache buster
           refreshStatus();
         }}
 
@@ -361,15 +398,86 @@ def render_index(
             }});
         }}
 
+        // ---------------- Table JS (rich mode only) ----------------
         {table_js}
 
+        // ---------------- Auto-refresh ----------------
+        let _autoRefreshTimer = null;
+
+        function _getAutoRefreshMs() {{
+          const sel = document.getElementById("auto-refresh-interval");
+          if (!sel) return 5000;
+          const seconds = Number(sel.value || 5);
+          return Math.max(1, seconds) * 1000;
+        }}
+
+        function _stopAutoRefresh() {{
+          if (_autoRefreshTimer !== null) {{
+            clearInterval(_autoRefreshTimer);
+            _autoRefreshTimer = null;
+          }}
+        }}
+
+        function _tickAutoRefresh() {{
+          // Prefer plot refresh if plot exists
+          const img = document.getElementById("plot");
+          if (img) {{
+            refreshPlot();
+            return;
+          }}
+
+          // Rich table: reload if loadTable exists
+          if (typeof loadTable === "function" && document.getElementById("table-grid")) {{
+            loadTable().then(() => refreshStatus());
+            return;
+          }}
+
+          // Simple table / empty: just status
+          refreshStatus();
+        }}
+
+        function _startAutoRefresh() {{
+          _stopAutoRefresh();
+          const ms = _getAutoRefreshMs();
+          _autoRefreshTimer = setInterval(_tickAutoRefresh, ms);
+        }}
+
+        function _bindAutoRefreshControls() {{
+          const toggle = document.getElementById("auto-refresh-toggle");
+          const interval = document.getElementById("auto-refresh-interval");
+          if (!toggle) return;
+
+          toggle.addEventListener("change", function () {{
+            if (toggle.checked) {{
+              _tickAutoRefresh(); // immediate
+              _startAutoRefresh();
+            }} else {{
+              _stopAutoRefresh();
+            }}
+          }});
+
+          if (interval) {{
+            interval.addEventListener("change", function () {{
+              if (toggle.checked) {{
+                _startAutoRefresh(); // restart timer with new interval
+              }}
+            }});
+          }}
+        }}
+
+        // ---------------- Boot ----------------
         document.addEventListener("DOMContentLoaded", function () {{
           refreshStatus();
+
+          // load rich table if present
           if (typeof loadTable === "function") {{
             loadTable().then(() => refreshStatus());
           }}
+
+          _bindAutoRefreshControls();
         }});
       </script>
+
     </body>
     </html>
     """

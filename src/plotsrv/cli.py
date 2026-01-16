@@ -8,7 +8,7 @@ from .service import RunnerService, ServiceConfig
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="plotsrv", description="plotsrv – serve plots/tables easily"
+        prog="plotsrv", description="plotsrv - serve plots/tables easily"
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
