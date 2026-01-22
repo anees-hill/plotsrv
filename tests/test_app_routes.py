@@ -88,7 +88,10 @@ def test_index_table_simple_embeds_table_html(client: TestClient) -> None:
     resp = client.get("/")
     text = resp.text
     assert "SIMPLE" in text
-    assert "table-grid" not in text
+
+    # Don't look for "table-grid" substring
+    assert 'id="table-grid"' not in text
+    assert "tabulator-tables" not in text
 
 
 def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
@@ -99,3 +102,17 @@ def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
     text = resp.text
     assert 'id="table-grid"' in text
     assert "tabulator-tables" in text
+
+
+def test_status_includes_service_fields(client: TestClient) -> None:
+    resp = client.get("/status")
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert "last_updated" in data
+    assert "last_duration_s" in data
+    assert "last_error" in data
+
+    assert "service_mode" in data
+    assert "service_target" in data
+    assert "service_refresh_rate_s" in data

@@ -1,3 +1,4 @@
+# In-session launcher tests =====================================
 # * [dev] dependencies are needed to run this script
 
 import time
@@ -77,3 +78,17 @@ refresh_view(df)
 print("df 2 (polars) up - rich view")
 time.sleep(10)
 stop_server()
+
+# CLI tests =====================================
+
+# import subprocess as sp
+
+# sp.run(
+#     "plotsrv run plotsrv.dev_validate:test_titanic_plot --host 127.0.0.1 --port 8000",
+#     shell=True,
+# )
+
+# sp.run(
+#     "plotsrv run plotsrv.dev_validate:test_titanic_plot --host 127.0.0.1 --port 8000 --refresh-rate 5",
+#     shell=True,
+# )

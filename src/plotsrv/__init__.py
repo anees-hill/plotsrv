@@ -11,6 +11,7 @@ from .server import (
     refresh_plot_server,
 )
 from .config import set_table_view_mode
+from .decorators import plot, table, get_plotsrv_spec, PlotsrvSpec
 
 __all__ = [
     "start_server",
@@ -21,4 +22,8 @@ __all__ = [
     "stop_plot_server",
     "refresh_plot_server",
     "set_table_view_mode",
+    "plot",
+    "table",
+    "get_plotsrv_spec",
+    "PlotsrvSpec",
 ]

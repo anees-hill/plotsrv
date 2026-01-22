@@ -2,87 +2,204 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from datetime import datetime, timezone
+from typing import Any, Callable
 
 import pandas as pd
 
-ViewKind = Literal["none", "plot", "table"]
+# ---- View state (plot/table/none) ---------------------------------------------
+
+_KIND: str = "none"  # "none" | "plot" | "table"
+
+_LATEST_PLOT: bytes | None = None
+
+_LATEST_TABLE_DF: pd.DataFrame | None = None
+_LATEST_TABLE_HTML_SIMPLE: str | None = None
+
+# ---- Status info for UI -------------------------------------------------------
+
+_STATUS: dict[str, Any] = {
+    "last_updated": None,  # ISO string
+    "last_duration_s": None,  # float | None
+    "last_error": None,  # str | None
+}
+
+# ---- Service mode / CLI RunnerService info -----------------------------------
+
+_SERVICE_INFO: dict[str, Any] = {
+    "service_mode": False,
+    "service_target": None,
+    "service_refresh_rate_s": None,
+}
+
+_SERVICE_STOP_HOOK: Callable[[], None] | None = None
 
 
-@dataclass
-class ViewState:
-    kind: ViewKind = "none"
-    plot_png: bytes | None = None
-    table_df: pd.DataFrame | None = None
-    table_html_simple: str | None = None
+# ------------------------------------------------------------------------------
+# Plot + table setters/getters
+# ------------------------------------------------------------------------------
 
 
-_state = ViewState()
-
-
-# ---- Plot helpers ----------------------------------------------------------------
-
-
-def set_plot(png: bytes) -> None:
-    """Store PNG bytes as the current plot and clear any table."""
-    _state.kind = "plot"
-    _state.plot_png = png
-    _state.table_df = None
-    _state.table_html_simple = None
+def set_plot(png_bytes: bytes) -> None:
+    global _KIND, _LATEST_PLOT
+    _KIND = "plot"
+    _LATEST_PLOT = png_bytes
 
 
 def get_plot() -> bytes:
-    """Return the current plot PNG bytes or raise if none set."""
-    if _state.plot_png is None:
-        raise LookupError("No plot has been published yet.")
-    return _state.plot_png
+    if _LATEST_PLOT is None:
+        raise LookupError("No plot available")
+    return _LATEST_PLOT
 
 
 def has_plot() -> bool:
-    return _state.plot_png is not None
-
-
-# ---- Table helpers ---------------------------------------------------------------
+    return _LATEST_PLOT is not None
 
 
 def set_table(df: pd.DataFrame, html_simple: str | None) -> None:
-    """
-    Store a DataFrame as the current table.
-
-    html_simple:
-        Pre-rendered HTML for simple mode (or None for rich mode).
-    """
-    _state.kind = "table"
-    _state.table_df = df
-    _state.table_html_simple = html_simple
-    _state.plot_png = None
+    global _KIND, _LATEST_TABLE_DF, _LATEST_TABLE_HTML_SIMPLE
+    _KIND = "table"
+    _LATEST_TABLE_DF = df
+    _LATEST_TABLE_HTML_SIMPLE = html_simple
 
 
 def has_table() -> bool:
-    return _state.table_df is not None
+    return _LATEST_TABLE_DF is not None
 
 
 def get_table_df() -> pd.DataFrame:
-    if _state.table_df is None:
-        raise LookupError("No table has been published yet.")
-    return _state.table_df
+    if _LATEST_TABLE_DF is None:
+        raise LookupError("No table available")
+    return _LATEST_TABLE_DF
 
 
 def get_table_html_simple() -> str:
-    if _state.table_html_simple is None:
-        raise LookupError("No simple table HTML available.")
-    return _state.table_html_simple
+    if _LATEST_TABLE_HTML_SIMPLE is None:
+        raise LookupError("No simple HTML table available")
+    return _LATEST_TABLE_HTML_SIMPLE
 
 
-# ---- General ---------------------------------------------------------------------
+def get_kind() -> str:
+    return _KIND
 
 
-def get_kind() -> ViewKind:
-    return _state.kind
+# ------------------------------------------------------------------------------
+# Status bookkeeping (last updated/duration/error)
+# ------------------------------------------------------------------------------
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def mark_success(duration_s: float | None) -> None:
+    _STATUS["last_updated"] = _now_iso()
+    _STATUS["last_duration_s"] = duration_s
+    _STATUS["last_error"] = None
+
+
+def mark_error(message: str) -> None:
+    _STATUS["last_updated"] = _now_iso()
+    _STATUS["last_error"] = message
+
+
+def get_status() -> dict[str, Any]:
+    return dict(_STATUS)
+
+
+# ------------------------------------------------------------------------------
+# Service info + shutdown control
+# ------------------------------------------------------------------------------
+
+
+def set_service_info(
+    *,
+    service_mode: bool,
+    target: str | None,
+    refresh_rate_s: int | None,
+) -> None:
+    _SERVICE_INFO["service_mode"] = bool(service_mode)
+    _SERVICE_INFO["service_target"] = target
+    _SERVICE_INFO["service_refresh_rate_s"] = refresh_rate_s
+
+
+def get_service_info() -> dict[str, Any]:
+    return dict(_SERVICE_INFO)
+
+
+def set_service_stop_hook(hook: Callable[[], None]) -> None:
+    """
+    Register a callback to stop the CLI service loop.
+
+    RunnerService should call this with `self.stop`.
+    """
+    global _SERVICE_STOP_HOOK
+    _SERVICE_STOP_HOOK = hook
+
+
+def clear_service_stop_request() -> None:
+    """
+    Clear any existing service stop hook.
+    """
+    global _SERVICE_STOP_HOOK
+    _SERVICE_STOP_HOOK = None
+
+
+def request_service_stop() -> bool:
+    """
+    Called by /shutdown.
+
+    Returns True if a service stop was requested (hook existed).
+    """
+    global _SERVICE_STOP_HOOK
+
+    if _SERVICE_STOP_HOOK is None:
+        return False
+
+    # Call hook once, then clear it
+    hook = _SERVICE_STOP_HOOK
+    _SERVICE_STOP_HOOK = None
+    try:
+        hook()
+    except Exception:
+        # Don't crash shutdown endpoint; status will show error elsewhere
+        pass
+    return True
 
 
 def reset() -> None:
-    _state.kind = "none"
-    _state.plot_png = None
-    _state.table_df = None
-    _state.table_html_simple = None
+    """
+    Reset all in-memory state.
+
+    This is mainly used by unit tests to ensure isolation.
+    """
+    global _KIND
+    global _LATEST_PLOT
+    global _LATEST_TABLE_DF
+    global _LATEST_TABLE_HTML_SIMPLE
+    global _STATUS
+    global _SERVICE_INFO
+    global _SERVICE_STOP_HOOK
+
+    # View state
+    _KIND = "none"
+    _LATEST_PLOT = None
+    _LATEST_TABLE_DF = None
+    _LATEST_TABLE_HTML_SIMPLE = None
+
+    # Status info
+    _STATUS = {
+        "last_updated": None,
+        "last_duration_s": None,
+        "last_error": None,
+    }
+
+    # Service info
+    _SERVICE_INFO = {
+        "service_mode": False,
+        "service_target": None,
+        "service_refresh_rate_s": None,
+    }
+
+    # Shutdown hook
+    _SERVICE_STOP_HOOK = None
