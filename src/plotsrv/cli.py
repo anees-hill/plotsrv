@@ -3,8 +3,13 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
+from pathlib import Path
 
 from .service import RunnerService, ServiceConfig
+from .server import start_server, stop_server
+from . import store
+from .discovery import discover_views
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -14,9 +19,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     run_p = sub.add_parser(
-        "run", help="Run a function and serve its output via plotsrv"
+        "run", help="Run a function OR serve a codebase with decorated plots"
     )
-    run_p.add_argument("target", help="Import path: package.module:function")
+    run_p.add_argument(
+        "target",
+        help="Import path: package.module:function OR a directory/file to scan",
+    )
     run_p.add_argument(
         "--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
     )
@@ -28,23 +36,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--refresh-rate",
         type=int,
         default=None,
-        help="Re-run function every N seconds (default: run once)",
+        help="Re-run function every N seconds (callable mode only)",
     )
 
     run_p.add_argument(
         "--once",
         action="store_true",
-        help="Run once then exit (server shuts down unless keep-alive is enabled)",
+        help="Run once then exit (callable mode only unless keep-alive)",
     )
     run_p.add_argument(
         "--keep-alive",
         action="store_true",
-        help="With --once (or default run-once): keep server running after the first run until Ctrl+C",
+        help="Keep server running after first run until Ctrl+C",
     )
     run_p.add_argument(
         "--exit-after-run",
         action="store_true",
-        help="Force exit after the first run (even if default is keep-alive).",
+        help="Force exit after first run (callable mode only).",
     )
 
     run_p.add_argument(
@@ -56,13 +64,54 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _run_passive_dir_mode(target: str, *, host: str, port: int, quiet: bool) -> int:
+    """
+    Passive mode:
+      - start viewer server
+      - AST-scan directory for @plot/@table
+      - register views into dropdown
+      - wait forever until Ctrl+C or /shutdown
+    """
+    start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+
+    # discovery
+    discovered = discover_views(target)
+    if len(discovered) == 0:
+        # still start with a default view so UI isn't empty
+        store.register_view(view_id="default", section="default", label="default", kind="none")
+        store.set_active_view("default")
+    else:
+        for dv in discovered:
+            store.register_view(section=dv.section, label=dv.label, kind="none", activate_if_first=False)
+
+        # activate first discovered
+        first = discovered[0]
+        first_id = store.normalize_view_id(None, section=first.section, label=first.label)
+        store.set_active_view(first_id)
+
+    # mark as "service-like" mode so statusline shows it
+    store.set_service_info(service_mode=True, target=f"dir:{target}", refresh_rate_s=None)
+
+    try:
+        while True:
+            time.sleep(0.2)
+    except KeyboardInterrupt:
+        stop_server(join=False)
+        store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.cmd == "run":
-        # Decide mode:
-        # - If refresh-rate is provided => periodic mode
-        # - Otherwise => run once (default keep-alive unless exit-after-run)
+        # Directory mode:
+        # - if target exists as file/dir AND does not contain ":" => passive scan mode
+        p = Path(args.target)
+        if ":" not in args.target and p.exists():
+            return _run_passive_dir_mode(args.target, host=args.host, port=args.port, quiet=args.quiet)
+
+        # Callable mode:
         periodic = args.refresh_rate is not None
         refresh_rate = args.refresh_rate if periodic else 0
 

@@ -16,7 +16,7 @@ from plotsrv.config import set_table_view_mode
 # PLOTS ----------------------
 
 
-@plot(label="titanic")
+@plot(label="titanic", host="127.0.0.1", port=8000)
 def test_titanic_plot(randomness=True):
 
     dat = sns.load_dataset("titanic")
@@ -31,3 +31,5 @@ def test_titanic_plot(randomness=True):
 
     p = ggplot(dat, aes("age", "fare")) + geom_point(colour=col_x)
     return p
+
+test_titanic_plot()
