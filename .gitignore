@@ -12,3 +12,7 @@ wheels/
 # Other
 .coverage
 coverage.xml
+
+# For testing only
+www/*
+plotsrv.ini
