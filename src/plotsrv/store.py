@@ -7,22 +7,59 @@ from typing import Any, Callable
 
 import pandas as pd
 
-# ---- View state (plot/table/none) ---------------------------------------------
 
-_KIND: str = "none"  # "none" | "plot" | "table"
+# ------------------------------------------------------------------------------
+# Models
+# ------------------------------------------------------------------------------
 
-_LATEST_PLOT: bytes | None = None
 
-_LATEST_TABLE_DF: pd.DataFrame | None = None
-_LATEST_TABLE_HTML_SIMPLE: str | None = None
+@dataclass(frozen=True, slots=True)
+class ViewMeta:
+    """
+    Metadata that describes a view shown in the UI dropdown.
+    """
 
-# ---- Status info for UI -------------------------------------------------------
+    view_id: str
+    kind: str  # "none" | "plot" | "table"
+    label: str
+    section: str | None = None
 
-_STATUS: dict[str, Any] = {
-    "last_updated": None,  # ISO string
-    "last_duration_s": None,  # float | None
-    "last_error": None,  # str | None
-}
+
+@dataclass(slots=True)
+class ViewState:
+    """
+    Per-view state that the UI can display.
+
+    Each view is independent: plot/table/status.
+    """
+
+    kind: str = "none"  # "none" | "plot" | "table"
+    plot_png: bytes | None = None
+    table_df: pd.DataFrame | None = None
+    table_html_simple: str | None = None
+
+    status: dict[str, Any] = None  # populated in __post_init__
+
+    # publish throttling
+    last_publish_at: float | None = None  # epoch seconds
+
+    def __post_init__(self) -> None:
+        if self.status is None:
+            self.status = {
+                "last_updated": None,  # ISO string
+                "last_duration_s": None,  # float | None
+                "last_error": None,  # str | None
+            }
+
+
+# ------------------------------------------------------------------------------
+# Global store: multi-view
+# ------------------------------------------------------------------------------
+
+_VIEWS: dict[str, ViewState] = {}
+_VIEW_META: dict[str, ViewMeta] = {}
+
+_ACTIVE_VIEW_ID: str = "default"
 
 # ---- Service mode / CLI RunnerService info -----------------------------------
 
@@ -36,55 +73,7 @@ _SERVICE_STOP_HOOK: Callable[[], None] | None = None
 
 
 # ------------------------------------------------------------------------------
-# Plot + table setters/getters
-# ------------------------------------------------------------------------------
-
-
-def set_plot(png_bytes: bytes) -> None:
-    global _KIND, _LATEST_PLOT
-    _KIND = "plot"
-    _LATEST_PLOT = png_bytes
-
-
-def get_plot() -> bytes:
-    if _LATEST_PLOT is None:
-        raise LookupError("No plot available")
-    return _LATEST_PLOT
-
-
-def has_plot() -> bool:
-    return _LATEST_PLOT is not None
-
-
-def set_table(df: pd.DataFrame, html_simple: str | None) -> None:
-    global _KIND, _LATEST_TABLE_DF, _LATEST_TABLE_HTML_SIMPLE
-    _KIND = "table"
-    _LATEST_TABLE_DF = df
-    _LATEST_TABLE_HTML_SIMPLE = html_simple
-
-
-def has_table() -> bool:
-    return _LATEST_TABLE_DF is not None
-
-
-def get_table_df() -> pd.DataFrame:
-    if _LATEST_TABLE_DF is None:
-        raise LookupError("No table available")
-    return _LATEST_TABLE_DF
-
-
-def get_table_html_simple() -> str:
-    if _LATEST_TABLE_HTML_SIMPLE is None:
-        raise LookupError("No simple HTML table available")
-    return _LATEST_TABLE_HTML_SIMPLE
-
-
-def get_kind() -> str:
-    return _KIND
-
-
-# ------------------------------------------------------------------------------
-# Status bookkeeping (last updated/duration/error)
+# Helpers
 # ------------------------------------------------------------------------------
 
 
@@ -92,23 +81,218 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def mark_success(duration_s: float | None) -> None:
-    _STATUS["last_updated"] = _now_iso()
-    _STATUS["last_duration_s"] = duration_s
-    _STATUS["last_error"] = None
+def _ensure_view(view_id: str) -> ViewState:
+    if view_id not in _VIEWS:
+        _VIEWS[view_id] = ViewState()
+    return _VIEWS[view_id]
 
 
-def mark_error(message: str) -> None:
-    _STATUS["last_updated"] = _now_iso()
-    _STATUS["last_error"] = message
+def normalize_view_id(view_id: str | None, *, section: str | None = None, label: str | None = None) -> str:
+    """
+    Normalize incoming view identifiers.
 
+    - If explicit view_id supplied: use it.
+    - Otherwise: create view_id from section/label.
+    """
+    if view_id:
+        return str(view_id)
 
-def get_status() -> dict[str, Any]:
-    return dict(_STATUS)
+    sec = (section or "default").strip() or "default"
+    lab = (label or "default").strip() or "default"
+    return f"{sec}:{lab}"
 
 
 # ------------------------------------------------------------------------------
-# Service info + shutdown control
+# View registry API
+# ------------------------------------------------------------------------------
+
+
+def register_view(
+    *,
+    view_id: str | None = None,
+    section: str | None = None,
+    label: str | None = None,
+    kind: str = "none",
+    activate_if_first: bool = True,
+) -> str:
+    vid = normalize_view_id(view_id, section=section, label=label)
+    st = _ensure_view(vid)
+
+    # allow "upgrading" a view kind once it receives content
+    if kind in ("plot", "table"):
+        st.kind = kind
+
+    meta = _VIEW_META.get(vid)
+    if meta is None:
+        _VIEW_META[vid] = ViewMeta(
+            view_id=vid,
+            kind=st.kind,
+            label=(label or vid),
+            section=section,
+        )
+    else:
+        # keep label/section if new values supplied
+        _VIEW_META[vid] = ViewMeta(
+            view_id=vid,
+            kind=st.kind,
+            label=(label or meta.label),
+            section=(section if section is not None else meta.section),
+        )
+
+    global _ACTIVE_VIEW_ID
+    if activate_if_first and (_ACTIVE_VIEW_ID is None or _ACTIVE_VIEW_ID == "default") and len(_VIEW_META) == 1:
+        _ACTIVE_VIEW_ID = vid
+
+    return vid
+
+
+def list_views() -> list[ViewMeta]:
+    """
+    Return UI-ready view metadata, stable ordering:
+      section then label.
+    """
+    metas = list(_VIEW_META.values())
+
+    def _key(m: ViewMeta) -> tuple[str, str]:
+        sec = m.section or ""
+        return (sec, m.label)
+
+    return sorted(metas, key=_key)
+
+
+def set_active_view(view_id: str) -> None:
+    global _ACTIVE_VIEW_ID
+    _ACTIVE_VIEW_ID = view_id
+    _ensure_view(view_id)
+
+
+def get_active_view_id() -> str:
+    return _ACTIVE_VIEW_ID
+
+
+def get_view_state(view_id: str | None = None) -> ViewState:
+    vid = view_id or _ACTIVE_VIEW_ID
+    return _ensure_view(vid)
+
+
+# ------------------------------------------------------------------------------
+# Backwards-compatible single-view API (uses active view)
+# ------------------------------------------------------------------------------
+
+
+def get_kind(view_id: str | None = None) -> str:
+    return get_view_state(view_id).kind
+
+
+def set_plot(png_bytes: bytes, *, view_id: str | None = None) -> None:
+    st = get_view_state(view_id)
+    st.kind = "plot"
+    st.plot_png = png_bytes
+    st.status["last_updated"] = _now_iso()
+    st.status["last_error"] = None
+
+
+def get_plot(*, view_id: str | None = None) -> bytes:
+    st = get_view_state(view_id)
+    if st.plot_png is None:
+        raise LookupError("No plot available")
+    return st.plot_png
+
+
+def has_plot(*, view_id: str | None = None) -> bool:
+    st = get_view_state(view_id)
+    return st.plot_png is not None
+
+
+def set_table(df: pd.DataFrame, html_simple: str | None, *, view_id: str | None = None) -> None:
+    st = get_view_state(view_id)
+    st.kind = "table"
+    st.table_df = df
+    st.table_html_simple = html_simple
+    st.status["last_updated"] = _now_iso()
+    st.status["last_error"] = None
+
+
+def has_table(*, view_id: str | None = None) -> bool:
+    st = get_view_state(view_id)
+    return st.table_df is not None
+
+
+def get_table_df(*, view_id: str | None = None) -> pd.DataFrame:
+    st = get_view_state(view_id)
+    if st.table_df is None:
+        raise LookupError("No table available")
+    return st.table_df
+
+
+def get_table_html_simple(*, view_id: str | None = None) -> str:
+    st = get_view_state(view_id)
+    if st.table_html_simple is None:
+        raise LookupError("No simple HTML table available")
+    return st.table_html_simple
+
+
+# ------------------------------------------------------------------------------
+# Status bookkeeping (per-view)
+# ------------------------------------------------------------------------------
+
+
+def mark_success(*, duration_s: float | None, view_id: str | None = None) -> None:
+    st = get_view_state(view_id)
+    st.status["last_updated"] = _now_iso()
+    st.status["last_duration_s"] = duration_s
+    st.status["last_error"] = None
+
+
+def mark_error(message: str, *, view_id: str | None = None) -> None:
+    st = get_view_state(view_id)
+    st.status["last_updated"] = _now_iso()
+    st.status["last_error"] = message
+
+
+def get_status(*, view_id: str | None = None) -> dict[str, Any]:
+    st = get_view_state(view_id)
+    return dict(st.status)
+
+
+# ------------------------------------------------------------------------------
+# Publish throttling
+# ------------------------------------------------------------------------------
+
+
+def should_accept_publish(
+    *,
+    view_id: str,
+    update_limit_s: int | None,
+    now_s: float,
+) -> bool:
+    """
+    Server-side throttling:
+      - if update_limit_s is None: accept
+      - else accept only if enough time passed since last publish
+    """
+    if update_limit_s is None:
+        return True
+
+    st = get_view_state(view_id)
+    if st.last_publish_at is None:
+        st.last_publish_at = now_s
+        return True
+
+    if (now_s - st.last_publish_at) >= float(update_limit_s):
+        st.last_publish_at = now_s
+        return True
+
+    return False
+
+
+def note_publish(view_id: str, *, now_s: float) -> None:
+    st = get_view_state(view_id)
+    st.last_publish_at = now_s
+
+
+# ------------------------------------------------------------------------------
+# Service info + shutdown control (global)
 # ------------------------------------------------------------------------------
 
 
@@ -128,43 +312,33 @@ def get_service_info() -> dict[str, Any]:
 
 
 def set_service_stop_hook(hook: Callable[[], None]) -> None:
-    """
-    Register a callback to stop the CLI service loop.
-
-    RunnerService should call this with `self.stop`.
-    """
     global _SERVICE_STOP_HOOK
     _SERVICE_STOP_HOOK = hook
 
 
 def clear_service_stop_request() -> None:
-    """
-    Clear any existing service stop hook.
-    """
     global _SERVICE_STOP_HOOK
     _SERVICE_STOP_HOOK = None
 
 
 def request_service_stop() -> bool:
-    """
-    Called by /shutdown.
-
-    Returns True if a service stop was requested (hook existed).
-    """
     global _SERVICE_STOP_HOOK
 
     if _SERVICE_STOP_HOOK is None:
         return False
 
-    # Call hook once, then clear it
     hook = _SERVICE_STOP_HOOK
     _SERVICE_STOP_HOOK = None
     try:
         hook()
     except Exception:
-        # Don't crash shutdown endpoint; status will show error elsewhere
         pass
     return True
+
+
+# ------------------------------------------------------------------------------
+# Reset
+# ------------------------------------------------------------------------------
 
 
 def reset() -> None:
@@ -173,33 +347,16 @@ def reset() -> None:
 
     This is mainly used by unit tests to ensure isolation.
     """
-    global _KIND
-    global _LATEST_PLOT
-    global _LATEST_TABLE_DF
-    global _LATEST_TABLE_HTML_SIMPLE
-    global _STATUS
-    global _SERVICE_INFO
-    global _SERVICE_STOP_HOOK
+    global _VIEWS, _VIEW_META, _ACTIVE_VIEW_ID
+    global _SERVICE_INFO, _SERVICE_STOP_HOOK
 
-    # View state
-    _KIND = "none"
-    _LATEST_PLOT = None
-    _LATEST_TABLE_DF = None
-    _LATEST_TABLE_HTML_SIMPLE = None
+    _VIEWS = {}
+    _VIEW_META = {}
+    _ACTIVE_VIEW_ID = "default"
 
-    # Status info
-    _STATUS = {
-        "last_updated": None,
-        "last_duration_s": None,
-        "last_error": None,
-    }
-
-    # Service info
     _SERVICE_INFO = {
         "service_mode": False,
         "service_target": None,
         "service_refresh_rate_s": None,
     }
-
-    # Shutdown hook
     _SERVICE_STOP_HOOK = None
