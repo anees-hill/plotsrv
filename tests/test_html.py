@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from plotsrv import html as html_mod
 from plotsrv.config import TableViewMode
+from plotsrv.store import ViewMeta
+from plotsrv.ui_config import UISettings
+
 
 
 def test_render_index_none_shows_empty_state() -> None:
@@ -68,3 +71,43 @@ def test_render_index_plot_has_refresh_js() -> None:
     )
     assert "function refreshPlot" in html
     assert "function refreshStatus" in html
+
+
+
+def test_render_index_includes_view_dropdown_and_selected_option() -> None:
+    ui = UISettings(
+        logo_url="/static/x.png",
+        header_text="t",
+        header_fill_colour="#fff",
+        terminate_process_option=True,
+        auto_refresh_option=True,
+        export_image=True,
+        export_table=True,
+        show_statusline=True,
+        show_help_note=True,
+        show_view_selector=True,
+        assets_dir=None,
+    )
+    # if you added this flag in UISettings; otherwise you’ll pull from defaults in get_ui_settings()
+    # ui.show_view_selector = True  # if it exists
+
+    views = [
+        ViewMeta(view_id="etl-1:import", kind="none", label="import", section="etl-1"),
+        ViewMeta(view_id="etl-1:metrics", kind="none", label="metrics", section="etl-1"),
+    ]
+
+    html = html_mod.render_index(
+        kind="plot",
+        table_view_mode="simple",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+        ui_settings=ui,
+        views=views,
+        active_view_id="etl-1:metrics",
+    )
+
+    assert 'id="view-select"' in html
+    assert 'option value="etl-1:metrics" selected' in html
+    assert "/plot?view=etl-1:metrics" in html
+    assert "window.location.href = \"/?view=\"" in html
