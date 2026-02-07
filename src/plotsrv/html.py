@@ -28,6 +28,10 @@ def render_index(
     views = views or []
     active_view_id = active_view_id or "default"
 
+    # Page chrome (safe defaults for older UISettings)
+    page_title = getattr(ui, "page_title", None) or "plotsrv - live view"
+    favicon_url = getattr(ui, "favicon_url", None) or "/static/plotsrv_favicon.png"
+
     # --- Head deps -------------------------------------------------------------
 
     tabulator_head = ""
@@ -78,7 +82,7 @@ def render_index(
     # --- View dropdown ---------------------------------------------------------
 
     dropdown_html = ""
-    if ui.show_view_selector and len(views) > 0:
+    if getattr(ui, "show_view_selector", True) and len(views) > 0:
         # group by section
         groups: dict[str, list[ViewMeta]] = {}
         for v in views:
@@ -90,7 +94,7 @@ def render_index(
         for s in sections:
             groups[s] = sorted(groups[s], key=lambda x: x.label)
 
-        options = []
+        options: list[str] = []
         for sec in sections:
             options.append(f'<optgroup label="{sec}">')
             for v in groups[sec]:
@@ -239,7 +243,8 @@ def render_index(
     <html lang="en">
     <head>
       <meta charset="UTF-8" />
-      <title>plotsrv – viewer</title>
+      <title>{page_title}</title>
+      <link rel="icon" href="{favicon_url}">
       <meta name="viewport" content="width=device-width, initial-scale=1" />
       {tabulator_head}
       <style>
@@ -425,9 +430,38 @@ def render_index(
       </main>
 
       <script>
+        const LS_AUTO_ENABLED = "plotsrv:auto_refresh_enabled";
+        const LS_AUTO_INTERVAL = "plotsrv:auto_refresh_interval";
+
         const ACTIVE_VIEW = "{active_view_id}";
         let _autoRefreshTimer = null;
         let _tabulatorInstance = null;
+
+        function _saveAutoRefreshState() {{
+          const toggle = document.getElementById("auto-refresh-toggle");
+          const interval = document.getElementById("auto-refresh-interval");
+          if (toggle) localStorage.setItem(LS_AUTO_ENABLED, toggle.checked ? "1" : "0");
+          if (interval) localStorage.setItem(LS_AUTO_INTERVAL, String(interval.value || "5"));
+        }}
+
+        function _restoreAutoRefreshState() {{
+          const toggle = document.getElementById("auto-refresh-toggle");
+          const interval = document.getElementById("auto-refresh-interval");
+
+          if (interval) {{
+            const savedInterval = localStorage.getItem(LS_AUTO_INTERVAL);
+            if (savedInterval) interval.value = savedInterval;
+          }}
+
+          if (toggle) {{
+            const savedEnabled = localStorage.getItem(LS_AUTO_ENABLED);
+            if (savedEnabled === "1") {{
+              toggle.checked = true;
+              _tickAutoRefresh();
+              _startAutoRefresh();
+            }}
+          }}
+        }}
 
         function _fmtLocalTime(iso) {{
           if (!iso) return "—";
@@ -600,6 +634,7 @@ def render_index(
           if (!toggle) return;
 
           toggle.addEventListener("change", function () {{
+            _saveAutoRefreshState();
             if (toggle.checked) {{
               _tickAutoRefresh();
               _startAutoRefresh();
@@ -610,6 +645,7 @@ def render_index(
 
           if (interval) {{
             interval.addEventListener("change", function () {{
+              _saveAutoRefreshState();
               if (toggle.checked) _startAutoRefresh();
             }});
           }}
@@ -620,6 +656,7 @@ def render_index(
           if (!sel) return;
 
           sel.addEventListener("change", function () {{
+            _saveAutoRefreshState();
             const v = sel.value;
             window.location.href = "/?view=" + encodeURIComponent(v);
           }});
@@ -632,6 +669,7 @@ def render_index(
           }}
           _bindAutoRefreshControls();
           _bindViewDropdown();
+          _restoreAutoRefreshState();
         }});
       </script>
     </body>
