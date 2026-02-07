@@ -9,10 +9,16 @@ import os
 DEFAULT_LOGO_URL = "/static/plotsrv_logo.jpg"
 DEFAULT_HEADER_TEXT = "live viewer"
 DEFAULT_HEADER_FILL = "#ffffff"
+DEFAULT_PAGE_TITLE = "plotsrv - live view"
+DEFAULT_FAVICON_URL = "/static/plotsrv_favicon.png"
 
 
 @dataclass(frozen=True, slots=True)
 class UISettings:
+    # Page chrome
+    page_title: str
+    favicon_url: str
+
     # Header
     logo_url: str
     header_text: str
@@ -31,8 +37,9 @@ class UISettings:
     show_statusline: bool
     show_help_note: bool
 
-    # Serving user assets (logo)
-    assets_dir: Path | None = None  # if set, app will mount /assets -> this dir
+    # Serving user assets (logo/favicon)
+    assets_dir: Path | None = None
+
 
 
 def _strip_quotes(s: str) -> str:
@@ -101,10 +108,16 @@ def load_ui_settings() -> UISettings:
     show_statusline = True
     show_help_note = True
 
+    page_title = DEFAULT_PAGE_TITLE
+    favicon_url = DEFAULT_FAVICON_URL
+
+
     assets_dir: Path | None = None
 
     if ini_path is None:
         return UISettings(
+            page_title=page_title,
+            favicon_url=favicon_url,
             logo_url=logo_url,
             header_text=header_text,
             header_fill_colour=header_fill,
@@ -139,6 +152,7 @@ def load_ui_settings() -> UISettings:
         )
 
     # Strings
+    page_title = _strip_quotes(cfg.get(section, "page_title", fallback=page_title)).strip() or page_title
     header_text = _strip_quotes(cfg.get(section, "header_text", fallback=header_text))
     header_fill = _strip_quotes(cfg.get(section, "header_fill_colour", fallback=header_fill)).strip() or header_fill
 
@@ -170,7 +184,25 @@ def load_ui_settings() -> UISettings:
                 # fallback to default logo if file doesn't exist
                 logo_url = DEFAULT_LOGO_URL
 
+    raw_favicon = _strip_quotes(cfg.get(section, "favicon", fallback="")).strip()
+    if raw_favicon:
+        if raw_favicon.startswith(("http://", "https://", "/static/", "/assets/")):
+            favicon_url = raw_favicon
+        else:
+            base = ini_path.parent
+            favicon_path = (base / raw_favicon).expanduser().resolve()
+            if favicon_path.exists() and favicon_path.is_file():
+                # if assets_dir already set from logo, keep it
+                if assets_dir is None:
+                    assets_dir = favicon_path.parent
+                favicon_url = f"/assets/{favicon_path.name}"
+            else:
+                favicon_url = DEFAULT_FAVICON_URL
+
+
     return UISettings(
+        page_title=page_title,
+        favicon_url=favicon_url,
         logo_url=logo_url,
         header_text=header_text,
         header_fill_colour=header_fill,
@@ -183,6 +215,8 @@ def load_ui_settings() -> UISettings:
         show_help_note=show_help_note,
         assets_dir=assets_dir,
     )
+
+
 
 
 _UI_SETTINGS: UISettings | None = None
