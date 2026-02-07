@@ -1,8 +1,12 @@
 # src/plotsrv/app.py
 from __future__ import annotations
 
+import base64
+import time
 from pathlib import Path
+from typing import Any
 
+import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import Response, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,25 +27,30 @@ if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 # Optional user assets mount for custom logos etc.
-# If user sets logo=./www/company_logo.png, we mount /assets -> that directory.
 if UI.assets_dir is not None and UI.assets_dir.exists():
     app.mount("/assets", StaticFiles(directory=str(UI.assets_dir)), name="assets")
 
 
 @app.get("/status")
-def status() -> dict[str, object]:
-    s = store.get_status()
+def status(view: str | None = None) -> dict[str, object]:
+    """
+    Status for a single view (default: active view).
+    """
+    vid = view or store.get_active_view_id()
+    s = store.get_status(view_id=vid)
     s.update(store.get_service_info())
+    s["view_id"] = vid
     return s
 
 
 @app.get("/plot")
-def get_plot(download: bool = False) -> Response:
+def get_plot(download: bool = False, view: str | None = None) -> Response:
     """
-    Return the current plot PNG; 404 if none.
+    Return the current plot PNG for a view; 404 if none.
     """
+    vid = view or store.get_active_view_id()
     try:
-        png = store.get_plot()
+        png = store.get_plot(view_id=vid)
     except LookupError:
         raise HTTPException(status_code=404, detail="No plot has been published yet.")
 
@@ -55,27 +64,32 @@ def get_plot(download: bool = False) -> Response:
 @app.get("/table/data")
 def get_table_data(
     limit: int = Query(default=config.MAX_TABLE_ROWS_RICH, ge=1),
-) -> dict:
+    view: str | None = None,
+) -> dict[str, Any]:
     """
     Return a JSON sample of the current table (for rich mode).
     """
-    if not store.has_table():
+    vid = view or store.get_active_view_id()
+
+    if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")
 
-    df = store.get_table_df()
+    df = store.get_table_df(view_id=vid)
     max_rows = min(limit, config.MAX_TABLE_ROWS_RICH)
     return df_to_rich_sample(df, max_rows=max_rows)
 
 
 @app.get("/table/export")
-def export_table(format: str = "csv") -> Response:
+def export_table(format: str = "csv", view: str | None = None) -> Response:
     """
     Export the current table (CSV for now).
     """
-    if not store.has_table():
+    vid = view or store.get_active_view_id()
+
+    if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")
 
-    df = store.get_table_df()
+    df = store.get_table_df(view_id=vid)
 
     fmt = (format or "csv").lower().strip()
     if fmt != "csv":
@@ -88,19 +102,113 @@ def export_table(format: str = "csv") -> Response:
     return Response(csv_bytes, media_type="text/csv", headers=headers)
 
 
+@app.post("/publish")
+def publish(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Publish a plot or table into a specific view.
+
+    Expected payload (flexible):
+      {
+        "view_id": "etl-1:import",   # optional
+        "section": "etl-1",          # optional
+        "label": "import",           # optional
+        "kind": "plot"|"table",
+        "plot_png_b64": "...",       # if plot
+        "table": {                   # if table
+            "columns": [...],
+            "rows": [...],
+            "total_rows": 123,
+            "returned_rows": 100
+        },
+        "table_html_simple": "<table>...</table>",  # optional
+        "update_limit_s": 600,        # optional throttling
+        "force": false                # optional bypass throttling
+      }
+    """
+    kind = str(payload.get("kind") or "").strip().lower()
+    if kind not in ("plot", "table"):
+        raise HTTPException(status_code=422, detail="publish: kind must be 'plot' or 'table'")
+
+    section = payload.get("section")
+    label = payload.get("label")
+    view_id = store.normalize_view_id(payload.get("view_id"), section=section, label=label)
+
+    # auto-register view so it appears in dropdown even before content arrives
+    store.register_view(view_id=view_id, section=section, label=label, kind="none", activate_if_first=False)
+
+    # throttling (server-side)
+    update_limit_s = payload.get("update_limit_s")
+    force = bool(payload.get("force") or False)
+
+    now_s = time.time()
+    if not force:
+        if not store.should_accept_publish(view_id=view_id, update_limit_s=update_limit_s, now_s=now_s):
+            return {"ok": True, "ignored": True, "reason": "throttled", "view_id": view_id}
+
+    # apply publish
+    if kind == "plot":
+        b64 = payload.get("plot_png_b64")
+        if not b64:
+            raise HTTPException(status_code=422, detail="publish: plot_png_b64 is required for kind='plot'")
+
+        try:
+            png_bytes = base64.b64decode(b64.encode("utf-8"))
+        except Exception:
+            raise HTTPException(status_code=422, detail="publish: plot_png_b64 was not valid base64")
+
+        store.set_plot(png_bytes, view_id=view_id)
+        store.register_view(view_id=view_id, section=section, label=label, kind="plot", activate_if_first=False)
+        store.mark_success(duration_s=None, view_id=view_id)
+        store.note_publish(view_id, now_s=now_s)
+
+    else:
+        table = payload.get("table")
+        if not isinstance(table, dict):
+            raise HTTPException(status_code=422, detail="publish: table dict is required for kind='table'")
+
+        cols = table.get("columns")
+        rows = table.get("rows")
+        if not isinstance(cols, list) or not isinstance(rows, list):
+            raise HTTPException(status_code=422, detail="publish: table must include columns(list) and rows(list)")
+
+        # reconstruct DataFrame from rows/columns (server only stores sample)
+        df = pd.DataFrame(rows, columns=cols)
+
+        html_simple = payload.get("table_html_simple")
+        if html_simple is not None and not isinstance(html_simple, str):
+            html_simple = None
+
+        store.set_table(df, html_simple=html_simple, view_id=view_id)
+        store.register_view(view_id=view_id, section=section, label=label, kind="table", activate_if_first=False)
+        store.mark_success(duration_s=None, view_id=view_id)
+        store.note_publish(view_id, now_s=now_s)
+
+    return {"ok": True, "ignored": False, "view_id": view_id}
+
+
 @app.get("/", response_class=HTMLResponse)
-def index() -> HTMLResponse:
+def index(view: str | None = None) -> HTMLResponse:
     """
     Main HTML viewer.
+
+    Supports: /?view=<view_id>
     """
-    kind = store.get_kind()
-    table_html_simple = (
-        store.get_table_html_simple()
-        if kind == "table"
+    if view:
+        store.set_active_view(view)
+
+    active_view = store.get_active_view_id()
+    kind = store.get_kind(active_view)
+
+    table_html_simple = None
+    if (
+        kind == "table"
         and config.get_table_view_mode() == "simple"
-        and store.has_table()
-        else None
-    )
+        and store.has_table(view_id=active_view)
+    ):
+        try:
+            table_html_simple = store.get_table_html_simple(view_id=active_view)
+        except LookupError:
+            table_html_simple = None
 
     html_str = html_mod.render_index(
         kind=kind,
@@ -109,5 +217,7 @@ def index() -> HTMLResponse:
         max_table_rows_simple=config.MAX_TABLE_ROWS_SIMPLE,
         max_table_rows_rich=config.MAX_TABLE_ROWS_RICH,
         ui_settings=UI,
+        views=store.list_views(),
+        active_view_id=active_view,
     )
     return HTMLResponse(content=html_str)

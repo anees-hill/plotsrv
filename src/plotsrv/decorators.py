@@ -1,7 +1,11 @@
+# src/plotsrv/decorators.py
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any, Callable, Literal, TypeVar, overload
+
+from .publisher import plot_launch
 
 PlotsrvKind = Literal["plot", "table"]
 
@@ -12,15 +16,16 @@ F = TypeVar("F", bound=Callable[..., Any])
 class PlotsrvSpec:
     kind: PlotsrvKind
     label: str | None = None
+    section: str | None = None
+    host: str | None = None
+    port: int | None = None
+    update_limit_s: int | None = None
 
 
 _PLOTSRV_ATTR = "__plotsrv__"
 
 
 def get_plotsrv_spec(func: Callable[..., Any]) -> PlotsrvSpec | None:
-    """
-    Return the plotsrv metadata attached to a function, if present.
-    """
     return getattr(func, _PLOTSRV_ATTR, None)
 
 
@@ -29,27 +34,105 @@ def _attach_spec(func: F, spec: PlotsrvSpec) -> F:
     return func
 
 
+def _wrap_with_publish(func: F, spec: PlotsrvSpec) -> F:
+    """
+    Wrap function so calling it publishes result to plotsrv,
+    but only if port is configured.
+    """
+    if spec.port is None:
+        return func
+
+    @wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        out = func(*args, **kwargs)
+        # best effort publish
+        try:
+            plot_launch(
+                out,
+                label=spec.label or func.__name__,
+                section=spec.section,
+                host=spec.host or "127.0.0.1",
+                port=int(spec.port),
+                update_limit_s=spec.update_limit_s,
+            )
+        except Exception:
+            pass
+        return out
+
+    return wrapper  # type: ignore[return-value]
+
+
 @overload
-def plot(*, label: str | None = None) -> Callable[[F], F]: ...
-def plot(*, label: str | None = None) -> Callable[[F], F]:
+def plot(
+    *,
+    label: str | None = None,
+    section: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    update_limit_s: int | None = None,
+) -> Callable[[F], F]: ...
+def plot(
+    *,
+    label: str | None = None,
+    section: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    update_limit_s: int | None = None,
+) -> Callable[[F], F]:
     """
     Decorator: marks a function as a plotsrv plot producer.
+
+    If port is provided, calling the function will publish its output.
     """
 
     def decorator(func: F) -> F:
-        return _attach_spec(func, PlotsrvSpec(kind="plot", label=label))
+        spec = PlotsrvSpec(
+            kind="plot",
+            label=label,
+            section=section,
+            host=host,
+            port=port,
+            update_limit_s=update_limit_s,
+        )
+        f2 = _attach_spec(func, spec)
+        return _wrap_with_publish(f2, spec)
 
     return decorator
 
 
 @overload
-def table(*, label: str | None = None) -> Callable[[F], F]: ...
-def table(*, label: str | None = None) -> Callable[[F], F]:
+def table(
+    *,
+    label: str | None = None,
+    section: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    update_limit_s: int | None = None,
+) -> Callable[[F], F]: ...
+def table(
+    *,
+    label: str | None = None,
+    section: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    update_limit_s: int | None = None,
+) -> Callable[[F], F]:
     """
     Decorator: marks a function as a plotsrv table producer.
+
+    If port is provided, calling the function will publish its output.
     """
 
     def decorator(func: F) -> F:
-        return _attach_spec(func, PlotsrvSpec(kind="table", label=label))
+        spec = PlotsrvSpec(
+            kind="table",
+            label=label,
+            section=section,
+            host=host,
+            port=port,
+            update_limit_s=update_limit_s,
+        )
+        f2 = _attach_spec(func, spec)
+        return _wrap_with_publish(f2, spec)
 
     return decorator

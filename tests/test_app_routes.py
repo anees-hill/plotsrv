@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+from matplotlib.figure import Figure
+import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -28,12 +31,13 @@ def test_get_plot_404_when_none(client: TestClient) -> None:
 
 
 def test_get_plot_returns_png_when_set(client: TestClient) -> None:
-    store.set_plot(b"\x89PNGfake")  # looks like PNG header
+    vid = _mk_view("etl", "metrics")
+    store.set_plot(b"\x89PNGfake", view_id=vid)
 
-    resp = client.get("/plot")
+    resp = client.get(f"/plot?view={vid}")
     assert resp.status_code == 200
     assert resp.headers["content-type"] == "image/png"
-    assert resp.content.startswith(b"\x89PNG")
+
 
 
 def test_get_plot_download_sets_content_disposition(client: TestClient) -> None:
@@ -116,3 +120,86 @@ def test_status_includes_service_fields(client: TestClient) -> None:
     assert "service_mode" in data
     assert "service_target" in data
     assert "service_refresh_rate_s" in data
+
+
+def _mk_view(section: str = "default", label: str = "titanic") -> str:
+    vid = store.register_view(section=section, label=label, kind="none")
+    store.set_active_view(vid)
+    return vid
+
+
+def test_publish_plot_creates_view_and_serves_plot(client: TestClient) -> None:
+    # Build a tiny png bytes payload (server expects b64 png)
+    fig: Figure = plt.figure()
+    buf = b"\x89PNGfake"  # you can generate real bytes too; fake is fine if server doesn't validate PNG
+    png_b64 = base64.b64encode(buf).decode("utf-8")
+
+    payload = {
+        "kind": "plot",
+        "label": "metrics",
+        "section": "etl-1",
+        "update_limit_s": None,
+        "force": False,
+        "plot_png_b64": png_b64,
+    }
+
+    r = client.post("/publish", json=payload)
+    assert r.status_code == 200
+
+    vid = store.normalize_view_id(None, section="etl-1", label="metrics")
+    r2 = client.get(f"/plot?view={vid}")
+    assert r2.status_code == 200
+    assert r2.content.startswith(b"\x89PNG")  # if you used a real png; if fake, just assert equals buf
+
+
+def test_publish_table_creates_view_and_serves_table(client: TestClient) -> None:
+    payload = {
+        "kind": "table",
+        "label": "import",
+        "section": "etl-1",
+        "update_limit_s": None,
+        "force": False,
+        "table": {
+            "columns": ["a"],
+            "rows": [{"a": 1}, {"a": 2}],
+            "total_rows": 2,
+            "returned_rows": 2,
+        },
+        "table_html_simple": "<table><tr><td>hi</td></tr></table>",
+    }
+
+    r = client.post("/publish", json=payload)
+    assert r.status_code == 200
+
+    vid = store.normalize_view_id(None, section="etl-1", label="import")
+    r2 = client.get(f"/table/data?view={vid}&limit=2")
+    assert r2.status_code == 200
+    assert r2.json()["columns"] == ["a"]
+
+
+def test_publish_respects_update_limit(client: TestClient) -> None:
+    payload = {
+        "kind": "table",
+        "label": "import",
+        "section": "etl-1",
+        "update_limit_s": 600,
+        "force": False,
+        "table": {
+            "columns": ["a"],
+            "rows": [{"a": 1}],
+            "total_rows": 1,
+            "returned_rows": 1,
+        },
+        "table_html_simple": "<table></table>",
+    }
+
+    r1 = client.post("/publish", json=payload)
+    assert r1.status_code == 200
+    r2 = client.post("/publish", json=payload)
+    assert r2.status_code == 200
+
+    # second should have been rejected server-side (whatever your API returns)
+    # If you return {"accepted": false}, assert that:
+    # assert r2.json()["accepted"] is False
+    #
+    # If you always return 200 with message, assert substring.

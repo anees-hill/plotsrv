@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Literal
 
 from .config import TableViewMode
+from .store import ViewMeta
 from .ui_config import UISettings, get_ui_settings
 
 ViewKind = Literal["none", "plot", "table"]
@@ -17,11 +18,15 @@ def render_index(
     max_table_rows_simple: int,
     max_table_rows_rich: int,
     ui_settings: UISettings | None = None,
+    views: list[ViewMeta] | None = None,
+    active_view_id: str | None = None,
 ) -> str:
     """
     Return the HTML for the main viewer page.
     """
     ui = ui_settings or get_ui_settings()
+    views = views or []
+    active_view_id = active_view_id or "default"
 
     # --- Head deps -------------------------------------------------------------
 
@@ -70,10 +75,40 @@ def render_index(
           <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
         """
 
+    # --- View dropdown ---------------------------------------------------------
+
+    dropdown_html = ""
+    if ui.show_view_selector and len(views) > 0:
+        # group by section
+        groups: dict[str, list[ViewMeta]] = {}
+        for v in views:
+            sec = v.section or "default"
+            groups.setdefault(sec, []).append(v)
+
+        # stable ordering
+        sections = sorted(groups.keys())
+        for s in sections:
+            groups[s] = sorted(groups[s], key=lambda x: x.label)
+
+        options = []
+        for sec in sections:
+            options.append(f'<optgroup label="{sec}">')
+            for v in groups[sec]:
+                sel = "selected" if v.view_id == active_view_id else ""
+                options.append(f'<option value="{v.view_id}" {sel}>{v.label}</option>')
+            options.append("</optgroup>")
+
+        dropdown_html = f"""
+          <div class="view-select">
+            <select id="view-select">
+              {''.join(options)}
+            </select>
+          </div>
+        """
+
     # --- Main content ----------------------------------------------------------
 
     if kind == "table":
-        # Build controls
         table_controls = """
           <button type="button" onclick="window.location.reload()">Refresh</button>
         """
@@ -121,7 +156,6 @@ def render_index(
             """
 
     elif kind == "plot":
-        # Build controls
         plot_controls = """
             <button type="button" onclick="refreshPlot()">Refresh</button>
         """
@@ -163,7 +197,7 @@ def render_index(
 
         main_content = f"""
           <div class="plot-frame">
-            <img id="plot" src="/plot" alt="Current plot (or none yet)" />
+            <img id="plot" src="/plot?view={active_view_id}" alt="Current plot (or none yet)" />
           </div>
 
           <div class="controls">
@@ -177,13 +211,6 @@ def render_index(
 
     else:
         controls = _terminate_button_html()
-
-        help_note = ""
-        if ui.show_help_note:
-            help_note = """
-              <div class="note" id="status"></div>
-            """
-
         main_content = f"""
           <div class="plot-frame empty">
             <div class="empty-state">
@@ -198,12 +225,11 @@ def render_index(
 
           {statusline_html}
 
-          {help_note}
+          <div class="note" id="status"></div>
         """
 
     # --- Full page -------------------------------------------------------------
 
-    # Header fill from ini (default white)
     header_fill = ui.header_fill_colour or "#ffffff"
     header_text = ui.header_text or "live viewer"
     logo_url = ui.logo_url or "/static/plotsrv_logo.jpg"
@@ -244,6 +270,20 @@ def render_index(
           gap: 0.5rem;
         }}
 
+        .header-left {{
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          min-width: 0;
+        }}
+
+        .header-right {{
+          margin-left: auto;
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }}
+
         .header-logo {{
           height: 28px;
           width: auto;
@@ -254,6 +294,18 @@ def render_index(
           font-weight: 600;
           font-size: 1rem;
           color: #555;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 60vw;
+        }}
+
+        .view-select select {{
+          padding: 0.28rem 0.5rem;
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          background: #fff;
+          font-size: 0.9rem;
         }}
 
         .page {{
@@ -339,7 +391,7 @@ def render_index(
           padding: 0.35rem 0.55rem;
           border: 1px solid var(--border);
           border-radius: 4px;
-         A background: #fff;
+          background: #fff;
           font-size: 0.9rem;
         }}
 
@@ -356,8 +408,14 @@ def render_index(
     </head>
     <body>
       <header class="header">
-        <img src="{logo_url}" alt="plotsrv logo" class="header-logo" />
-        <div class="header-title">{header_text}</div>
+        <div class="header-left">
+          <img src="{logo_url}" alt="plotsrv logo" class="header-logo" />
+          <div class="header-title">{header_text}</div>
+        </div>
+
+        <div class="header-right">
+          {dropdown_html}
+        </div>
       </header>
 
       <main class="page">
@@ -367,6 +425,7 @@ def render_index(
       </main>
 
       <script>
+        const ACTIVE_VIEW = "{active_view_id}";
         let _autoRefreshTimer = null;
         let _tabulatorInstance = null;
 
@@ -392,7 +451,7 @@ def render_index(
 
         async function refreshStatus() {{
           try {{
-            const res = await fetch("/status?_ts=" + Date.now());
+            const res = await fetch("/status?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
             if (!res.ok) return;
             const s = await res.json();
 
@@ -444,16 +503,16 @@ def render_index(
         function refreshPlot() {{
           const img = document.getElementById("plot");
           if (!img) return;
-          img.src = "/plot?_ts=" + Date.now();
+          img.src = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now();
           refreshStatus();
         }}
 
         function exportImage() {{
-          window.location.href = "/plot?download=1&_ts=" + Date.now();
+          window.location.href = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + "&download=1&_ts=" + Date.now();
         }}
 
         function exportTable() {{
-          window.location.href = "/table/export?format=csv&_ts=" + Date.now();
+          window.location.href = "/table/export?view=" + encodeURIComponent(ACTIVE_VIEW) + "&format=csv&_ts=" + Date.now();
         }}
 
         function terminateServer() {{
@@ -472,7 +531,7 @@ def render_index(
           const grid = document.getElementById("table-grid");
           if (!grid) return;
 
-          const res = await fetch("/table/data?_ts=" + Date.now());
+          const res = await fetch("/table/data?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
           if (!res.ok) {{
             console.error("Failed to load table data");
             return;
@@ -556,12 +615,23 @@ def render_index(
           }}
         }}
 
+        function _bindViewDropdown() {{
+          const sel = document.getElementById("view-select");
+          if (!sel) return;
+
+          sel.addEventListener("change", function () {{
+            const v = sel.value;
+            window.location.href = "/?view=" + encodeURIComponent(v);
+          }});
+        }}
+
         document.addEventListener("DOMContentLoaded", function () {{
           refreshStatus();
           if (document.getElementById("table-grid")) {{
             loadTable().then(() => refreshStatus());
           }}
           _bindAutoRefreshControls();
+          _bindViewDropdown();
         }});
       </script>
     </body>

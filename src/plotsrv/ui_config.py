@@ -18,6 +18,9 @@ class UISettings:
     header_text: str
     header_fill_colour: str
 
+    # Header controls
+    show_view_selector: bool
+
     # Buttons / controls
     terminate_process_option: bool
     auto_refresh_option: bool
@@ -59,7 +62,12 @@ def _resolve_ini_path() -> Path | None:
     return None
 
 
-def _parse_bool(cfg: configparser.ConfigParser, section: str, key: str, default: bool) -> bool:
+def _parse_bool(
+    cfg: configparser.ConfigParser,
+    section: str,
+    key: str,
+    default: bool,
+) -> bool:
     try:
         return cfg.getboolean(section, key, fallback=default)
     except Exception:
@@ -80,11 +88,16 @@ def load_ui_settings() -> UISettings:
     header_fill = DEFAULT_HEADER_FILL
     logo_url = DEFAULT_LOGO_URL
 
+    # New (multi-view header dropdown)
+    show_view_selector = True
+
+    # Buttons / controls
     terminate_process_option = True
     auto_refresh_option = True
     export_image = True
     export_table = True
 
+    # Lower UI bits
     show_statusline = True
     show_help_note = True
 
@@ -95,6 +108,7 @@ def load_ui_settings() -> UISettings:
             logo_url=logo_url,
             header_text=header_text,
             header_fill_colour=header_fill,
+            show_view_selector=show_view_selector,
             terminate_process_option=terminate_process_option,
             auto_refresh_option=auto_refresh_option,
             export_image=export_image,
@@ -114,6 +128,7 @@ def load_ui_settings() -> UISettings:
             logo_url=logo_url,
             header_text=header_text,
             header_fill_colour=header_fill,
+            show_view_selector=show_view_selector,
             terminate_process_option=terminate_process_option,
             auto_refresh_option=auto_refresh_option,
             export_image=export_image,
@@ -128,6 +143,8 @@ def load_ui_settings() -> UISettings:
     header_fill = _strip_quotes(cfg.get(section, "header_fill_colour", fallback=header_fill)).strip() or header_fill
 
     # Booleans
+    show_view_selector = _parse_bool(cfg, section, "show_view_selector", show_view_selector)
+
     terminate_process_option = _parse_bool(cfg, section, "terminate_process_option", terminate_process_option)
     auto_refresh_option = _parse_bool(cfg, section, "auto_refresh_option", auto_refresh_option)
     export_image = _parse_bool(cfg, section, "export_image", export_image)
@@ -157,6 +174,7 @@ def load_ui_settings() -> UISettings:
         logo_url=logo_url,
         header_text=header_text,
         header_fill_colour=header_fill,
+        show_view_selector=show_view_selector,
         terminate_process_option=terminate_process_option,
         auto_refresh_option=auto_refresh_option,
         export_image=export_image,
