@@ -9,7 +9,7 @@ from pathlib import Path
 from .service import RunnerService, ServiceConfig
 from .server import start_server, stop_server
 from . import store
-from .discovery import discover_views
+from .discovery import discover_views, DiscoveredView
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -61,10 +61,58 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reduce uvicorn logging noise",
     )
 
+    run_p.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        help=(
+            "Exclude discovered views by label, section, or full view_id (section:label). "
+            "Repeatable. Example: --exclude 'Resource Usage' --exclude 'MEM%%' --exclude 'etl:import'"
+        ),
+    )
+
     return p
 
 
-def _run_passive_dir_mode(target: str, *, host: str, port: int, quiet: bool) -> int:
+def _norm_excludes(raw: list[str]) -> set[str]:
+    """
+    Normalize exclude tokens.
+    - allow repeating --exclude
+    - allow comma-separated lists in a single flag
+    """
+    out: set[str] = set()
+    for item in raw or []:
+        if not item:
+            continue
+        parts = [p.strip() for p in str(item).split(",")]
+        for p in parts:
+            if p:
+                out.add(p)
+    return out
+
+
+def _view_id_for(dv: DiscoveredView) -> str:
+    # match store.normalize_view_id(None, section, label) behaviour
+    sec = (dv.section or "default").strip() or "default"
+    lab = (dv.label or "default").strip() or "default"
+    return f"{sec}:{lab}"
+
+
+def _is_excluded(dv: DiscoveredView, excludes: set[str]) -> bool:
+    if not excludes:
+        return False
+
+    sec = dv.section or "default"
+    lab = dv.label
+    vid = _view_id_for(dv)
+
+    # Exclude if token matches label, section, or full view id
+    return (lab in excludes) or (sec in excludes) or (vid in excludes)
+
+
+def _run_passive_dir_mode(
+    target: str, *, host: str, port: int, quiet: bool, excludes: set[str]
+) -> int:
     """
     Passive mode:
       - start viewer server
@@ -74,23 +122,35 @@ def _run_passive_dir_mode(target: str, *, host: str, port: int, quiet: bool) -> 
     """
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
-    # discovery
-    discovered = discover_views(target)
+    # discovery + filtering
+    discovered = [dv for dv in discover_views(target) if not _is_excluded(dv, excludes)]
+
     if len(discovered) == 0:
         # still start with a default view so UI isn't empty
-        store.register_view(view_id="default", section="default", label="default", kind="none")
+        store.register_view(
+            view_id="default", section="default", label="default", kind="none"
+        )
         store.set_active_view("default")
     else:
         for dv in discovered:
-            store.register_view(section=dv.section, label=dv.label, kind="none", activate_if_first=False)
+            store.register_view(
+                section=dv.section,
+                label=dv.label,
+                kind="none",
+                activate_if_first=False,
+            )
 
         # activate first discovered
         first = discovered[0]
-        first_id = store.normalize_view_id(None, section=first.section, label=first.label)
+        first_id = store.normalize_view_id(
+            None, section=first.section, label=first.label
+        )
         store.set_active_view(first_id)
 
     # mark as "service-like" mode so statusline shows it
-    store.set_service_info(service_mode=True, target=f"dir:{target}", refresh_rate_s=None)
+    store.set_service_info(
+        service_mode=True, target=f"dir:{target}", refresh_rate_s=None
+    )
 
     try:
         while True:
@@ -105,11 +165,19 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.cmd == "run":
+        excludes = _norm_excludes(getattr(args, "exclude", []))
+
         # Directory mode:
         # - if target exists as file/dir AND does not contain ":" => passive scan mode
         p = Path(args.target)
         if ":" not in args.target and p.exists():
-            return _run_passive_dir_mode(args.target, host=args.host, port=args.port, quiet=args.quiet)
+            return _run_passive_dir_mode(
+                args.target,
+                host=args.host,
+                port=args.port,
+                quiet=args.quiet,
+                excludes=excludes,
+            )
 
         # Callable mode:
         periodic = args.refresh_rate is not None
