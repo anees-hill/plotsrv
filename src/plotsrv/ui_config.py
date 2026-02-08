@@ -138,6 +138,8 @@ def load_ui_settings() -> UISettings:
     if not cfg.has_section(section):
         # ini exists but doesn't define ui-settings
         return UISettings(
+            page_title=page_title,
+            favicon_url=favicon_url,
             logo_url=logo_url,
             header_text=header_text,
             header_fill_colour=header_fill,
@@ -150,6 +152,7 @@ def load_ui_settings() -> UISettings:
             show_help_note=show_help_note,
             assets_dir=None,
         )
+
 
     # Strings
     page_title = _strip_quotes(cfg.get(section, "page_title", fallback=page_title)).strip() or page_title

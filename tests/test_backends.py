@@ -14,9 +14,8 @@ def test_fig_to_png_bytes_returns_png_bytes() -> None:
     data = fig_to_png_bytes(fig)
 
     assert isinstance(data, bytes)
-    assert len(data) > 0
-    # PNG magic header
     assert data.startswith(b"\x89PNG")
+    assert len(data) > 1000
 
 
 def test_df_to_html_simple_honours_max_rows() -> None:

@@ -24,3 +24,23 @@ def test_cli_parses_run_args() -> None:
     assert args.port == 9000
     assert args.refresh_rate == 5
     assert args.quiet is True
+
+
+def test_cli_parses_exclude_args() -> None:
+    """
+    G4: Parser should accept repeated --exclude arguments.
+    """
+    p = build_parser()
+    args = p.parse_args(
+        [
+            "run",
+            "src",
+            "--exclude",
+            "Resource Usage:MEM%",
+            "--exclude",
+            "etl-1:metrics",
+        ]
+    )
+    assert args.cmd == "run"
+    assert args.target == "src"
+    assert args.exclude == ["Resource Usage:MEM%", "etl-1:metrics"]
