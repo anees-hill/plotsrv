@@ -6,6 +6,8 @@ import json
 import os
 import urllib.request
 from typing import Any
+from datetime import date, datetime
+import math
 
 import pandas as pd
 
@@ -36,6 +38,70 @@ except Exception:  # pragma: no cover
     PlotnineGGPlot = None  # type: ignore[assignment]
 
 
+def _is_na(x: Any) -> bool:
+    """
+    Return True only for scalar-like NA values.
+    pd.isna(list/dict/array) returns array-like -> must NOT be used as bool.
+    """
+    try:
+        res = pd.isna(x)
+    except Exception:
+        return False
+
+    # pd.isna(scalar) -> bool / numpy.bool_
+    if isinstance(res, (bool,)):
+        return res
+
+    # numpy scalar bool
+    try:
+        import numpy as np  # type: ignore
+
+        if isinstance(res, np.bool_):  # pragma: no cover
+            return bool(res)
+    except Exception:
+        pass
+
+    # array-like result => not a scalar NA check
+    return False
+
+
+def _json_safe(x: Any) -> Any:
+    if x is None:
+        return None
+
+    # Containers FIRST
+    if isinstance(x, dict):
+        return {str(k): _json_safe(v) for k, v in x.items()}
+
+    if isinstance(x, (list, tuple, set)):
+        return [_json_safe(v) for v in x]
+
+    # Then primitives / scalars
+    if isinstance(x, (str, int, bool)):
+        return x
+
+    if isinstance(x, float):
+        if math.isnan(x) or math.isinf(x):
+            return None
+        return x
+
+    if isinstance(x, (datetime, date)):
+        return x.isoformat()
+
+    if _is_na(x):
+        return None
+
+    try:
+        import numpy as np  # type: ignore
+
+        if isinstance(x, np.generic):
+            return _json_safe(x.item())
+    except Exception:
+        pass
+
+    return str(x)
+
+
 def _is_dataframe(obj: Any) -> bool:
     if isinstance(obj, pd.DataFrame):
         return True
@@ -48,7 +114,10 @@ def _to_dataframe(obj: Any) -> pd.DataFrame:
     if isinstance(obj, pd.DataFrame):
         return obj
     if pl is not None and isinstance(obj, pl.DataFrame):  # type: ignore[arg-type]
-        return obj.to_pandas()
+        try:
+            return obj.to_pandas()
+        except Exception:
+            return pd.DataFrame(obj.to_dicts())
     raise TypeError(f"Expected pandas/polars DataFrame, got {type(obj)!r}")
 
 
@@ -113,7 +182,9 @@ def _to_publish_payload(
     df = _to_dataframe(obj)
     sample = df_to_rich_sample(df, max_rows=config.MAX_TABLE_ROWS_RICH)
     payload["table"] = sample
-    payload["table_html_simple"] = df_to_html_simple(df, max_rows=config.MAX_TABLE_ROWS_SIMPLE)
+    payload["table_html_simple"] = df_to_html_simple(
+        df, max_rows=config.MAX_TABLE_ROWS_SIMPLE
+    )
     return payload
 
 
@@ -126,23 +197,20 @@ def publish_view(
     section: str | None = None,
     update_limit_s: int | None = None,
     force: bool = False,
+    kind: str | None = None,  # if you added the earlier patch
 ) -> None:
-    """
-    Publish a plot/table to a running plotsrv server on host/port.
-
-    Best effort by default:
-      - conversion errors are silent unless PLOTSRV_DEBUG=1
-      - network errors are always silent
-    """
     debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
 
     # decide kind
-    kind = "table" if _is_dataframe(obj) else "plot"
+    if kind is None:
+        kind2 = "table" if _is_dataframe(obj) else "plot"
+    else:
+        kind2 = kind
 
     try:
         payload = _to_publish_payload(
             obj,
-            kind=kind,
+            kind=kind2,
             label=label,
             section=section,
             update_limit_s=update_limit_s,
@@ -153,8 +221,15 @@ def publish_view(
             raise
         return
 
+    payload = _json_safe(payload)
+
     url = f"http://{host}:{port}/publish"
-    data = json.dumps(payload).encode("utf-8")
+    try:
+        data = json.dumps(payload).encode("utf-8")
+    except Exception:
+        if debug:
+            raise
+        return
 
     req = urllib.request.Request(
         url,

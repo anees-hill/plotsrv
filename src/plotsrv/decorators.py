@@ -1,11 +1,12 @@
 # src/plotsrv/decorators.py
 from __future__ import annotations
+import os
 
 from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Literal, TypeVar, overload
 
-from .publisher import plot_launch
+from .publisher import publish_view
 
 PlotsrvKind = Literal["plot", "table"]
 
@@ -45,10 +46,10 @@ def _wrap_with_publish(func: F, spec: PlotsrvSpec) -> F:
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         out = func(*args, **kwargs)
-        # best effort publish
         try:
-            plot_launch(
+            publish_view(
                 out,
+                kind=spec.kind,
                 label=spec.label or func.__name__,
                 section=spec.section,
                 host=spec.host or "127.0.0.1",
@@ -56,7 +57,10 @@ def _wrap_with_publish(func: F, spec: PlotsrvSpec) -> F:
                 update_limit_s=spec.update_limit_s,
             )
         except Exception:
-            pass
+            if os.environ.get("PLOTSRV_DEBUG", "").strip() == "1":
+                raise
+            # if debug:
+            #     raise
         return out
 
     return wrapper  # type: ignore[return-value]

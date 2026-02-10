@@ -2,11 +2,17 @@ from plotnine import scale_x_datetime
 from plotnine import scale_colour_manual
 import psutil
 import time
+import inspect
 import polars as pl
 import argparse
 from plotnine import *
 from datetime import datetime
-from plotsrv import plot
+import plotsrv, plotsrv.publisher
+from plotsrv.decorators import plot, table
+
+print("plotsrv:", plotsrv.__file__)
+print("publisher:", plotsrv.publisher.__file__)
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -18,6 +24,7 @@ parser.add_argument(
 args = parser.parse_args()
 
 
+@table(label="Tabular view", section="Resource Usage", host="127.0.0.1", port=8000)
 def system_snapshot(interval: float = 1) -> pl.DataFrame:
     mem = psutil.virtual_memory()
     now = datetime.now()
@@ -43,6 +50,20 @@ def system_snapshot(interval: float = 1) -> pl.DataFrame:
     )
 
     return row
+
+
+print("plotsrv package:", plotsrv.__file__)
+print("table imported from:", table.__module__, getattr(table, "__file__", None))
+
+print("system_snapshot module:", system_snapshot.__module__)
+print("system_snapshot has __plotsrv__:", hasattr(system_snapshot, "__plotsrv__"))
+print("system_snapshot has __wrapped__:", hasattr(system_snapshot, "__wrapped__"))
+
+if hasattr(system_snapshot, "__plotsrv__"):
+    print("system_snapshot.__plotsrv__ =", getattr(system_snapshot, "__plotsrv__"))
+
+print("system_snapshot source file:", inspect.getsourcefile(system_snapshot))
+print("system_snapshot repr:", system_snapshot)
 
 
 def x_scale_picker(observation_count: int) -> [str, str]:

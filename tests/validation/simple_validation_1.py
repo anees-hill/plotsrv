@@ -50,7 +50,7 @@ print("df 1 (pandas) up - simple view")
 time.sleep(10)
 stop_server()
 
-# pandas
+# polars
 start_server(port=8000, host="127.0.0.1", auto_on_show=True)
 df = sns.load_dataset("titanic")
 df = pl.from_pandas(df)

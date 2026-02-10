@@ -8,7 +8,7 @@ from typing import Literal
 
 TableViewMode = Literal["simple", "rich"]
 
-TABLE_VIEW_MODE: TableViewMode = "simple"
+TABLE_VIEW_MODE: TableViewMode = "rich"
 MAX_TABLE_ROWS_SIMPLE: int = 200
 MAX_TABLE_ROWS_RICH: int = 1000
 
@@ -117,7 +117,9 @@ def _load_render_settings_once() -> None:
         pass
 
     # plot_default_figsize_in
-    raw_size = _strip_quotes(cfg.get(section, "plot_default_figsize_in", fallback="")).strip()
+    raw_size = _strip_quotes(
+        cfg.get(section, "plot_default_figsize_in", fallback="")
+    ).strip()
     if raw_size:
         try:
             parts = [p.strip() for p in raw_size.replace("x", ",").split(",")]
@@ -135,13 +137,19 @@ def _load_render_settings_once() -> None:
 
     # plot_bbox_tight
     try:
-        PLOT_BBOX_TIGHT = cfg.getboolean(section, "plot_bbox_tight", fallback=PLOT_BBOX_TIGHT)
+        PLOT_BBOX_TIGHT = cfg.getboolean(
+            section, "plot_bbox_tight", fallback=PLOT_BBOX_TIGHT
+        )
     except Exception:
         pass
 
     # plot_pad_inches
     try:
-        pad = float(_strip_quotes(cfg.get(section, "plot_pad_inches", fallback=str(PLOT_PAD_INCHES))))
+        pad = float(
+            _strip_quotes(
+                cfg.get(section, "plot_pad_inches", fallback=str(PLOT_PAD_INCHES))
+            )
+        )
         if pad >= 0:
             PLOT_PAD_INCHES = pad
     except Exception:
