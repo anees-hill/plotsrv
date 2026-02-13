@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 import pandas as pd
+from .artifacts import Artifact
 
 
 # ------------------------------------------------------------------------------
@@ -37,8 +38,10 @@ class ViewState:
     plot_png: bytes | None = None
     table_df: pd.DataFrame | None = None
     table_html_simple: str | None = None
-
     status: dict[str, Any] = None  # populated in __post_init__
+    table_total_rows: int | None = None
+    table_returned_rows: int | None = None
+    artifact: Artifact | None = None
 
     # publish throttling
     last_publish_at: float | None = None  # epoch seconds
@@ -87,7 +90,9 @@ def _ensure_view(view_id: str) -> ViewState:
     return _VIEWS[view_id]
 
 
-def normalize_view_id(view_id: str | None, *, section: str | None = None, label: str | None = None) -> str:
+def normalize_view_id(
+    view_id: str | None, *, section: str | None = None, label: str | None = None
+) -> str:
     """
     Normalize incoming view identifiers.
 
@@ -140,7 +145,11 @@ def register_view(
         )
 
     global _ACTIVE_VIEW_ID
-    if activate_if_first and (_ACTIVE_VIEW_ID is None or _ACTIVE_VIEW_ID == "default") and len(_VIEW_META) == 1:
+    if (
+        activate_if_first
+        and (_ACTIVE_VIEW_ID is None or _ACTIVE_VIEW_ID == "default")
+        and len(_VIEW_META) == 1
+    ):
         _ACTIVE_VIEW_ID = vid
 
     return vid
@@ -186,8 +195,18 @@ def get_kind(view_id: str | None = None) -> str:
 
 def set_plot(png_bytes: bytes, *, view_id: str | None = None) -> None:
     st = get_view_state(view_id)
+    vid = view_id or _ACTIVE_VIEW_ID
+
     st.kind = "plot"
     st.plot_png = png_bytes
+
+    st.artifact = Artifact(
+        kind="plot",
+        obj=png_bytes,
+        created_at=datetime.now(timezone.utc),
+        view_id=vid,
+    )
+
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
 
@@ -204,11 +223,31 @@ def has_plot(*, view_id: str | None = None) -> bool:
     return st.plot_png is not None
 
 
-def set_table(df: pd.DataFrame, html_simple: str | None, *, view_id: str | None = None) -> None:
+def set_table(
+    df: pd.DataFrame,
+    html_simple: str | None,
+    *,
+    view_id: str | None = None,
+    total_rows: int | None = None,
+    returned_rows: int | None = None,
+) -> None:
     st = get_view_state(view_id)
+    vid = view_id or _ACTIVE_VIEW_ID
+
     st.kind = "table"
     st.table_df = df
     st.table_html_simple = html_simple
+
+    st.table_total_rows = total_rows
+    st.table_returned_rows = returned_rows
+
+    st.artifact = Artifact(
+        kind="table",
+        obj=df,
+        created_at=datetime.now(timezone.utc),
+        view_id=vid,
+    )
+
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
 
@@ -216,6 +255,18 @@ def set_table(df: pd.DataFrame, html_simple: str | None, *, view_id: str | None 
 def has_table(*, view_id: str | None = None) -> bool:
     st = get_view_state(view_id)
     return st.table_df is not None
+
+
+def has_artifact(*, view_id: str | None = None) -> bool:
+    st = get_view_state(view_id)
+    return st.artifact is not None
+
+
+def get_artifact(*, view_id: str | None = None) -> Artifact:
+    st = get_view_state(view_id)
+    if st.artifact is None:
+        raise LookupError("No artifact available")
+    return st.artifact
 
 
 def get_table_df(*, view_id: str | None = None) -> pd.DataFrame:
@@ -230,6 +281,11 @@ def get_table_html_simple(*, view_id: str | None = None) -> str:
     if st.table_html_simple is None:
         raise LookupError("No simple HTML table available")
     return st.table_html_simple
+
+
+def get_table_counts(*, view_id: str | None = None) -> tuple[int | None, int | None]:
+    st = get_view_state(view_id)
+    return (st.table_total_rows, st.table_returned_rows)
 
 
 # ------------------------------------------------------------------------------

@@ -409,6 +409,18 @@ def render_index(
           font-size: 0.8rem;
           color: #666;
         }}
+        
+        .badge {{
+          display: inline-block;
+          font-size: 0.72rem;
+          padding: 0.12rem 0.45rem;
+          border-radius: 999px;
+          border: 1px solid #e48b8b;
+          color: #792424;
+          background: #ffecec;
+          margin-left: 0.4rem;
+        }}
+
       </style>
     </head>
     <body>
@@ -572,6 +584,23 @@ def render_index(
           }}
 
           const data = await res.json();
+          
+          const status = document.getElementById("status");
+          if (status) {{
+            const total = Number(data.total_rows ?? 0);
+            const returned = Number(data.returned_rows ?? (data.rows ? data.rows.length : 0));
+
+            if (total > 0 && returned > 0) {{
+              const isTrunc = returned < total;
+              status.innerHTML =
+                `Showing ${{returned}} of ${{total}} rows (rich table mode).` +
+                (isTrunc ? ` <span class="badge" title="This view is showing a sampled subset of the full data.">TRUNCATED</span>` : "");
+            }} else {{
+              status.textContent = `Showing up to ${{max_table_rows_rich}} rows (rich table mode).`;
+            }}
+          }}
+
+          
           const columns = data.columns.map(col => ({{ title: col, field: col }}));
           const rows = data.rows;
 

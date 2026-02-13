@@ -180,10 +180,10 @@ def _to_publish_payload(
 
     # table
     df = _to_dataframe(obj)
-    sample = df_to_rich_sample(df, max_rows=config.MAX_TABLE_ROWS_RICH)
+    sample = df_to_rich_sample(df, max_rows=config.get_max_table_rows_rich())
     payload["table"] = sample
     payload["table_html_simple"] = df_to_html_simple(
-        df, max_rows=config.MAX_TABLE_ROWS_SIMPLE
+        df, max_rows=config.get_max_table_rows_simple()
     )
     return payload
 
