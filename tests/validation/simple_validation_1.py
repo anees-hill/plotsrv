@@ -81,14 +81,10 @@ stop_server()
 
 # CLI tests =====================================
 
-# import subprocess as sp
+# plotsrv run src --host 127.0.0.1 --port 8000
+# plotsrv run plotsrv --host 127.0.0.1 --port 8000
+# plotsrv run plotsrv.dev_validate3 --host 127.0.0.1 --port 8000
+# plotsrv run plotsrv.dev_validate3:plot_mem_percent --host 127.0.0.1 --port 8000 # << expect fail due to argparse clash !
 
-# sp.run(
-#     "plotsrv run plotsrv.dev_validate:test_titanic_plot --host 127.0.0.1 --port 8000",
-#     shell=True,
-# )
-
-# sp.run(
-#     "plotsrv run plotsrv.dev_validate:test_titanic_plot --host 127.0.0.1 --port 8000 --refresh-rate 5",
-#     shell=True,
-# )
+# Demo module
+# python -m plotsrv.dev_validate3
