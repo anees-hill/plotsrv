@@ -5,6 +5,8 @@ import argparse
 import sys
 import time
 from pathlib import Path
+import importlib.util
+from typing import Any
 
 from .service import RunnerService, ServiceConfig
 from .server import start_server, stop_server
@@ -71,13 +73,23 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    run_p.add_argument(
+        "--include",
+        action="append",
+        default=[],
+        help=(
+            "Include ONLY discovered views by label, section, or full view_id (section:label). "
+            "Repeatable and/or comma-separated. Example: --include 'Resource Usage' --include 'CPU%%' --include 'etl:import'"
+        ),
+    )
+
     return p
 
 
-def _norm_excludes(raw: list[str]) -> set[str]:
+def _norm_tokens(raw: list[str]) -> set[str]:
     """
-    Normalize exclude tokens.
-    - allow repeating --exclude
+    Normalize include/exclude tokens.
+    - allow repeating flags
     - allow comma-separated lists in a single flag
     """
     out: set[str] = set()
@@ -98,6 +110,20 @@ def _view_id_for(dv: DiscoveredView) -> str:
     return f"{sec}:{lab}"
 
 
+def _is_included(dv: DiscoveredView, includes: set[str]) -> bool:
+    """
+    If includes is empty => allow all.
+    Otherwise allow if token matches label, section, or full view id.
+    """
+    if not includes:
+        return True
+
+    sec = dv.section or "default"
+    lab = dv.label
+    vid = _view_id_for(dv)
+    return (lab in includes) or (sec in includes) or (vid in includes)
+
+
 def _is_excluded(dv: DiscoveredView, excludes: set[str]) -> bool:
     if not excludes:
         return False
@@ -110,8 +136,42 @@ def _is_excluded(dv: DiscoveredView, excludes: set[str]) -> bool:
     return (lab in excludes) or (sec in excludes) or (vid in excludes)
 
 
+def _resolve_target_to_path_if_importable(target: str) -> str | None:
+    """
+    If target is importable as a module/package (and not module:function),
+    return the filesystem path for passive scanning.
+
+    - package -> package directory
+    - module  -> module .py file
+    """
+    if ":" in target:
+        return None
+
+    spec = importlib.util.find_spec(target)
+    if spec is None:
+        return None
+
+    # package
+    if spec.submodule_search_locations:
+        locs = list(spec.submodule_search_locations)
+        if locs:
+            return str(Path(locs[0]).resolve())
+
+    # module
+    if spec.origin:
+        return str(Path(spec.origin).resolve())
+
+    return None
+
+
 def _run_passive_dir_mode(
-    target: str, *, host: str, port: int, quiet: bool, excludes: set[str]
+    target: str,
+    *,
+    host: str,
+    port: int,
+    quiet: bool,
+    excludes: set[str],
+    includes: set[str],
 ) -> int:
     """
     Passive mode:
@@ -122,8 +182,13 @@ def _run_passive_dir_mode(
     """
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
-    # discovery + filtering
-    discovered = [dv for dv in discover_views(target) if not _is_excluded(dv, excludes)]
+    # discovery + filtering (include first, then exclude)
+    discovered_all = discover_views(target)
+    discovered = [
+        dv
+        for dv in discovered_all
+        if _is_included(dv, includes) and not _is_excluded(dv, excludes)
+    ]
 
     if len(discovered) == 0:
         # still start with a default view so UI isn't empty
@@ -161,14 +226,19 @@ def _run_passive_dir_mode(
         return 0
 
 
+def _die(msg: str) -> int:
+    print(f"plotsrv: error: {msg}", file=sys.stderr)
+    return 2
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.cmd == "run":
-        excludes = _norm_excludes(getattr(args, "exclude", []))
+        excludes = _norm_tokens(getattr(args, "exclude", []))
+        includes = _norm_tokens(getattr(args, "include", []))
 
-        # Directory mode:
-        # - if target exists as file/dir AND does not contain ":" => passive scan mode
+        # Passive filesystem mode:
         p = Path(args.target)
         if ":" not in args.target and p.exists():
             return _run_passive_dir_mode(
@@ -177,6 +247,19 @@ def main(argv: list[str] | None = None) -> int:
                 port=args.port,
                 quiet=args.quiet,
                 excludes=excludes,
+                includes=includes,
+            )
+
+        # Passive importable mode (package/module)
+        resolved = _resolve_target_to_path_if_importable(args.target)
+        if resolved is not None:
+            return _run_passive_dir_mode(
+                resolved,
+                host=args.host,
+                port=args.port,
+                quiet=args.quiet,
+                excludes=excludes,
+                includes=includes,
             )
 
         # Callable mode:
@@ -198,7 +281,21 @@ def main(argv: list[str] | None = None) -> int:
             keep_alive=keep_alive,
             quiet=args.quiet,
         )
-        svc = RunnerService(cfg)
+
+        try:
+            svc = RunnerService(cfg)
+        except ValueError as e:
+            # e.g. loader parse requiring package.module:function
+            return _die(str(e))
+        except SystemExit as e:
+            return _die(
+                "Target import exited early (SystemExit). This commonly happens when the target "
+                "module calls argparse.parse_args() at import time.\n"
+                "Fix: move argument parsing under `if __name__ == '__main__':` in the target module, "
+                "or run passive scan mode instead (e.g. point plotsrv at a directory/package)."
+            )
+        except Exception as e:
+            return _die(f"{type(e).__name__}: {e}")
 
         try:
             svc.run()
