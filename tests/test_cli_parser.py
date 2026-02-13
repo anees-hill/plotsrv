@@ -1,3 +1,4 @@
+# tests/test_cli_parser.py
 from __future__ import annotations
 
 from plotsrv.cli import build_parser
@@ -28,7 +29,7 @@ def test_cli_parses_run_args() -> None:
 
 def test_cli_parses_exclude_args() -> None:
     """
-    G4: Parser should accept repeated --exclude arguments.
+    Parser should accept repeated --exclude arguments.
     """
     p = build_parser()
     args = p.parse_args(
@@ -44,3 +45,23 @@ def test_cli_parses_exclude_args() -> None:
     assert args.cmd == "run"
     assert args.target == "src"
     assert args.exclude == ["Resource Usage:MEM%", "etl-1:metrics"]
+
+
+def test_cli_parses_include_args() -> None:
+    """
+    Parser should accept repeated --include arguments.
+    """
+    p = build_parser()
+    args = p.parse_args(
+        [
+            "run",
+            "src",
+            "--include",
+            "Resource Usage",
+            "--include",
+            "etl-1:metrics",
+        ]
+    )
+    assert args.cmd == "run"
+    assert args.target == "src"
+    assert args.include == ["Resource Usage", "etl-1:metrics"]
