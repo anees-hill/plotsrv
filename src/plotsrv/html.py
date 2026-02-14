@@ -7,7 +7,7 @@ from .config import TableViewMode
 from .store import ViewMeta
 from .ui_config import UISettings, get_ui_settings
 
-ViewKind = Literal["none", "plot", "table"]
+ViewKind = Literal["none", "plot", "table", "artifact"]
 
 
 def render_index(
@@ -35,7 +35,8 @@ def render_index(
     # --- Head deps -------------------------------------------------------------
 
     tabulator_head = ""
-    include_tabulator = kind == "table" and table_view_mode != "simple"
+    include_tabulator = kind in ("table", "artifact") and table_view_mode != "simple"
+
     extra_css = ""
 
     if include_tabulator:
@@ -211,6 +212,45 @@ def render_index(
           {statusline_html}
 
           {help_note}
+        """
+    elif kind == "artifact":
+        # We'll render a generic artifact container and fetch /artifact on load.
+        # Buttons match existing UX patterns.
+        artifact_controls = """
+            <button type="button" onclick="refreshArtifact()">Refresh</button>
+        """
+
+        if ui.export_image:
+            # harmless even if current artifact isn't a plot; only works when /plot exists
+            artifact_controls += """
+            <button type="button" onclick="exportImage()">Export image</button>
+            """
+
+        if ui.export_table:
+            artifact_controls += """
+            <button type="button" onclick="exportTable()">Export table</button>
+            """
+
+        artifact_controls += _terminate_button_html()
+
+        main_content = f"""
+          <div class="plot-frame">
+            <div style="width:100%;">
+              <div id="artifact-topline" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                <span id="artifact-kind" class="note" style="margin:0;"></span>
+                <span id="artifact-truncation" class="note" style="margin:0;"></span>
+              </div>
+              <div id="artifact-root"></div>
+            </div>
+          </div>
+
+          <div class="controls">
+            {artifact_controls}
+          </div>
+
+          {statusline_html}
+
+          <div class="note" id="status"></div>
         """
 
     else:
@@ -420,6 +460,19 @@ def render_index(
           background: #ffecec;
           margin-left: 0.4rem;
         }}
+        
+        .badge {{
+          display: inline-block;
+          padding: 0.1rem 0.45rem;
+          border-radius: 999px;
+          border: 1px solid #e48b8b;
+          color: #792424;
+          background: #ffecec;
+          font-size: 0.75rem;
+          font-weight: 600;
+          letter-spacing: 0.02em;
+        }}
+
 
       </style>
     </head>
@@ -643,6 +696,11 @@ def render_index(
             return;
           }}
 
+          if (document.getElementById("artifact-root")) {{
+            loadArtifact().then(() => refreshStatus());
+            return;
+          }}
+
           if (document.getElementById("table-grid")) {{
             loadTable().then(() => refreshStatus());
             return;
@@ -693,13 +751,78 @@ def render_index(
 
         document.addEventListener("DOMContentLoaded", function () {{
           refreshStatus();
-          if (document.getElementById("table-grid")) {{
+
+          if (document.getElementById("artifact-root")) {{
+            loadArtifact().then(() => refreshStatus());
+          }} else if (document.getElementById("table-grid")) {{
             loadTable().then(() => refreshStatus());
           }}
+
           _bindAutoRefreshControls();
           _bindViewDropdown();
           _restoreAutoRefreshState();
         }});
+        
+        function _escapeHtml(s) {{
+          return String(s)
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#39;");
+        }}
+
+        function _renderTruncationBadge(trunc) {{
+          const el = document.getElementById("artifact-truncation");
+          if (!el) return;
+
+          if (!trunc || !trunc.truncated) {{
+            el.innerHTML = "";
+            return;
+          }}
+
+          const reason = trunc.reason ? " — " + _escapeHtml(trunc.reason) : "";
+          const details = trunc.details ? " (" + _escapeHtml(trunc.details) + ")" : "";
+          el.innerHTML = `<span class="badge">TRUNCATED</span><span class="note" style="margin-left:0.35rem;">${{reason}}${{details}}</span>`;
+        }}
+
+        async function loadArtifact() {{
+          const root = document.getElementById("artifact-root");
+          if (!root) return;
+
+          try {{
+            const res = await fetch("/artifact?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
+            if (!res.ok) {{
+              root.innerHTML = `<div class="note">Failed to load artifact (${{res.status}}).</div>`;
+              _renderTruncationBadge(null);
+              return;
+            }}
+
+            const data = await res.json();
+
+            const kindEl = document.getElementById("artifact-kind");
+            if (kindEl) {{
+              kindEl.textContent = data.kind ? ("Kind: " + data.kind) : "";
+            }}
+
+            root.innerHTML = data.html || "";
+            _renderTruncationBadge(data.truncation || null);
+
+            // If the artifact is a table renderer placeholder, ensure data loads
+            if (document.getElementById("table-grid")) {{
+              await loadTable();
+            }}
+          }} catch (e) {{
+            root.innerHTML = `<div class="note">Failed to load artifact (network error).</div>`;
+            _renderTruncationBadge(null);
+          }}
+        }}
+
+        function refreshArtifact() {{
+          loadArtifact().then(() => refreshStatus());
+        }}
+
+        
       </script>
     </body>
     </html>

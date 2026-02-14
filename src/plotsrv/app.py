@@ -274,6 +274,9 @@ def index(view: str | None = None) -> HTMLResponse:
     active_view = store.get_active_view_id()
     kind = store.get_kind(active_view)
 
+    if hasattr(store, "has_artifact") and store.has_artifact(view_id=active_view):
+        kind = "artifact"
+
     table_html_simple = None
     if (
         kind == "table"
