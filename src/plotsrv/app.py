@@ -146,9 +146,10 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
       }
     """
     kind = str(payload.get("kind") or "").strip().lower()
-    if kind not in ("plot", "table"):
+    if kind not in ("plot", "table", "artifact"):
         raise HTTPException(
-            status_code=422, detail="publish: kind must be 'plot' or 'table'"
+            status_code=422,
+            detail="publish: kind must be 'plot', 'table', or 'artifact'",
         )
 
     section = payload.get("section")
@@ -208,6 +209,38 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
+
+    elif kind == "artifact":
+        artifact_kind = payload.get("artifact_kind")
+        if not isinstance(artifact_kind, str) or not artifact_kind.strip():
+            raise HTTPException(
+                status_code=422,
+                detail="publish: artifact_kind is required for kind='artifact'",
+            )
+
+        # We store the artifact payload “as-is” (string or JSON-like)
+        artifact_obj = payload.get("artifact")
+
+        # store.set_artifact should exist from your earlier store changes
+        store.set_artifact(
+            obj=artifact_obj,
+            kind=artifact_kind.strip().lower(),
+            label=label,
+            section=section,
+            view_id=view_id,
+        )
+
+        store.register_view(
+            view_id=view_id,
+            section=section,
+            label=label,
+            kind="artifact",
+            activate_if_first=False,
+        )
+        store.mark_success(duration_s=None, view_id=view_id)
+        store.note_publish(view_id, now_s=now_s)
+
+        return {"ok": True, "ignored": False, "view_id": view_id}
 
     else:
         table = payload.get("table")

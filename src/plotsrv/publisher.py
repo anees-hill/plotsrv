@@ -155,6 +155,14 @@ def _to_figure(obj: Any | None) -> Any:
     )
 
 
+def _infer_artifact_kind(obj: Any) -> str:
+    if isinstance(obj, str):
+        return "text"
+    if isinstance(obj, (dict, list, tuple, set)):
+        return "json"
+    return "python"
+
+
 def _to_publish_payload(
     obj: Any,
     *,
@@ -178,6 +186,20 @@ def _to_publish_payload(
         payload["plot_png_b64"] = base64.b64encode(png).decode("utf-8")
         return payload
 
+    if kind == "artifact":
+        artifact_kind = _infer_artifact_kind(obj)
+        payload["artifact_kind"] = artifact_kind
+
+        if artifact_kind == "text":
+            payload["artifact"] = obj
+        elif artifact_kind == "json":
+            payload["artifact"] = _json_safe(obj)
+        else:
+            # "python" => repr string (safe to transmit)
+            payload["artifact"] = repr(obj)
+
+        return payload
+
     # table
     df = _to_dataframe(obj)
     sample = df_to_rich_sample(df, max_rows=config.get_max_table_rows_rich())
@@ -186,6 +208,29 @@ def _to_publish_payload(
         df, max_rows=config.get_max_table_rows_simple()
     )
     return payload
+
+
+def publish_artifact(
+    obj: Any,
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    label: str,
+    section: str | None = None,
+    update_limit_s: int | None = None,
+    force: bool = False,
+) -> None:
+    # Force kind="artifact"
+    publish_view(
+        obj,
+        host=host,
+        port=port,
+        label=label,
+        section=section,
+        update_limit_s=update_limit_s,
+        force=force,
+        kind="artifact",
+    )
 
 
 def publish_view(

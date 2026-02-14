@@ -252,6 +252,37 @@ def set_table(
     st.status["last_error"] = None
 
 
+def set_artifact(
+    *,
+    obj: Any,
+    kind: str,
+    label: str | None = None,
+    section: str | None = None,
+    view_id: str | None = None,
+) -> None:
+    """
+    Store an arbitrary artifact for the view.
+
+    Note: we do NOT force `st.kind = "artifact"` here because existing UX still
+    treats "plot" and "table" as first-class. The artifact itself carries the
+    true kind ("text"/"json"/"python"/"plot"/"table"/etc).
+    """
+    st = get_view_state(view_id)
+    vid = view_id or _ACTIVE_VIEW_ID
+
+    st.artifact = Artifact(
+        kind=kind,  # e.g. "text"|"json"|"python" (or "plot"/"table" too)
+        obj=obj,
+        created_at=datetime.now(timezone.utc),
+        label=label,
+        section=section,
+        view_id=vid,
+    )
+
+    st.status["last_updated"] = _now_iso()
+    st.status["last_error"] = None
+
+
 def has_table(*, view_id: str | None = None) -> bool:
     st = get_view_state(view_id)
     return st.table_df is not None
