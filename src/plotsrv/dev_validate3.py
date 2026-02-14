@@ -66,6 +66,7 @@ print("system_snapshot source file:", inspect.getsourcefile(system_snapshot))
 print("system_snapshot repr:", system_snapshot)
 
 
+@plotsrv
 def x_scale_picker(observation_count: int) -> [str, str]:
     if observation_count < 360:
         date_breaks_selection = "1 minute"

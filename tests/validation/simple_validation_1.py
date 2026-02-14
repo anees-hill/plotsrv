@@ -79,6 +79,7 @@ print("df 2 (polars) up - rich view")
 time.sleep(10)
 stop_server()
 
+
 # CLI tests =====================================
 
 # plotsrv run src --host 127.0.0.1 --port 8000
@@ -88,3 +89,10 @@ stop_server()
 
 # Demo module
 # python -m plotsrv.dev_validate3
+
+# Renderer detection checks
+from plotsrv import store
+from plotsrv.renderers.registry import render_any
+
+print(render_any({"a": {"b": [1, 2, 3]}}, view_id="default").kind)  # expect 'json'
+print(render_any("hello", view_id="default").kind)  # expect 'text'
