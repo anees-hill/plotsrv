@@ -6,9 +6,11 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Literal, TypeVar, overload
 
-from .publisher import publish_view
+from .publisher import publish_view, publish_artifact
 
-PlotsrvKind = Literal["plot", "table"]
+
+PlotsrvKind = Literal["plot", "table", "artifact"]
+
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -47,15 +49,28 @@ def _wrap_with_publish(func: F, spec: PlotsrvSpec) -> F:
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         out = func(*args, **kwargs)
         try:
-            publish_view(
-                out,
-                kind=spec.kind,
-                label=spec.label or func.__name__,
-                section=spec.section,
-                host=spec.host or "127.0.0.1",
-                port=int(spec.port),
-                update_limit_s=spec.update_limit_s,
-            )
+            if spec.kind == "artifact":
+                publish_artifact(
+                    out,
+                    label=spec.label or func.__name__,
+                    section=spec.section,
+                    host=spec.host or "127.0.0.1",
+                    port=int(spec.port),
+                    update_limit_s=spec.update_limit_s,
+                    force=False,
+                )
+            else:
+                publish_view(
+                    out,
+                    kind=spec.kind,
+                    label=spec.label or func.__name__,
+                    section=spec.section,
+                    host=spec.host or "127.0.0.1",
+                    port=int(spec.port),
+                    update_limit_s=spec.update_limit_s,
+                    force=False,
+                )
+
         except Exception:
             if os.environ.get("PLOTSRV_DEBUG", "").strip() == "1":
                 raise
@@ -130,6 +145,44 @@ def table(
     def decorator(func: F) -> F:
         spec = PlotsrvSpec(
             kind="table",
+            label=label,
+            section=section,
+            host=host,
+            port=port,
+            update_limit_s=update_limit_s,
+        )
+        f2 = _attach_spec(func, spec)
+        return _wrap_with_publish(f2, spec)
+
+    return decorator
+
+
+@overload
+def plotsrv(
+    *,
+    label: str | None = None,
+    section: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    update_limit_s: int | None = None,
+) -> Callable[[F], F]: ...
+def plotsrv(
+    *,
+    label: str | None = None,
+    section: str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    update_limit_s: int | None = None,
+) -> Callable[[F], F]:
+    """
+    Decorator: marks a function as a plotsrv *artifact* producer.
+
+    Publishes arbitrary Python objects (text/json/python) via /publish kind="artifact".
+    """
+
+    def decorator(func: F) -> F:
+        spec = PlotsrvSpec(
+            kind="artifact",
             label=label,
             section=section,
             host=host,
