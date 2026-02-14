@@ -170,7 +170,7 @@ def refresh_view(
     if obj is not None and _object_is_dataframe(obj):
         df = _object_to_dataframe(obj)
         if config.get_table_view_mode() == "simple":
-            html_simple = df_to_html_simple(df, config.MAX_TABLE_ROWS_SIMPLE)
+            html_simple = df_to_html_simple(df, config.get_max_table_rows_simple())
         else:
             html_simple = None
 

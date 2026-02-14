@@ -11,6 +11,7 @@ TableViewMode = Literal["simple", "rich"]
 TABLE_VIEW_MODE: TableViewMode = "rich"
 MAX_TABLE_ROWS_SIMPLE: int = 200
 MAX_TABLE_ROWS_RICH: int = 1000
+_MAX_TABLE_ROWS_INF: int = 1_000_000_000
 
 # ------------------------------------------------------------------------------
 # Plot rendering defaults (static PNG generation)
@@ -32,6 +33,7 @@ _LOADED_RENDER_SETTINGS: bool = False
 
 
 def get_table_view_mode() -> TableViewMode:
+    _load_ini_settings_once()
     return TABLE_VIEW_MODE
 
 
@@ -80,17 +82,50 @@ def _resolve_ini_path() -> Path | None:
     return None
 
 
-def _load_render_settings_once() -> None:
-    """
-    Read render-related settings from plotsrv.ini once.
+def _parse_table_view_mode(raw: str, default: TableViewMode) -> TableViewMode:
+    s = _strip_quotes(raw).strip().lower()
+    if s in ("simple", "rich"):
+        return s  # type: ignore[return-value]
+    return default
 
-    Section: [render-settings]
+
+def _parse_int_or_inf(raw: str, *, default: int, min_value: int = 1) -> int:
+    s = _strip_quotes(raw).strip().lower()
+
+    if s in ("inf", "infinity", "none", "null", ""):
+        return _MAX_TABLE_ROWS_INF
+
+    try:
+        n = int(float(s))  # allow "1000.0"
+        if n >= min_value:
+            return n
+    except Exception:
+        pass
+
+    return default
+
+
+def _load_ini_settings_once() -> None:
+    """
+    Read settings from plotsrv.ini once.
+
+    Sections:
+
+    [table-settings]
+      table_view_mode = rich
+      max_table_rows_simple = 200
+      max_table_rows_rich = 1000
+      # use "inf" to effectively disable limits:
+      # max_table_rows_rich = inf
+
+    [render-settings]
       plot_dpi = 200
       plot_default_figsize_in = 12,6   # or blank to disable
       plot_bbox_tight = true
       plot_pad_inches = 0.10
     """
     global _LOADED_RENDER_SETTINGS
+    global TABLE_VIEW_MODE, MAX_TABLE_ROWS_SIMPLE, MAX_TABLE_ROWS_RICH
     global PLOT_DPI, PLOT_DEFAULT_FIGSIZE_IN, PLOT_BBOX_TIGHT, PLOT_PAD_INCHES
 
     if _LOADED_RENDER_SETTINGS:
@@ -104,13 +139,49 @@ def _load_render_settings_once() -> None:
     cfg = configparser.ConfigParser()
     cfg.read(ini_path)
 
-    section = "render-settings"
-    if not cfg.has_section(section):
+    # ----------------------------
+    # table-settings
+    # ----------------------------
+    tsec = "table-settings"
+    if cfg.has_section(tsec):
+        # table_view_mode
+        try:
+            raw_mode = cfg.get(tsec, "table_view_mode", fallback=str(TABLE_VIEW_MODE))
+            TABLE_VIEW_MODE = _parse_table_view_mode(raw_mode, TABLE_VIEW_MODE)
+        except Exception:
+            pass
+
+        # max_table_rows_simple / rich (supports inf)
+        try:
+            raw = cfg.get(
+                tsec, "max_table_rows_simple", fallback=str(MAX_TABLE_ROWS_SIMPLE)
+            )
+            MAX_TABLE_ROWS_SIMPLE = _parse_int_or_inf(
+                raw, default=MAX_TABLE_ROWS_SIMPLE, min_value=1
+            )
+        except Exception:
+            pass
+
+        try:
+            raw = cfg.get(
+                tsec, "max_table_rows_rich", fallback=str(MAX_TABLE_ROWS_RICH)
+            )
+            MAX_TABLE_ROWS_RICH = _parse_int_or_inf(
+                raw, default=MAX_TABLE_ROWS_RICH, min_value=1
+            )
+        except Exception:
+            pass
+
+    # ----------------------------
+    # render-settings (your existing logic)
+    # ----------------------------
+    rsec = "render-settings"
+    if not cfg.has_section(rsec):
         return
 
     # plot_dpi
     try:
-        dpi = cfg.getint(section, "plot_dpi", fallback=PLOT_DPI)
+        dpi = cfg.getint(rsec, "plot_dpi", fallback=PLOT_DPI)
         if dpi >= 50:
             PLOT_DPI = dpi
     except Exception:
@@ -118,7 +189,7 @@ def _load_render_settings_once() -> None:
 
     # plot_default_figsize_in
     raw_size = _strip_quotes(
-        cfg.get(section, "plot_default_figsize_in", fallback="")
+        cfg.get(rsec, "plot_default_figsize_in", fallback="")
     ).strip()
     if raw_size:
         try:
@@ -128,17 +199,14 @@ def _load_render_settings_once() -> None:
             if w > 0 and h > 0:
                 PLOT_DEFAULT_FIGSIZE_IN = (w, h)
         except Exception:
-            # keep existing default
             pass
     else:
-        # allow disabling via blank
-        # e.g. plot_default_figsize_in =
         PLOT_DEFAULT_FIGSIZE_IN = None
 
     # plot_bbox_tight
     try:
         PLOT_BBOX_TIGHT = cfg.getboolean(
-            section, "plot_bbox_tight", fallback=PLOT_BBOX_TIGHT
+            rsec, "plot_bbox_tight", fallback=PLOT_BBOX_TIGHT
         )
     except Exception:
         pass
@@ -147,7 +215,7 @@ def _load_render_settings_once() -> None:
     try:
         pad = float(
             _strip_quotes(
-                cfg.get(section, "plot_pad_inches", fallback=str(PLOT_PAD_INCHES))
+                cfg.get(rsec, "plot_pad_inches", fallback=str(PLOT_PAD_INCHES))
             )
         )
         if pad >= 0:
@@ -162,20 +230,30 @@ def _load_render_settings_once() -> None:
 
 
 def get_plot_dpi() -> int:
-    _load_render_settings_once()
+    _load_ini_settings_once()
     return int(PLOT_DPI)
 
 
 def get_plot_default_figsize_in() -> tuple[float, float] | None:
-    _load_render_settings_once()
+    _load_ini_settings_once()
     return PLOT_DEFAULT_FIGSIZE_IN
 
 
 def get_plot_bbox_tight() -> bool:
-    _load_render_settings_once()
+    _load_ini_settings_once()
     return bool(PLOT_BBOX_TIGHT)
 
 
 def get_plot_pad_inches() -> float:
-    _load_render_settings_once()
+    _load_ini_settings_once()
     return float(PLOT_PAD_INCHES)
+
+
+def get_max_table_rows_simple() -> int:
+    _load_ini_settings_once()
+    return int(MAX_TABLE_ROWS_SIMPLE)
+
+
+def get_max_table_rows_rich() -> int:
+    _load_ini_settings_once()
+    return int(MAX_TABLE_ROWS_RICH)

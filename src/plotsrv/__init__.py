@@ -13,6 +13,7 @@ from .server import (
 from .config import set_table_view_mode
 from .decorators import plot, table, get_plotsrv_spec, PlotsrvSpec
 from .publisher import plot_launch, publish_view
+from .artifacts import Artifact, ArtifactKind
 
 __all__ = [
     "start_server",
