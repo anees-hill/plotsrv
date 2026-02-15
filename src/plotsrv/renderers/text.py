@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from .base import RenderResult
-from .limits import DEFAULT_TEXT_LIMITS, TextLimits
+from .limits import DEFAULT_TEXT_LIMITS, TextLimits, truncate_text
 from ..artifacts import Truncation
 
 
@@ -20,12 +20,11 @@ class TextRenderer:
 
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         text = _to_text(obj)
+        out, truncation = truncate_text(text, limits=self._limits)
 
-        trunc = _truncate_text(text, limits=self._limits)
-        out = trunc["text"]
-        truncation = trunc["truncation"]
-
-        html = f"<pre>{_escape_html(out)}</pre>"
+        html = (
+            f'<pre class="plotsrv-pre" data-plotsrv-pre="1">{_escape_html(out)}</pre>'
+        )
         return RenderResult(
             kind="text",
             html=html,

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .base import RenderResult
-from .limits import DEFAULT_JSON_LIMITS, JsonLimits
+from .limits import DEFAULT_JSON_LIMITS, JsonLimits, safe_scalar_text
 from ..artifacts import Truncation
 
 
@@ -149,12 +149,10 @@ def _render_list(xs: list[Any], *, ctx: _JsonCtx, depth: int, label: str) -> str
 
 
 def _render_scalar(x: Any, *, ctx: _JsonCtx, label: str) -> str:
-    s = str(x)
-    if len(s) > ctx.limits.max_string_chars:
+    s, was_trunc = safe_scalar_text(x, max_chars=ctx.limits.max_string_chars)
+    if was_trunc:
         ctx.truncated = True
         ctx.hit = ctx.hit or "max_string_chars"
-        s = s[: ctx.limits.max_string_chars] + "…"
-
     return f"<span><strong>{_escape_html(label)}</strong>: {_escape_html(s)}</span>"
 
 
