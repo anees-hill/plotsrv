@@ -7,7 +7,11 @@ import time
 from pathlib import Path
 import importlib.util
 from typing import Any
+import json
+import os
+import threading
 
+from .publisher import publish_artifact
 from .service import RunnerService, ServiceConfig
 from .server import start_server, stop_server
 from . import store
@@ -18,6 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="plotsrv", description="plotsrv - serve plots/tables easily"
     )
+    # [plotsrv].[RUN]
     sub = p.add_subparsers(dest="cmd", required=True)
 
     run_p = sub.add_parser(
@@ -81,6 +86,98 @@ def build_parser() -> argparse.ArgumentParser:
             "Include ONLY discovered views by label, section, or full view_id (section:label). "
             "Repeatable and/or comma-separated. Example: --include 'Resource Usage' --include 'CPU%%' --include 'etl:import'"
         ),
+    )
+
+    run_p.add_argument(
+        "--watch",
+        action="append",
+        default=[],
+        help=(
+            "Watch a file and publish it as an artifact view. "
+            "Repeatable. Example: --watch /var/log/app.log --watch ./data.json"
+        ),
+    )
+    run_p.add_argument(
+        "--watch-kind",
+        choices=["auto", "text", "json"],
+        default="auto",
+        help="How to interpret watched files (default: auto; .json => json else text).",
+    )
+    run_p.add_argument(
+        "--watch-every",
+        type=float,
+        default=1.0,
+        help="Watch poll interval seconds (default: 1.0).",
+    )
+    run_p.add_argument(
+        "--watch-max-bytes",
+        type=int,
+        default=200_000,
+        help="Read at most N bytes from watched files (default: 200000).",
+    )
+    run_p.add_argument(
+        "--watch-encoding",
+        default="utf-8",
+        help="Text encoding for watched files (default: utf-8).",
+    )
+    run_p.add_argument(
+        "--watch-section",
+        default="watch",
+        help="Section name for watched views (default: watch).",
+    )
+    run_p.add_argument(
+        "--watch-update-limit-s",
+        type=int,
+        default=None,
+        help="Server-side throttle window for watched publishes (default: none).",
+    )
+    run_p.add_argument(
+        "--watch-force",
+        action="store_true",
+        help="Bypass server throttling for watched publishes.",
+    )
+
+    # [plotsrv].[WATCH]
+    watch_p = sub.add_parser("watch", help="Watch a text/JSON file and publish it live")
+    watch_p.add_argument("path", help="Path to a text/log/json file")
+    watch_p.add_argument("--host", default="127.0.0.1")
+    watch_p.add_argument("--port", type=int, default=8000)
+    watch_p.add_argument(
+        "--every", type=float, default=1.0, help="Poll interval seconds (default: 1.0)"
+    )
+    watch_p.add_argument(
+        "--kind",
+        choices=["auto", "text", "json"],
+        default="auto",
+        help="How to interpret the file",
+    )
+    watch_p.add_argument(
+        "--section", default="watch", help="View section (default: watch)"
+    )
+    watch_p.add_argument("--label", default=None, help="View label (default: filename)")
+    watch_p.add_argument(
+        "--view-id", default=None, help="Explicit view_id (overrides section/label)"
+    )
+    watch_p.add_argument(
+        "--max-bytes",
+        type=int,
+        default=200_000,
+        help="Read at most N bytes (default: 200000)",
+    )
+    watch_p.add_argument(
+        "--encoding", default="utf-8", help="Text encoding (default: utf-8)"
+    )
+    watch_p.add_argument(
+        "--update-limit-s",
+        type=int,
+        default=None,
+        help="Server-side throttle window seconds",
+    )
+    watch_p.add_argument(
+        "--force", action="store_true", help="Bypass server throttling"
+    )
+    watch_p.add_argument(
+        "--quiet", action="store_true", help="Reduce uvicorn logging noise"
     )
 
     return p
@@ -164,6 +261,139 @@ def _resolve_target_to_path_if_importable(target: str) -> str | None:
     return None
 
 
+def _infer_kind_from_path(p: Path) -> str:
+    return "json" if p.suffix.lower() == ".json" else "text"
+
+
+def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
+    max_bytes = max(1, int(max_bytes))
+    with p.open("rb") as f:
+        try:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            start = max(0, size - max_bytes)
+            f.seek(start, os.SEEK_SET)
+        except Exception:
+            f.seek(0)
+        return f.read(max_bytes)
+
+
+def _start_watch_threads(
+    paths: list[str],
+    *,
+    host: str,
+    port: int,
+    every: float,
+    kind: str,  # auto|text|json
+    section: str,
+    max_bytes: int,
+    encoding: str,
+    update_limit_s: int | None,
+    force: bool,
+) -> list[threading.Thread]:
+    threads: list[threading.Thread] = []
+
+    for raw_path in paths:
+        p = Path(raw_path).expanduser().resolve()
+        label = p.name
+        vid = store.normalize_view_id(None, section=section, label=label)
+
+        # Pre-register so dropdown shows it immediately
+        store.register_view(
+            view_id=vid,
+            section=section,
+            label=label,
+            kind="artifact",
+            activate_if_first=False,
+        )
+
+        def _worker(pth: Path = p, view_label: str = label) -> None:
+            last_sig: tuple[int, int] | None = None  # (mtime_ns, size)
+            while True:
+                try:
+                    st = pth.stat()
+                    sig = (
+                        int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
+                        int(st.st_size),
+                    )
+                except Exception:
+                    sig = None
+
+                if sig is not None and sig == last_sig:
+                    time.sleep(max(0.05, float(every)))
+                    continue
+                last_sig = sig
+
+                try:
+                    raw = _read_tail_bytes(pth, max_bytes=max_bytes)
+                except Exception as e:
+                    publish_artifact(
+                        f"[plotsrv watch] read error: {type(e).__name__}: {e}",
+                        host=host,
+                        port=port,
+                        label=view_label,
+                        section=section,
+                        artifact_kind="text",
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+                    time.sleep(max(0.05, float(every)))
+                    continue
+
+                k = kind
+                if k == "auto":
+                    k = _infer_kind_from_path(pth)
+
+                if k == "json":
+                    try:
+                        txt = raw.decode(encoding, errors="replace")
+                        obj = json.loads(txt)
+                        publish_artifact(
+                            obj,
+                            host=host,
+                            port=port,
+                            label=view_label,
+                            section=section,
+                            artifact_kind="json",
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
+                    except Exception as e:
+                        txt = raw.decode(encoding, errors="replace")
+                        publish_artifact(
+                            f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
+                            host=host,
+                            port=port,
+                            label=view_label,
+                            section=section,
+                            artifact_kind="text",
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
+                else:
+                    txt = raw.decode(encoding, errors="replace")
+                    publish_artifact(
+                        txt,
+                        host=host,
+                        port=port,
+                        label=view_label,
+                        section=section,
+                        artifact_kind="text",
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+
+                time.sleep(max(0.05, float(every)))
+
+        t = threading.Thread(
+            target=_worker, name=f"plotsrv-watch:{p.name}", daemon=True
+        )
+        t.start()
+        threads.append(t)
+
+    return threads
+
+
 def _run_passive_dir_mode(
     target: str,
     *,
@@ -172,6 +402,14 @@ def _run_passive_dir_mode(
     quiet: bool,
     excludes: set[str],
     includes: set[str],
+    watch_paths: list[str] | None = None,
+    watch_kind: str = "auto",
+    watch_every: float = 1.0,
+    watch_section: str = "watch",
+    watch_max_bytes: int = 200_000,
+    watch_encoding: str = "utf-8",
+    watch_update_limit_s: int | None = None,
+    watch_force: bool = False,
 ) -> int:
     """
     Passive mode:
@@ -181,6 +419,20 @@ def _run_passive_dir_mode(
       - wait forever until Ctrl+C or /shutdown
     """
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+
+    if watch_paths:
+        _start_watch_threads(
+            watch_paths,
+            host=host,
+            port=port,
+            every=watch_every,
+            kind=watch_kind,
+            section=watch_section,
+            max_bytes=watch_max_bytes,
+            encoding=watch_encoding,
+            update_limit_s=watch_update_limit_s,
+            force=watch_force,
+        )
 
     # discovery + filtering (include first, then exclude)
     discovered_all = discover_views(target)
@@ -231,12 +483,149 @@ def _die(msg: str) -> int:
     return 2
 
 
+def _infer_kind_from_path(p: Path) -> str:
+    if p.suffix.lower() == ".json":
+        return "json"
+    return "text"
+
+
+def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
+    max_bytes = max(1, int(max_bytes))
+    with p.open("rb") as f:
+        try:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            start = max(0, size - max_bytes)
+            f.seek(start, os.SEEK_SET)
+        except Exception:
+            f.seek(0)
+        return f.read(max_bytes)
+
+
+def _run_watch_mode(
+    path: str,
+    *,
+    host: str,
+    port: int,
+    every: float,
+    kind: str,
+    section: str,
+    label: str | None,
+    view_id: str | None,
+    max_bytes: int,
+    encoding: str,
+    update_limit_s: int | None,
+    force: bool,
+    quiet: bool,
+) -> int:
+    p = Path(path).expanduser().resolve()
+    if not p.exists() or not p.is_file():
+        return _die(f"watch: file not found: {p}")
+
+    start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+
+    # view identity
+    view_label = label or p.name
+    vid = store.normalize_view_id(view_id, section=section, label=view_label)
+    store.register_view(
+        view_id=vid,
+        section=section,
+        label=view_label,
+        kind="artifact",
+        activate_if_first=False,
+    )
+    store.set_active_view(vid)
+
+    store.set_service_info(service_mode=True, target=f"watch:{p}", refresh_rate_s=None)
+
+    last_sig: tuple[int, int] | None = None  # (mtime_ns, size)
+
+    try:
+        while True:
+            try:
+                st = p.stat()
+                sig = (
+                    int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
+                    int(st.st_size),
+                )
+            except Exception:
+                sig = None
+
+            if sig is not None and sig == last_sig:
+                time.sleep(max(0.05, float(every)))
+                continue
+            last_sig = sig
+
+            raw = _read_tail_bytes(p, max_bytes=max_bytes)
+
+            k = kind
+            if k == "auto":
+                k = _infer_kind_from_path(p)
+
+            if k == "json":
+                try:
+                    txt = raw.decode(encoding, errors="replace")
+                    obj = json.loads(txt)
+                    publish_artifact(
+                        obj,
+                        host=host,
+                        port=port,
+                        label=view_label,
+                        section=section,
+                        artifact_kind="json",
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+                except Exception as e:
+                    # fallback to text with an error prefix
+                    txt = raw.decode(encoding, errors="replace")
+                    obj = f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}"
+                    publish_artifact(
+                        obj,
+                        host=host,
+                        port=port,
+                        label=view_label,
+                        section=section,
+                        artifact_kind="text",
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+            else:
+                txt = raw.decode(encoding, errors="replace")
+                publish_artifact(
+                    txt,
+                    host=host,
+                    port=port,
+                    label=view_label,
+                    section=section,
+                    artifact_kind="text",
+                    update_limit_s=update_limit_s,
+                    force=force,
+                )
+
+            time.sleep(max(0.05, float(every)))
+
+    except KeyboardInterrupt:
+        stop_server(join=False)
+        store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
     if args.cmd == "run":
         excludes = _norm_tokens(getattr(args, "exclude", []))
         includes = _norm_tokens(getattr(args, "include", []))
+
+        watch_paths = [w for w in (getattr(args, "watch", []) or []) if str(w).strip()]
+        watch_kind = getattr(args, "watch_kind", "auto")
+        watch_every = float(getattr(args, "watch_every", 1.0))
+        watch_max_bytes = int(getattr(args, "watch_max_bytes", 200_000))
+        watch_encoding = str(getattr(args, "watch_encoding", "utf-8"))
+        watch_section = str(getattr(args, "watch_section", "watch"))
+        watch_update_limit_s = getattr(args, "watch_update_limit_s", None)
+        watch_force = bool(getattr(args, "watch_force", False))
 
         # Passive filesystem mode:
         p = Path(args.target)
@@ -248,6 +637,14 @@ def main(argv: list[str] | None = None) -> int:
                 quiet=args.quiet,
                 excludes=excludes,
                 includes=includes,
+                watch_paths=watch_paths,
+                watch_kind=watch_kind,
+                watch_every=watch_every,
+                watch_max_bytes=watch_max_bytes,
+                watch_encoding=watch_encoding,
+                watch_section=watch_section,
+                watch_update_limit_s=watch_update_limit_s,
+                watch_force=watch_force,
             )
 
         # Passive importable mode (package/module)
@@ -260,6 +657,14 @@ def main(argv: list[str] | None = None) -> int:
                 quiet=args.quiet,
                 excludes=excludes,
                 includes=includes,
+                watch_paths=watch_paths,
+                watch_kind=watch_kind,
+                watch_every=watch_every,
+                watch_max_bytes=watch_max_bytes,
+                watch_encoding=watch_encoding,
+                watch_section=watch_section,
+                watch_update_limit_s=watch_update_limit_s,
+                watch_force=watch_force,
             )
 
         # Callable mode:
@@ -297,12 +702,43 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             return _die(f"{type(e).__name__}: {e}")
 
+        if watch_paths:
+            _start_watch_threads(
+                watch_paths,
+                host=args.host,
+                port=args.port,
+                every=watch_every,
+                kind=watch_kind,
+                section=watch_section,
+                max_bytes=watch_max_bytes,
+                encoding=watch_encoding,
+                update_limit_s=watch_update_limit_s,
+                force=watch_force,
+            )
+
         try:
             svc.run()
             return 0
         except KeyboardInterrupt:
             svc.stop()
             return 0
+
+    if args.cmd == "watch":
+        return _run_watch_mode(
+            args.path,
+            host=args.host,
+            port=args.port,
+            every=args.every,
+            kind=args.kind,
+            section=args.section,
+            label=args.label,
+            view_id=args.view_id,
+            max_bytes=args.max_bytes,
+            encoding=args.encoding,
+            update_limit_s=args.update_limit_s,
+            force=args.force,
+            quiet=args.quiet,
+        )
 
     return 0
 
