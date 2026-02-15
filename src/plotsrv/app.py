@@ -210,26 +210,18 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
 
-    elif kind == "artifact":
-        artifact_kind = payload.get("artifact_kind")
-        if not isinstance(artifact_kind, str) or not artifact_kind.strip():
-            raise HTTPException(
-                status_code=422,
-                detail="publish: artifact_kind is required for kind='artifact'",
-            )
-
-        # We store the artifact payload “as-is” (string or JSON-like)
+    if kind == "artifact":
+        artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
         artifact_obj = payload.get("artifact")
 
-        # store.set_artifact should exist from your earlier store changes
+        # store artifact for /artifact rendering
         store.set_artifact(
             obj=artifact_obj,
-            kind=artifact_kind.strip().lower(),
+            kind=artifact_kind,  # type: ignore[arg-type]  # (or cast to ArtifactKind)
             label=label,
             section=section,
             view_id=view_id,
         )
-
         store.register_view(
             view_id=view_id,
             section=section,
@@ -239,7 +231,6 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
-
         return {"ok": True, "ignored": False, "view_id": view_id}
 
     else:

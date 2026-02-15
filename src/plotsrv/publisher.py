@@ -217,20 +217,59 @@ def publish_artifact(
     port: int = 8000,
     label: str,
     section: str | None = None,
+    artifact_kind: str | None = None,  # "text"|"json"|"python"|None
     update_limit_s: int | None = None,
     force: bool = False,
 ) -> None:
-    # Force kind="artifact"
-    publish_view(
-        obj,
-        host=host,
-        port=port,
-        label=label,
-        section=section,
-        update_limit_s=update_limit_s,
-        force=force,
-        kind="artifact",
+    """
+    Publish a generic artifact (text/json/python) to the server.
+
+    The server should accept kind="artifact" payloads.
+    """
+    debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
+
+    kind2 = (artifact_kind or "").strip().lower() or None
+    if kind2 is None:
+        # sensible inference
+        if isinstance(obj, (dict, list, tuple)):
+            kind2 = "json"
+        elif isinstance(obj, (str, bytes, bytearray)):
+            kind2 = "text"
+        else:
+            kind2 = "python"
+
+    payload: dict[str, Any] = {
+        "kind": "artifact",
+        "artifact_kind": kind2,
+        "artifact": obj,
+        "label": label,
+        "section": section,
+        "update_limit_s": update_limit_s,
+        "force": force,
+    }
+
+    payload = _json_safe(payload)
+
+    url = f"http://{host}:{port}/publish"
+    try:
+        data = json.dumps(payload).encode("utf-8")
+    except Exception:
+        if debug:
+            raise
+        return
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
+
+    try:
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            _ = resp.read()
+    except Exception:
+        return
 
 
 def publish_view(

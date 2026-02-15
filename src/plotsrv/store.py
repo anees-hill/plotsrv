@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 import pandas as pd
-from .artifacts import Artifact
+from .artifacts import Artifact, ArtifactKind, Truncation
 
 
 # ------------------------------------------------------------------------------
@@ -255,28 +255,24 @@ def set_table(
 def set_artifact(
     *,
     obj: Any,
-    kind: str,
+    kind: ArtifactKind,
     label: str | None = None,
     section: str | None = None,
     view_id: str | None = None,
+    truncation: Truncation | None = None,
 ) -> None:
-    """
-    Store an arbitrary artifact for the view.
-
-    Note: we do NOT force `st.kind = "artifact"` here because existing UX still
-    treats "plot" and "table" as first-class. The artifact itself carries the
-    true kind ("text"/"json"/"python"/"plot"/"table"/etc).
-    """
     st = get_view_state(view_id)
     vid = view_id or _ACTIVE_VIEW_ID
 
+    st.kind = "artifact"
     st.artifact = Artifact(
-        kind=kind,  # e.g. "text"|"json"|"python" (or "plot"/"table" too)
+        kind=kind,
         obj=obj,
         created_at=datetime.now(timezone.utc),
         label=label,
         section=section,
         view_id=vid,
+        truncation=truncation,
     )
 
     st.status["last_updated"] = _now_iso()
