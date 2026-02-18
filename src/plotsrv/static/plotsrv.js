@@ -10,6 +10,10 @@
   const LS_AUTO_ENABLED = "plotsrv:auto_refresh_enabled";
   const LS_AUTO_INTERVAL = "plotsrv:auto_refresh_interval";
 
+  // Phase 1 local storage keys
+  const LS_TEXT_WRAP = "plotsrv:text_wrap_enabled"; // global (simple for now)
+  const LS_JSON_FIND = "plotsrv:json_find_query";   // remember last query
+
   let _autoRefreshTimer = null;
   let _tabulatorInstance = null;
 
@@ -81,9 +85,7 @@
 
   async function refreshStatus() {
     try {
-      const res = await fetch(
-        "/status?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now()
-      );
+      const res = await fetch("/status?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
       if (!res.ok) return;
       const s = await res.json();
 
@@ -100,8 +102,7 @@
       if (updatedAgo) updatedAgo.textContent = _fmtAgo(s.last_updated);
 
       if (duration) {
-        duration.textContent =
-          s.last_duration_s == null ? "—" : Number(s.last_duration_s).toFixed(3) + "s";
+        duration.textContent = s.last_duration_s == null ? "—" : Number(s.last_duration_s).toFixed(3) + "s";
       }
 
       if (errWrap && err) {
@@ -114,9 +115,7 @@
         }
       }
 
-      if (mode) {
-        mode.textContent = s.service_mode ? "service" : "interactive";
-      }
+      if (mode) mode.textContent = s.service_mode ? "service" : "interactive";
 
       if (srvRate) {
         if (s.service_mode && s.service_refresh_rate_s) {
@@ -140,16 +139,12 @@
   }
 
   function exportImage() {
-    window.location.href =
-      "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + "&download=1&_ts=" + Date.now();
+    window.location.href = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + "&download=1&_ts=" + Date.now();
   }
 
   function exportTable() {
     window.location.href =
-      "/table/export?view=" +
-      encodeURIComponent(ACTIVE_VIEW) +
-      "&format=csv&_ts=" +
-      Date.now();
+      "/table/export?view=" + encodeURIComponent(ACTIVE_VIEW) + "&format=csv&_ts=" + Date.now();
   }
 
   function terminateServer() {
@@ -168,9 +163,7 @@
     const grid = document.getElementById("table-grid");
     if (!grid) return;
 
-    const res = await fetch(
-      "/table/data?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now()
-    );
+    const res = await fetch("/table/data?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
     if (!res.ok) {
       console.error("Failed to load table data");
       return;
@@ -294,20 +287,240 @@
     }
 
     const reason = trunc.reason ? " — " + _escapeHtml(trunc.reason) : "";
-    const details = trunc.details ? " (" + _escapeHtml(trunc.details) + ")" : "";
+    let details = "";
+
+    // If details is an object, try to show a compact single-line summary.
+    if (trunc.details && typeof trunc.details === "object") {
+      try {
+        const parts = [];
+        for (const [k, v] of Object.entries(trunc.details)) {
+          if (v == null) continue;
+          if (typeof v === "object") continue;
+          parts.push(`${k}=${v}`);
+          if (parts.length >= 4) break;
+        }
+        if (parts.length) details = " (" + _escapeHtml(parts.join(", ")) + ")";
+      } catch (e) {
+        // ignore
+      }
+    } else if (typeof trunc.details === "string") {
+      details = " (" + _escapeHtml(trunc.details) + ")";
+    }
+
     el.innerHTML =
       `<span class="badge">TRUNCATED</span>` +
       `<span class="note" style="margin-left:0.35rem;">${reason}${details}</span>`;
   }
+
+  // ---------------------------------------------------------------------------
+  // Phase 1: Artifact UX enhancements (text + json)
+  // ---------------------------------------------------------------------------
+
+  function _findNearest(el, selector) {
+    if (!el) return null;
+    if (el.closest) return el.closest(selector);
+    return null;
+  }
+
+  async function _copyTextToClipboard(text) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) {
+      // fall back below
+    }
+
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "readonly");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      return !!ok;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function _initTextToolbar(root) {
+    const toolbar = root.querySelector('[data-plotsrv-toolbar="text"]');
+    const pre = root.querySelector('[data-plotsrv-pre="1"]');
+    if (!toolbar || !pre) return;
+
+    if (toolbar.getAttribute("data-plotsrv-bound") === "1") return;
+    toolbar.setAttribute("data-plotsrv-bound", "1");
+
+    // Restore wrap state
+    const wrapEnabled = localStorage.getItem(LS_TEXT_WRAP) === "1";
+    if (wrapEnabled) pre.classList.add("plotsrv-pre--wrap");
+
+    toolbar.addEventListener("click", async function (ev) {
+      const btn = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+      if (!btn) return;
+
+      const action = btn.getAttribute("data-plotsrv-action") || "";
+      if (action === "wrap") {
+        pre.classList.toggle("plotsrv-pre--wrap");
+        localStorage.setItem(LS_TEXT_WRAP, pre.classList.contains("plotsrv-pre--wrap") ? "1" : "0");
+        return;
+      }
+
+      if (action === "copy") {
+        const ok = await _copyTextToClipboard(pre.textContent || "");
+        btn.textContent = ok ? "Copied" : "Copy failed";
+        setTimeout(() => {
+          btn.textContent = "Copy";
+        }, 900);
+        return;
+      }
+    });
+  }
+
+  function _clearJsonHits(tree) {
+    const hits = tree.querySelectorAll(".json-hit, .json-hit-current");
+    hits.forEach((el) => {
+      el.classList.remove("json-hit");
+      el.classList.remove("json-hit-current");
+    });
+  }
+
+  function _initJsonToolbar(root) {
+    const toolbar = root.querySelector('[data-plotsrv-toolbar="json"]');
+    const tree = root.querySelector('[data-plotsrv-json="1"]');
+    const input = root.querySelector("[data-plotsrv-json-find='1']");
+    const countEl = root.querySelector("[data-plotsrv-json-count='1']");
+    if (!toolbar || !tree || !input) return;
+
+    if (toolbar.getAttribute("data-plotsrv-bound") === "1") return;
+    toolbar.setAttribute("data-plotsrv-bound", "1");
+
+    const state = {
+      hits: [],
+      idx: -1,
+    };
+
+    function _setCounter() {
+      if (!countEl) return;
+      if (!state.hits.length) {
+        countEl.textContent = "";
+        return;
+      }
+      countEl.textContent = `${state.idx + 1}/${state.hits.length}`;
+    }
+
+    function _openParents(el) {
+      let cur = el;
+      while (cur) {
+        const det = _findNearest(cur, "details");
+        if (!det) break;
+        det.open = true;
+        cur = det.parentElement;
+      }
+    }
+
+    function _goto(i) {
+      if (!state.hits.length) return;
+
+      state.hits.forEach((el) => el.classList.remove("json-hit-current"));
+      state.idx = (i + state.hits.length) % state.hits.length;
+
+      const el = state.hits[state.idx];
+      el.classList.add("json-hit-current");
+      _openParents(el);
+      try {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+      } catch (e) {
+        el.scrollIntoView();
+      }
+      _setCounter();
+    }
+
+    function _runFind() {
+      const q = String(input.value || "").trim();
+      localStorage.setItem(LS_JSON_FIND, q);
+
+      _clearJsonHits(tree);
+      state.hits = [];
+      state.idx = -1;
+      _setCounter();
+
+      if (!q) return;
+
+      const qLower = q.toLowerCase();
+      const candidates = tree.querySelectorAll("[data-json-text]");
+      candidates.forEach((el) => {
+        const t = (el.getAttribute("data-json-text") || "").toLowerCase();
+        if (!t) return;
+        if (t.includes(qLower)) {
+          el.classList.add("json-hit");
+          state.hits.push(el);
+        }
+      });
+
+      if (state.hits.length) _goto(0);
+    }
+
+    // Restore last query
+    const saved = localStorage.getItem(LS_JSON_FIND);
+    if (saved && !input.value) input.value = saved;
+
+    // Initial find if there is a saved query
+    if (String(input.value || "").trim()) _runFind();
+
+    toolbar.addEventListener("click", function (ev) {
+      const btn = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+      if (!btn) return;
+
+      const action = btn.getAttribute("data-plotsrv-action") || "";
+      if (action === "find-next") {
+        if (!state.hits.length) _runFind();
+        if (state.hits.length) _goto(state.idx + 1);
+        return;
+      }
+      if (action === "find-prev") {
+        if (!state.hits.length) _runFind();
+        if (state.hits.length) _goto(state.idx - 1);
+        return;
+      }
+    });
+
+    input.addEventListener("input", function () {
+      // light debounce
+      if (input._plotsrvTimer) clearTimeout(input._plotsrvTimer);
+      input._plotsrvTimer = setTimeout(_runFind, 120);
+    });
+
+    input.addEventListener("keydown", function (ev) {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        if (!state.hits.length) _runFind();
+        if (state.hits.length) _goto(state.idx + 1);
+      }
+    });
+  }
+
+  function _initArtifactEnhancements(root) {
+    if (!root) return;
+    _initTextToolbar(root);
+    _initJsonToolbar(root);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Artifact loading
+  // ---------------------------------------------------------------------------
 
   async function loadArtifact() {
     const root = document.getElementById("artifact-root");
     if (!root) return;
 
     try {
-      const res = await fetch(
-        "/artifact?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now()
-      );
+      const res = await fetch("/artifact?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
       if (!res.ok) {
         root.innerHTML = `<div class="note">Failed to load artifact (${res.status}).</div>`;
         _renderTruncationBadge(null);
@@ -317,12 +530,13 @@
       const data = await res.json();
 
       const kindEl = document.getElementById("artifact-kind");
-      if (kindEl) {
-        kindEl.textContent = data.kind ? "Kind: " + data.kind : "";
-      }
+      if (kindEl) kindEl.textContent = data.kind ? "Kind: " + data.kind : "";
 
       root.innerHTML = data.html || "";
       _renderTruncationBadge(data.truncation || null);
+
+      // bind toolbars etc
+      _initArtifactEnhancements(root);
 
       // if artifact renders a table placeholder, ensure data loads
       if (document.getElementById("table-grid")) {
