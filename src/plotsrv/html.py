@@ -80,6 +80,31 @@ def render_index(
           <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
         """
 
+    def _auto_refresh_controls_html() -> str:
+        """
+        Auto-refresh controls (used for plot/table/artifact).
+        Uses double curly braces inside JS template literals.
+        """
+        if not ui.auto_refresh_option:
+            return ""
+        return """
+            <label class="toggle">
+              <input id="auto-refresh-toggle" type="checkbox" />
+              <span>Auto-refresh</span>
+            </label>
+
+            <label class="interval">
+              <span>Every</span>
+              <select id="auto-refresh-interval">
+                <option value="2">2s</option>
+                <option value="5" selected>5s</option>
+                <option value="10">10s</option>
+                <option value="30">30s</option>
+                <option value="60">60s</option>
+              </select>
+            </label>
+        """
+
     # --- View dropdown ---------------------------------------------------------
 
     dropdown_html = ""
@@ -122,6 +147,9 @@ def render_index(
             table_controls += """
           <button type="button" onclick="exportTable()">Export table</button>
             """
+
+        # FIX 2: auto-refresh for tables too
+        table_controls += _auto_refresh_controls_html()
 
         table_controls += _terminate_button_html()
 
@@ -170,24 +198,8 @@ def render_index(
             <button type="button" onclick="exportImage()">Export image</button>
             """
 
-        if ui.auto_refresh_option:
-            plot_controls += """
-            <label class="toggle">
-              <input id="auto-refresh-toggle" type="checkbox" />
-              <span>Auto-refresh</span>
-            </label>
-
-            <label class="interval">
-              <span>Every</span>
-              <select id="auto-refresh-interval">
-                <option value="2">2s</option>
-                <option value="5" selected>5s</option>
-                <option value="10">10s</option>
-                <option value="30">30s</option>
-                <option value="60">60s</option>
-              </select>
-            </label>
-            """
+        # Keep existing behaviour (and now shared helper)
+        plot_controls += _auto_refresh_controls_html()
 
         plot_controls += _terminate_button_html()
 
@@ -231,6 +243,9 @@ def render_index(
             <button type="button" onclick="exportTable()">Export table</button>
             """
 
+        # FIX 2: auto-refresh for artifacts too
+        artifact_controls += _auto_refresh_controls_html()
+
         artifact_controls += _terminate_button_html()
 
         main_content = f"""
@@ -254,7 +269,7 @@ def render_index(
         """
 
     else:
-        controls = _terminate_button_html()
+        controls = _auto_refresh_controls_html() + _terminate_button_html()
         main_content = f"""
           <div class="plot-frame empty">
             <div class="empty-state">
