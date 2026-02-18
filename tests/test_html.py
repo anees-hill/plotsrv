@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from plotsrv import html as html_mod
 from plotsrv.config import TableViewMode
 from plotsrv.store import ViewMeta
@@ -57,7 +59,10 @@ def test_render_index_table_rich_has_tabulator_div_and_scripts() -> None:
 
     assert 'id="table-grid"' in html
     assert "tabulator-tables" in html
-    assert "function loadTable" in html
+    assert '<script src="/static/plotsrv.js" defer></script>' in html
+    assert "window.PLOTSRV_CONFIG" in html
+    assert '"active_view_id"' in html
+    assert '"max_table_rows_rich"' in html
 
 
 def test_render_index_plot_has_refresh_js() -> None:
@@ -68,12 +73,13 @@ def test_render_index_plot_has_refresh_js() -> None:
         max_table_rows_simple=200,
         max_table_rows_rich=1000,
     )
-    assert "function refreshPlot" in html
-    assert "function refreshStatus" in html
+    assert '<script src="/static/plotsrv.js" defer></script>' in html
+    assert '<img id="plot"' in html
+    assert 'onclick="refreshPlot()"' in html
+    assert "window.PLOTSRV_CONFIG" in html
 
 
-
-def test_render_index_includes_view_dropdown_and_selected_option() -> None:
+def test_render_index_includes_view_dropdown_and_selected_option_basic() -> None:
     ui = UISettings(
         logo_url="/static/x.png",
         header_text="t",
@@ -86,13 +92,15 @@ def test_render_index_includes_view_dropdown_and_selected_option() -> None:
         show_help_note=True,
         show_view_selector=True,
         assets_dir=None,
+        page_title="test",
+        favicon_url="/static/x.png",
     )
-    # if you added this flag in UISettings; otherwise you’ll pull from defaults in get_ui_settings()
-    # ui.show_view_selector = True  # if it exists
 
     views = [
         ViewMeta(view_id="etl-1:import", kind="none", label="import", section="etl-1"),
-        ViewMeta(view_id="etl-1:metrics", kind="none", label="metrics", section="etl-1"),
+        ViewMeta(
+            view_id="etl-1:metrics", kind="none", label="metrics", section="etl-1"
+        ),
     ]
 
     html = html_mod.render_index(
@@ -109,10 +117,12 @@ def test_render_index_includes_view_dropdown_and_selected_option() -> None:
     assert 'id="view-select"' in html
     assert 'option value="etl-1:metrics" selected' in html
     assert "/plot?view=etl-1:metrics" in html
-    assert "window.location.href = \"/?view=\"" in html
+    assert '<script src="/static/plotsrv.js" defer></script>' in html
 
 
-def test_render_index_includes_view_dropdown_and_selected_option() -> None:
+def test_render_index_includes_view_dropdown_and_selected_option_with_title_and_favicon() -> (
+    None
+):
     ui = UISettings(
         logo_url="/static/x.png",
         header_text="t",
@@ -133,7 +143,9 @@ def test_render_index_includes_view_dropdown_and_selected_option() -> None:
 
     views = [
         ViewMeta(view_id="etl-1:import", kind="none", label="import", section="etl-1"),
-        ViewMeta(view_id="etl-1:metrics", kind="none", label="metrics", section="etl-1"),
+        ViewMeta(
+            view_id="etl-1:metrics", kind="none", label="metrics", section="etl-1"
+        ),
     ]
 
     html = html_mod.render_index(
@@ -150,7 +162,8 @@ def test_render_index_includes_view_dropdown_and_selected_option() -> None:
     assert 'id="view-select"' in html
     assert 'option value="etl-1:metrics" selected' in html
     assert "/plot?view=etl-1:metrics" in html
-    assert 'window.location.href = "/?view="' in html
+    assert "<title>plotsrv - live view</title>" in html
+    assert '<link rel="icon" href="/static/plotsrv_favicon.png">' in html
 
 
 def test_render_index_includes_default_title_and_favicon() -> None:
@@ -185,7 +198,6 @@ def test_render_index_includes_default_title_and_favicon() -> None:
 
     assert "<title>plotsrv - live view</title>" in html
     assert '<link rel="icon" href="/static/plotsrv_favicon.png">' in html
-
 
 
 def test_render_index_allows_custom_title_and_favicon() -> None:
@@ -255,9 +267,23 @@ def test_render_index_includes_auto_refresh_persistence_hooks() -> None:
         active_view_id="default",
     )
 
-    assert 'const LS_AUTO_ENABLED = "plotsrv:auto_refresh_enabled";' in html
-    assert 'const LS_AUTO_INTERVAL = "plotsrv:auto_refresh_interval";' in html
-    assert "function _saveAutoRefreshState" in html
-    assert "function _restoreAutoRefreshState" in html
-    # Ensure restore is called on load
-    assert "_restoreAutoRefreshState();" in html
+    # Persisted auto-refresh logic is in /static/plotsrv.js now.
+    # Here we only assert HTML contains the required controls & script include.
+    assert '<script src="/static/plotsrv.js" defer></script>' in html
+    assert 'id="auto-refresh-toggle"' in html
+    assert 'id="auto-refresh-interval"' in html
+    assert "window.PLOTSRV_CONFIG" in html
+
+
+def _extract_cfg(html: str) -> dict:
+    marker = "window.PLOTSRV_CONFIG = "
+    i = html.find(marker)
+    assert i != -1
+    j = html.find(";", i)
+    assert j != -1
+    raw = html[i + len(marker) : j].strip()
+    return json.loads(raw)
+
+    cfg = _extract_cfg(html)
+    assert cfg["active_view_id"] == "etl-1:metrics"
+    assert cfg["max_table_rows_rich"] == 1000

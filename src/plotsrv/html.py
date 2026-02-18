@@ -38,17 +38,10 @@ def render_index(
     tabulator_head = ""
     include_tabulator = kind in ("table", "artifact") and table_view_mode != "simple"
 
-    extra_css = ""
-
     if include_tabulator:
         tabulator_head = """
         <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
         <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
-        """
-        extra_css = """
-        .table-grid {
-          width: 100%;
-        }
         """
 
     # --- Shared statusline HTML ------------------------------------------------
@@ -56,15 +49,15 @@ def render_index(
     statusline_html = ""
     if ui.show_statusline:
         statusline_html = """
-        <div class="note" id="statusline">
-          <span><strong>Last updated:</strong> <span id="status-updated">—</span> <span id="status-updated-ago"></span></span>
+        <div class="note ps-note ps-statusline" id="statusline">
+          <span class="ps-statusline__item"><strong>Last updated:</strong> <span id="status-updated">—</span> <span id="status-updated-ago"></span></span>
           &nbsp;|&nbsp;
-          <span><strong>Last run time:</strong> <span id="status-duration">—</span></span>
+          <span class="ps-statusline__item"><strong>Last run time:</strong> <span id="status-duration">—</span></span>
           &nbsp;|&nbsp;
-          <span><strong>Mode:</strong> <span id="status-mode">—</span></span>
+          <span class="ps-statusline__item"><strong>Mode:</strong> <span id="status-mode">—</span></span>
           &nbsp;|&nbsp;
-          <span><strong>Server refresh:</strong> <span id="status-srv-refresh">—</span></span>
-          <span id="status-error-wrap" style="display:none;">
+          <span class="ps-statusline__item"><strong>Server refresh:</strong> <span id="status-srv-refresh">—</span></span>
+          <span id="status-error-wrap" class="ps-statusline__error" style="display:none;">
             &nbsp;|&nbsp;
             <strong style="color:#792424;">Error:</strong>
             <span id="status-error" style="color:#792424;"></span>
@@ -78,25 +71,24 @@ def render_index(
         if not ui.terminate_process_option:
             return ""
         return """
-          <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
+          <button type="button" class="danger ps-btn ps-btn--danger" onclick="terminateServer()">Terminate plotsrv server</button>
         """
 
     def _auto_refresh_controls_html() -> str:
         """
         Auto-refresh controls (used for plot/table/artifact).
-        Uses double curly braces inside JS template literals.
         """
         if not ui.auto_refresh_option:
             return ""
         return """
-            <label class="toggle">
+            <label class="toggle ps-toggle">
               <input id="auto-refresh-toggle" type="checkbox" />
               <span>Auto-refresh</span>
             </label>
 
-            <label class="interval">
+            <label class="interval ps-interval">
               <span>Every</span>
-              <select id="auto-refresh-interval">
+              <select id="auto-refresh-interval" class="ps-select">
                 <option value="2">2s</option>
                 <option value="5" selected>5s</option>
                 <option value="10">10s</option>
@@ -130,8 +122,8 @@ def render_index(
             options.append("</optgroup>")
 
         dropdown_html = f"""
-          <div class="view-select">
-            <select id="view-select">
+          <div class="view-select ps-viewselect">
+            <select id="view-select" class="ps-viewselect__select">
               {''.join(options)}
             </select>
           </div>
@@ -141,84 +133,80 @@ def render_index(
 
     if kind == "table":
         table_controls = """
-          <button type="button" onclick="window.location.reload()">Refresh</button>
+          <button type="button" class="ps-btn" onclick="window.location.reload()">Refresh</button>
         """
 
         if ui.export_table:
             table_controls += """
-          <button type="button" onclick="exportTable()">Export table</button>
+          <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
             """
 
-        # FIX 2: auto-refresh for tables too
         table_controls += _auto_refresh_controls_html()
-
         table_controls += _terminate_button_html()
 
         if table_view_mode == "simple" and table_html_simple is not None:
             main_content = f"""
-              <div class="plot-frame">
-                <div class="table-scroll">
+              <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
+                <div class="table-scroll ps-table-scroll ps-table--simple">
                   {table_html_simple}
                 </div>
               </div>
 
-              <div class="controls">
+              <div class="controls ps-controls">
                 {table_controls}
               </div>
 
               {statusline_html}
 
-              <div class="note" id="status">
+              <div class="note ps-note" id="status">
                 Showing up to {max_table_rows_simple} rows (simple table mode).
               </div>
             """
         else:
             main_content = f"""
-              <div class="plot-frame">
-                <div id="table-grid" class="table-grid"></div>
+              <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
+                <div id="table-grid" class="table-grid ps-tablegrid ps-table--rich"></div>
               </div>
 
-              <div class="controls">
+              <div class="controls ps-controls">
                 {table_controls}
               </div>
 
               {statusline_html}
 
-              <div class="note" id="status">
+              <div class="note ps-note" id="status">
                 Showing up to {max_table_rows_rich} rows (rich table mode).
               </div>
             """
 
     elif kind == "plot":
         plot_controls = """
-            <button type="button" onclick="refreshPlot()">Refresh</button>
+            <button type="button" class="ps-btn" onclick="refreshPlot()">Refresh</button>
         """
 
         if ui.export_image:
             plot_controls += """
-            <button type="button" onclick="exportImage()">Export image</button>
+            <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
             """
 
-        # Keep existing behaviour (and now shared helper)
         plot_controls += _auto_refresh_controls_html()
-
         plot_controls += _terminate_button_html()
 
         help_note = ""
         if ui.show_help_note:
             help_note = """
-              <div class="note" id="status">
+              <div class="note ps-note" id="status">
                 If no plot has been published yet, you may see a broken image until your code calls
                 <code>refresh_view</code> or <code>plt.show()</code>.
               </div>
             """
 
         main_content = f"""
-          <div class="plot-frame">
-            <img id="plot" src="/plot?view={active_view_id}" alt="Current plot (or none yet)" />
+          <div class="plot-frame ps-frame ps-frame--plot plot-frame--plot">
+            <img id="plot" class="ps-plot" src="/plot?view={active_view_id}" alt="Current plot (or none yet)" />
           </div>
 
-          <div class="controls">
+          <div class="controls ps-controls">
             {plot_controls}
           </div>
 
@@ -226,66 +214,65 @@ def render_index(
 
           {help_note}
         """
+
     elif kind == "artifact":
-        # We'll render a generic artifact container and fetch /artifact on load.
-        # Buttons match existing UX patterns.
         artifact_controls = """
-            <button type="button" onclick="refreshArtifact()">Refresh</button>
+            <button type="button" class="ps-btn" onclick="refreshArtifact()">Refresh</button>
         """
 
         if ui.export_image:
-            # harmless even if current artifact isn't a plot; only works when /plot exists
             artifact_controls += """
-            <button type="button" onclick="exportImage()">Export image</button>
+            <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
             """
 
         if ui.export_table:
             artifact_controls += """
-            <button type="button" onclick="exportTable()">Export table</button>
+            <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
             """
 
-        # FIX 2: auto-refresh for artifacts too
         artifact_controls += _auto_refresh_controls_html()
-
         artifact_controls += _terminate_button_html()
 
-        main_content = f"""
-          <div class="plot-frame">
-            <div style="width:100%;">
-              <div id="artifact-topline" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
-                <span id="artifact-kind" class="note" style="margin:0;"></span>
-                <span id="artifact-truncation" class="note" style="margin:0;"></span>
+        main_content = """
+          <div class="plot-frame ps-frame ps-frame--artifact plot-frame--artifact">
+            <div class="ps-artifact" style="width:100%;">
+              <div id="artifact-topline" class="ps-artifact__meta" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                <span id="artifact-kind" class="note ps-note" style="margin:0;"></span>
+                <span id="artifact-truncation" class="note ps-note" style="margin:0;"></span>
               </div>
-              <div id="artifact-root"></div>
+              <div id="artifact-root" class="ps-artifact__content"></div>
             </div>
           </div>
 
-          <div class="controls">
+          <div class="controls ps-controls">
             {artifact_controls}
           </div>
 
           {statusline_html}
 
-          <div class="note" id="status"></div>
-        """
+          <div class="note ps-note" id="status"></div>
+        """.format(
+            artifact_controls=artifact_controls,
+            statusline_html=statusline_html,
+        )
 
     else:
         controls = _auto_refresh_controls_html() + _terminate_button_html()
         main_content = f"""
-          <div class="plot-frame empty">
-            <div class="empty-state">
+          <div class="plot-frame empty ps-frame ps-frame--empty plot-frame--empty">
+            <div class="empty-state ps-empty">
               No plot or table has been published yet.<br />
               Call <code>refresh_view(fig)</code> or <code>refresh_view(df)</code> in Python.
             </div>
           </div>
 
-          <div class="controls">
+          <div class="controls ps-controls">
             {controls}
           </div>
 
           {statusline_html}
 
-          <div class="note" id="status"></div>
+          <div class="note ps-note" id="status"></div>
         """
 
     # --- Full page -------------------------------------------------------------
@@ -317,20 +304,23 @@ def render_index(
       <script src="/static/plotsrv.js" defer></script>
       {tabulator_head}
     </head>
-    <body>
-      <header class="header">
-        <div class="header-left">
-          <img src="{logo_url}" alt="plotsrv logo" class="header-logo" />
-          <div class="header-title">{header_text}</div>
+    <body class="ps-body"
+          data-kind="{kind}"
+          data-view="{active_view_id}"
+          data-table-mode="{table_view_mode}">
+      <header class="header ps-header" style="background:{header_fill};">
+        <div class="header-left ps-header__left">
+          <img src="{logo_url}" alt="plotsrv logo" class="header-logo ps-header__logo" />
+          <div class="header-title ps-header__title">{header_text}</div>
         </div>
 
-        <div class="header-right">
+        <div class="header-right ps-header__right">
           {dropdown_html}
         </div>
       </header>
 
-      <main class="page">
-        <section class="plot-card">
+      <main class="page ps-page">
+        <section class="plot-card ps-card">
           {main_content}
         </section>
       </main>

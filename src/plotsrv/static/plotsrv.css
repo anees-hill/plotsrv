@@ -1,53 +1,76 @@
 /* src/plotsrv/static/plotsrv.css */
 
+/* -------------------------------------------------------------------------- */
+/* Theme tokens                                                               */
+/* -------------------------------------------------------------------------- */
+
 :root {
-  --bg: #f5f5f5;
-  --border: #ddd;
-  --button-bg: #ffffff;
-  --button-bg-hover: #f0f0f0;
+  --ps-bg: #f5f5f5;
+  --ps-border: #ddd;
+  --ps-card-bg: #fff;
+  --ps-frame-bg: #fafafa;
+  --ps-text: #222;
+  --ps-muted: #666;
+
+  --ps-btn-bg: #ffffff;
+  --ps-btn-bg-hover: #f0f0f0;
+
+  --ps-danger-border: #e48b8b;
+  --ps-danger-text: #792424;
+  --ps-danger-bg: #ffecec;
 }
 
 * {
   box-sizing: border-box;
 }
 
-body {
+body,
+.ps-body {
   margin: 0;
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: var(--bg);
-  color: #222;
+  background: var(--ps-bg);
+  color: var(--ps-text);
 }
 
-.header {
+/* -------------------------------------------------------------------------- */
+/* Header                                                                     */
+/* -------------------------------------------------------------------------- */
+
+.header,
+.ps-header {
   background: #ffffff;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--ps-border);
   padding: 0.5rem 1rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.header-left {
+.header-left,
+.ps-header__left {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
 }
 
-.header-right {
+.header-right,
+.ps-header__right {
   margin-left: auto;
   display: flex;
   align-items: center;
   gap: 0.5rem;
 }
 
-.header-logo {
+.header-logo,
+.ps-header__logo {
   height: 28px;
   width: auto;
   display: block;
 }
 
-.header-title {
+.header-title,
+.ps-header__title {
   font-weight: 600;
   font-size: 1rem;
   color: #555;
@@ -57,121 +80,193 @@ body {
   max-width: 60vw;
 }
 
-.view-select select {
+/* View selector */
+.view-select select,
+.ps-viewselect__select {
   padding: 0.28rem 0.5rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--ps-border);
   border-radius: 6px;
   background: #fff;
   font-size: 0.9rem;
 }
 
-.page {
+/* -------------------------------------------------------------------------- */
+/* Layout                                                                     */
+/* -------------------------------------------------------------------------- */
+
+.page,
+.ps-page {
   max-width: 1100px;
   margin: 1.5rem auto;
   padding: 0 1rem 2rem;
 }
 
-.plot-card {
-  background: #fff;
-  border: 1px solid var(--border);
+.plot-card,
+.ps-card {
+  background: var(--ps-card-bg);
+  border: 1px solid var(--ps-border);
   border-radius: 10px;
   padding: 1rem;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.03);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
 }
 
-.plot-frame {
+/* -------------------------------------------------------------------------- */
+/* Frames                                                                      */
+/* -------------------------------------------------------------------------- */
+
+.plot-frame,
+.ps-frame {
   border-radius: 6px;
   overflow: hidden;
   border: 1px solid #eee;
-  background: #fafafa;
+  background: var(--ps-frame-bg);
   padding: 0.5rem;
   min-height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
 }
 
-.plot-frame.empty {
+.plot-frame.empty,
+.ps-frame--empty {
   background: #fcfcfc;
 }
 
-.empty-state {
+.empty-state,
+.ps-empty {
   text-align: center;
   font-size: 0.9rem;
-  color: #666;
+  color: var(--ps-muted);
 }
 
-#plot {
+#plot,
+.ps-plot {
   max-width: 100%;
   height: auto;
   display: block;
 }
 
-.table-scroll {
+/* Tables */
+.table-scroll,
+.ps-table-scroll {
   overflow: auto;
   max-height: 600px;
   width: 100%;
 }
 
-.table-grid {
+.table-grid,
+.ps-tablegrid {
   width: 100%;
 }
 
-.controls {
+/* -------------------------------------------------------------------------- */
+/* Controls                                                                    */
+/* -------------------------------------------------------------------------- */
+
+.controls,
+.ps-controls {
   margin-top: 0.75rem;
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  align-items: center;
 }
 
-.controls button {
+/* Button base (supports old markup via .controls button and new via .ps-btn) */
+.controls button,
+.ps-btn {
   padding: 0.4rem 0.9rem;
   border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--button-bg);
+  border: 1px solid var(--ps-border);
+  background: var(--ps-btn-bg);
   cursor: pointer;
   font-size: 0.9rem;
+  color: inherit;
 }
 
-.controls button:hover {
-  background: var(--button-bg-hover);
+.controls button:hover,
+.ps-btn:hover {
+  background: var(--ps-btn-bg-hover);
 }
 
-.controls .danger {
-  border-color: #e48b8b;
-  color: #792424;
-  background: #ffecec;
+/* Danger buttons */
+.controls .danger,
+.ps-btn--danger {
+  border-color: var(--ps-danger-border);
+  color: var(--ps-danger-text);
+  background: var(--ps-danger-bg);
 }
 
-.toggle, .interval {
+/* Toggle / interval chips */
+.toggle,
+.interval,
+.ps-toggle,
+.ps-interval {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   padding: 0.35rem 0.55rem;
-  border: 1px solid var(--border);
+  border: 1px solid var(--ps-border);
   border-radius: 4px;
   background: #fff;
   font-size: 0.9rem;
 }
 
-.toggle input {
+.toggle input,
+.ps-toggle input {
   transform: translateY(1px);
 }
 
-.note {
-  margin-top: 0.5rem;
-  font-size: 0.8rem;
-  color: #666;
+.ps-select {
+  border: 1px solid var(--ps-border);
+  border-radius: 4px;
+  padding: 0.15rem 0.35rem;
+  background: #fff;
 }
 
-.badge {
+/* -------------------------------------------------------------------------- */
+/* Notes / statusline                                                          */
+/* -------------------------------------------------------------------------- */
+
+.note,
+.ps-note {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--ps-muted);
+}
+
+.ps-statusline {
+  margin-top: 0.75rem;
+}
+
+.ps-statusline__error {
+  font-weight: 600;
+}
+
+/* Badges */
+.badge,
+.ps-badge {
   display: inline-block;
   padding: 0.1rem 0.45rem;
   border-radius: 999px;
-  border: 1px solid #e48b8b;
-  color: #792424;
-  background: #ffecec;
+  border: 1px solid var(--ps-danger-border);
+  color: var(--ps-danger-text);
+  background: var(--ps-danger-bg);
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Artifact hooks                                                              */
+/* -------------------------------------------------------------------------- */
+
+.ps-artifact__content {
+  width: 100%;
+}
+
+/* Helpful default spacing for artifacts (won't fight custom renderers) */
+.ps-artifact__meta {
+  gap: 0.5rem;
 }
