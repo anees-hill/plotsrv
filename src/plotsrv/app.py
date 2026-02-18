@@ -301,8 +301,12 @@ def index(view: str | None = None) -> HTMLResponse:
     active_view = store.get_active_view_id()
     kind = store.get_kind(active_view)
 
-    if hasattr(store, "has_artifact") and store.has_artifact(view_id=active_view):
-        kind = "artifact"
+    # Only show the "artifact" UI when the latest artifact is not a plot/table.
+    # (Plots/tables also populate st.artifact for unified status/history.)
+    if store.has_artifact(view_id=active_view):
+        art = store.get_artifact(view_id=active_view)
+        if art.kind not in ("plot", "table"):
+            kind = "artifact"
 
     table_html_simple = None
     if (
