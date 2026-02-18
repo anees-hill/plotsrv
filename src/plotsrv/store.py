@@ -124,7 +124,7 @@ def register_view(
     st = _ensure_view(vid)
 
     # allow "upgrading" a view kind once it receives content
-    if kind in ("plot", "table"):
+    if kind in ("plot", "table", "artifact"):
         st.kind = kind
 
     meta = _VIEW_META.get(vid)

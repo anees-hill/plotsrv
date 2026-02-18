@@ -59,7 +59,10 @@ def get_plot(download: bool = False, view: str | None = None) -> Response:
     except LookupError:
         raise HTTPException(status_code=404, detail="No plot has been published yet.")
 
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {
+        "Cache-Control": "no-store, max-age=0",
+        "Pragma": "no-cache",
+    }
     if download:
         headers["Content-Disposition"] = 'attachment; filename="plotsrv_plot.png"'
 
@@ -209,8 +212,9 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
+        return {"ok": True, "ignored": False, "view_id": view_id}
 
-    if kind == "artifact":
+    elif kind == "artifact":
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
         artifact_obj = payload.get("artifact")
 
@@ -233,7 +237,7 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         store.note_publish(view_id, now_s=now_s)
         return {"ok": True, "ignored": False, "view_id": view_id}
 
-    else:
+    elif kind == "table":
         table = payload.get("table")
         if not isinstance(table, dict):
             raise HTTPException(
@@ -281,8 +285,7 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
-
-    return {"ok": True, "ignored": False, "view_id": view_id}
+        return {"ok": True, "ignored": False, "view_id": view_id}
 
 
 @app.get("/", response_class=HTMLResponse)

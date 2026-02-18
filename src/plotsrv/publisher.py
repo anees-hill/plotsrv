@@ -8,6 +8,8 @@ import urllib.request
 from typing import Any
 from datetime import date, datetime
 import math
+import urllib.error
+
 
 import pandas as pd
 
@@ -163,6 +165,14 @@ def _infer_artifact_kind(obj: Any) -> str:
     return "python"
 
 
+def _can_be_plot(obj: Any) -> bool:
+    try:
+        _ = _to_figure(obj)
+        return True
+    except Exception:
+        return False
+
+
 def _to_publish_payload(
     obj: Any,
     *,
@@ -183,6 +193,12 @@ def _to_publish_payload(
     if kind == "plot":
         fig = _to_figure(obj)
         png = fig_to_png_bytes(fig)
+        # Prevent plotnine/matplotlib figure accumulation that seems to happen when using @plotsrv decorator
+        try:
+            if plt is not None:
+                plt.close(fig)
+        except Exception:
+            pass
         payload["plot_png_b64"] = base64.b64encode(png).decode("utf-8")
         return payload
 
@@ -191,7 +207,10 @@ def _to_publish_payload(
         payload["artifact_kind"] = artifact_kind
 
         if artifact_kind == "text":
-            payload["artifact"] = obj
+            if isinstance(obj, (bytes, bytearray)):
+                payload["artifact"] = bytes(obj).decode("utf-8", errors="replace")
+            else:
+                payload["artifact"] = str(obj)
         elif artifact_kind == "json":
             payload["artifact"] = _json_safe(obj)
         else:
@@ -227,6 +246,30 @@ def publish_artifact(
     The server should accept kind="artifact" payloads.
     """
     debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
+    if artifact_kind is None:
+        if _is_dataframe(obj):
+            return publish_view(
+                obj,
+                host=host,
+                port=port,
+                label=label,
+                section=section,
+                update_limit_s=update_limit_s,
+                force=force,
+                kind="table",
+            )
+
+        if _can_be_plot(obj):
+            return publish_view(
+                obj,
+                host=host,
+                port=port,
+                label=label,
+                section=section,
+                update_limit_s=update_limit_s,
+                force=force,
+                kind="plot",
+            )
 
     kind2 = (artifact_kind or "").strip().lower() or None
     if kind2 is None:
@@ -268,7 +311,20 @@ def publish_artifact(
     try:
         with urllib.request.urlopen(req, timeout=2.0) as resp:
             _ = resp.read()
+    except urllib.error.HTTPError as e:
+        if debug:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"plotsrv publish failed: {e.code} {e.reason}\n{body}"
+            ) from e
+        return
     except Exception:
+        if debug:
+            raise
         return
 
 
@@ -325,7 +381,20 @@ def publish_view(
     try:
         with urllib.request.urlopen(req, timeout=2.0) as resp:
             _ = resp.read()
+    except urllib.error.HTTPError as e:
+        if debug:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"plotsrv publish failed: {e.code} {e.reason}\n{body}"
+            ) from e
+        return
     except Exception:
+        if debug:
+            raise
         return
 
 
