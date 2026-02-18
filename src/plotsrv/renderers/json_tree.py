@@ -20,9 +20,8 @@ class JsonTreeRenderer:
 
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         ctx = _JsonCtx(limits=self._limits)
-        html = _render_node(obj, ctx=ctx, depth=0, label="root")
+        tree_html = _render_node(obj, ctx=ctx, depth=0, label="root")
 
-        truncation = None
         if ctx.truncated:
             truncation = Truncation(
                 truncated=True,
@@ -40,10 +39,28 @@ class JsonTreeRenderer:
         else:
             truncation = Truncation(truncated=False)
 
-        # Wrap in a container so you can style it later if you want
+        toolbar = """
+        <div class="artifact-toolbar" data-plotsrv-toolbar="json">
+          <div class="artifact-toolbar-group">
+            <span class="artifact-toolbar-label">Find</span>
+            <input class="artifact-input" type="text" placeholder="key or value…" data-plotsrv-json-find="1" />
+            <button type="button" class="artifact-btn" data-plotsrv-action="find-prev" title="Previous match">Prev</button>
+            <button type="button" class="artifact-btn" data-plotsrv-action="find-next" title="Next match">Next</button>
+            <span class="artifact-counter" data-plotsrv-json-count="1"></span>
+          </div>
+        </div>
+        """.strip()
+
+        html = f"""
+        {toolbar}
+        <div class="json-tree" data-plotsrv-json="1">
+          {tree_html}
+        </div>
+        """.strip()
+
         return RenderResult(
             kind="json",
-            html=f'<div class="json-tree">{html}</div>',
+            html=html,
             truncation=truncation,
             meta={"view_id": view_id, "visited_nodes": ctx.nodes},
         )
@@ -58,7 +75,6 @@ class _JsonCtx:
 
 
 def _render_node(obj: Any, *, ctx: _JsonCtx, depth: int, label: str) -> str:
-    # node budget
     ctx.nodes += 1
     if ctx.nodes > ctx.limits.max_nodes:
         ctx.truncated = True
@@ -76,7 +92,6 @@ def _render_node(obj: Any, *, ctx: _JsonCtx, depth: int, label: str) -> str:
     if isinstance(obj, (list, tuple)):
         return _render_list(list(obj), ctx=ctx, depth=depth, label=label)
 
-    # scalar
     return _render_scalar(obj, ctx=ctx, label=label)
 
 
@@ -92,26 +107,28 @@ def _render_dict(d: dict[Any, Any], *, ctx: _JsonCtx, depth: int, label: str) ->
 
     inner_parts: list[str] = []
     for k, v in shown:
-        k_str = _escape_html(str(k))
+        k_str = str(k)
         inner_parts.append(_render_node(v, ctx=ctx, depth=depth + 1, label=k_str))
 
         if ctx.truncated and ctx.hit in ("max_nodes", "max_depth"):
-            # hard stop for global limits
             break
 
     more = ""
     if total > len(shown):
         more = _badge(f"… {total - len(shown)} more keys", reason="dict item limit")
 
-    summary = f"{_escape_html(label)} {{...}} ({total} keys)"
+    summary = (
+        f'<span class="json-label" data-json-text="{_escape_attr(label)}">{_escape_html(label)}</span>'
+        f' <span class="json-summary">{"{…}"} ({total} keys)</span>'
+    )
     inner_html = "".join(f"<li>{p}</li>" for p in inner_parts) + (
         f"<li>{more}</li>" if more else ""
     )
 
     return f"""
-    <details open>
-      <summary>{summary}</summary>
-      <ul>{inner_html}</ul>
+    <details open class="json-node json-node--dict">
+      <summary class="json-summaryline">{summary}</summary>
+      <ul class="json-children">{inner_html}</ul>
     </details>
     """.strip()
 
@@ -135,15 +152,18 @@ def _render_list(xs: list[Any], *, ctx: _JsonCtx, depth: int, label: str) -> str
     if total > len(shown):
         more = _badge(f"… {total - len(shown)} more items", reason="list item limit")
 
-    summary = f"{_escape_html(label)} [...] ({total} items)"
+    summary = (
+        f'<span class="json-label" data-json-text="{_escape_attr(label)}">{_escape_html(label)}</span>'
+        f' <span class="json-summary">[…] ({total} items)</span>'
+    )
     inner_html = "".join(f"<li>{p}</li>" for p in inner_parts) + (
         f"<li>{more}</li>" if more else ""
     )
 
     return f"""
-    <details open>
-      <summary>{summary}</summary>
-      <ul>{inner_html}</ul>
+    <details open class="json-node json-node--list">
+      <summary class="json-summaryline">{summary}</summary>
+      <ul class="json-children">{inner_html}</ul>
     </details>
     """.strip()
 
@@ -153,11 +173,14 @@ def _render_scalar(x: Any, *, ctx: _JsonCtx, label: str) -> str:
     if was_trunc:
         ctx.truncated = True
         ctx.hit = ctx.hit or "max_string_chars"
-    return f"<span><strong>{_escape_html(label)}</strong>: {_escape_html(s)}</span>"
+
+    label_html = f'<span class="json-key" data-json-text="{_escape_attr(label)}">{_escape_html(label)}</span>'
+    val_html = f'<span class="json-val" data-json-text="{_escape_attr(s)}">{_escape_html(s)}</span>'
+    return f'<span class="json-scalar">{label_html}: {val_html}</span>'
 
 
 def _badge(text: str, *, reason: str) -> str:
-    return f'<span class="badge" title="{_escape_html(reason)}">{_escape_html(text)}</span>'
+    return f'<span class="badge json-badge" title="{_escape_html(reason)}">{_escape_html(text)}</span>'
 
 
 def _escape_html(s: str) -> str:
@@ -168,3 +191,8 @@ def _escape_html(s: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#39;")
     )
+
+
+def _escape_attr(s: str) -> str:
+    # safe for attribute values in double quotes
+    return _escape_html(s).replace("\n", " ").replace("\r", " ")

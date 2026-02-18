@@ -5,7 +5,6 @@ from typing import Any
 
 from .base import RenderResult
 from .limits import DEFAULT_TEXT_LIMITS, TextLimits, truncate_text
-from ..artifacts import Truncation
 
 
 class TextRenderer:
@@ -15,16 +14,32 @@ class TextRenderer:
         self._limits = limits or DEFAULT_TEXT_LIMITS
 
     def can_render(self, obj: Any) -> bool:
-        # Render plain text-like things. (Everything else can fall back to repr in registry.py)
+        # Render plain text-like things. (Everything else can fall back to repr elsewhere.)
         return isinstance(obj, (str, bytes, bytearray))
 
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         text = _to_text(obj)
         out, truncation = truncate_text(text, limits=self._limits)
 
-        html = (
-            f'<pre class="plotsrv-pre" data-plotsrv-pre="1">{_escape_html(out)}</pre>'
-        )
+        # Phase 1.1:
+        # - word wrap toggle
+        # - copy button
+        #
+        # Phase 1.2:
+        # - truncation UX stays primarily in the global artifact truncation line
+        #   (but we keep obvious "…" suffix from truncate_text)
+        toolbar = """
+        <div class="artifact-toolbar" data-plotsrv-toolbar="text">
+          <div class="artifact-toolbar-group">
+            <button type="button" class="artifact-btn" data-plotsrv-action="copy" title="Copy to clipboard">Copy</button>
+            <button type="button" class="artifact-btn" data-plotsrv-action="wrap" title="Toggle word wrap">Wrap</button>
+          </div>
+        </div>
+        """.strip()
+
+        pre = f'<pre class="plotsrv-pre" data-plotsrv-pre="1">{_escape_html(out)}</pre>'
+        html = f"{toolbar}\n{pre}"
+
         return RenderResult(
             kind="text",
             html=html,
@@ -40,27 +55,8 @@ def _to_text(obj: Any) -> str:
         try:
             return bytes(obj).decode("utf-8")
         except Exception:
-            # best-effort fallback
             return bytes(obj).decode("utf-8", errors="replace")
     return repr(obj)
-
-
-def _truncate_text(text: str, *, limits: TextLimits) -> dict[str, Any]:
-    original_len = len(text)
-    max_chars = max(1, int(limits.max_chars))
-
-    if original_len <= max_chars:
-        return {"text": text, "truncation": Truncation(truncated=False)}
-
-    head = text[:max_chars]
-    truncation = Truncation(
-        truncated=True,
-        reason="text exceeded max_chars",
-        details={"max_chars": max_chars, "original_chars": original_len},
-    )
-    # Add a tiny suffix so it's obvious it's cut.
-    head = head + "\n…"
-    return {"text": head, "truncation": truncation}
 
 
 def _escape_html(s: str) -> str:
