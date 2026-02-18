@@ -165,12 +165,24 @@ def _infer_artifact_kind(obj: Any) -> str:
     return "python"
 
 
-def _can_be_plot(obj: Any) -> bool:
-    try:
-        _ = _to_figure(obj)
+def _looks_like_plot(obj: Any) -> bool:
+    # None means "current figure" in the API
+    if obj is None:
         return True
-    except Exception:
-        return False
+
+    # Matplotlib figure
+    if Figure is not None and isinstance(obj, Figure):  # type: ignore[arg-type]
+        return True
+
+    # Plotnine ggplot (safe isinstance check)
+    if PlotnineGGPlot is not None and isinstance(obj, PlotnineGGPlot):  # type: ignore[arg-type]
+        return True
+
+    # Plotnine-like object (duck typing, but NO draw call)
+    if hasattr(obj, "draw") and obj.__class__.__module__.startswith("plotnine"):
+        return True
+
+    return False
 
 
 def _to_publish_payload(
@@ -259,7 +271,7 @@ def publish_artifact(
                 kind="table",
             )
 
-        if _can_be_plot(obj):
+        if _looks_like_plot(obj):
             return publish_view(
                 obj,
                 host=host,
