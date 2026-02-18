@@ -10,12 +10,20 @@ from typing import Any
 import json
 import os
 import threading
+from dataclasses import dataclass
 
 from .publisher import publish_artifact
 from .service import RunnerService, ServiceConfig
 from .server import start_server, stop_server
 from . import store
 from .discovery import discover_views, DiscoveredView
+
+
+@dataclass(frozen=True)
+class WatchSpec:
+    path: str
+    label: str | None = None
+    section: str | None = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -97,6 +105,17 @@ def build_parser() -> argparse.ArgumentParser:
             "Repeatable. Example: --watch /var/log/app.log --watch ./data.json"
         ),
     )
+
+    run_p.add_argument(
+        "--watch-label",
+        action="append",
+        default=[],
+        help=(
+            "Label(s) for watched views. Repeat once per --watch in the same order. "
+            "If omitted, defaults to the filename."
+        ),
+    )
+
     run_p.add_argument(
         "--watch-kind",
         choices=["auto", "text", "json"],
@@ -120,11 +139,19 @@ def build_parser() -> argparse.ArgumentParser:
         default="utf-8",
         help="Text encoding for watched files (default: utf-8).",
     )
+
     run_p.add_argument(
         "--watch-section",
-        default="watch",
-        help="Section name for watched views (default: watch).",
+        action="append",
+        default=[],
+        help=(
+            "Section name(s) for watched views. "
+            "If provided once, it applies to all --watch entries (backwards compatible). "
+            "If repeated, provide once per --watch in the same order. "
+            "If omitted, defaults to 'watch'."
+        ),
     )
+
     run_p.add_argument(
         "--watch-update-limit-s",
         type=int,
@@ -278,14 +305,72 @@ def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
         return f.read(max_bytes)
 
 
-def _start_watch_threads(
+def _coerce_watch_specs(
     paths: list[str],
+    *,
+    labels: list[str] | None,
+    sections: list[str] | None,
+) -> list[WatchSpec]:
+    """
+    Build per-watch specs in a backwards-compatible way.
+
+    labels:
+      - 0 => filename
+      - N => per-watch labels
+      - otherwise => error
+
+    sections:
+      - 0 => 'watch'
+      - 1 => apply to all watches (backwards compatible)
+      - N => per-watch sections
+      - otherwise => error
+    """
+    paths = [p for p in (paths or []) if str(p).strip()]
+    n = len(paths)
+
+    lab_list = [x for x in (labels or []) if str(x).strip()]
+    sec_list = [x for x in (sections or []) if str(x).strip()]
+
+    if n == 0:
+        return []
+
+    # labels
+    if len(lab_list) == 0:
+        per_labels = [None] * n
+    elif len(lab_list) == n:
+        per_labels = lab_list
+    else:
+        raise ValueError(
+            f"--watch-label must be provided either 0 times or exactly once per --watch "
+            f"(expected {n}, got {len(lab_list)})."
+        )
+
+    # sections
+    if len(sec_list) == 0:
+        per_sections = ["watch"] * n
+    elif len(sec_list) == 1:
+        per_sections = [sec_list[0]] * n
+    elif len(sec_list) == n:
+        per_sections = sec_list
+    else:
+        raise ValueError(
+            f"--watch-section must be provided either 0 times, 1 time (apply to all), "
+            f"or exactly once per --watch (expected {n}, got {len(sec_list)})."
+        )
+
+    specs: list[WatchSpec] = []
+    for raw_path, lab, sec in zip(paths, per_labels, per_sections, strict=True):
+        specs.append(WatchSpec(path=raw_path, label=lab, section=sec))
+    return specs
+
+
+def _start_watch_threads(
+    specs: list[WatchSpec],
     *,
     host: str,
     port: int,
     every: float,
     kind: str,  # auto|text|json
-    section: str,
     max_bytes: int,
     encoding: str,
     update_limit_s: int | None,
@@ -293,9 +378,10 @@ def _start_watch_threads(
 ) -> list[threading.Thread]:
     threads: list[threading.Thread] = []
 
-    for raw_path in paths:
-        p = Path(raw_path).expanduser().resolve()
-        label = p.name
+    for spec in specs:
+        p = Path(spec.path).expanduser().resolve()
+        section = (spec.section or "watch").strip() or "watch"
+        label = (spec.label or p.name).strip() or p.name
         vid = store.normalize_view_id(None, section=section, label=label)
 
         # Pre-register so dropdown shows it immediately
@@ -307,7 +393,9 @@ def _start_watch_threads(
             activate_if_first=False,
         )
 
-        def _worker(pth: Path = p, view_label: str = label) -> None:
+        def _worker(
+            pth: Path = p, view_label: str = label, view_section: str = section
+        ) -> None:
             last_sig: tuple[int, int] | None = None  # (mtime_ns, size)
             while True:
                 try:
@@ -332,7 +420,7 @@ def _start_watch_threads(
                         host=host,
                         port=port,
                         label=view_label,
-                        section=section,
+                        section=view_section,
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -353,7 +441,7 @@ def _start_watch_threads(
                             host=host,
                             port=port,
                             label=view_label,
-                            section=section,
+                            section=view_section,
                             artifact_kind="json",
                             update_limit_s=update_limit_s,
                             force=force,
@@ -365,7 +453,7 @@ def _start_watch_threads(
                             host=host,
                             port=port,
                             label=view_label,
-                            section=section,
+                            section=view_section,
                             artifact_kind="text",
                             update_limit_s=update_limit_s,
                             force=force,
@@ -377,7 +465,7 @@ def _start_watch_threads(
                         host=host,
                         port=port,
                         label=view_label,
-                        section=section,
+                        section=view_section,
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -402,10 +490,9 @@ def _run_passive_dir_mode(
     quiet: bool,
     excludes: set[str],
     includes: set[str],
-    watch_paths: list[str] | None = None,
+    watch_specs: list[WatchSpec] | None = None,
     watch_kind: str = "auto",
     watch_every: float = 1.0,
-    watch_section: str = "watch",
     watch_max_bytes: int = 200_000,
     watch_encoding: str = "utf-8",
     watch_update_limit_s: int | None = None,
@@ -420,14 +507,13 @@ def _run_passive_dir_mode(
     """
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
-    if watch_paths:
+    if watch_specs:
         _start_watch_threads(
-            watch_paths,
+            watch_specs,
             host=host,
             port=port,
             every=watch_every,
             kind=watch_kind,
-            section=watch_section,
             max_bytes=watch_max_bytes,
             encoding=watch_encoding,
             update_limit_s=watch_update_limit_s,
@@ -623,9 +709,17 @@ def main(argv: list[str] | None = None) -> int:
         watch_every = float(getattr(args, "watch_every", 1.0))
         watch_max_bytes = int(getattr(args, "watch_max_bytes", 200_000))
         watch_encoding = str(getattr(args, "watch_encoding", "utf-8"))
-        watch_section = str(getattr(args, "watch_section", "watch"))
         watch_update_limit_s = getattr(args, "watch_update_limit_s", None)
         watch_force = bool(getattr(args, "watch_force", False))
+
+        try:
+            watch_specs = _coerce_watch_specs(
+                watch_paths,
+                labels=getattr(args, "watch_label", []) or [],
+                sections=getattr(args, "watch_section", []) or [],
+            )
+        except ValueError as e:
+            return _die(str(e))
 
         # Passive filesystem mode:
         p = Path(args.target)
@@ -637,12 +731,11 @@ def main(argv: list[str] | None = None) -> int:
                 quiet=args.quiet,
                 excludes=excludes,
                 includes=includes,
-                watch_paths=watch_paths,
+                watch_specs=watch_specs,
                 watch_kind=watch_kind,
                 watch_every=watch_every,
                 watch_max_bytes=watch_max_bytes,
                 watch_encoding=watch_encoding,
-                watch_section=watch_section,
                 watch_update_limit_s=watch_update_limit_s,
                 watch_force=watch_force,
             )
@@ -657,12 +750,11 @@ def main(argv: list[str] | None = None) -> int:
                 quiet=args.quiet,
                 excludes=excludes,
                 includes=includes,
-                watch_paths=watch_paths,
+                watch_specs=watch_specs,
                 watch_kind=watch_kind,
                 watch_every=watch_every,
                 watch_max_bytes=watch_max_bytes,
                 watch_encoding=watch_encoding,
-                watch_section=watch_section,
                 watch_update_limit_s=watch_update_limit_s,
                 watch_force=watch_force,
             )
@@ -702,14 +794,13 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as e:
             return _die(f"{type(e).__name__}: {e}")
 
-        if watch_paths:
+        if watch_specs:
             _start_watch_threads(
-                watch_paths,
+                watch_specs,
                 host=args.host,
                 port=args.port,
                 every=watch_every,
                 kind=watch_kind,
-                section=watch_section,
                 max_bytes=watch_max_bytes,
                 encoding=watch_encoding,
                 update_limit_s=watch_update_limit_s,

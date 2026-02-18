@@ -12,7 +12,7 @@ from .server import (
 )
 from .config import set_table_view_mode
 from .decorators import plotsrv, plot, table, get_plotsrv_spec, PlotsrvSpec
-from .publisher import plot_launch, publish_view
+from .publisher import plot_launch, publish_view, publish_artifact
 from .artifacts import Artifact, ArtifactKind
 
 __all__ = [
@@ -31,4 +31,5 @@ __all__ = [
     "PlotsrvSpec",
     "plot_launch",
     "publish_view",
+    "publish_artifact",
 ]
