@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
-ArtifactKind = Literal["plot", "table", "text", "json", "python"]
+ArtifactKind = Literal["plot", "table", "text", "json", "python", "markdown", "image"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +20,6 @@ class Artifact:
     kind: ArtifactKind
     obj: Any
 
-    # metadata for UI / diffing later
     created_at: datetime
     label: str | None = None
     section: str | None = None
