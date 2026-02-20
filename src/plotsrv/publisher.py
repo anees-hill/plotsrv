@@ -9,12 +9,12 @@ from typing import Any
 from datetime import date, datetime
 import math
 import urllib.error
-
-
+from pathlib import Path
 import pandas as pd
 
 from . import config
 from .backends import df_to_html_simple, df_to_rich_sample, fig_to_png_bytes
+from .file_kinds import coerce_file_to_publishable
 
 # Optional: polars support
 try:  # pragma: no cover
@@ -257,7 +257,51 @@ def publish_artifact(
 
     The server should accept kind="artifact" payloads.
     """
+
     debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
+
+    if isinstance(obj, (str, bytes, bytearray)) is False:
+        try:
+            p = Path(obj)  # type: ignore[arg-type]
+        except Exception:
+            p = None  # type: ignore[assignment]
+
+        if (
+            p is not None
+            and isinstance(obj, Path)
+            or (p is not None and getattr(obj, "__fspath__", None))
+        ):
+            try:
+                path = p.expanduser().resolve()
+                if path.exists() and path.is_file():
+                    coerced = coerce_file_to_publishable(path)
+                    # If caller didn't force artifact_kind, use inferred kind
+                    ak = artifact_kind or coerced.artifact_kind
+                    return publish_artifact(
+                        coerced.obj,
+                        host=host,
+                        port=port,
+                        label=label,
+                        section=section,
+                        artifact_kind=ak,
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+            except Exception as e:
+                if debug:
+                    raise
+                # fallback: publish error as text
+                return publish_artifact(
+                    f"[plotsrv] file read/parse error: {type(e).__name__}: {e}",
+                    host=host,
+                    port=port,
+                    label=label,
+                    section=section,
+                    artifact_kind="text",
+                    update_limit_s=update_limit_s,
+                    force=force,
+                )
+
     if artifact_kind is None:
         if _is_dataframe(obj):
             return publish_view(

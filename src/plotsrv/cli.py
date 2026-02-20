@@ -17,6 +17,7 @@ from .service import RunnerService, ServiceConfig
 from .server import start_server, stop_server
 from . import store
 from .discovery import discover_views, DiscoveredView
+from .file_kinds import coerce_file_to_publishable, infer_file_kind
 
 
 @dataclass(frozen=True)
@@ -288,23 +289,6 @@ def _resolve_target_to_path_if_importable(target: str) -> str | None:
     return None
 
 
-def _infer_kind_from_path(p: Path) -> str:
-    return "json" if p.suffix.lower() == ".json" else "text"
-
-
-def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-    with p.open("rb") as f:
-        try:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            start = max(0, size - max_bytes)
-            f.seek(start, os.SEEK_SET)
-        except Exception:
-            f.seek(0)
-        return f.read(max_bytes)
-
-
 def _coerce_watch_specs(
     paths: list[str],
     *,
@@ -428,28 +412,45 @@ def _start_watch_threads(
                     time.sleep(max(0.05, float(every)))
                     continue
 
-                k = kind
-                if k == "auto":
-                    k = _infer_kind_from_path(pth)
+                artifact_k = _infer_watch_artifact_kind(pth, kind)
 
-                if k == "json":
+                if artifact_k == "json":
+                    # For json/ini/toml in auto mode: parse via shared helper
                     try:
-                        txt = raw.decode(encoding, errors="replace")
-                        obj = json.loads(txt)
-                        publish_artifact(
-                            obj,
-                            host=host,
-                            port=port,
-                            label=view_label,
-                            section=view_section,
-                            artifact_kind="json",
-                            update_limit_s=update_limit_s,
-                            force=force,
-                        )
+
+                        fk = infer_file_kind(pth)
+                        if fk == "json":
+                            txt = raw.decode(encoding, errors="replace")
+                            obj = json.loads(txt)
+                            publish_artifact(
+                                obj,
+                                host=host,
+                                port=port,
+                                label=view_label,
+                                section=view_section,
+                                artifact_kind="json",
+                                update_limit_s=update_limit_s,
+                                force=force,
+                            )
+                        else:
+                            coerced = coerce_file_to_publishable(
+                                pth, encoding=encoding, max_bytes=max_bytes
+                            )
+                            publish_artifact(
+                                coerced.obj,
+                                host=host,
+                                port=port,
+                                label=view_label,
+                                section=view_section,
+                                artifact_kind=coerced.artifact_kind,  # "json" or "text"
+                                update_limit_s=update_limit_s,
+                                force=force,
+                            )
+
                     except Exception as e:
                         txt = raw.decode(encoding, errors="replace")
                         publish_artifact(
-                            f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
+                            f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
                             host=host,
                             port=port,
                             label=view_label,
@@ -569,8 +570,23 @@ def _die(msg: str) -> int:
     return 2
 
 
-def _infer_kind_from_path(p: Path) -> str:
-    if p.suffix.lower() == ".json":
+def _infer_watch_artifact_kind(path: Path, watch_kind: str) -> str:
+    """
+    Returns "text" or "json" (artifact_kind) for watch publishing.
+
+    watch_kind:
+      - "text" => force text
+      - "json" => force json (parse JSON)
+      - "auto" => infer by suffix: .json/.ini/.cfg/.toml/.yaml/.yml => json, else text
+
+    Note: YAML parsing not implemented yet, but we still classify it as json in "auto"
+    and will fallback to text with a clear error until implemented.
+    """
+    if watch_kind in ("text", "json"):
+        return watch_kind
+
+    fk = infer_file_kind(path)
+    if fk in ("json", "ini", "toml", "yaml"):
         return "json"
     return "text"
 
@@ -644,28 +660,43 @@ def _run_watch_mode(
 
             raw = _read_tail_bytes(p, max_bytes=max_bytes)
 
-            k = kind
-            if k == "auto":
-                k = _infer_kind_from_path(p)
+            artifact_k = _infer_watch_artifact_kind(p, kind)
 
-            if k == "json":
+            if artifact_k == "json":
                 try:
-                    txt = raw.decode(encoding, errors="replace")
-                    obj = json.loads(txt)
-                    publish_artifact(
-                        obj,
-                        host=host,
-                        port=port,
-                        label=view_label,
-                        section=section,
-                        artifact_kind="json",
-                        update_limit_s=update_limit_s,
-                        force=force,
-                    )
+                    fk = infer_file_kind(p)
+                    if fk == "json":
+                        txt = raw.decode(encoding, errors="replace")
+                        obj = json.loads(txt)
+                        publish_artifact(
+                            obj,
+                            host=host,
+                            port=port,
+                            label=view_label,
+                            section=section,
+                            artifact_kind="json",
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
+                    else:
+                        coerced = coerce_file_to_publishable(
+                            p, encoding=encoding, max_bytes=max_bytes
+                        )
+                        publish_artifact(
+                            coerced.obj,
+                            host=host,
+                            port=port,
+                            label=view_label,
+                            section=section,
+                            artifact_kind=coerced.artifact_kind,
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
                 except Exception as e:
-                    # fallback to text with an error prefix
                     txt = raw.decode(encoding, errors="replace")
-                    obj = f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}"
+                    obj = (
+                        f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}"
+                    )
                     publish_artifact(
                         obj,
                         host=host,
