@@ -6,37 +6,69 @@ from pathlib import Path
 from typing import Any, Literal
 
 FileKind = Literal[
-    "text", "json", "markdown", "ini", "toml", "yaml", "csv", "image", "unknown"
+    "text",
+    "json",
+    "markdown",
+    "ini",
+    "toml",
+    "yaml",
+    "csv",
+    "image",
+    "unknown",
 ]
+
+PublishKind = Literal["artifact", "table"]  # (plot not needed for file coercion yet)
+
+ArtifactKind = Literal["text", "json", "markdown", "image"]
 
 
 @dataclass(frozen=True, slots=True)
 class FileCoerceResult:
-    # What the UI should treat it as
-    artifact_kind: Literal["text", "json"]
-    # The object to publish (string or dict/list)
+    publish_kind: PublishKind
+    # Only meaningful when publish_kind == "artifact"
+    artifact_kind: ArtifactKind | None
+    # The object to publish (string/dict/list/df/etc.)
     obj: Any
-    # Optional: a hint for UI/meta later
     file_kind: FileKind
+    mime: str | None = None
 
 
 def infer_file_kind(path: Path) -> FileKind:
     suf = path.suffix.lower()
-    if suf in (".json",):
+
+    if suf == ".json":
         return "json"
     if suf in (".ini", ".cfg"):
         return "ini"
-    if suf in (".toml",):
+    if suf == ".toml":
         return "toml"
     if suf in (".yaml", ".yml"):
         return "yaml"
     if suf in (".md", ".markdown"):
         return "markdown"
-    if suf in (".csv",):
+    if suf == ".csv":
         return "csv"
     if suf in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"):
         return "image"
+
     return "unknown"
+
+
+def _infer_image_mime(path: Path) -> str:
+    suf = path.suffix.lower()
+    if suf == ".png":
+        return "image/png"
+    if suf in (".jpg", ".jpeg"):
+        return "image/jpeg"
+    if suf == ".gif":
+        return "image/gif"
+    if suf == ".webp":
+        return "image/webp"
+    if suf == ".bmp":
+        return "image/bmp"
+    if suf == ".svg":
+        return "image/svg+xml"
+    return "application/octet-stream"
 
 
 def coerce_file_to_publishable(
@@ -44,21 +76,29 @@ def coerce_file_to_publishable(
     *,
     encoding: str = "utf-8",
     max_bytes: int | None = None,
+    raw: bytes | None = None,
 ) -> FileCoerceResult:
     """
     Convert a file to a publishable object.
-    - JSON -> dict/list (artifact_kind=json)
-    - INI -> dict (artifact_kind=json)  [stdlib]
-    - TOML -> dict (artifact_kind=json) [stdlib]
-    - Everything else -> text (artifact_kind=text)
 
-    Note: YAML/CSV/Markdown/Images are intentionally left for later steps.
+    - json/ini/toml/yaml -> artifact(json) with dict/list
+    - markdown -> artifact(markdown) with text
+    - csv -> publish as table using pandas DataFrame
+    - image -> artifact(image) with {mime, data_b64}
+    - unknown -> artifact(text) with text
+
+    `raw`:
+      - If provided, use these bytes instead of reading the file again.
+      - Useful for watch-mode where you already tail-read.
     """
     fk = infer_file_kind(path)
 
-    raw = path.read_bytes()
-    if max_bytes is not None:
-        raw = raw[-max(1, int(max_bytes)) :]
+    # Load bytes (either from caller or disk)
+    if raw is None:
+        raw2 = path.read_bytes()
+        if max_bytes is not None:
+            raw2 = raw2[-max(1, int(max_bytes)) :]
+        raw = raw2
 
     # --- JSON ---
     if fk == "json":
@@ -66,7 +106,12 @@ def coerce_file_to_publishable(
 
         txt = raw.decode(encoding, errors="replace")
         obj = json.loads(txt)
-        return FileCoerceResult(artifact_kind="json", obj=obj, file_kind=fk)
+        return FileCoerceResult(
+            publish_kind="artifact",
+            artifact_kind="json",
+            obj=obj,
+            file_kind=fk,
+        )
 
     # --- INI/CFG ---
     if fk == "ini":
@@ -79,20 +124,101 @@ def coerce_file_to_publishable(
         out: dict[str, Any] = {}
         for section in cfg.sections():
             out[section] = {k: v for k, v in cfg.items(section)}
-        return FileCoerceResult(artifact_kind="json", obj=out, file_kind=fk)
 
-    # --- TOML ---
+        return FileCoerceResult(
+            publish_kind="artifact",
+            artifact_kind="json",
+            obj=out,
+            file_kind=fk,
+        )
+
+    # --- TOML (stdlib tomllib) ---
     if fk == "toml":
         try:
             import tomllib  # py3.11+
         except Exception:  # pragma: no cover
-            # fallback to text if tomllib isn't available
             txt = raw.decode(encoding, errors="replace")
-            return FileCoerceResult(artifact_kind="text", obj=txt, file_kind="unknown")
+            return FileCoerceResult(
+                publish_kind="artifact",
+                artifact_kind="text",
+                obj=txt,
+                file_kind="unknown",
+            )
 
         obj = tomllib.loads(raw.decode(encoding, errors="replace"))
-        return FileCoerceResult(artifact_kind="json", obj=obj, file_kind=fk)
+        return FileCoerceResult(
+            publish_kind="artifact",
+            artifact_kind="json",
+            obj=obj,
+            file_kind=fk,
+        )
 
-    # Default - > text
+    # --- YAML (optional dependency) ---
+    if fk == "yaml":
+        txt = raw.decode(encoding, errors="replace")
+        try:
+            import yaml  # type: ignore
+        except Exception:
+            # No PyYAML installed: publish as text but keep file_kind=yaml (useful for UI/meta later)
+            return FileCoerceResult(
+                publish_kind="artifact",
+                artifact_kind="text",
+                obj=f"[plotsrv] YAML parsing requires PyYAML. Showing raw text.\n\n{txt}",
+                file_kind=fk,
+            )
+
+        obj = yaml.safe_load(txt)
+        return FileCoerceResult(
+            publish_kind="artifact",
+            artifact_kind="json",
+            obj=obj,
+            file_kind=fk,
+        )
+
+    # --- Markdown ---
+    if fk == "markdown":
+        txt = raw.decode(encoding, errors="replace")
+        return FileCoerceResult(
+            publish_kind="artifact",
+            artifact_kind="markdown",
+            obj=txt,
+            file_kind=fk,
+        )
+
+    # --- CSV -> publish as TABLE (reuse existing table UI) ---
+    if fk == "csv":
+        import io
+        import pandas as pd
+
+        txt = raw.decode(encoding, errors="replace")
+        df = pd.read_csv(io.StringIO(txt))
+        return FileCoerceResult(
+            publish_kind="table",
+            artifact_kind=None,
+            obj=df,
+            file_kind=fk,
+        )
+
+    # --- Image -> artifact(image) with base64 payload ---
+    if fk == "image":
+        import base64
+
+        mime = _infer_image_mime(path)
+        data_b64 = base64.b64encode(raw).decode("ascii")
+        payload = {"mime": mime, "data_b64": data_b64, "filename": path.name}
+        return FileCoerceResult(
+            publish_kind="artifact",
+            artifact_kind="image",
+            obj=payload,
+            file_kind=fk,
+            mime=mime,
+        )
+
+    # Default -> text
     txt = raw.decode(encoding, errors="replace")
-    return FileCoerceResult(artifact_kind="text", obj=txt, file_kind=fk)
+    return FileCoerceResult(
+        publish_kind="artifact",
+        artifact_kind="text",
+        obj=txt,
+        file_kind=fk,
+    )

@@ -260,23 +260,39 @@ def publish_artifact(
 
     debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
 
-    if isinstance(obj, (str, bytes, bytearray)) is False:
+    # Path-like publishing (file -> inferred kind -> publish)
+    if not isinstance(obj, (str, bytes, bytearray)):
+        p: Path | None
         try:
             p = Path(obj)  # type: ignore[arg-type]
         except Exception:
-            p = None  # type: ignore[assignment]
+            p = None
 
-        if (
-            p is not None
-            and isinstance(obj, Path)
-            or (p is not None and getattr(obj, "__fspath__", None))
-        ):
+        is_pathlike = p is not None and (
+            isinstance(obj, Path) or getattr(obj, "__fspath__", None) is not None
+        )
+
+        if is_pathlike:
             try:
                 path = p.expanduser().resolve()
                 if path.exists() and path.is_file():
                     coerced = coerce_file_to_publishable(path)
-                    # If caller didn't force artifact_kind, use inferred kind
-                    ak = artifact_kind or coerced.artifact_kind
+
+                    if coerced.publish_kind == "table":
+                        # Reuse the existing table pipeline/renderers
+                        return publish_view(
+                            coerced.obj,
+                            host=host,
+                            port=port,
+                            label=label,
+                            section=section,
+                            update_limit_s=update_limit_s,
+                            force=force,
+                            kind="table",
+                        )
+
+                    # artifact
+                    ak = artifact_kind or coerced.artifact_kind or "text"
                     return publish_artifact(
                         coerced.obj,
                         host=host,
@@ -290,7 +306,6 @@ def publish_artifact(
             except Exception as e:
                 if debug:
                     raise
-                # fallback: publish error as text
                 return publish_artifact(
                     f"[plotsrv] file read/parse error: {type(e).__name__}: {e}",
                     host=host,

@@ -412,45 +412,41 @@ def _start_watch_threads(
                     time.sleep(max(0.05, float(every)))
                     continue
 
-                artifact_k = _infer_watch_artifact_kind(pth, kind)
+                # Forced modes stay simple
+                if kind == "text":
+                    txt = raw.decode(encoding, errors="replace")
+                    publish_artifact(
+                        txt,
+                        host=host,
+                        port=port,
+                        label=view_label,
+                        section=view_section,
+                        artifact_kind="text",
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+                    time.sleep(max(0.05, float(every)))
+                    continue
 
-                if artifact_k == "json":
-                    # For json/ini/toml in auto mode: parse via shared helper
+                if kind == "json":
+                    # Force JSON parse (regardless of suffix)
                     try:
-
-                        fk = infer_file_kind(pth)
-                        if fk == "json":
-                            txt = raw.decode(encoding, errors="replace")
-                            obj = json.loads(txt)
-                            publish_artifact(
-                                obj,
-                                host=host,
-                                port=port,
-                                label=view_label,
-                                section=view_section,
-                                artifact_kind="json",
-                                update_limit_s=update_limit_s,
-                                force=force,
-                            )
-                        else:
-                            coerced = coerce_file_to_publishable(
-                                pth, encoding=encoding, max_bytes=max_bytes
-                            )
-                            publish_artifact(
-                                coerced.obj,
-                                host=host,
-                                port=port,
-                                label=view_label,
-                                section=view_section,
-                                artifact_kind=coerced.artifact_kind,  # "json" or "text"
-                                update_limit_s=update_limit_s,
-                                force=force,
-                            )
-
+                        txt = raw.decode(encoding, errors="replace")
+                        obj = json.loads(txt)
+                        publish_artifact(
+                            obj,
+                            host=host,
+                            port=port,
+                            label=view_label,
+                            section=view_section,
+                            artifact_kind="json",
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
                     except Exception as e:
                         txt = raw.decode(encoding, errors="replace")
                         publish_artifact(
-                            f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
+                            f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
                             host=host,
                             port=port,
                             label=view_label,
@@ -459,10 +455,45 @@ def _start_watch_threads(
                             update_limit_s=update_limit_s,
                             force=force,
                         )
-                else:
+                    time.sleep(max(0.05, float(every)))
+                    continue
+
+                # Auto mode: infer/parse via shared coercer (NO re-read)
+                try:
+                    coerced = coerce_file_to_publishable(
+                        pth,
+                        encoding=encoding,
+                        max_bytes=max_bytes,
+                        raw=raw,
+                    )
+
+                    if coerced.publish_kind == "table":
+                        publish_artifact(
+                            coerced.obj,
+                            host=host,
+                            port=port,
+                            label=view_label,
+                            section=view_section,
+                            artifact_kind=None,
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
+                    else:
+                        publish_artifact(
+                            coerced.obj,
+                            host=host,
+                            port=port,
+                            label=view_label,
+                            section=view_section,
+                            artifact_kind=coerced.artifact_kind or "text",
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
+
+                except Exception as e:
                     txt = raw.decode(encoding, errors="replace")
                     publish_artifact(
-                        txt,
+                        f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
                         host=host,
                         port=port,
                         label=view_label,
@@ -660,45 +691,39 @@ def _run_watch_mode(
 
             raw = _read_tail_bytes(p, max_bytes=max_bytes)
 
-            artifact_k = _infer_watch_artifact_kind(p, kind)
+            if kind == "text":
+                txt = raw.decode(encoding, errors="replace")
+                publish_artifact(
+                    txt,
+                    host=host,
+                    port=port,
+                    label=view_label,
+                    section=section,
+                    artifact_kind="text",
+                    update_limit_s=update_limit_s,
+                    force=force,
+                )
+                time.sleep(max(0.05, float(every)))
+                continue
 
-            if artifact_k == "json":
+            if kind == "json":
                 try:
-                    fk = infer_file_kind(p)
-                    if fk == "json":
-                        txt = raw.decode(encoding, errors="replace")
-                        obj = json.loads(txt)
-                        publish_artifact(
-                            obj,
-                            host=host,
-                            port=port,
-                            label=view_label,
-                            section=section,
-                            artifact_kind="json",
-                            update_limit_s=update_limit_s,
-                            force=force,
-                        )
-                    else:
-                        coerced = coerce_file_to_publishable(
-                            p, encoding=encoding, max_bytes=max_bytes
-                        )
-                        publish_artifact(
-                            coerced.obj,
-                            host=host,
-                            port=port,
-                            label=view_label,
-                            section=section,
-                            artifact_kind=coerced.artifact_kind,
-                            update_limit_s=update_limit_s,
-                            force=force,
-                        )
-                except Exception as e:
                     txt = raw.decode(encoding, errors="replace")
-                    obj = (
-                        f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}"
-                    )
+                    obj = json.loads(txt)
                     publish_artifact(
                         obj,
+                        host=host,
+                        port=port,
+                        label=view_label,
+                        section=section,
+                        artifact_kind="json",
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+                except Exception as e:
+                    txt = raw.decode(encoding, errors="replace")
+                    publish_artifact(
+                        f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
                         host=host,
                         port=port,
                         label=view_label,
@@ -707,10 +732,43 @@ def _run_watch_mode(
                         update_limit_s=update_limit_s,
                         force=force,
                     )
-            else:
+                time.sleep(max(0.05, float(every)))
+                continue
+
+            # Auto mode: infer/parse via shared coercer (NO re-read)
+            try:
+                coerced = coerce_file_to_publishable(
+                    p,
+                    encoding=encoding,
+                    max_bytes=max_bytes,
+                    raw=raw,
+                )
+                if coerced.publish_kind == "table":
+                    publish_artifact(
+                        coerced.obj,
+                        host=host,
+                        port=port,
+                        label=view_label,
+                        section=section,
+                        artifact_kind=None,
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+                else:
+                    publish_artifact(
+                        coerced.obj,
+                        host=host,
+                        port=port,
+                        label=view_label,
+                        section=section,
+                        artifact_kind=coerced.artifact_kind or "text",
+                        update_limit_s=update_limit_s,
+                        force=force,
+                    )
+            except Exception as e:
                 txt = raw.decode(encoding, errors="replace")
                 publish_artifact(
-                    txt,
+                    f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
                     host=host,
                     port=port,
                     label=view_label,
