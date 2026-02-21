@@ -9,6 +9,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
+    "bleach>=6.3.0",
     "fastapi>=0.121.3",
     "markdown>=3.10.2",
     "matplotlib>=3.10.7",
