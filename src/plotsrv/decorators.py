@@ -7,9 +7,11 @@ from functools import wraps
 from typing import Any, Callable, Literal, TypeVar, overload
 
 from .publisher import publish_view, publish_artifact
+from .tracebacks import publish_traceback
 
 
 PlotsrvKind = Literal["plot", "table", "artifact"]
+OnErrorMode = Literal["raise", "publish", "publish_and_raise"]
 
 F = TypeVar("F", bound=Callable[..., Any])
 
@@ -22,6 +24,7 @@ class PlotsrvSpec:
     host: str | None = None
     port: int | None = None
     update_limit_s: int | None = None
+    on_error: OnErrorMode = "raise"
 
 
 _PLOTSRV_ATTR = "__plotsrv__"
@@ -44,10 +47,6 @@ def _escape_repr(s: str, *, max_chars: int = 1000) -> str:
 
 
 def _inspect_instance(obj: Any) -> dict[str, Any]:
-    """
-    Cheap, safe-ish instance inspection to feed JsonTreeRenderer.
-    Values are repr() strings (so always JSON-safe after publisher _json_safe).
-    """
     cls = obj.__class__
     out: dict[str, Any] = {
         "kind": "instance",
@@ -59,7 +58,6 @@ def _inspect_instance(obj: Any) -> dict[str, Any]:
     attrs: dict[str, Any] = {}
     try:
         d = vars(obj)
-        # cap attribute count (avoid mega objects)
         for i, (k, v) in enumerate(d.items()):
             if i >= 200:
                 attrs["…"] = f"(+{len(d) - 200} more attrs)"
@@ -69,7 +67,6 @@ def _inspect_instance(obj: Any) -> dict[str, Any]:
             except Exception:
                 attrs[str(k)] = "<unrepr-able>"
     except Exception:
-        # objects without __dict__ etc.
         pass
 
     out["attrs"] = attrs
@@ -77,10 +74,6 @@ def _inspect_instance(obj: Any) -> dict[str, Any]:
 
 
 def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
-    """
-    Monkeypatch cls.__init__ so that instantiation publishes an inspection artifact.
-    Keeps the same class object (so isinstance checks behave as expected).
-    """
     if getattr(cls, _PLOTSRV_CLASS_WRAPPED, False):
         return cls
 
@@ -90,10 +83,8 @@ def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
 
     @wraps(orig_init)
     def __init__(self: Any, *args: Any, **kwargs: Any) -> None:
-        # call original init first
         orig_init(self, *args, **kwargs)
 
-        # then publish inspection
         try:
             publish_artifact(
                 _inspect_instance(self),
@@ -122,7 +113,7 @@ def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
 def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
     """
     Wrap function so calling it publishes result to plotsrv,
-    OR wrap class so instantiating publishes an inspection artifact,
+    OR wrap class so instantiation publishes an inspection artifact,
     but only if port is configured.
     """
     if spec.port is None:
@@ -136,7 +127,27 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
 
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        out = func(*args, **kwargs)
+        try:
+            out = func(*args, **kwargs)
+        except Exception as e:
+            if spec.on_error in ("publish", "publish_and_raise"):
+                try:
+                    publish_traceback(
+                        e,
+                        label=spec.label or func.__name__,
+                        section=spec.section,
+                        host=spec.host or "127.0.0.1",
+                        port=int(spec.port),
+                    )
+                except Exception:
+                    if os.environ.get("PLOTSRV_DEBUG", "").strip() == "1":
+                        raise
+
+            if spec.on_error in ("raise", "publish_and_raise"):
+                raise
+            return None
+
+        # success path: publish result
         try:
             if spec.kind == "artifact":
                 publish_artifact(
@@ -162,6 +173,7 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
         except Exception:
             if os.environ.get("PLOTSRV_DEBUG", "").strip() == "1":
                 raise
+
         return out
 
     return wrapper
@@ -175,6 +187,7 @@ def plot(
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
+    on_error: OnErrorMode = "raise",
 ) -> Callable[[F], F]: ...
 def plot(
     *,
@@ -183,6 +196,7 @@ def plot(
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
+    on_error: OnErrorMode = "raise",
 ) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         spec = PlotsrvSpec(
@@ -192,6 +206,7 @@ def plot(
             host=host,
             port=port,
             update_limit_s=update_limit_s,
+            on_error=on_error,
         )
         f2 = _attach_spec(func, spec)
         return _wrap_with_publish(f2, spec)  # type: ignore[return-value]
@@ -207,6 +222,7 @@ def table(
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
+    on_error: OnErrorMode = "raise",
 ) -> Callable[[F], F]: ...
 def table(
     *,
@@ -215,6 +231,7 @@ def table(
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
+    on_error: OnErrorMode = "raise",
 ) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         spec = PlotsrvSpec(
@@ -224,6 +241,7 @@ def table(
             host=host,
             port=port,
             update_limit_s=update_limit_s,
+            on_error=on_error,
         )
         f2 = _attach_spec(func, spec)
         return _wrap_with_publish(f2, spec)  # type: ignore[return-value]
@@ -231,7 +249,6 @@ def table(
     return decorator
 
 
-# NOTE: plotsrv can decorate either a function OR a class
 @overload
 def plotsrv(
     *,
@@ -240,6 +257,7 @@ def plotsrv(
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
+    on_error: OnErrorMode = "raise",
 ) -> Callable[[F], F]: ...
 @overload
 def plotsrv(
@@ -249,6 +267,7 @@ def plotsrv(
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
+    on_error: OnErrorMode = "raise",
 ) -> Callable[[type[Any]], type[Any]]: ...
 def plotsrv(
     *,
@@ -257,11 +276,12 @@ def plotsrv(
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
+    on_error: OnErrorMode = "raise",
 ) -> Callable[[Any], Any]:
     """
     Decorator: marks a function OR class as a plotsrv artifact producer.
 
-    - If applied to a function: publishes whatever it returns (existing behavior).
+    - If applied to a function: publishes whatever it returns.
     - If applied to a class: wraps __init__ so creating an instance publishes an "inspect" artifact.
     """
 
@@ -273,6 +293,7 @@ def plotsrv(
             host=host,
             port=port,
             update_limit_s=update_limit_s,
+            on_error=on_error,
         )
         o2 = _attach_spec(obj, spec)
         return _wrap_with_publish(o2, spec)

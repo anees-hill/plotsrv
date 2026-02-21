@@ -795,11 +795,9 @@ def _read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int) -> bytes:
     # Read header line (bounded)
     header = b""
     with p.open("rb") as f:
-        # Read a reasonable amount to get the first line even if it's wide
         chunk = f.read(min(64_000, max_bytes))
         nl = chunk.find(b"\n")
         if nl == -1:
-            # single-line file or extremely long header; take what we got
             header = chunk
         else:
             header = chunk[: nl + 1]  # include newline
