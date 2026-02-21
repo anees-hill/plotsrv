@@ -167,6 +167,7 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         section=section,
         label=label,
         kind="none",
+        icon_key="unknown",
         activate_if_first=False,
     )
 
@@ -203,13 +204,13 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
             )
 
         store.set_plot(png_bytes, view_id=view_id)
-        store.register_view(
-            view_id=view_id,
-            section=section,
-            label=label,
-            kind="plot",
-            activate_if_first=False,
-        )
+        # store.register_view(
+        #     view_id=view_id,
+        #     section=section,
+        #     label=label,
+        #     kind="plot",
+        #     activate_if_first=False,
+        # )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
         return {"ok": True, "ignored": False, "view_id": view_id}
@@ -226,13 +227,13 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
             section=section,
             view_id=view_id,
         )
-        store.register_view(
-            view_id=view_id,
-            section=section,
-            label=label,
-            kind="artifact",
-            activate_if_first=False,
-        )
+        # store.register_view(
+        #     view_id=view_id,
+        #     section=section,
+        #     label=label,
+        #     kind="artifact",
+        #     activate_if_first=False,
+        # )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
         return {"ok": True, "ignored": False, "view_id": view_id}
@@ -276,13 +277,13 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
             returned_rows=returned_rows,
         )
 
-        store.register_view(
-            view_id=view_id,
-            section=section,
-            label=label,
-            kind="table",
-            activate_if_first=False,
-        )
+        # store.register_view(
+        #     view_id=view_id,
+        #     section=section,
+        #     label=label,
+        #     kind="table",
+        #     activate_if_first=False,
+        # )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
         return {"ok": True, "ignored": False, "view_id": view_id}
@@ -362,3 +363,17 @@ def get_artifact(view: str | None = None) -> dict[str, Any]:
         ),
         "meta": rr.meta or {},
     }
+
+
+@app.get("/views")
+def get_views() -> list[dict[str, Any]]:
+    return [
+        {
+            "view_id": v.view_id,
+            "section": v.section,
+            "label": v.label,
+            "kind": v.kind,
+            "icon_key": v.icon_key,
+        }
+        for v in store.list_views()
+    ]

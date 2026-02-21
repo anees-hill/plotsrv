@@ -11,8 +11,21 @@
   const LS_AUTO_INTERVAL = "plotsrv:auto_refresh_interval";
 
   // Phase 1 local storage keys
-  const LS_TEXT_WRAP = "plotsrv:text_wrap_enabled"; // global (simple for now)
-  const LS_JSON_FIND = "plotsrv:json_find_query";   // remember last query
+  const LS_TEXT_WRAP = "plotsrv:text_wrap_enabled";
+  const LS_JSON_FIND = "plotsrv:json_find_query";
+
+  const ICONS = {
+    unknown: "/static/logo_unknown.png",
+    plot: "/static/logo_plot.png",
+    table: "/static/logo_table.png",
+    image: "/static/logo_image.png",
+    markdown: "/static/logo_markdown.png",
+    json: "/static/logo_json.png",
+    python: "/static/logo_python.png",
+    exception: "/static/logo_exception.png",
+    text: "/static/logo_txt.png",
+    html: "/static/logo_html.png",
+  };
 
   let _autoRefreshTimer = null;
   let _tabulatorInstance = null;
@@ -83,6 +96,47 @@
     return "(" + h + "h ago)";
   }
 
+  async function refreshViewIcons() {
+    const wrap = document.querySelector("[data-plotsrv-viewselect='1']");
+    if (!wrap) return;
+
+    try {
+      const res = await fetch("/views?_ts=" + Date.now());
+      if (!res.ok) return;
+      const views = await res.json();
+
+      const byId = {};
+      for (const v of views) byId[v.view_id] = v;
+
+      // menu item icons
+      const items = wrap.querySelectorAll("[data-plotsrv-view]");
+      items.forEach((btn) => {
+        const vid = btn.getAttribute("data-plotsrv-view");
+        if (!vid) return;
+        const meta = byId[vid];
+        if (!meta) return;
+
+        const iconKey = meta.icon_key || "unknown";
+        const img = btn.querySelector(".ps-viewselect__itemicon");
+        if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
+          img.setAttribute("src", ICONS[iconKey]);
+        }
+      });
+
+      // active button icon
+      const activeMeta = byId[ACTIVE_VIEW];
+      if (activeMeta) {
+        const iconKey = activeMeta.icon_key || "unknown";
+        const img = wrap.querySelector(".ps-viewselect__icon");
+        if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
+          img.setAttribute("src", ICONS[iconKey]);
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
+
   async function refreshStatus() {
     try {
       const res = await fetch("/status?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
@@ -126,6 +180,8 @@
           srvRate.textContent = "—";
         }
       }
+
+      refreshViewIcons();
     } catch (e) {
       // ignore
     }
@@ -258,6 +314,53 @@
   }
 
   function _bindViewDropdown() {
+    const wrap = document.querySelector("[data-plotsrv-viewselect='1']");
+    if (wrap) {
+      const btn = wrap.querySelector(".ps-viewselect__btn");
+      const menu = wrap.querySelector(".ps-viewselect__menu");
+      if (!btn || !menu) return;
+
+      function openMenu() {
+        menu.hidden = false;
+        btn.setAttribute("aria-expanded", "true");
+        try { menu.focus(); } catch (e) {}
+      }
+
+      function closeMenu() {
+        menu.hidden = true;
+        btn.setAttribute("aria-expanded", "false");
+      }
+
+      btn.addEventListener("click", function () {
+        if (menu.hidden) openMenu();
+        else closeMenu();
+      });
+
+      // click outside closes
+      document.addEventListener("click", function (ev) {
+        if (!wrap.contains(ev.target)) closeMenu();
+      });
+
+      // ESC closes
+      document.addEventListener("keydown", function (ev) {
+        if (ev.key === "Escape") closeMenu();
+      });
+
+      // click item navigates
+      menu.addEventListener("click", function (ev) {
+        const item = ev.target && ev.target.closest ? ev.target.closest("[data-plotsrv-view]") : null;
+        if (!item) return;
+        const v = item.getAttribute("data-plotsrv-view");
+        if (!v) return;
+        _saveAutoRefreshState();
+        closeMenu();
+        window.location.href = "/?view=" + encodeURIComponent(v);
+      });
+
+      return; // don't bind the old select
+    }
+
+    // Old select (fallback)
     const sel = document.getElementById("view-select");
     if (!sel) return;
 
@@ -570,6 +673,7 @@
 
     _bindAutoRefreshControls();
     _bindViewDropdown();
+    refreshViewIcons();
     _restoreAutoRefreshState();
   });
 })();

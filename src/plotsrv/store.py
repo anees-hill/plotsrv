@@ -3,15 +3,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import pandas as pd
 from .artifacts import Artifact, ArtifactKind, Truncation
 
-
-# ------------------------------------------------------------------------------
-# Models
-# ------------------------------------------------------------------------------
+IconKey = Literal[
+    "unknown",
+    "plot",
+    "table",
+    "text",
+    "json",
+    "python",
+    "markdown",
+    "image",
+    "html",
+    "exception",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,9 +29,11 @@ class ViewMeta:
     """
 
     view_id: str
-    kind: str  # "none" | "plot" | "table"
+    kind: str  # "none" | "plot" | "table" | "artifact"
     label: str
     section: str | None = None
+
+    icon_key: IconKey = "unknown"
 
 
 @dataclass(slots=True)
@@ -35,6 +45,7 @@ class ViewState:
     """
 
     kind: str = "none"  # "none" | "plot" | "table"
+    icon_key: IconKey = "unknown"
     plot_png: bytes | None = None
     table_df: pd.DataFrame | None = None
     table_html_simple: str | None = None
@@ -53,6 +64,28 @@ class ViewState:
                 "last_duration_s": None,  # float | None
                 "last_error": None,  # str | None
             }
+
+
+def _icon_for_view_kind(
+    kind: str, *, artifact_kind: ArtifactKind | None = None
+) -> IconKey:
+    k = (kind or "none").strip().lower()
+
+    if k == "plot":
+        return "plot"
+    if k == "table":
+        return "table"
+
+    if k == "artifact":
+        ak = (artifact_kind or "python").strip().lower()
+        if ak in ("text", "json", "python", "markdown", "image", "html"):
+            return ak  # type: ignore[return-value]
+        if ak == "exception":
+            return "exception"
+        # fall back
+        return "python"
+
+    return "unknown"
 
 
 # ------------------------------------------------------------------------------
@@ -118,14 +151,18 @@ def register_view(
     section: str | None = None,
     label: str | None = None,
     kind: str = "none",
+    icon_key: IconKey | None = None,  # NEW
     activate_if_first: bool = True,
 ) -> str:
     vid = normalize_view_id(view_id, section=section, label=label)
     st = _ensure_view(vid)
 
-    # allow "upgrading" a view kind once it receives content
+    # allow upgrade of assigned view dropdown menu icon
     if kind in ("plot", "table", "artifact"):
         st.kind = kind
+
+    if icon_key is not None:
+        st.icon_key = icon_key
 
     meta = _VIEW_META.get(vid)
     if meta is None:
@@ -134,14 +171,15 @@ def register_view(
             kind=st.kind,
             label=(label or vid),
             section=section,
+            icon_key=st.icon_key,
         )
     else:
-        # keep label/section if new values supplied
         _VIEW_META[vid] = ViewMeta(
             view_id=vid,
             kind=st.kind,
             label=(label or meta.label),
             section=(section if section is not None else meta.section),
+            icon_key=st.icon_key,
         )
 
     global _ACTIVE_VIEW_ID
@@ -198,6 +236,7 @@ def set_plot(png_bytes: bytes, *, view_id: str | None = None) -> None:
     vid = view_id or _ACTIVE_VIEW_ID
 
     st.kind = "plot"
+    st.icon_key = _icon_for_view_kind("plot")
     st.plot_png = png_bytes
 
     st.artifact = Artifact(
@@ -209,6 +248,10 @@ def set_plot(png_bytes: bytes, *, view_id: str | None = None) -> None:
 
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+
+    register_view(
+        view_id=vid, kind="plot", icon_key=st.icon_key, activate_if_first=False
+    )
 
 
 def get_plot(*, view_id: str | None = None) -> bytes:
@@ -232,6 +275,7 @@ def set_table(
     returned_rows: int | None = None,
 ) -> None:
     st = get_view_state(view_id)
+    st.icon_key = _icon_for_view_kind("table")
     vid = view_id or _ACTIVE_VIEW_ID
 
     st.kind = "table"
@@ -251,6 +295,10 @@ def set_table(
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
 
+    register_view(
+        view_id=vid, kind="table", icon_key=st.icon_key, activate_if_first=False
+    )
+
 
 def set_artifact(
     *,
@@ -265,6 +313,7 @@ def set_artifact(
     vid = view_id or _ACTIVE_VIEW_ID
 
     st.kind = "artifact"
+    st.icon_key = _icon_for_view_kind("artifact", artifact_kind=kind)
     st.artifact = Artifact(
         kind=kind,
         obj=obj,
@@ -277,6 +326,10 @@ def set_artifact(
 
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+
+    register_view(
+        view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
+    )
 
 
 def has_table(*, view_id: str | None = None) -> bool:

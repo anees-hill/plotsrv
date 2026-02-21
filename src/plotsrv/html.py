@@ -40,16 +40,21 @@ def render_index(
 
     if include_tabulator:
         tabulator_head = """
-        <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
-        <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
+        <link href=
+"https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css"
+ rel="stylesheet">
+        <script src=
+"https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"
+></script>
         """
 
     # --- Shared statusline HTML ------------------------------------------------
-
     statusline_html = ""
     if ui.show_statusline:
         statusline_html = """
-        <div class="note ps-note ps-statusline" id="statusline">
+        <div class=
+"note ps-note ps-statusline"
+ id="statusline">
           <span class="ps-statusline__item"><strong>Last updated:</strong> <span id="status-updated">—</span> <span id="status-updated-ago"></span></span>
           &nbsp;|&nbsp;
           <span class="ps-statusline__item"><strong>Last run time:</strong> <span id="status-duration">—</span></span>
@@ -66,7 +71,6 @@ def render_index(
         """
 
     # --- Controls blocks -------------------------------------------------------
-
     def _terminate_button_html() -> str:
         if not ui.terminate_process_option:
             return ""
@@ -98,7 +102,39 @@ def render_index(
             </label>
         """
 
-    # --- View dropdown ---------------------------------------------------------
+    # --- View dropdown (custom, with icons) -----------------------------------
+
+    LOGO_BY_KEY = {
+        "plot": "/static/logo_plot.png",
+        "table": "/static/logo_table.png",
+        "image": "/static/logo_image.png",
+        "markdown": "/static/logo_markdown.png",
+        "json": "/static/logo_json.png",
+        "python": "/static/logo_python.png",
+        "exception": "/static/logo_exception.png",
+        "txt": "/static/logo_txt.png",
+        "html": "/static/logo_html.png",
+    }
+
+    LOGO_BY_KEY = {
+        "unknown": "/static/logo_unknown.png",
+        "plot": "/static/logo_plot.png",
+        "table": "/static/logo_table.png",
+        "image": "/static/logo_image.png",
+        "markdown": "/static/logo_markdown.png",
+        "json": "/static/logo_json.png",
+        "python": "/static/logo_python.png",
+        "exception": "/static/logo_exception.png",
+        "text": "/static/logo_txt.png",
+        "html": "/static/logo_html.png",
+    }
+
+    def _icon_url(v: ViewMeta | None) -> str:
+        if v is None:
+            return LOGO_BY_KEY["unknown"]
+        return LOGO_BY_KEY.get(
+            getattr(v, "icon_key", "unknown"), LOGO_BY_KEY["unknown"]
+        )
 
     dropdown_html = ""
     if getattr(ui, "show_view_selector", True) and len(views) > 0:
@@ -113,19 +149,51 @@ def render_index(
         for s in sections:
             groups[s] = sorted(groups[s], key=lambda x: x.label)
 
-        options: list[str] = []
+        # find active view meta (for button display)
+        active_meta = None
+        for v in views:
+            if v.view_id == active_view_id:
+                active_meta = v
+                break
+        active_label = active_meta.label if active_meta else active_view_id
+        active_icon = _icon_url(active_meta) if active_meta else LOGO_BY_KEY["txt"]
+
+        # build menu
+        menu_parts: list[str] = []
         for sec in sections:
-            options.append(f'<optgroup label="{sec}">')
+            menu_parts.append('<div class="ps-viewselect__group">')
+            menu_parts.append(f'<div class="ps-viewselect__group-label">{sec}</div>')
             for v in groups[sec]:
-                sel = "selected" if v.view_id == active_view_id else ""
-                options.append(f'<option value="{v.view_id}" {sel}>{v.label}</option>')
-            options.append("</optgroup>")
+                is_sel = "true" if v.view_id == active_view_id else "false"
+                icon = _icon_url(v)
+                menu_parts.append(
+                    f"""
+                    <button type="button"
+                            class="ps-viewselect__item"
+                            role="option"
+                            aria-selected="{is_sel}"
+                            data-plotsrv-view="{v.view_id}">
+                      <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
+                      <span class="ps-viewselect__itemlabel">{v.label}</span>
+                    </button>
+                    """
+                )
+            menu_parts.append("</div>")
 
         dropdown_html = f"""
-          <div class="view-select ps-viewselect">
-            <select id="view-select" class="ps-viewselect__select">
-              {''.join(options)}
-            </select>
+          <div class="ps-viewselect" data-plotsrv-viewselect="1">
+            <button type="button"
+                    class="ps-viewselect__btn"
+                    aria-haspopup="listbox"
+                    aria-expanded="false">
+              <img class="ps-viewselect__icon" src="{active_icon}" alt="" />
+              <span class="ps-viewselect__label">{active_label}</span>
+              <span class="ps-viewselect__chev" aria-hidden="true">▾</span>
+            </button>
+
+            <div class="ps-viewselect__menu" role="listbox" tabindex="-1" hidden>
+              {''.join(menu_parts)}
+            </div>
           </div>
         """
 

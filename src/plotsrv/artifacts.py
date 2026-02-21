@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 ArtifactKind = Literal[
-    "plot", "table", "text", "json", "python", "markdown", "image", "html"
+    "plot", "table", "text", "json", "python", "markdown", "image", "html", "exception"
 ]
 
 
