@@ -138,16 +138,16 @@ def render_index(
 
     dropdown_html = ""
     if getattr(ui, "show_view_selector", True) and len(views) > 0:
-        # group by section
+        # group by section, preserving the incoming ordering of `views`.
+        # (store.list_views() applies the configured order from plotsrv.ini)
         groups: dict[str, list[ViewMeta]] = {}
+        sections: list[str] = []
         for v in views:
             sec = v.section or "default"
-            groups.setdefault(sec, []).append(v)
-
-        # stable ordering
-        sections = sorted(groups.keys())
-        for s in sections:
-            groups[s] = sorted(groups[s], key=lambda x: x.label)
+            if sec not in groups:
+                groups[sec] = []
+                sections.append(sec)
+            groups[sec].append(v)
 
         # find active view meta (for button display)
         active_meta = None

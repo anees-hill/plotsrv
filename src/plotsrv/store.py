@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
 import pandas as pd
+from . import config
 from .artifacts import Artifact, ArtifactKind, Truncation
 
 IconKey = Literal[
@@ -88,9 +89,7 @@ def _icon_for_view_kind(
     return "unknown"
 
 
-# ------------------------------------------------------------------------------
 # Global store: multi-view
-# ------------------------------------------------------------------------------
 
 _VIEWS: dict[str, ViewState] = {}
 _VIEW_META: dict[str, ViewMeta] = {}
@@ -108,9 +107,7 @@ _SERVICE_INFO: dict[str, Any] = {
 _SERVICE_STOP_HOOK: Callable[[], None] | None = None
 
 
-# ------------------------------------------------------------------------------
 # Helpers
-# ------------------------------------------------------------------------------
 
 
 def _now_iso() -> str:
@@ -140,9 +137,7 @@ def normalize_view_id(
     return f"{sec}:{lab}"
 
 
-# ------------------------------------------------------------------------------
 # View registry API
-# ------------------------------------------------------------------------------
 
 
 def register_view(
@@ -195,14 +190,49 @@ def register_view(
 
 def list_views() -> list[ViewMeta]:
     """
-    Return UI-ready view metadata, stable ordering:
-      section then label.
+    Return UI-ready view metadata.
+
+    Ordering rules:
+      - sections listed in config come first, in order
+      - remaining sections come afterwards alphabetically
+      - labels.<section> listed come first within that section, in order
+      - remaining labels come afterwards alphabetically
     """
     metas = list(_VIEW_META.values())
 
-    def _key(m: ViewMeta) -> tuple[str, str]:
-        sec = m.section or ""
-        return (sec, m.label)
+    # Pull in optional configured order
+    section_order = config.get_view_order_sections()  # list[str] | None
+
+    section_rank: dict[str, int] = {}
+    if section_order:
+        for i, s in enumerate(section_order):
+            section_rank[s] = i
+
+    def _section_sort_key(sec: str) -> tuple[int, str]:
+        # (0, rank) for configured sections, else (1, alpha)
+        if sec in section_rank:
+            return (0, f"{section_rank[sec]:09d}")
+        return (1, sec.lower())
+
+    # Pre-fetch label ranking maps for sections that have them
+    label_rank_by_section: dict[str, dict[str, int]] = {}
+    for m in metas:
+        sec = (m.section or "default").strip() or "default"
+        if sec in label_rank_by_section:
+            continue
+        order = config.get_view_order_labels(sec)
+        if order:
+            label_rank_by_section[sec] = {lab: i for i, lab in enumerate(order)}
+
+    def _label_sort_key(sec: str, label: str) -> tuple[int, str]:
+        ranks = label_rank_by_section.get(sec)
+        if ranks and label in ranks:
+            return (0, f"{ranks[label]:09d}")
+        return (1, label.lower())
+
+    def _key(m: ViewMeta) -> tuple[tuple[int, str], tuple[int, str]]:
+        sec = (m.section or "default").strip() or "default"
+        return (_section_sort_key(sec), _label_sort_key(sec, m.label))
 
     return sorted(metas, key=_key)
 
@@ -222,9 +252,7 @@ def get_view_state(view_id: str | None = None) -> ViewState:
     return _ensure_view(vid)
 
 
-# ------------------------------------------------------------------------------
 # Backwards-compatible single-view API (uses active view)
-# ------------------------------------------------------------------------------
 
 
 def get_kind(view_id: str | None = None) -> str:
@@ -391,16 +419,11 @@ def get_status(*, view_id: str | None = None) -> dict[str, Any]:
     return dict(st.status)
 
 
-# ------------------------------------------------------------------------------
 # Publish throttling
-# ------------------------------------------------------------------------------
 
 
 def should_accept_publish(
-    *,
-    view_id: str,
-    update_limit_s: int | None,
-    now_s: float,
+    *, view_id: str, update_limit_s: int | None, now_s: float
 ) -> bool:
     """
     Server-side throttling:
@@ -427,16 +450,11 @@ def note_publish(view_id: str, *, now_s: float) -> None:
     st.last_publish_at = now_s
 
 
-# ------------------------------------------------------------------------------
 # Service info + shutdown control (global)
-# ------------------------------------------------------------------------------
 
 
 def set_service_info(
-    *,
-    service_mode: bool,
-    target: str | None,
-    refresh_rate_s: int | None,
+    *, service_mode: bool, target: str | None, refresh_rate_s: int | None
 ) -> None:
     _SERVICE_INFO["service_mode"] = bool(service_mode)
     _SERVICE_INFO["service_target"] = target
@@ -472,9 +490,7 @@ def request_service_stop() -> bool:
     return True
 
 
-# ------------------------------------------------------------------------------
 # Reset
-# ------------------------------------------------------------------------------
 
 
 def reset() -> None:

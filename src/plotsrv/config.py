@@ -13,9 +13,7 @@ MAX_TABLE_ROWS_SIMPLE: int = 200
 MAX_TABLE_ROWS_RICH: int = 1000
 _MAX_TABLE_ROWS_INF: int = 1_000_000_000
 
-# ------------------------------------------------------------------------------
 # Plot rendering defaults (static PNG generation)
-# ------------------------------------------------------------------------------
 
 # Higher default DPI makes PNGs crisper on high-res displays.
 PLOT_DPI: int = 200
@@ -27,6 +25,16 @@ PLOT_DEFAULT_FIGSIZE_IN: tuple[float, float] | None = (12.0, 6.0)
 # Keep tight bounding box, but allow padding so labels don't get clipped.
 PLOT_BBOX_TIGHT: bool = True
 PLOT_PAD_INCHES: float = 0.10
+
+# View ordering (optional)
+
+# If set, these determine dropdown ordering:
+# - sections listed come first in the given order
+# - remaining sections come afterwards alphabetically
+# - labels.<section> listed come first in given order within section
+# - remaining labels come afterwards alphabetically
+VIEW_ORDER_SECTIONS: list[str] | None = None
+VIEW_ORDER_LABELS: dict[str, list[str]] = {}
 
 # Internal: lazy load ini once
 _LOADED_RENDER_SETTINGS: bool = False
@@ -50,9 +58,7 @@ def set_table_view_mode(mode: TableViewMode) -> None:
     TABLE_VIEW_MODE = mode
 
 
-# ------------------------------------------------------------------------------
 # plotsrv.ini resolution + parsing (render settings)
-# ------------------------------------------------------------------------------
 
 
 def _strip_quotes(s: str) -> str:
@@ -105,11 +111,63 @@ def _parse_int_or_inf(raw: str, *, default: int, min_value: int = 1) -> int:
     return default
 
 
+def _parse_listish(raw: str) -> list[str]:
+    """
+    Parse an ini value into an ordered list of strings.
+
+    Supports:
+      - comma-separated: "a, b, c"
+      - multiline values:
+            a
+            b
+            c
+      - mixtures of both
+    """
+    s = _strip_quotes(raw)
+    if not s.strip():
+        return []
+
+    # Normalize commas to newlines, then splitlines.
+    s = s.replace(",", "\n")
+    items: list[str] = []
+    for line in s.splitlines():
+        t = line.strip()
+        if t:
+            items.append(t)
+    return items
+
+
+def get_view_order_sections() -> list[str] | None:
+    _load_ini_settings_once()
+    return list(VIEW_ORDER_SECTIONS) if VIEW_ORDER_SECTIONS else None
+
+
+def get_view_order_labels(section: str) -> list[str] | None:
+    _load_ini_settings_once()
+    key = (section or "").strip()
+    vals = VIEW_ORDER_LABELS.get(key)
+    return list(vals) if vals else None
+
+
 def _load_ini_settings_once() -> None:
     """
     Read settings from plotsrv.ini once.
 
     Sections:
+
+    [view-order-settings]
+      sections = polars, pandas, plotnine
+      # OR multiline:
+      # sections =
+      #   polars
+      #   pandas
+      #   plotnine
+      #
+      # label ordering per section:
+      # labels.polars = MEM-USED, CPU%
+      # labels.pandas =
+      #   A
+      #   B
 
     [table-settings]
       table_view_mode = rich
@@ -127,6 +185,7 @@ def _load_ini_settings_once() -> None:
     global _LOADED_RENDER_SETTINGS
     global TABLE_VIEW_MODE, MAX_TABLE_ROWS_SIMPLE, MAX_TABLE_ROWS_RICH
     global PLOT_DPI, PLOT_DEFAULT_FIGSIZE_IN, PLOT_BBOX_TIGHT, PLOT_PAD_INCHES
+    global VIEW_ORDER_SECTIONS, VIEW_ORDER_LABELS
 
     if _LOADED_RENDER_SETTINGS:
         return
@@ -139,9 +198,34 @@ def _load_ini_settings_once() -> None:
     cfg = configparser.ConfigParser()
     cfg.read(ini_path)
 
-    # ----------------------------
+    # view-order-settings
+    osec = "view-order-settings"
+    if cfg.has_section(osec):
+        # sections = ...
+        try:
+            raw = cfg.get(osec, "sections", fallback="").strip()
+            sections = _parse_listish(raw)
+            VIEW_ORDER_SECTIONS = sections or None
+        except Exception:
+            pass
+
+        # labels.<section> = ...
+        # e.g. labels.polars = MEM-USED, CPU%
+        try:
+            for key, val in cfg.items(osec):
+                k = key.strip()
+                if not k.startswith("labels."):
+                    continue
+                sec = k[len("labels.") :].strip()
+                if not sec:
+                    continue
+                labels = _parse_listish(val)
+                if labels:
+                    VIEW_ORDER_LABELS[sec] = labels
+        except Exception:
+            pass
+
     # table-settings
-    # ----------------------------
     tsec = "table-settings"
     if cfg.has_section(tsec):
         # table_view_mode
@@ -172,9 +256,7 @@ def _load_ini_settings_once() -> None:
         except Exception:
             pass
 
-    # ----------------------------
-    # render-settings (your existing logic)
-    # ----------------------------
+    # render-settings
     rsec = "render-settings"
     if not cfg.has_section(rsec):
         return
@@ -224,9 +306,7 @@ def _load_ini_settings_once() -> None:
         pass
 
 
-# ------------------------------------------------------------------------------
 # Public getters for render settings (ensure ini loaded)
-# ------------------------------------------------------------------------------
 
 
 def get_plot_dpi() -> int:
