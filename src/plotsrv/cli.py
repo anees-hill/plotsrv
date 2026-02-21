@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 import importlib.util
-from typing import Any
+from typing import Any, Literal
 import json
 import os
 import threading
@@ -20,12 +20,82 @@ from . import store
 from .discovery import discover_views, DiscoveredView
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
 
+WatchReadMode = Literal["head", "tail"]
+
 
 @dataclass(frozen=True)
 class WatchSpec:
     path: str
     label: str | None = None
     section: str | None = None
+    read_mode: WatchReadMode | None = None
+
+
+class _WatchPathAction(argparse.Action):
+    """
+    --watch <path>
+
+    Appends a watch path AND ensures watch_read_mode stays aligned by
+    appending a placeholder None for this watch.
+    Also consumes any pending read mode set by --watch-head/--watch-tail
+    that appeared before this --watch.
+    """
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: str | list[str] | None,
+        option_string: str | None = None,
+    ) -> None:
+        path = values if isinstance(values, str) else str(values[0])
+
+        watches: list[str] = getattr(namespace, "watch", None) or []
+        modes: list[str | None] = getattr(namespace, "watch_read_mode", None) or []
+        pending: str | None = getattr(namespace, "_watch_pending_read_mode", None)
+
+        watches.append(path)
+
+        # default placeholder for this watch
+        modes.append(None)
+
+        # if a --watch-head/--watch-tail occurred BEFORE this --watch, bind it now
+        if pending is not None:
+            modes[-1] = pending
+            setattr(namespace, "_watch_pending_read_mode", None)
+
+        setattr(namespace, "watch", watches)
+        setattr(namespace, "watch_read_mode", modes)
+
+
+class _WatchReadModeAction(argparse.Action):
+    """
+    --watch-head / --watch-tail
+
+    If the most recent watch has no mode yet, set it.
+    Otherwise store as "pending" to apply to the NEXT --watch.
+    """
+
+    def __call__(
+        self,
+        parser: argparse.ArgumentParser,
+        namespace: argparse.Namespace,
+        values: Any,
+        option_string: str | None = None,
+    ) -> None:
+        mode: str = str(self.const)
+
+        modes: list[str | None] = getattr(namespace, "watch_read_mode", None) or []
+
+        # If there's at least one watch and the last one hasn't been assigned, assign it.
+        if modes and modes[-1] is None:
+            modes[-1] = mode
+            setattr(namespace, "watch_read_mode", modes)
+            return
+
+        # Otherwise: apply to the *next* --watch
+        setattr(namespace, "_watch_pending_read_mode", mode)
+        setattr(namespace, "watch_read_mode", modes)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -100,7 +170,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     run_p.add_argument(
         "--watch",
-        action="append",
+        action=_WatchPathAction,
         default=[],
         help=(
             "Watch a file and publish it as an artifact view. "
@@ -165,6 +235,28 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Bypass server throttling for watched publishes.",
     )
+    run_p.add_argument(
+        "--watch-head",
+        action=_WatchReadModeAction,
+        nargs=0,
+        const="head",
+        dest="watch_read_mode",
+        help=(
+            "Read watched file from the start (head). "
+            "Binds to the most recent --watch if present; otherwise applies to the next --watch."
+        ),
+    )
+    run_p.add_argument(
+        "--watch-tail",
+        action=_WatchReadModeAction,
+        nargs=0,
+        const="tail",
+        dest="watch_read_mode",
+        help=(
+            "Read watched file from the end (tail). "
+            "Binds to the most recent --watch if present; otherwise applies to the next --watch."
+        ),
+    )
 
     # [plotsrv].[WATCH]
     watch_p = sub.add_parser("watch", help="Watch a text/JSON file and publish it live")
@@ -207,6 +299,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watch_p.add_argument(
         "--quiet", action="store_true", help="Reduce uvicorn logging noise"
+    )
+    mx = watch_p.add_mutually_exclusive_group()
+    mx.add_argument(
+        "--head", action="store_true", help="Read file from the start (head)."
+    )
+    mx.add_argument(
+        "--tail", action="store_true", help="Read file from the end (tail)."
     )
 
     return p
@@ -295,6 +394,7 @@ def _coerce_watch_specs(
     *,
     labels: list[str] | None,
     sections: list[str] | None,
+    read_modes: list[str] | None,
 ) -> list[WatchSpec]:
     """
     Build per-watch specs in a backwards-compatible way.
@@ -343,9 +443,36 @@ def _coerce_watch_specs(
             f"or exactly once per --watch (expected {n}, got {len(sec_list)})."
         )
 
+    rm_list = list(read_modes or [])
+
+    # read_modes:
+    #   - 0 => all None (defaults inferred per file)
+    #   - < N => pad with None
+    #   - N => use as-is
+    #   - > N => error
+    if len(rm_list) == 0:
+        per_modes: list[WatchReadMode | None] = [None] * n
+    elif len(rm_list) < n:
+        per_modes = [(m if m in ("head", "tail") else None) for m in rm_list]  # type: ignore[assignment]
+        per_modes = per_modes + [None] * (n - len(per_modes))
+    elif len(rm_list) == n:
+        bad = [m for m in rm_list if m not in ("head", "tail", None)]
+        if bad:
+            raise ValueError(
+                f"Invalid watch read mode(s): {bad}. Expected 'head' or 'tail'."
+            )
+        per_modes = [m for m in rm_list]  # type: ignore[assignment]
+    else:
+        raise ValueError(
+            f"--watch-head/--watch-tail provided too many times "
+            f"(expected at most {n}, got {len(rm_list)})."
+        )
+
     specs: list[WatchSpec] = []
-    for raw_path, lab, sec in zip(paths, per_labels, per_sections, strict=True):
-        specs.append(WatchSpec(path=raw_path, label=lab, section=sec))
+    for raw_path, lab, sec, rm in zip(
+        paths, per_labels, per_sections, per_modes, strict=True
+    ):
+        specs.append(WatchSpec(path=raw_path, label=lab, section=sec, read_mode=rm))
     return specs
 
 
@@ -355,7 +482,7 @@ def _start_watch_threads(
     host: str,
     port: int,
     every: float,
-    kind: str,  # auto|text|json
+    kind: str,
     max_bytes: int,
     encoding: str,
     update_limit_s: int | None,
@@ -371,6 +498,7 @@ def _start_watch_threads(
 
         # Pre-register so dropdown shows it immediately
         fk = infer_file_kind(p)
+        read_mode: WatchReadMode = spec.read_mode or _default_watch_read_mode(p)
         preregister_kind = "table" if fk == "csv" else "artifact"
 
         store.register_view(
@@ -401,7 +529,14 @@ def _start_watch_threads(
                 last_sig = sig
 
                 try:
-                    raw = _read_tail_bytes(pth, max_bytes=max_bytes)
+                    fk2 = infer_file_kind(pth)
+                    if fk2 == "csv" and read_mode == "tail":
+                        raw = _read_csv_tail_with_header_bytes(pth, max_bytes=max_bytes)
+                    elif read_mode == "head":
+                        raw = _read_head_bytes(pth, max_bytes=max_bytes)
+                    else:
+                        raw = _read_tail_bytes(pth, max_bytes=max_bytes)
+
                 except Exception as e:
                     publish_artifact(
                         f"[plotsrv watch] read error: {type(e).__name__}: {e}",
@@ -640,6 +775,53 @@ def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
         return f.read(max_bytes)
 
 
+def _read_head_bytes(p: Path, *, max_bytes: int) -> bytes:
+    max_bytes = max(1, int(max_bytes))
+    with p.open("rb") as f:
+        return f.read(max_bytes)
+
+
+def _read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int) -> bytes:
+    """
+    CSV tail mode needs the header row for pandas to parse.
+    Strategy:
+      - read first line (header) from start
+      - read tail bytes from end
+      - if file is small and tail already includes header, just return tail
+      - else return header + newline(if needed) + tail
+    """
+    max_bytes = max(1, int(max_bytes))
+
+    # Read header line (bounded)
+    header = b""
+    with p.open("rb") as f:
+        # Read a reasonable amount to get the first line even if it's wide
+        chunk = f.read(min(64_000, max_bytes))
+        nl = chunk.find(b"\n")
+        if nl == -1:
+            # single-line file or extremely long header; take what we got
+            header = chunk
+        else:
+            header = chunk[: nl + 1]  # include newline
+
+    tail = _read_tail_bytes(p, max_bytes=max_bytes)
+
+    # If tail already includes header (small files), don't duplicate
+    if tail.startswith(header) or tail == header:
+        return tail
+
+    # Ensure there's a newline between header and tail if header didn't end with one
+    if header and not header.endswith(b"\n"):
+        header = header + b"\n"
+
+    return header + tail
+
+
+def _default_watch_read_mode(path: Path) -> WatchReadMode:
+    fk = infer_file_kind(path)
+    return "head" if fk == "csv" else "tail"
+
+
 def _run_watch_mode(
     path: str,
     *,
@@ -655,12 +837,15 @@ def _run_watch_mode(
     update_limit_s: int | None,
     force: bool,
     quiet: bool,
+    read_mode: WatchReadMode | None,
 ) -> int:
     p = Path(path).expanduser().resolve()
     if not p.exists() or not p.is_file():
         return _die(f"watch: file not found: {p}")
 
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+
+    mode: WatchReadMode = read_mode or _default_watch_read_mode(p)
 
     # view identity
     view_label = label or p.name
@@ -697,7 +882,13 @@ def _run_watch_mode(
                 continue
             last_sig = sig
 
-            raw = _read_tail_bytes(p, max_bytes=max_bytes)
+            fk2 = infer_file_kind(p)
+            if fk2 == "csv" and mode == "tail":
+                raw = _read_csv_tail_with_header_bytes(p, max_bytes=max_bytes)
+            elif mode == "head":
+                raw = _read_head_bytes(p, max_bytes=max_bytes)
+            else:
+                raw = _read_tail_bytes(p, max_bytes=max_bytes)
 
             if kind == "text":
                 txt = raw.decode(encoding, errors="replace")
@@ -816,6 +1007,7 @@ def main(argv: list[str] | None = None) -> int:
                 watch_paths,
                 labels=getattr(args, "watch_label", []) or [],
                 sections=getattr(args, "watch_section", []) or [],
+                read_modes=getattr(args, "watch_read_mode", []) or [],
             )
         except ValueError as e:
             return _die(str(e))
@@ -914,6 +1106,8 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
     if args.cmd == "watch":
+        read_mode = "head" if args.head else ("tail" if args.tail else None)
+
         return _run_watch_mode(
             args.path,
             host=args.host,
@@ -928,6 +1122,7 @@ def main(argv: list[str] | None = None) -> int:
             update_limit_s=args.update_limit_s,
             force=args.force,
             quiet=args.quiet,
+            read_mode=read_mode,
         )
 
     return 0
