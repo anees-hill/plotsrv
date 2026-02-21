@@ -162,6 +162,9 @@ def _infer_artifact_kind(obj: Any) -> str:
         return "text"
     if isinstance(obj, (dict, list, tuple, set)):
         return "json"
+    if _try_array_payload(obj) is not None:
+        return "json"
+
     return "python"
 
 
@@ -185,6 +188,75 @@ def _looks_like_plot(obj: Any) -> bool:
     return False
 
 
+def _try_array_payload(obj: Any) -> dict[str, Any] | None:
+    """
+    If obj looks like a numpy array / torch tensor, return a JSON-safe summary payload.
+    Otherwise return None.
+    """
+    # --- numpy ---
+    try:
+        import numpy as np  # type: ignore
+
+        if isinstance(obj, np.ndarray):
+            arr = obj
+            payload: dict[str, Any] = {
+                "type": "numpy.ndarray",
+                "dtype": str(arr.dtype),
+                "shape": list(arr.shape),
+                "ndim": int(arr.ndim),
+                "size": int(arr.size),
+            }
+
+            # Small sample (kept very bounded)
+            max_elems = 2000
+            if arr.size <= max_elems:
+                payload["data"] = arr.tolist()
+                payload["truncated"] = False
+            else:
+                flat = arr.ravel()[:max_elems]
+                payload["data"] = flat.tolist()
+                payload["truncated"] = True
+                payload["truncation_reason"] = (
+                    f"sampled first {max_elems} elements from flattened array"
+                )
+            return payload
+    except Exception:
+        pass
+
+    # --- torch ---
+    try:
+        import torch  # type: ignore
+
+        if isinstance(obj, torch.Tensor):
+            t = obj.detach()
+            payload = {
+                "type": "torch.Tensor",
+                "dtype": str(t.dtype).replace("torch.", ""),
+                "shape": list(t.shape),
+                "ndim": int(t.ndim),
+                "device": str(t.device),
+                "requires_grad": bool(getattr(t, "requires_grad", False)),
+                "numel": int(t.numel()),
+            }
+
+            max_elems = 2000
+            if t.numel() <= max_elems:
+                payload["data"] = t.cpu().tolist()
+                payload["truncated"] = False
+            else:
+                flat = t.reshape(-1)[:max_elems].cpu().tolist()
+                payload["data"] = flat
+                payload["truncated"] = True
+                payload["truncation_reason"] = (
+                    f"sampled first {max_elems} elements from flattened tensor"
+                )
+            return payload
+    except Exception:
+        pass
+
+    return None
+
+
 def _to_publish_payload(
     obj: Any,
     *,
@@ -205,7 +277,6 @@ def _to_publish_payload(
     if kind == "plot":
         fig = _to_figure(obj)
         png = fig_to_png_bytes(fig)
-        # Prevent plotnine/matplotlib figure accumulation that seems to happen when using @plotsrv decorator
         try:
             if plt is not None:
                 plt.close(fig)
@@ -214,6 +285,17 @@ def _to_publish_payload(
         payload["plot_png_b64"] = base64.b64encode(png).decode("utf-8")
         return payload
 
+    if kind == "table":
+        df = _to_dataframe(obj)
+        payload["table"] = df_to_rich_sample(
+            df, max_rows=config.get_max_table_rows_rich()
+        )
+        payload["table_html_simple"] = df_to_html_simple(
+            df, max_rows=config.get_max_table_rows_simple()
+        )
+        return payload
+
+    # kind == "artifact"
     if kind == "artifact":
         artifact_kind = _infer_artifact_kind(obj)
         payload["artifact_kind"] = artifact_kind
@@ -223,22 +305,20 @@ def _to_publish_payload(
                 payload["artifact"] = bytes(obj).decode("utf-8", errors="replace")
             else:
                 payload["artifact"] = str(obj)
+
         elif artifact_kind == "json":
-            payload["artifact"] = _json_safe(obj)
+            arr_payload = _try_array_payload(obj)
+            if arr_payload is not None:
+                payload["artifact"] = _json_safe(arr_payload)
+            else:
+                payload["artifact"] = _json_safe(obj)
+
         else:
-            # "python" => repr string (safe to transmit)
             payload["artifact"] = repr(obj)
 
         return payload
 
-    # table
-    df = _to_dataframe(obj)
-    sample = df_to_rich_sample(df, max_rows=config.get_max_table_rows_rich())
-    payload["table"] = sample
-    payload["table_html_simple"] = df_to_html_simple(
-        df, max_rows=config.get_max_table_rows_simple()
-    )
-    return payload
+    raise ValueError(f"Unknown publish kind: {kind!r}")
 
 
 def publish_artifact(
@@ -352,15 +432,18 @@ def publish_artifact(
         else:
             kind2 = "python"
 
-    payload: dict[str, Any] = {
-        "kind": "artifact",
-        "artifact_kind": kind2,
-        "artifact": obj,
-        "label": label,
-        "section": section,
-        "update_limit_s": update_limit_s,
-        "force": force,
-    }
+    payload = _to_publish_payload(
+        obj,
+        kind="artifact",
+        label=label,
+        section=section,
+        update_limit_s=update_limit_s,
+        force=force,
+    )
+
+    # If caller forced an artifact_kind, override it (optional)
+    if artifact_kind is not None:
+        payload["artifact_kind"] = artifact_kind
 
     payload = _json_safe(payload)
 

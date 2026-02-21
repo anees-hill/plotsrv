@@ -26,9 +26,7 @@ ArtifactKind = Literal["text", "json", "markdown", "image", "html"]
 @dataclass(frozen=True, slots=True)
 class FileCoerceResult:
     publish_kind: PublishKind
-    # Only meaningful when publish_kind == "artifact"
     artifact_kind: ArtifactKind | None
-    # The object to publish (string/dict/list/df/etc.)
     obj: Any
     file_kind: FileKind
     mime: str | None = None
@@ -79,6 +77,7 @@ def coerce_file_to_publishable(
     *,
     encoding: str = "utf-8",
     max_bytes: int | None = None,
+    max_rows: int | None = None,
     raw: bytes | None = None,
 ) -> FileCoerceResult:
     """
@@ -86,7 +85,7 @@ def coerce_file_to_publishable(
 
     - json/ini/toml/yaml -> artifact(json) with dict/list
     - markdown -> artifact(markdown) with text
-    - csv -> publish as table using pandas DataFrame
+    - csv -> publish as table using pandas DataFrame (CAPPED rows)
     - image -> artifact(image) with {mime, data_b64}
     - unknown -> artifact(text) with text
 
@@ -162,7 +161,6 @@ def coerce_file_to_publishable(
         try:
             import yaml  # type: ignore
         except Exception:
-            # No PyYAML installed: publish as text but keep file_kind=yaml (useful for UI/meta later)
             return FileCoerceResult(
                 publish_kind="artifact",
                 artifact_kind="text",
@@ -203,8 +201,22 @@ def coerce_file_to_publishable(
         import io
         import pandas as pd
 
+        nrows = None
+        if max_rows is not None:
+            try:
+                nrows = max(1, int(max_rows))
+            except Exception:
+                nrows = None
+
         txt = raw.decode(encoding, errors="replace")
-        df = pd.read_csv(io.StringIO(txt))
+        buf = io.StringIO(txt)
+
+        df = pd.read_csv(
+            buf,
+            nrows=nrows,
+            engine="python",
+            on_bad_lines="skip",
+        )
         return FileCoerceResult(
             publish_kind="table",
             artifact_kind=None,
@@ -212,7 +224,6 @@ def coerce_file_to_publishable(
             file_kind=fk,
         )
 
-    # --- Image -> artifact(image) with base64 payload ---
     if fk == "image":
         import base64
 

@@ -12,6 +12,7 @@ import os
 import threading
 from dataclasses import dataclass
 
+from . import config
 from .publisher import publish_artifact
 from .service import RunnerService, ServiceConfig
 from .server import start_server, stop_server
@@ -369,11 +370,14 @@ def _start_watch_threads(
         vid = store.normalize_view_id(None, section=section, label=label)
 
         # Pre-register so dropdown shows it immediately
+        fk = infer_file_kind(p)
+        preregister_kind = "table" if fk == "csv" else "artifact"
+
         store.register_view(
             view_id=vid,
             section=section,
             label=label,
-            kind="artifact",
+            kind=preregister_kind,
             activate_if_first=False,
         )
 
@@ -464,6 +468,7 @@ def _start_watch_threads(
                         pth,
                         encoding=encoding,
                         max_bytes=max_bytes,
+                        max_rows=config.get_max_table_rows_rich(),
                         raw=raw,
                     )
 
@@ -660,11 +665,14 @@ def _run_watch_mode(
     # view identity
     view_label = label or p.name
     vid = store.normalize_view_id(view_id, section=section, label=view_label)
+    fk = infer_file_kind(p)
+    preregister_kind = "table" if fk == "csv" else "artifact"
+
     store.register_view(
         view_id=vid,
         section=section,
         label=view_label,
-        kind="artifact",
+        kind=preregister_kind,
         activate_if_first=False,
     )
     store.set_active_view(vid)
@@ -741,8 +749,10 @@ def _run_watch_mode(
                     p,
                     encoding=encoding,
                     max_bytes=max_bytes,
+                    max_rows=config.get_max_table_rows_rich(),
                     raw=raw,
                 )
+
                 if coerced.publish_kind == "table":
                     publish_artifact(
                         coerced.obj,
