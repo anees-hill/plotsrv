@@ -5,7 +5,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal
 
-ArtifactKind = Literal["plot", "table", "text", "json", "python", "markdown", "image"]
+ArtifactKind = Literal[
+    "plot", "table", "text", "json", "python", "markdown", "image", "html"
+]
 
 
 @dataclass(frozen=True, slots=True)

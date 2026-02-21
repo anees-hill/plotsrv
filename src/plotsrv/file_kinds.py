@@ -14,12 +14,13 @@ FileKind = Literal[
     "yaml",
     "csv",
     "image",
+    "html",
     "unknown",
 ]
 
 PublishKind = Literal["artifact", "table"]  # (plot not needed for file coercion yet)
 
-ArtifactKind = Literal["text", "json", "markdown", "image"]
+ArtifactKind = Literal["text", "json", "markdown", "image", "html"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +51,8 @@ def infer_file_kind(path: Path) -> FileKind:
         return "csv"
     if suf in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"):
         return "image"
+    if suf in (".html", ".htm"):
+        return "html"
 
     return "unknown"
 
@@ -181,6 +184,16 @@ def coerce_file_to_publishable(
         return FileCoerceResult(
             publish_kind="artifact",
             artifact_kind="markdown",
+            obj=txt,
+            file_kind=fk,
+        )
+
+    # --- HTML ---
+    if fk == "html":
+        txt = raw.decode(encoding, errors="replace")
+        return FileCoerceResult(
+            publish_kind="artifact",
+            artifact_kind="html",
             obj=txt,
             file_kind=fk,
         )
