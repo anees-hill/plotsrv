@@ -2,25 +2,24 @@
 from __future__ import annotations
 
 import argparse
-import sys
-import time
-from pathlib import Path
 import importlib.util
-from typing import Any, Literal
 import json
 import os
+import subprocess
+import sys
 import threading
+import time
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Literal
 
-from . import config
-from .publisher import publish_artifact
-from .service import RunnerService, ServiceConfig
-from .server import start_server, stop_server
-from . import store
-from .discovery import discover_views, DiscoveredView
+from . import config, store
+from .discovery import DiscoveredView, discover_views
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
+from .publisher import publish_artifact
 
 WatchReadMode = Literal["head", "tail"]
+RunMode = Literal["passive", "callable"]
 
 
 @dataclass(frozen=True)
@@ -102,52 +101,54 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="plotsrv", description="plotsrv - serve plots/tables easily"
     )
-    # [plotsrv].[RUN]
     sub = p.add_subparsers(dest="cmd", required=True)
 
     run_p = sub.add_parser(
-        "run", help="Run a function OR serve a codebase with decorated plots"
+        "run", help="Serve a codebase (passive) or run a target (callable)"
     )
+
+    # target is now OPTIONAL
     run_p.add_argument(
         "target",
-        help="Import path: package.module:function OR a directory/file to scan",
+        nargs="?",
+        default=None,
+        help="Import path or path to scan. Examples: pkg, pkg.mod, pkg.mod:fn, ./src, ./script.py. If omitted, uses project root detection.",
     )
+
     run_p.add_argument(
         "--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
     )
     run_p.add_argument(
         "--port", type=int, default=8000, help="Port to bind (default: 8000)"
     )
-
     run_p.add_argument(
-        "--refresh-rate",
-        type=int,
+        "--quiet", action="store_true", help="Reduce uvicorn logging noise"
+    )
+
+    # New mode flag
+    run_p.add_argument(
+        "--mode",
+        choices=["passive", "callable"],
+        default="passive",
+        help="Run mode. passive (default) scans and serves; callable also executes the target in a subprocess.",
+    )
+
+    # New callable scheduler
+    run_p.add_argument(
+        "--call-every",
+        type=float,
         default=None,
-        help="Re-run function every N seconds (callable mode only)",
+        help="Callable mode only: run the target every N seconds. If omitted, run once.",
     )
 
-    run_p.add_argument(
-        "--once",
-        action="store_true",
-        help="Run once then exit (callable mode only unless keep-alive)",
-    )
+    # Optional: run once but keep server up (callable mode)
     run_p.add_argument(
         "--keep-alive",
         action="store_true",
-        help="Keep server running after first run until Ctrl+C",
-    )
-    run_p.add_argument(
-        "--exit-after-run",
-        action="store_true",
-        help="Force exit after first run (callable mode only).",
+        help="Callable mode only: keep server running after the first run until Ctrl+C (or /shutdown).",
     )
 
-    run_p.add_argument(
-        "--quiet",
-        action="store_true",
-        help="Reduce uvicorn logging noise",
-    )
-
+    # Filtering for passive discovery (still useful in both modes)
     run_p.add_argument(
         "--exclude",
         action="append",
@@ -157,42 +158,34 @@ def build_parser() -> argparse.ArgumentParser:
             "Repeatable. Example: --exclude 'Resource Usage' --exclude 'MEM%%' --exclude 'etl:import'"
         ),
     )
-
     run_p.add_argument(
         "--include",
         action="append",
         default=[],
         help=(
             "Include ONLY discovered views by label, section, or full view_id (section:label). "
-            "Repeatable and/or comma-separated. Example: --include 'Resource Usage' --include 'CPU%%' --include 'etl:import'"
+            "Repeatable and/or comma-separated."
         ),
     )
 
+    # Watches (unchanged)
     run_p.add_argument(
         "--watch",
         action=_WatchPathAction,
         default=[],
-        help=(
-            "Watch a file and publish it as an artifact view. "
-            "Repeatable. Example: --watch /var/log/app.log --watch ./data.json"
-        ),
+        help=("Watch a file and publish it as an artifact view. Repeatable."),
     )
-
     run_p.add_argument(
         "--watch-label",
         action="append",
         default=[],
-        help=(
-            "Label(s) for watched views. Repeat once per --watch in the same order. "
-            "If omitted, defaults to the filename."
-        ),
+        help=("Label(s) for watched views. Repeat once per --watch in the same order."),
     )
-
     run_p.add_argument(
         "--watch-kind",
         choices=["auto", "text", "json"],
         default="auto",
-        help="How to interpret watched files (default: auto; .json => json else text).",
+        help="How to interpret watched files (default: auto).",
     )
     run_p.add_argument(
         "--watch-every",
@@ -204,31 +197,27 @@ def build_parser() -> argparse.ArgumentParser:
         "--watch-max-bytes",
         type=int,
         default=200_000,
-        help="Read at most N bytes from watched files (default: 200000).",
+        help="Read at most N bytes (default: 200000).",
     )
     run_p.add_argument(
         "--watch-encoding",
         default="utf-8",
         help="Text encoding for watched files (default: utf-8).",
     )
-
     run_p.add_argument(
         "--watch-section",
         action="append",
         default=[],
         help=(
             "Section name(s) for watched views. "
-            "If provided once, it applies to all --watch entries (backwards compatible). "
-            "If repeated, provide once per --watch in the same order. "
-            "If omitted, defaults to 'watch'."
+            "If provided once, applies to all watches. If repeated, once per --watch. If omitted, defaults to 'watch'."
         ),
     )
-
     run_p.add_argument(
         "--watch-update-limit-s",
         type=int,
         default=None,
-        help="Server-side throttle window for watched publishes (default: none).",
+        help="Server-side throttle window for watched publishes.",
     )
     run_p.add_argument(
         "--watch-force",
@@ -241,10 +230,7 @@ def build_parser() -> argparse.ArgumentParser:
         nargs=0,
         const="head",
         dest="watch_read_mode",
-        help=(
-            "Read watched file from the start (head). "
-            "Binds to the most recent --watch if present; otherwise applies to the next --watch."
-        ),
+        help="Read watched file from the start (head). Binds to most recent --watch if present; else next --watch.",
     )
     run_p.add_argument(
         "--watch-tail",
@@ -252,13 +238,10 @@ def build_parser() -> argparse.ArgumentParser:
         nargs=0,
         const="tail",
         dest="watch_read_mode",
-        help=(
-            "Read watched file from the end (tail). "
-            "Binds to the most recent --watch if present; otherwise applies to the next --watch."
-        ),
+        help="Read watched file from the end (tail). Binds to most recent --watch if present; else next --watch.",
     )
 
-    # [plotsrv].[WATCH]
+    # Dedicated watch subcommand (unchanged)
     watch_p = sub.add_parser("watch", help="Watch a text/JSON file and publish it live")
     watch_p.add_argument("path", help="Path to a text/log/json file")
     watch_p.add_argument("--host", default="127.0.0.1")
@@ -311,12 +294,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _die(msg: str) -> int:
+    print(f"plotsrv: error: {msg}", file=sys.stderr)
+    return 2
+
+
 def _norm_tokens(raw: list[str]) -> set[str]:
-    """
-    Normalize include/exclude tokens.
-    - allow repeating flags
-    - allow comma-separated lists in a single flag
-    """
     out: set[str] = set()
     for item in raw or []:
         if not item:
@@ -329,20 +312,14 @@ def _norm_tokens(raw: list[str]) -> set[str]:
 
 
 def _view_id_for(dv: DiscoveredView) -> str:
-    # match store.normalize_view_id(None, section, label) behaviour
     sec = (dv.section or "default").strip() or "default"
     lab = (dv.label or "default").strip() or "default"
     return f"{sec}:{lab}"
 
 
 def _is_included(dv: DiscoveredView, includes: set[str]) -> bool:
-    """
-    If includes is empty => allow all.
-    Otherwise allow if token matches label, section, or full view id.
-    """
     if not includes:
         return True
-
     sec = dv.section or "default"
     lab = dv.label
     vid = _view_id_for(dv)
@@ -352,22 +329,16 @@ def _is_included(dv: DiscoveredView, includes: set[str]) -> bool:
 def _is_excluded(dv: DiscoveredView, excludes: set[str]) -> bool:
     if not excludes:
         return False
-
     sec = dv.section or "default"
     lab = dv.label
     vid = _view_id_for(dv)
-
-    # Exclude if token matches label, section, or full view id
     return (lab in excludes) or (sec in excludes) or (vid in excludes)
 
 
 def _resolve_target_to_path_if_importable(target: str) -> str | None:
     """
     If target is importable as a module/package (and not module:function),
-    return the filesystem path for passive scanning.
-
-    - package -> package directory
-    - module  -> module .py file
+    return filesystem path for passive scanning.
     """
     if ":" in target:
         return None
@@ -389,6 +360,51 @@ def _resolve_target_to_path_if_importable(target: str) -> str | None:
     return None
 
 
+def _resolve_module_part(target: str) -> str:
+    """
+    For "pkg.mod:fn" return "pkg.mod".
+    For others return as-is.
+    """
+    if ":" in target:
+        return target.split(":", 1)[0].strip()
+    return target.strip()
+
+
+def _find_project_root(start: Path) -> Path | None:
+    """
+    Walk upwards looking for something that indicates a Python project.
+    """
+    cur = start.resolve()
+    for _ in range(30):
+        if (cur / "pyproject.toml").is_file():
+            return cur
+        if (cur / "setup.cfg").is_file() or (cur / "setup.py").is_file():
+            return cur
+        if (cur / ".git").exists():
+            return cur
+        if (cur / "src").is_dir() and any((cur / "src").rglob("*.py")):
+            return cur
+
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+    return None
+
+
+def _default_run_target() -> str:
+    """
+    If user runs `plotsrv run` with no target, use a safe project root.
+    """
+    root = _find_project_root(Path.cwd())
+    if root is None:
+        raise ValueError(
+            "No target provided and no Python project detected in current directory or parents. "
+            "Run from a project directory (pyproject.toml/setup.cfg/.git), or pass an explicit target/path."
+        )
+    return str(root)
+
+
 def _coerce_watch_specs(
     paths: list[str],
     *,
@@ -396,23 +412,8 @@ def _coerce_watch_specs(
     sections: list[str] | None,
     read_modes: list[str] | None,
 ) -> list[WatchSpec]:
-    """
-    Build per-watch specs in a backwards-compatible way.
-
-    labels:
-      - 0 => filename
-      - N => per-watch labels
-      - otherwise => error
-
-    sections:
-      - 0 => 'watch'
-      - 1 => apply to all watches (backwards compatible)
-      - N => per-watch sections
-      - otherwise => error
-    """
     paths = [p for p in (paths or []) if str(p).strip()]
     n = len(paths)
-
     lab_list = [x for x in (labels or []) if str(x).strip()]
     sec_list = [x for x in (sections or []) if str(x).strip()]
 
@@ -445,11 +446,6 @@ def _coerce_watch_specs(
 
     rm_list = list(read_modes or [])
 
-    # read_modes:
-    #   - 0 => all None (defaults inferred per file)
-    #   - < N => pad with None
-    #   - N => use as-is
-    #   - > N => error
     if len(rm_list) == 0:
         per_modes: list[WatchReadMode | None] = [None] * n
     elif len(rm_list) < n:
@@ -464,8 +460,7 @@ def _coerce_watch_specs(
         per_modes = [m for m in rm_list]  # type: ignore[assignment]
     else:
         raise ValueError(
-            f"--watch-head/--watch-tail provided too many times "
-            f"(expected at most {n}, got {len(rm_list)})."
+            f"--watch-head/--watch-tail provided too many times (expected at most {n}, got {len(rm_list)})."
         )
 
     specs: list[WatchSpec] = []
@@ -474,6 +469,50 @@ def _coerce_watch_specs(
     ):
         specs.append(WatchSpec(path=raw_path, label=lab, section=sec, read_mode=rm))
     return specs
+
+
+def _default_watch_read_mode(path: Path) -> WatchReadMode:
+    fk = infer_file_kind(path)
+    return "head" if fk == "csv" else "tail"
+
+
+def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
+    max_bytes = max(1, int(max_bytes))
+    with p.open("rb") as f:
+        try:
+            f.seek(0, os.SEEK_END)
+            size = f.tell()
+            start = max(0, size - max_bytes)
+            f.seek(start, os.SEEK_SET)
+        except Exception:
+            f.seek(0)
+        return f.read(max_bytes)
+
+
+def _read_head_bytes(p: Path, *, max_bytes: int) -> bytes:
+    max_bytes = max(1, int(max_bytes))
+    with p.open("rb") as f:
+        return f.read(max_bytes)
+
+
+def _read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int) -> bytes:
+    max_bytes = max(1, int(max_bytes))
+
+    header = b""
+    with p.open("rb") as f:
+        chunk = f.read(min(64_000, max_bytes))
+        nl = chunk.find(b"\n")
+        header = chunk if nl == -1 else chunk[: nl + 1]
+
+    tail = _read_tail_bytes(p, max_bytes=max_bytes)
+
+    if tail.startswith(header) or tail == header:
+        return tail
+
+    if header and not header.endswith(b"\n"):
+        header = header + b"\n"
+
+    return header + tail
 
 
 def _start_watch_threads(
@@ -494,9 +533,9 @@ def _start_watch_threads(
         p = Path(spec.path).expanduser().resolve()
         section = (spec.section or "watch").strip() or "watch"
         label = (spec.label or p.name).strip() or p.name
+
         vid = store.normalize_view_id(None, section=section, label=label)
 
-        # Pre-register so dropdown shows it immediately
         fk = infer_file_kind(p)
         read_mode: WatchReadMode = spec.read_mode or _default_watch_read_mode(p)
         preregister_kind = "table" if fk == "csv" else "artifact"
@@ -512,7 +551,7 @@ def _start_watch_threads(
         def _worker(
             pth: Path = p, view_label: str = label, view_section: str = section
         ) -> None:
-            last_sig: tuple[int, int] | None = None  # (mtime_ns, size)
+            last_sig: tuple[int, int] | None = None
             while True:
                 try:
                     st = pth.stat()
@@ -536,7 +575,6 @@ def _start_watch_threads(
                         raw = _read_head_bytes(pth, max_bytes=max_bytes)
                     else:
                         raw = _read_tail_bytes(pth, max_bytes=max_bytes)
-
                 except Exception as e:
                     publish_artifact(
                         f"[plotsrv watch] read error: {type(e).__name__}: {e}",
@@ -551,7 +589,6 @@ def _start_watch_threads(
                     time.sleep(max(0.05, float(every)))
                     continue
 
-                # Forced modes stay simple
                 if kind == "text":
                     txt = raw.decode(encoding, errors="replace")
                     publish_artifact(
@@ -568,7 +605,6 @@ def _start_watch_threads(
                     continue
 
                 if kind == "json":
-                    # Force JSON parse (regardless of suffix)
                     try:
                         txt = raw.decode(encoding, errors="replace")
                         obj = json.loads(txt)
@@ -629,7 +665,6 @@ def _start_watch_threads(
                             update_limit_s=update_limit_s,
                             force=force,
                         )
-
                 except Exception as e:
                     txt = raw.decode(encoding, errors="replace")
                     publish_artifact(
@@ -654,8 +689,243 @@ def _start_watch_threads(
     return threads
 
 
-def _run_passive_dir_mode(
+def _passive_register_views(
+    scan_root: str,
+    *,
+    excludes: set[str],
+    includes: set[str],
+) -> None:
+    """
+    AST discovery + view registration only. Does NOT start server. Does NOT loop.
+    """
+    discovered_all = discover_views(scan_root)
+    discovered = [
+        dv
+        for dv in discovered_all
+        if _is_included(dv, includes) and not _is_excluded(dv, excludes)
+    ]
+
+    if len(discovered) == 0:
+        store.register_view(
+            view_id="default", section="default", label="default", kind="none"
+        )
+        store.set_active_view("default")
+        return
+
+    for dv in discovered:
+        store.register_view(
+            section=dv.section,
+            label=dv.label,
+            kind="none",
+            activate_if_first=False,
+        )
+
+    first = discovered[0]
+    first_id = store.normalize_view_id(None, section=first.section, label=first.label)
+    store.set_active_view(first_id)
+
+
+def _resolve_scan_root_for_passive(target: str) -> str:
+    """
+    Determine a filesystem root to scan for passive mode, even if target includes ':fn'.
+    """
+    # If user passed module:function, scan the module part
+    mod_or_path = _resolve_module_part(target)
+
+    p = Path(mod_or_path)
+    if p.exists():
+        return str(p.resolve())
+
+    resolved = _resolve_target_to_path_if_importable(mod_or_path)
+    if resolved is not None:
+        return resolved
+
+    # If it's neither a path nor importable, still allow scanning current directory
+    # but keep this conservative: default to "." and let project-root safeguards handle it
+    return (
+        str(Path(mod_or_path).resolve())
+        if Path(mod_or_path).exists()
+        else str(Path.cwd().resolve())
+    )
+
+
+def _run_subprocess_as_main(target: str) -> subprocess.Popen[bytes]:
+    """
+    Run a module/package/file as __main__:
+      - module/package: python -m <target>
+      - file path: python <file.py>
+    """
+    p = Path(target)
+    if p.exists() and p.is_file():
+        cmd = [sys.executable, str(p)]
+        return subprocess.Popen(cmd)
+
+    # Otherwise treat as module/package
+    cmd = [sys.executable, "-m", target]
+    return subprocess.Popen(cmd)
+
+
+def _run_subprocess_call_importpath(
     target: str,
+    *,
+    host: str,
+    port: int,
+) -> subprocess.Popen[bytes]:
+    """
+    Run module:function in a subprocess, call it, publish its return to plotsrv.
+
+    - If function raises, publish_traceback to the same view label/section.
+    """
+    # Tiny runner script executed in subprocess.
+    # Note: it publishes over HTTP to the parent server.
+    code = r"""
+import sys
+from plotsrv.loader import load_object
+from plotsrv.decorators import get_plotsrv_spec
+from plotsrv.publisher import publish_view, publish_artifact
+from plotsrv.tracebacks import publish_traceback
+
+target = sys.argv[1]
+host = sys.argv[2]
+port = int(sys.argv[3])
+
+obj = load_object(target)
+
+spec = get_plotsrv_spec(obj)
+label = (spec.label if spec else None) or (getattr(obj, "__name__", None) or "callable")
+section = (spec.section if spec else None)
+
+try:
+    out = obj()
+except Exception as e:
+    # publish traceback and exit nonzero
+    try:
+        publish_traceback(
+            e,
+            label=label,
+            section=section,
+            host=host,
+            port=port,
+        )
+    except Exception:
+        pass
+    raise
+
+# Decide how to publish the return value
+kind = (spec.kind if spec else None)
+
+if kind in ("plot", "table"):
+    publish_view(out, kind=kind, label=label, section=section, host=host, port=port)
+else:
+    # artifact (or unknown): let publisher infer unless user forced kind in spec
+    publish_artifact(out, label=label, section=section, host=host, port=port, artifact_kind=None)
+""".strip()
+
+    cmd = [
+        sys.executable,
+        "-c",
+        code,
+        target,
+        host,
+        str(int(port)),
+    ]
+    return subprocess.Popen(cmd)
+
+
+def _callable_loop(
+    *,
+    target: str,
+    host: str,
+    port: int,
+    call_every: float | None,
+    keep_alive: bool,
+    stop_event: threading.Event,
+) -> None:
+    """
+    Run the target in a subprocess once or periodically.
+    """
+    # Service info (shows in statusline)
+    store.set_service_info(
+        service_mode=True,
+        target=f"callable:{target}",
+        refresh_rate_s=(int(call_every) if call_every else None),
+    )
+
+    proc: subprocess.Popen[bytes] | None = None
+
+    def _terminate_proc() -> None:
+        nonlocal proc
+        if proc is None:
+            return
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=2.0)
+                except Exception:
+                    proc.kill()
+        except Exception:
+            pass
+        finally:
+            proc = None
+
+    # Allow /shutdown to stop the loop + kill current child
+    def _stop_hook() -> None:
+        stop_event.set()
+        _terminate_proc()
+
+    store.set_service_stop_hook(_stop_hook)
+
+    def _spawn_once() -> None:
+        nonlocal proc
+
+        # If a previous process is still running, don't overlap.
+        if proc is not None and proc.poll() is None:
+            return
+
+        if ":" in target:
+            proc = _run_subprocess_call_importpath(target, host=host, port=port)
+        else:
+            proc = _run_subprocess_as_main(target)
+
+    # Always do an initial run
+    _spawn_once()
+
+    # If no schedule: either exit, or keep-alive
+    if call_every is None:
+        # Wait for completion (briefly) then either keep alive or exit.
+        while not stop_event.is_set():
+            if proc is None:
+                break
+            if proc.poll() is not None:
+                break
+            stop_event.wait(timeout=0.2)
+
+        if keep_alive:
+            while not stop_event.is_set():
+                stop_event.wait(timeout=0.2)
+
+        _terminate_proc()
+        store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
+        return
+
+    # Periodic schedule: re-run every N seconds (no overlap).
+    interval = max(0.25, float(call_every))
+    next_run = time.time()
+
+    while not stop_event.is_set():
+        now = time.time()
+        if now >= next_run:
+            _spawn_once()
+            next_run = now + interval
+        stop_event.wait(timeout=0.2)
+
+    _terminate_proc()
+    store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
+
+
+def _run_passive_server_forever(
+    scan_root: str,
     *,
     host: str,
     port: int,
@@ -672,11 +942,13 @@ def _run_passive_dir_mode(
 ) -> int:
     """
     Passive mode:
-      - start viewer server
-      - AST-scan directory for @plot/@table
-      - register views into dropdown
+      - start server
+      - AST scan -> register views
+      - optional file watches
       - wait forever until Ctrl+C or /shutdown
     """
+    from .server import start_server, stop_server
+
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
     if watch_specs:
@@ -692,39 +964,10 @@ def _run_passive_dir_mode(
             force=watch_force,
         )
 
-    # discovery + filtering (include first, then exclude)
-    discovered_all = discover_views(target)
-    discovered = [
-        dv
-        for dv in discovered_all
-        if _is_included(dv, includes) and not _is_excluded(dv, excludes)
-    ]
+    _passive_register_views(scan_root, excludes=excludes, includes=includes)
 
-    if len(discovered) == 0:
-        # still start with a default view so UI isn't empty
-        store.register_view(
-            view_id="default", section="default", label="default", kind="none"
-        )
-        store.set_active_view("default")
-    else:
-        for dv in discovered:
-            store.register_view(
-                section=dv.section,
-                label=dv.label,
-                kind="none",
-                activate_if_first=False,
-            )
-
-        # activate first discovered
-        first = discovered[0]
-        first_id = store.normalize_view_id(
-            None, section=first.section, label=first.label
-        )
-        store.set_active_view(first_id)
-
-    # mark as "service-like" mode so statusline shows it
     store.set_service_info(
-        service_mode=True, target=f"dir:{target}", refresh_rate_s=None
+        service_mode=True, target=f"passive:{scan_root}", refresh_rate_s=None
     )
 
     try:
@@ -734,90 +977,6 @@ def _run_passive_dir_mode(
         stop_server(join=False)
         store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
         return 0
-
-
-def _die(msg: str) -> int:
-    print(f"plotsrv: error: {msg}", file=sys.stderr)
-    return 2
-
-
-def _infer_watch_artifact_kind(path: Path, watch_kind: str) -> str:
-    """
-    Returns "text" or "json" (artifact_kind) for watch publishing.
-
-    watch_kind:
-      - "text" => force text
-      - "json" => force json (parse JSON)
-      - "auto" => infer by suffix: .json/.ini/.cfg/.toml/.yaml/.yml => json, else text
-
-    Note: YAML parsing not implemented yet, but we still classify it as json in "auto"
-    and will fallback to text with a clear error until implemented.
-    """
-    if watch_kind in ("text", "json"):
-        return watch_kind
-
-    fk = infer_file_kind(path)
-    if fk in ("json", "ini", "toml", "yaml"):
-        return "json"
-    return "text"
-
-
-def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-    with p.open("rb") as f:
-        try:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            start = max(0, size - max_bytes)
-            f.seek(start, os.SEEK_SET)
-        except Exception:
-            f.seek(0)
-        return f.read(max_bytes)
-
-
-def _read_head_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-    with p.open("rb") as f:
-        return f.read(max_bytes)
-
-
-def _read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int) -> bytes:
-    """
-    CSV tail mode needs the header row for pandas to parse.
-    Strategy:
-      - read first line (header) from start
-      - read tail bytes from end
-      - if file is small and tail already includes header, just return tail
-      - else return header + newline(if needed) + tail
-    """
-    max_bytes = max(1, int(max_bytes))
-
-    # Read header line (bounded)
-    header = b""
-    with p.open("rb") as f:
-        chunk = f.read(min(64_000, max_bytes))
-        nl = chunk.find(b"\n")
-        if nl == -1:
-            header = chunk
-        else:
-            header = chunk[: nl + 1]  # include newline
-
-    tail = _read_tail_bytes(p, max_bytes=max_bytes)
-
-    # If tail already includes header (small files), don't duplicate
-    if tail.startswith(header) or tail == header:
-        return tail
-
-    # Ensure there's a newline between header and tail if header didn't end with one
-    if header and not header.endswith(b"\n"):
-        header = header + b"\n"
-
-    return header + tail
-
-
-def _default_watch_read_mode(path: Path) -> WatchReadMode:
-    fk = infer_file_kind(path)
-    return "head" if fk == "csv" else "tail"
 
 
 def _run_watch_mode(
@@ -837,6 +996,8 @@ def _run_watch_mode(
     quiet: bool,
     read_mode: WatchReadMode | None,
 ) -> int:
+    from .server import start_server, stop_server
+
     p = Path(path).expanduser().resolve()
     if not p.exists() or not p.is_file():
         return _die(f"watch: file not found: {p}")
@@ -845,7 +1006,6 @@ def _run_watch_mode(
 
     mode: WatchReadMode = read_mode or _default_watch_read_mode(p)
 
-    # view identity
     view_label = label or p.name
     vid = store.normalize_view_id(view_id, section=section, label=view_label)
     fk = infer_file_kind(p)
@@ -862,7 +1022,7 @@ def _run_watch_mode(
 
     store.set_service_info(service_mode=True, target=f"watch:{p}", refresh_rate_s=None)
 
-    last_sig: tuple[int, int] | None = None  # (mtime_ns, size)
+    last_sig: tuple[int, int] | None = None
 
     try:
         while True:
@@ -932,7 +1092,6 @@ def _run_watch_mode(
                 time.sleep(max(0.05, float(every)))
                 continue
 
-            # Auto mode: infer/parse via shared coercer (NO re-read)
             try:
                 coerced = coerce_file_to_publishable(
                     p,
@@ -988,124 +1147,8 @@ def _run_watch_mode(
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    if args.cmd == "run":
-        excludes = _norm_tokens(getattr(args, "exclude", []))
-        includes = _norm_tokens(getattr(args, "include", []))
-
-        watch_paths = [w for w in (getattr(args, "watch", []) or []) if str(w).strip()]
-        watch_kind = getattr(args, "watch_kind", "auto")
-        watch_every = float(getattr(args, "watch_every", 1.0))
-        watch_max_bytes = int(getattr(args, "watch_max_bytes", 200_000))
-        watch_encoding = str(getattr(args, "watch_encoding", "utf-8"))
-        watch_update_limit_s = getattr(args, "watch_update_limit_s", None)
-        watch_force = bool(getattr(args, "watch_force", False))
-
-        try:
-            watch_specs = _coerce_watch_specs(
-                watch_paths,
-                labels=getattr(args, "watch_label", []) or [],
-                sections=getattr(args, "watch_section", []) or [],
-                read_modes=getattr(args, "watch_read_mode", []) or [],
-            )
-        except ValueError as e:
-            return _die(str(e))
-
-        # Passive filesystem mode:
-        p = Path(args.target)
-        if ":" not in args.target and p.exists():
-            return _run_passive_dir_mode(
-                args.target,
-                host=args.host,
-                port=args.port,
-                quiet=args.quiet,
-                excludes=excludes,
-                includes=includes,
-                watch_specs=watch_specs,
-                watch_kind=watch_kind,
-                watch_every=watch_every,
-                watch_max_bytes=watch_max_bytes,
-                watch_encoding=watch_encoding,
-                watch_update_limit_s=watch_update_limit_s,
-                watch_force=watch_force,
-            )
-
-        # Passive importable mode (package/module)
-        resolved = _resolve_target_to_path_if_importable(args.target)
-        if resolved is not None:
-            return _run_passive_dir_mode(
-                resolved,
-                host=args.host,
-                port=args.port,
-                quiet=args.quiet,
-                excludes=excludes,
-                includes=includes,
-                watch_specs=watch_specs,
-                watch_kind=watch_kind,
-                watch_every=watch_every,
-                watch_max_bytes=watch_max_bytes,
-                watch_encoding=watch_encoding,
-                watch_update_limit_s=watch_update_limit_s,
-                watch_force=watch_force,
-            )
-
-        # Callable mode:
-        periodic = args.refresh_rate is not None
-        refresh_rate = args.refresh_rate if periodic else 0
-
-        once = args.once or not periodic
-        if once:
-            keep_alive = args.keep_alive or (not args.exit_after_run)
-        else:
-            keep_alive = False
-
-        cfg = ServiceConfig(
-            target=args.target,
-            host=args.host,
-            port=args.port,
-            refresh_rate=refresh_rate,
-            once=once,
-            keep_alive=keep_alive,
-            quiet=args.quiet,
-        )
-
-        try:
-            svc = RunnerService(cfg)
-        except ValueError as e:
-            # e.g. loader parse requiring package.module:function
-            return _die(str(e))
-        except SystemExit as e:
-            return _die(
-                "Target import exited early (SystemExit). This commonly happens when the target "
-                "module calls argparse.parse_args() at import time.\n"
-                "Fix: move argument parsing under `if __name__ == '__main__':` in the target module, "
-                "or run passive scan mode instead (e.g. point plotsrv at a directory/package)."
-            )
-        except Exception as e:
-            return _die(f"{type(e).__name__}: {e}")
-
-        if watch_specs:
-            _start_watch_threads(
-                watch_specs,
-                host=args.host,
-                port=args.port,
-                every=watch_every,
-                kind=watch_kind,
-                max_bytes=watch_max_bytes,
-                encoding=watch_encoding,
-                update_limit_s=watch_update_limit_s,
-                force=watch_force,
-            )
-
-        try:
-            svc.run()
-            return 0
-        except KeyboardInterrupt:
-            svc.stop()
-            return 0
-
     if args.cmd == "watch":
         read_mode = "head" if args.head else ("tail" if args.tail else None)
-
         return _run_watch_mode(
             args.path,
             host=args.host,
@@ -1123,7 +1166,101 @@ def main(argv: list[str] | None = None) -> int:
             read_mode=read_mode,
         )
 
-    return 0
+    if args.cmd != "run":
+        return 0
+
+    excludes = _norm_tokens(getattr(args, "exclude", []))
+    includes = _norm_tokens(getattr(args, "include", []))
+
+    watch_paths = [w for w in (getattr(args, "watch", []) or []) if str(w).strip()]
+    watch_kind = getattr(args, "watch_kind", "auto")
+    watch_every = float(getattr(args, "watch_every", 1.0))
+    watch_max_bytes = int(getattr(args, "watch_max_bytes", 200_000))
+    watch_encoding = str(getattr(args, "watch_encoding", "utf-8"))
+    watch_update_limit_s = getattr(args, "watch_update_limit_s", None)
+    watch_force = bool(getattr(args, "watch_force", False))
+
+    try:
+        watch_specs = _coerce_watch_specs(
+            watch_paths,
+            labels=getattr(args, "watch_label", []) or [],
+            sections=getattr(args, "watch_section", []) or [],
+            read_modes=getattr(args, "watch_read_mode", []) or [],
+        )
+    except ValueError as e:
+        return _die(str(e))
+
+    # Target defaulting
+    target = args.target
+    if target is None:
+        try:
+            target = _default_run_target()
+        except ValueError as e:
+            return _die(str(e))
+
+    mode: RunMode = str(getattr(args, "mode", "passive"))
+
+    # In ALL modes, we do passive registration first. We just decide what scan root is.
+    scan_root = _resolve_scan_root_for_passive(target)
+
+    if mode == "passive":
+        return _run_passive_server_forever(
+            scan_root,
+            host=args.host,
+            port=args.port,
+            quiet=args.quiet,
+            excludes=excludes,
+            includes=includes,
+            watch_specs=watch_specs,
+            watch_kind=watch_kind,
+            watch_every=watch_every,
+            watch_max_bytes=watch_max_bytes,
+            watch_encoding=watch_encoding,
+            watch_update_limit_s=watch_update_limit_s,
+            watch_force=watch_force,
+        )
+
+    # mode == "callable"
+    from .server import start_server, stop_server
+
+    # Start server first
+    start_server(host=args.host, port=args.port, auto_on_show=False, quiet=args.quiet)
+
+    # Watches
+    if watch_specs:
+        _start_watch_threads(
+            watch_specs,
+            host=args.host,
+            port=args.port,
+            every=watch_every,
+            kind=watch_kind,
+            max_bytes=watch_max_bytes,
+            encoding=watch_encoding,
+            update_limit_s=watch_update_limit_s,
+            force=watch_force,
+        )
+
+    # Passive register (pre-populate dropdown)
+    _passive_register_views(scan_root, excludes=excludes, includes=includes)
+
+    stop_event = threading.Event()
+    call_every = getattr(args, "call_every", None)
+    keep_alive = bool(getattr(args, "keep_alive", False))
+
+    try:
+        _callable_loop(
+            target=target,
+            host=args.host,
+            port=args.port,
+            call_every=call_every,
+            keep_alive=keep_alive,
+            stop_event=stop_event,
+        )
+        return 0
+    except KeyboardInterrupt:
+        stop_event.set()
+        stop_server(join=False)
+        return 0
 
 
 if __name__ == "__main__":
