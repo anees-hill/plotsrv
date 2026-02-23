@@ -2,12 +2,13 @@
 from __future__ import annotations
 
 from typing import Literal
+import json
 
 from .config import TableViewMode
 from .store import ViewMeta
 from .ui_config import UISettings, get_ui_settings
 
-ViewKind = Literal["none", "plot", "table"]
+ViewKind = Literal["none", "plot", "table", "artifact"]
 
 
 def render_index(
@@ -35,34 +36,33 @@ def render_index(
     # --- Head deps -------------------------------------------------------------
 
     tabulator_head = ""
-    include_tabulator = kind == "table" and table_view_mode != "simple"
-    extra_css = ""
+    include_tabulator = kind in ("table", "artifact") and table_view_mode != "simple"
 
     if include_tabulator:
         tabulator_head = """
-        <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
-        <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
-        """
-        extra_css = """
-        .table-grid {
-          width: 100%;
-        }
+        <link href=
+"https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css"
+ rel="stylesheet">
+        <script src=
+"https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"
+></script>
         """
 
     # --- Shared statusline HTML ------------------------------------------------
-
     statusline_html = ""
     if ui.show_statusline:
         statusline_html = """
-        <div class="note" id="statusline">
-          <span><strong>Last updated:</strong> <span id="status-updated">—</span> <span id="status-updated-ago"></span></span>
+        <div class=
+"note ps-note ps-statusline"
+ id="statusline">
+          <span class="ps-statusline__item"><strong>Last updated:</strong> <span id="status-updated">—</span> <span id="status-updated-ago"></span></span>
           &nbsp;|&nbsp;
-          <span><strong>Last run time:</strong> <span id="status-duration">—</span></span>
+          <span class="ps-statusline__item"><strong>Last run time:</strong> <span id="status-duration">—</span></span>
           &nbsp;|&nbsp;
-          <span><strong>Mode:</strong> <span id="status-mode">—</span></span>
+          <span class="ps-statusline__item"><strong>Mode:</strong> <span id="status-mode">—</span></span>
           &nbsp;|&nbsp;
-          <span><strong>Server refresh:</strong> <span id="status-srv-refresh">—</span></span>
-          <span id="status-error-wrap" style="display:none;">
+          <span class="ps-statusline__item"><strong>Server refresh:</strong> <span id="status-srv-refresh">—</span></span>
+          <span id="status-error-wrap" class="ps-statusline__error" style="display:none;">
             &nbsp;|&nbsp;
             <strong style="color:#792424;">Error:</strong>
             <span id="status-error" style="color:#792424;"></span>
@@ -71,114 +71,28 @@ def render_index(
         """
 
     # --- Controls blocks -------------------------------------------------------
-
     def _terminate_button_html() -> str:
         if not ui.terminate_process_option:
             return ""
         return """
-          <button type="button" class="danger" onclick="terminateServer()">Terminate plotsrv server</button>
+          <button type="button" class="danger ps-btn ps-btn--danger" onclick="terminateServer()">Terminate plotsrv server</button>
         """
 
-    # --- View dropdown ---------------------------------------------------------
-
-    dropdown_html = ""
-    if getattr(ui, "show_view_selector", True) and len(views) > 0:
-        # group by section
-        groups: dict[str, list[ViewMeta]] = {}
-        for v in views:
-            sec = v.section or "default"
-            groups.setdefault(sec, []).append(v)
-
-        # stable ordering
-        sections = sorted(groups.keys())
-        for s in sections:
-            groups[s] = sorted(groups[s], key=lambda x: x.label)
-
-        options: list[str] = []
-        for sec in sections:
-            options.append(f'<optgroup label="{sec}">')
-            for v in groups[sec]:
-                sel = "selected" if v.view_id == active_view_id else ""
-                options.append(f'<option value="{v.view_id}" {sel}>{v.label}</option>')
-            options.append("</optgroup>")
-
-        dropdown_html = f"""
-          <div class="view-select">
-            <select id="view-select">
-              {''.join(options)}
-            </select>
-          </div>
+    def _auto_refresh_controls_html() -> str:
         """
-
-    # --- Main content ----------------------------------------------------------
-
-    if kind == "table":
-        table_controls = """
-          <button type="button" onclick="window.location.reload()">Refresh</button>
+        Auto-refresh controls (used for plot/table/artifact).
         """
-
-        if ui.export_table:
-            table_controls += """
-          <button type="button" onclick="exportTable()">Export table</button>
-            """
-
-        table_controls += _terminate_button_html()
-
-        if table_view_mode == "simple" and table_html_simple is not None:
-            main_content = f"""
-              <div class="plot-frame">
-                <div class="table-scroll">
-                  {table_html_simple}
-                </div>
-              </div>
-
-              <div class="controls">
-                {table_controls}
-              </div>
-
-              {statusline_html}
-
-              <div class="note" id="status">
-                Showing up to {max_table_rows_simple} rows (simple table mode).
-              </div>
-            """
-        else:
-            main_content = f"""
-              <div class="plot-frame">
-                <div id="table-grid" class="table-grid"></div>
-              </div>
-
-              <div class="controls">
-                {table_controls}
-              </div>
-
-              {statusline_html}
-
-              <div class="note" id="status">
-                Showing up to {max_table_rows_rich} rows (rich table mode).
-              </div>
-            """
-
-    elif kind == "plot":
-        plot_controls = """
-            <button type="button" onclick="refreshPlot()">Refresh</button>
-        """
-
-        if ui.export_image:
-            plot_controls += """
-            <button type="button" onclick="exportImage()">Export image</button>
-            """
-
-        if ui.auto_refresh_option:
-            plot_controls += """
-            <label class="toggle">
+        if not ui.auto_refresh_option:
+            return ""
+        return """
+            <label class="toggle ps-toggle">
               <input id="auto-refresh-toggle" type="checkbox" />
               <span>Auto-refresh</span>
             </label>
 
-            <label class="interval">
+            <label class="interval ps-interval">
               <span>Every</span>
-              <select id="auto-refresh-interval">
+              <select id="auto-refresh-interval" class="ps-select">
                 <option value="2">2s</option>
                 <option value="5" selected>5s</option>
                 <option value="10">10s</option>
@@ -186,25 +100,181 @@ def render_index(
                 <option value="60">60s</option>
               </select>
             </label>
+        """
+
+    # --- View dropdown (custom, with icons) -----------------------------------
+
+    LOGO_BY_KEY = {
+        "plot": "/static/logo_plot.png",
+        "table": "/static/logo_table.png",
+        "image": "/static/logo_image.png",
+        "markdown": "/static/logo_markdown.png",
+        "json": "/static/logo_json.png",
+        "python": "/static/logo_python.png",
+        "exception": "/static/logo_exception.png",
+        "txt": "/static/logo_txt.png",
+        "html": "/static/logo_html.png",
+    }
+
+    LOGO_BY_KEY = {
+        "unknown": "/static/logo_unknown.png",
+        "plot": "/static/logo_plot.png",
+        "table": "/static/logo_table.png",
+        "image": "/static/logo_image.png",
+        "markdown": "/static/logo_markdown.png",
+        "json": "/static/logo_json.png",
+        "python": "/static/logo_python.png",
+        "exception": "/static/logo_exception.png",
+        "text": "/static/logo_txt.png",
+        "html": "/static/logo_html.png",
+    }
+
+    def _icon_url(v: ViewMeta | None) -> str:
+        if v is None:
+            return LOGO_BY_KEY["unknown"]
+        return LOGO_BY_KEY.get(
+            getattr(v, "icon_key", "unknown"), LOGO_BY_KEY["unknown"]
+        )
+
+    dropdown_html = ""
+    if getattr(ui, "show_view_selector", True) and len(views) > 0:
+        # group by section, preserving the incoming ordering of `views`.
+        # (store.list_views() applies the configured order from plotsrv.ini)
+        groups: dict[str, list[ViewMeta]] = {}
+        sections: list[str] = []
+        for v in views:
+            sec = v.section or "default"
+            if sec not in groups:
+                groups[sec] = []
+                sections.append(sec)
+            groups[sec].append(v)
+
+        # find active view meta (for button display)
+        active_meta = None
+        for v in views:
+            if v.view_id == active_view_id:
+                active_meta = v
+                break
+        active_label = active_meta.label if active_meta else active_view_id
+        active_icon = _icon_url(active_meta) if active_meta else LOGO_BY_KEY["txt"]
+
+        # build menu
+        menu_parts: list[str] = []
+        for sec in sections:
+            menu_parts.append('<div class="ps-viewselect__group">')
+            menu_parts.append(f'<div class="ps-viewselect__group-label">{sec}</div>')
+            for v in groups[sec]:
+                is_sel = "true" if v.view_id == active_view_id else "false"
+                icon = _icon_url(v)
+                menu_parts.append(
+                    f"""
+                    <button type="button"
+                            class="ps-viewselect__item"
+                            role="option"
+                            aria-selected="{is_sel}"
+                            data-plotsrv-view="{v.view_id}">
+                      <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
+                      <span class="ps-viewselect__itemlabel">{v.label}</span>
+                    </button>
+                    """
+                )
+            menu_parts.append("</div>")
+
+        dropdown_html = f"""
+          <div class="ps-viewselect" data-plotsrv-viewselect="1">
+            <button type="button"
+                    class="ps-viewselect__btn"
+                    aria-haspopup="listbox"
+                    aria-expanded="false">
+              <img class="ps-viewselect__icon" src="{active_icon}" alt="" />
+              <span class="ps-viewselect__label">{active_label}</span>
+              <span class="ps-viewselect__chev" aria-hidden="true">▾</span>
+            </button>
+
+            <div class="ps-viewselect__menu" role="listbox" tabindex="-1" hidden>
+              {''.join(menu_parts)}
+            </div>
+          </div>
+        """
+
+    # --- Main content ----------------------------------------------------------
+
+    if kind == "table":
+        table_controls = """
+          <button type="button" class="ps-btn" onclick="window.location.reload()">Refresh</button>
+        """
+
+        if ui.export_table:
+            table_controls += """
+          <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
             """
 
+        table_controls += _auto_refresh_controls_html()
+        table_controls += _terminate_button_html()
+
+        if table_view_mode == "simple" and table_html_simple is not None:
+            main_content = f"""
+              <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
+                <div class="table-scroll ps-table-scroll ps-table--simple">
+                  {table_html_simple}
+                </div>
+              </div>
+
+              <div class="controls ps-controls">
+                {table_controls}
+              </div>
+
+              {statusline_html}
+
+              <div class="note ps-note" id="status">
+                Showing up to {max_table_rows_simple} rows (simple table mode).
+              </div>
+            """
+        else:
+            main_content = f"""
+              <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
+                <div id="table-grid" class="table-grid ps-tablegrid ps-table--rich"></div>
+              </div>
+
+              <div class="controls ps-controls">
+                {table_controls}
+              </div>
+
+              {statusline_html}
+
+              <div class="note ps-note" id="status">
+                Showing up to {max_table_rows_rich} rows (rich table mode).
+              </div>
+            """
+
+    elif kind == "plot":
+        plot_controls = """
+            <button type="button" class="ps-btn" onclick="refreshPlot()">Refresh</button>
+        """
+
+        if ui.export_image:
+            plot_controls += """
+            <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
+            """
+
+        plot_controls += _auto_refresh_controls_html()
         plot_controls += _terminate_button_html()
 
         help_note = ""
         if ui.show_help_note:
             help_note = """
-              <div class="note" id="status">
+              <div class="note ps-note" id="status">
                 If no plot has been published yet, you may see a broken image until your code calls
                 <code>refresh_view</code> or <code>plt.show()</code>.
               </div>
             """
 
         main_content = f"""
-          <div class="plot-frame">
-            <img id="plot" src="/plot?view={active_view_id}" alt="Current plot (or none yet)" />
+          <div class="plot-frame ps-frame ps-frame--plot plot-frame--plot">
+            <img id="plot" class="ps-plot" src="/plot?view={active_view_id}" alt="Current plot (or none yet)" />
           </div>
 
-          <div class="controls">
+          <div class="controls ps-controls">
             {plot_controls}
           </div>
 
@@ -213,23 +283,64 @@ def render_index(
           {help_note}
         """
 
+    elif kind == "artifact":
+        artifact_controls = """
+            <button type="button" class="ps-btn" onclick="refreshArtifact()">Refresh</button>
+        """
+
+        if ui.export_image:
+            artifact_controls += """
+            <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
+            """
+
+        if ui.export_table:
+            artifact_controls += """
+            <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
+            """
+
+        artifact_controls += _auto_refresh_controls_html()
+        artifact_controls += _terminate_button_html()
+
+        main_content = """
+          <div class="plot-frame ps-frame ps-frame--artifact plot-frame--artifact">
+            <div class="ps-artifact" style="width:100%;">
+              <div id="artifact-topline" class="ps-artifact__meta" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
+                <span id="artifact-kind" class="note ps-note" style="margin:0;"></span>
+                <span id="artifact-truncation" class="note ps-note" style="margin:0;"></span>
+              </div>
+              <div id="artifact-root" class="ps-artifact__content"></div>
+            </div>
+          </div>
+
+          <div class="controls ps-controls">
+            {artifact_controls}
+          </div>
+
+          {statusline_html}
+
+          <div class="note ps-note" id="status"></div>
+        """.format(
+            artifact_controls=artifact_controls,
+            statusline_html=statusline_html,
+        )
+
     else:
-        controls = _terminate_button_html()
+        controls = _auto_refresh_controls_html() + _terminate_button_html()
         main_content = f"""
-          <div class="plot-frame empty">
-            <div class="empty-state">
+          <div class="plot-frame empty ps-frame ps-frame--empty plot-frame--empty">
+            <div class="empty-state ps-empty">
               No plot or table has been published yet.<br />
               Call <code>refresh_view(fig)</code> or <code>refresh_view(df)</code> in Python.
             </div>
           </div>
 
-          <div class="controls">
+          <div class="controls ps-controls">
             {controls}
           </div>
 
           {statusline_html}
 
-          <div class="note" id="status"></div>
+          <div class="note ps-note" id="status"></div>
         """
 
     # --- Full page -------------------------------------------------------------
@@ -237,6 +348,14 @@ def render_index(
     header_fill = ui.header_fill_colour or "#ffffff"
     header_text = ui.header_text or "live viewer"
     logo_url = ui.logo_url or "/static/plotsrv_logo.jpg"
+
+    cfg_json = json.dumps(
+        {
+            "active_view_id": active_view_id,
+            "max_table_rows_rich": max_table_rows_rich,
+        },
+        ensure_ascii=False,
+    )
 
     html = f"""
     <!DOCTYPE html>
@@ -246,432 +365,34 @@ def render_index(
       <title>{page_title}</title>
       <link rel="icon" href="{favicon_url}">
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <link rel="stylesheet" href="/static/plotsrv.css">
+      <script>
+        window.PLOTSRV_CONFIG = {cfg_json};
+      </script>
+      <script src="/static/plotsrv.js" defer></script>
       {tabulator_head}
-      <style>
-        :root {{
-          --bg: #f5f5f5;
-          --border: #ddd;
-          --button-bg: #ffffff;
-          --button-bg-hover: #f0f0f0;
-        }}
-
-        * {{
-          box-sizing: border-box;
-        }}
-
-        body {{
-          margin: 0;
-          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          background: var(--bg);
-          color: #222;
-        }}
-
-        .header {{
-          background: {header_fill};
-          border-bottom: 1px solid var(--border);
-          padding: 0.5rem 1rem;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }}
-
-        .header-left {{
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-          min-width: 0;
-        }}
-
-        .header-right {{
-          margin-left: auto;
-          display: flex;
-          align-items: center;
-          gap: 0.5rem;
-        }}
-
-        .header-logo {{
-          height: 28px;
-          width: auto;
-          display: block;
-        }}
-
-        .header-title {{
-          font-weight: 600;
-          font-size: 1rem;
-          color: #555;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 60vw;
-        }}
-
-        .view-select select {{
-          padding: 0.28rem 0.5rem;
-          border: 1px solid var(--border);
-          border-radius: 6px;
-          background: #fff;
-          font-size: 0.9rem;
-        }}
-
-        .page {{
-          max-width: 1100px;
-          margin: 1.5rem auto;
-          padding: 0 1rem 2rem;
-        }}
-
-        .plot-card {{
-          background: #fff;
-          border: 1px solid var(--border);
-          border-radius: 10px;
-          padding: 1rem;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.03);
-        }}
-
-        .plot-frame {{
-          border-radius: 6px;
-          overflow: hidden;
-          border: 1px solid #eee;
-          background: #fafafa;
-          padding: 0.5rem;
-          min-height: 200px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }}
-
-        .plot-frame.empty {{
-          background: #fcfcfc;
-        }}
-
-        .empty-state {{
-          text-align: center;
-          font-size: 0.9rem;
-          color: #666;
-        }}
-
-        #plot {{
-          max-width: 100%;
-          height: auto;
-          display: block;
-        }}
-
-        .table-scroll {{
-          overflow: auto;
-          max-height: 600px;
-          width: 100%;
-        }}
-
-        {extra_css}
-
-        .controls {{
-          margin-top: 0.75rem;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.5rem;
-        }}
-
-        .controls button {{
-          padding: 0.4rem 0.9rem;
-          border-radius: 4px;
-          border: 1px solid var(--border);
-          background: var(--button-bg);
-          cursor: pointer;
-          font-size: 0.9rem;
-        }}
-
-        .controls button:hover {{
-          background: var(--button-bg-hover);
-        }}
-
-        .controls .danger {{
-          border-color: #e48b8b;
-          color: #792424;
-          background: #ffecec;
-        }}
-
-        .toggle, .interval {{
-          display: inline-flex;
-          align-items: center;
-          gap: 0.35rem;
-          padding: 0.35rem 0.55rem;
-          border: 1px solid var(--border);
-          border-radius: 4px;
-          background: #fff;
-          font-size: 0.9rem;
-        }}
-
-        .toggle input {{
-          transform: translateY(1px);
-        }}
-
-        .note {{
-          margin-top: 0.5rem;
-          font-size: 0.8rem;
-          color: #666;
-        }}
-      </style>
     </head>
-    <body>
-      <header class="header">
-        <div class="header-left">
-          <img src="{logo_url}" alt="plotsrv logo" class="header-logo" />
-          <div class="header-title">{header_text}</div>
+    <body class="ps-body"
+          data-kind="{kind}"
+          data-view="{active_view_id}"
+          data-table-mode="{table_view_mode}">
+      <header class="header ps-header" style="background:{header_fill};">
+        <div class="header-left ps-header__left">
+          <img src="{logo_url}" alt="plotsrv logo" class="header-logo ps-header__logo" />
+          <div class="header-title ps-header__title">{header_text}</div>
         </div>
 
-        <div class="header-right">
+        <div class="header-right ps-header__right">
           {dropdown_html}
         </div>
       </header>
 
-      <main class="page">
-        <section class="plot-card">
+      <main class="page ps-page">
+        <section class="plot-card ps-card">
           {main_content}
         </section>
       </main>
 
-      <script>
-        const LS_AUTO_ENABLED = "plotsrv:auto_refresh_enabled";
-        const LS_AUTO_INTERVAL = "plotsrv:auto_refresh_interval";
-
-        const ACTIVE_VIEW = "{active_view_id}";
-        let _autoRefreshTimer = null;
-        let _tabulatorInstance = null;
-
-        function _saveAutoRefreshState() {{
-          const toggle = document.getElementById("auto-refresh-toggle");
-          const interval = document.getElementById("auto-refresh-interval");
-          if (toggle) localStorage.setItem(LS_AUTO_ENABLED, toggle.checked ? "1" : "0");
-          if (interval) localStorage.setItem(LS_AUTO_INTERVAL, String(interval.value || "5"));
-        }}
-
-        function _restoreAutoRefreshState() {{
-          const toggle = document.getElementById("auto-refresh-toggle");
-          const interval = document.getElementById("auto-refresh-interval");
-
-          if (interval) {{
-            const savedInterval = localStorage.getItem(LS_AUTO_INTERVAL);
-            if (savedInterval) interval.value = savedInterval;
-          }}
-
-          if (toggle) {{
-            const savedEnabled = localStorage.getItem(LS_AUTO_ENABLED);
-            if (savedEnabled === "1") {{
-              toggle.checked = true;
-              _tickAutoRefresh();
-              _startAutoRefresh();
-            }}
-          }}
-        }}
-
-        function _fmtLocalTime(iso) {{
-          if (!iso) return "—";
-          const d = new Date(iso);
-          if (isNaN(d.getTime())) return iso;
-          return d.toLocaleString();
-        }}
-
-        function _fmtAgo(iso) {{
-          if (!iso) return "";
-          const d = new Date(iso);
-          if (isNaN(d.getTime())) return "";
-          const s = Math.floor((Date.now() - d.getTime()) / 1000);
-          if (s < 0) return "";
-          if (s < 60) return "(" + s + "s ago)";
-          const m = Math.floor(s / 60);
-          if (m < 60) return "(" + m + "m ago)";
-          const h = Math.floor(m / 60);
-          return "(" + h + "h ago)";
-        }}
-
-        async function refreshStatus() {{
-          try {{
-            const res = await fetch("/status?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
-            if (!res.ok) return;
-            const s = await res.json();
-
-            const updated = document.getElementById("status-updated");
-            const updatedAgo = document.getElementById("status-updated-ago");
-            const duration = document.getElementById("status-duration");
-            const errWrap = document.getElementById("status-error-wrap");
-            const err = document.getElementById("status-error");
-
-            const mode = document.getElementById("status-mode");
-            const srvRate = document.getElementById("status-srv-refresh");
-
-            if (updated) updated.textContent = _fmtLocalTime(s.last_updated);
-            if (updatedAgo) updatedAgo.textContent = _fmtAgo(s.last_updated);
-
-            if (duration) {{
-              duration.textContent =
-                (s.last_duration_s == null) ? "—" : (Number(s.last_duration_s).toFixed(3) + "s");
-            }}
-
-            if (errWrap && err) {{
-              if (s.last_error) {{
-                err.textContent = s.last_error;
-                errWrap.style.display = "inline";
-              }} else {{
-                err.textContent = "";
-                errWrap.style.display = "none";
-              }}
-            }}
-
-            if (mode) {{
-              mode.textContent = s.service_mode ? "service" : "interactive";
-            }}
-
-            if (srvRate) {{
-              if (s.service_mode && s.service_refresh_rate_s) {{
-                srvRate.textContent = "every " + s.service_refresh_rate_s + "s";
-              }} else if (s.service_mode) {{
-                srvRate.textContent = "once";
-              }} else {{
-                srvRate.textContent = "—";
-              }}
-            }}
-          }} catch (e) {{
-            // ignore
-          }}
-        }}
-
-        function refreshPlot() {{
-          const img = document.getElementById("plot");
-          if (!img) return;
-          img.src = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now();
-          refreshStatus();
-        }}
-
-        function exportImage() {{
-          window.location.href = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + "&download=1&_ts=" + Date.now();
-        }}
-
-        function exportTable() {{
-          window.location.href = "/table/export?view=" + encodeURIComponent(ACTIVE_VIEW) + "&format=csv&_ts=" + Date.now();
-        }}
-
-        function terminateServer() {{
-          fetch("/shutdown", {{ method: "POST" }})
-            .then(() => {{
-              const status = document.getElementById("status");
-              if (status) status.textContent = "plotsrv is shutting down…";
-            }})
-            .catch(() => {{
-              const status = document.getElementById("status");
-              if (status) status.textContent = "Failed to contact server (it may already be down).";
-            }});
-        }}
-
-        async function loadTable() {{
-          const grid = document.getElementById("table-grid");
-          if (!grid) return;
-
-          const res = await fetch("/table/data?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
-          if (!res.ok) {{
-            console.error("Failed to load table data");
-            return;
-          }}
-
-          const data = await res.json();
-          const columns = data.columns.map(col => ({{ title: col, field: col }}));
-          const rows = data.rows;
-
-          if (_tabulatorInstance) {{
-            _tabulatorInstance.setColumns(columns);
-            _tabulatorInstance.replaceData(rows);
-            return;
-          }}
-
-          _tabulatorInstance = new Tabulator("#table-grid", {{
-            data: rows,
-            columns: columns,
-            height: "600px",
-            layout: "fitDataStretch",
-            pagination: "local",
-            paginationSize: 20,
-            paginationSizeSelector: [10, 20, 50, 100],
-            movableColumns: true
-          }});
-        }}
-
-        function _getAutoRefreshMs() {{
-          const sel = document.getElementById("auto-refresh-interval");
-          if (!sel) return 5000;
-          const seconds = Number(sel.value || 5);
-          return Math.max(1, seconds) * 1000;
-        }}
-
-        function _stopAutoRefresh() {{
-          if (_autoRefreshTimer !== null) {{
-            clearInterval(_autoRefreshTimer);
-            _autoRefreshTimer = null;
-          }}
-        }}
-
-        function _tickAutoRefresh() {{
-          const img = document.getElementById("plot");
-          if (img) {{
-            refreshPlot();
-            return;
-          }}
-
-          if (document.getElementById("table-grid")) {{
-            loadTable().then(() => refreshStatus());
-            return;
-          }}
-
-          refreshStatus();
-        }}
-
-        function _startAutoRefresh() {{
-          _stopAutoRefresh();
-          const ms = _getAutoRefreshMs();
-          _autoRefreshTimer = setInterval(_tickAutoRefresh, ms);
-        }}
-
-        function _bindAutoRefreshControls() {{
-          const toggle = document.getElementById("auto-refresh-toggle");
-          const interval = document.getElementById("auto-refresh-interval");
-          if (!toggle) return;
-
-          toggle.addEventListener("change", function () {{
-            _saveAutoRefreshState();
-            if (toggle.checked) {{
-              _tickAutoRefresh();
-              _startAutoRefresh();
-            }} else {{
-              _stopAutoRefresh();
-            }}
-          }});
-
-          if (interval) {{
-            interval.addEventListener("change", function () {{
-              _saveAutoRefreshState();
-              if (toggle.checked) _startAutoRefresh();
-            }});
-          }}
-        }}
-
-        function _bindViewDropdown() {{
-          const sel = document.getElementById("view-select");
-          if (!sel) return;
-
-          sel.addEventListener("change", function () {{
-            _saveAutoRefreshState();
-            const v = sel.value;
-            window.location.href = "/?view=" + encodeURIComponent(v);
-          }});
-        }}
-
-        document.addEventListener("DOMContentLoaded", function () {{
-          refreshStatus();
-          if (document.getElementById("table-grid")) {{
-            loadTable().then(() => refreshStatus());
-          }}
-          _bindAutoRefreshControls();
-          _bindViewDropdown();
-          _restoreAutoRefreshState();
-        }});
-      </script>
     </body>
     </html>
     """

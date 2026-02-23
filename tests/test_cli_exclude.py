@@ -1,64 +1,176 @@
 # tests/test_cli_exclude.py
 from __future__ import annotations
 
-import time
+from typing import Callable
+from dataclasses import fields
 
 import pytest
 
-from plotsrv import store
 import plotsrv.cli as cli_mod
 from plotsrv.discovery import DiscoveredView
+from plotsrv import store
 
 
-@pytest.fixture(autouse=True)
-def _reset_store() -> None:
-    store.reset()
-    yield
-    store.reset()
-
-
-def test_run_passive_dir_mode_excludes_views(monkeypatch) -> None:
+def _reset_store_state() -> None:
     """
-    G4: In passive directory mode, excluded views should not be registered.
-    This assumes exclude strings are matched against normalized view_id ("section:label").
-    Adjust if your implementation matches only label/section differently.
+    Best-effort reset, to avoid tests leaking store state.
+    Tries a few likely helper names; falls back to clearing common internals.
     """
+    for name in (
+        "reset_for_tests",
+        "_reset_for_tests",
+        "reset_state",
+        "_reset_state",
+        "reset",
+    ):
+        fn = getattr(store, name, None)
+        if callable(fn):
+            fn()
+            return
 
-    # Avoid starting server
-    monkeypatch.setattr(cli_mod, "start_server", lambda *a, **k: None)
-    monkeypatch.setattr(cli_mod, "stop_server", lambda *a, **k: None)
+    # Fallback: clear common internal dicts if they exist
+    for attr in ("_VIEWS", "_views", "VIEWS", "_STORE", "_state"):
+        obj = getattr(store, attr, None)
+        if isinstance(obj, dict):
+            obj.clear()
 
-    # Force discover_views output
+    # Ensure there's no stale active view pointing at something invalid
+    if hasattr(store, "set_active_view"):
+        try:
+            store.set_active_view("default")
+        except Exception:
+            pass
+
+
+def _dv(section: str, label: str) -> DiscoveredView:
+    """
+    Build a DiscoveredView instance without assuming its exact constructor.
+    This makes the test resilient to schema changes in DiscoveredView.
+    """
+    present = {f.name for f in fields(DiscoveredView)}
+
+    payload: dict[str, object] = {}
+    if "section" in present:
+        payload["section"] = section
+    if "label" in present:
+        payload["label"] = label
+
+    # common optional fields (only set if they exist)
+    if "kind" in present:
+        payload["kind"] = "none"
+    if "view_kind" in present:
+        payload["view_kind"] = "none"
+    if "decorator" in present:
+        payload["decorator"] = "plotsrv"
+
+    # Some versions store where it was found; set a safe placeholder if supported.
+    if "path" in present:
+        payload["path"] = "dummy.py"
+    if "module" in present:
+        payload["module"] = "dummy"
+    if "qualname" in present:
+        payload["qualname"] = "dummy.fn"
+
+    return DiscoveredView(**payload)  # type: ignore[arg-type]
+
+
+def test_run_passive_dir_mode_excludes_views(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    In passive directory mode, excluded views should not be registered.
+    Exclude strings are matched against:
+      - label
+      - section
+      - full view_id (section:label)
+    """
+    _reset_store_state()
+
     discovered = [
-        DiscoveredView(kind="plot", label="MEM%", section="Resource Usage"),
-        DiscoveredView(kind="plot", label="CPU%", section="Resource Usage"),
-        DiscoveredView(kind="plot", label="metrics", section="etl-1"),
+        _dv("etl-1", "import"),
+        _dv("etl-1", "metrics"),
+        _dv("etl-2", "metrics"),
     ]
-    monkeypatch.setattr(cli_mod, "discover_views", lambda _target: list(discovered))
 
-    # Exit loop immediately
-    def _sleep_then_interrupt(_: float) -> None:
-        raise KeyboardInterrupt()
+    monkeypatch.setattr(cli_mod, "discover_views", lambda _root: discovered)
 
-    monkeypatch.setattr(time, "sleep", _sleep_then_interrupt)
+    excludes = {"metrics", "etl-2", "etl-1:import"}
+    includes: set[str] = set()
 
-    # Call your passive runner with excludes.
-    # If your function signature changed, adjust accordingly.
-    # tests/test_cli_exclude.py (fix)
-    rc = cli_mod._run_passive_dir_mode(  # type: ignore[attr-defined]
-        target="dummy",
-        host="127.0.0.1",
-        port=8000,
-        quiet=True,
-        excludes={"Resource Usage:MEM%", "etl-1:metrics"},
-    )
+    cli_mod._passive_register_views("dummy-root", excludes=excludes, includes=includes)
 
-    assert rc == 0
+    views = store.list_views()
+    view_ids = {v.view_id for v in views}
 
-    metas = store.list_views()
-    view_ids = {m.view_id for m in metas}
-
-    # Should have CPU but not MEM or metrics
-    assert "Resource Usage:CPU%" in view_ids
-    assert "Resource Usage:MEM%" not in view_ids
+    # metrics excluded (label match) => both metrics disappear
     assert "etl-1:metrics" not in view_ids
+    assert "etl-2:metrics" not in view_ids
+
+    # explicit view_id exclusion
+    assert "etl-1:import" not in view_ids
+
+    # nothing left => default view is registered
+    assert "default" in view_ids
+
+
+def test_run_passive_dir_mode_includes_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    In passive directory mode, include acts as an allow-list (label/section/view_id).
+    """
+    _reset_store_state()
+
+    discovered = [
+        _dv("etl-1", "import"),
+        _dv("etl-1", "metrics"),
+        _dv("etl-2", "metrics"),
+        _dv("ops", "health"),
+    ]
+
+    monkeypatch.setattr(cli_mod, "discover_views", lambda _root: discovered)
+
+    excludes: set[str] = set()
+    includes = {"etl-1", "ops:health"}  # section include + explicit view_id
+
+    cli_mod._passive_register_views("dummy-root", excludes=excludes, includes=includes)
+
+    views = store.list_views()
+    view_ids = {v.view_id for v in views}
+
+    # all of etl-1 included
+    assert "etl-1:import" in view_ids
+    assert "etl-1:metrics" in view_ids
+
+    # explicit view_id included
+    assert "ops:health" in view_ids
+
+    # not included
+    assert "etl-2:metrics" not in view_ids
+
+
+def test_run_passive_dir_mode_include_then_exclude_exclude_wins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """
+    If something is included but also excluded, exclude wins.
+    """
+    _reset_store_state()
+
+    discovered = [
+        _dv("etl-1", "import"),
+        _dv("etl-1", "metrics"),
+        _dv("etl-2", "metrics"),
+    ]
+
+    monkeypatch.setattr(cli_mod, "discover_views", lambda _root: discovered)
+
+    includes = {"etl-1", "etl-2"}  # would allow everything
+    excludes = {"etl-2:metrics"}  # but exclude one explicit view
+
+    cli_mod._passive_register_views("dummy-root", excludes=excludes, includes=includes)
+
+    views = store.list_views()
+    view_ids = {v.view_id for v in views}
+
+    assert "etl-1:import" in view_ids
+    assert "etl-1:metrics" in view_ids
+
+    # excluded wins
+    assert "etl-2:metrics" not in view_ids

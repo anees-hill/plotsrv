@@ -39,7 +39,6 @@ def test_get_plot_returns_png_when_set(client: TestClient) -> None:
     assert resp.headers["content-type"] == "image/png"
 
 
-
 def test_get_plot_download_sets_content_disposition(client: TestClient) -> None:
     store.set_plot(b"\x89PNGfake")
 
@@ -149,7 +148,9 @@ def test_publish_plot_creates_view_and_serves_plot(client: TestClient) -> None:
     vid = store.normalize_view_id(None, section="etl-1", label="metrics")
     r2 = client.get(f"/plot?view={vid}")
     assert r2.status_code == 200
-    assert r2.content.startswith(b"\x89PNG")  # if you used a real png; if fake, just assert equals buf
+    assert r2.content.startswith(
+        b"\x89PNG"
+    )  # if you used a real png; if fake, just assert equals buf
 
 
 def test_publish_table_creates_view_and_serves_table(client: TestClient) -> None:
@@ -195,11 +196,16 @@ def test_publish_respects_update_limit(client: TestClient) -> None:
 
     r1 = client.post("/publish", json=payload)
     assert r1.status_code == 200
+    data1 = r1.json()
+    assert data1["ok"] is True
+    assert data1["ignored"] is False
+
     r2 = client.post("/publish", json=payload)
     assert r2.status_code == 200
+    data2 = r2.json()
+    assert data2["ok"] is True
+    assert data2["ignored"] is True
+    assert data2["reason"] == "throttled"
 
-    # second should have been rejected server-side (whatever your API returns)
-    # If you return {"accepted": false}, assert that:
-    # assert r2.json()["accepted"] is False
-    #
-    # If you always return 200 with message, assert substring.
+    # sanity: it still identifies the view
+    assert data2["view_id"] == "etl-1:import"

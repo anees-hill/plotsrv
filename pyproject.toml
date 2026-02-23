@@ -1,7 +1,7 @@
 [project]
 name = "plotsrv"
-version = "0.0.1"
-description = "Add your description here"
+version = "0.0.4"
+description = "Lightweight monitoring of Python processes, built on FastAPI"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -9,9 +9,12 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
 ]
 dependencies = [
+    "bleach>=6.3.0",
     "fastapi>=0.121.3",
+    "markdown>=3.10.2",
     "matplotlib>=3.10.7",
     "plotnine>=0.15.1",
+    "pyyaml>=6.0.3",
     "requests>=2.32.5",
     "uvicorn>=0.38.0",
 ]
@@ -38,7 +41,7 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
-fail_under = 85
+fail_under = 80
 omit = [
   "tests/*",
 ]

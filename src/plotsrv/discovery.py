@@ -9,7 +9,7 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class DiscoveredView:
-    kind: str  # "plot"|"table"
+    kind: str  # "plot"|"table"|"artifact"
     label: str
     section: str | None
 
@@ -86,7 +86,7 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
 
             for dec in node.decorator_list:
                 dec_name = _decorator_name(dec)
-                if dec_name not in ("plot", "table"):
+                if dec_name not in ("plot", "table", "plotsrv"):
                     continue
 
                 label = None
@@ -98,7 +98,11 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
 
                 found.append(
                     DiscoveredView(
-                        kind="plot" if dec_name == "plot" else "table",
+                        kind=(
+                            "plot"
+                            if dec_name == "plot"
+                            else "table" if dec_name == "table" else "artifact"
+                        ),
                         label=(label or node.name),
                         section=section,
                     )

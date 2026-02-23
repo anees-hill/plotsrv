@@ -15,11 +15,16 @@ from . import store, config
 from . import html as html_mod
 from .backends import df_to_rich_sample
 from .ui_config import get_ui_settings
+from .renderers import register_default_renderers
+from .renderers.registry import render_any
+
 
 app = FastAPI()
 
 # Load UI settings once at startup
 UI = get_ui_settings()
+register_default_renderers()
+
 
 # Static files shipped inside plotsrv package (logo, etc.)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -54,7 +59,10 @@ def get_plot(download: bool = False, view: str | None = None) -> Response:
     except LookupError:
         raise HTTPException(status_code=404, detail="No plot has been published yet.")
 
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {
+        "Cache-Control": "no-store, max-age=0",
+        "Pragma": "no-cache",
+    }
     if download:
         headers["Content-Disposition"] = 'attachment; filename="plotsrv_plot.png"'
 
@@ -63,20 +71,33 @@ def get_plot(download: bool = False, view: str | None = None) -> Response:
 
 @app.get("/table/data")
 def get_table_data(
-    limit: int = Query(default=config.MAX_TABLE_ROWS_RICH, ge=1),
+    limit: int = Query(default=config.get_max_table_rows_rich(), ge=1),
     view: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Return a JSON sample of the current table (for rich mode).
-    """
     vid = view or store.get_active_view_id()
 
     if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")
 
     df = store.get_table_df(view_id=vid)
-    max_rows = min(limit, config.MAX_TABLE_ROWS_RICH)
-    return df_to_rich_sample(df, max_rows=max_rows)
+    max_rows = min(limit, config.get_max_table_rows_rich())
+
+    rows_df = df.head(max_rows)
+    columns = list(rows_df.columns)
+    rows = rows_df.to_dict(orient="records")
+
+    total_rows, returned_rows = store.get_table_counts(view_id=vid)
+
+    # fall back safely if older publishers didn’t send counts
+    total_rows = total_rows if total_rows is not None else len(df)
+    returned_rows = returned_rows if returned_rows is not None else len(rows)
+
+    return {
+        "columns": columns,
+        "rows": rows,
+        "total_rows": total_rows,
+        "returned_rows": returned_rows,
+    }
 
 
 @app.get("/table/export")
@@ -93,7 +114,9 @@ def export_table(format: str = "csv", view: str | None = None) -> Response:
 
     fmt = (format or "csv").lower().strip()
     if fmt != "csv":
-        raise HTTPException(status_code=400, detail="Only format=csv is supported right now.")
+        raise HTTPException(
+            status_code=400, detail="Only format=csv is supported right now."
+        )
 
     csv_bytes = df.to_csv(index=False).encode("utf-8")
     headers = {
@@ -126,15 +149,27 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
       }
     """
     kind = str(payload.get("kind") or "").strip().lower()
-    if kind not in ("plot", "table"):
-        raise HTTPException(status_code=422, detail="publish: kind must be 'plot' or 'table'")
+    if kind not in ("plot", "table", "artifact"):
+        raise HTTPException(
+            status_code=422,
+            detail="publish: kind must be 'plot', 'table', or 'artifact'",
+        )
 
     section = payload.get("section")
     label = payload.get("label")
-    view_id = store.normalize_view_id(payload.get("view_id"), section=section, label=label)
+    view_id = store.normalize_view_id(
+        payload.get("view_id"), section=section, label=label
+    )
 
     # auto-register view so it appears in dropdown even before content arrives
-    store.register_view(view_id=view_id, section=section, label=label, kind="none", activate_if_first=False)
+    store.register_view(
+        view_id=view_id,
+        section=section,
+        label=label,
+        kind="none",
+        icon_key="unknown",
+        activate_if_first=False,
+    )
 
     # throttling (server-side)
     update_limit_s = payload.get("update_limit_s")
@@ -142,34 +177,90 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
 
     now_s = time.time()
     if not force:
-        if not store.should_accept_publish(view_id=view_id, update_limit_s=update_limit_s, now_s=now_s):
-            return {"ok": True, "ignored": True, "reason": "throttled", "view_id": view_id}
+        if not store.should_accept_publish(
+            view_id=view_id, update_limit_s=update_limit_s, now_s=now_s
+        ):
+            return {
+                "ok": True,
+                "ignored": True,
+                "reason": "throttled",
+                "view_id": view_id,
+            }
 
     # apply publish
     if kind == "plot":
         b64 = payload.get("plot_png_b64")
         if not b64:
-            raise HTTPException(status_code=422, detail="publish: plot_png_b64 is required for kind='plot'")
+            raise HTTPException(
+                status_code=422,
+                detail="publish: plot_png_b64 is required for kind='plot'",
+            )
 
         try:
             png_bytes = base64.b64decode(b64.encode("utf-8"))
         except Exception:
-            raise HTTPException(status_code=422, detail="publish: plot_png_b64 was not valid base64")
+            raise HTTPException(
+                status_code=422, detail="publish: plot_png_b64 was not valid base64"
+            )
 
         store.set_plot(png_bytes, view_id=view_id)
-        store.register_view(view_id=view_id, section=section, label=label, kind="plot", activate_if_first=False)
+        # store.register_view(
+        #     view_id=view_id,
+        #     section=section,
+        #     label=label,
+        #     kind="plot",
+        #     activate_if_first=False,
+        # )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
+        return {"ok": True, "ignored": False, "view_id": view_id}
 
-    else:
+    elif kind == "artifact":
+        artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
+        artifact_obj = payload.get("artifact")
+
+        # store artifact for /artifact rendering
+        store.set_artifact(
+            obj=artifact_obj,
+            kind=artifact_kind,  # type: ignore[arg-type]  # (or cast to ArtifactKind)
+            label=label,
+            section=section,
+            view_id=view_id,
+        )
+        # store.register_view(
+        #     view_id=view_id,
+        #     section=section,
+        #     label=label,
+        #     kind="artifact",
+        #     activate_if_first=False,
+        # )
+        store.mark_success(duration_s=None, view_id=view_id)
+        store.note_publish(view_id, now_s=now_s)
+        return {"ok": True, "ignored": False, "view_id": view_id}
+
+    elif kind == "table":
         table = payload.get("table")
         if not isinstance(table, dict):
-            raise HTTPException(status_code=422, detail="publish: table dict is required for kind='table'")
+            raise HTTPException(
+                status_code=422,
+                detail="publish: table dict is required for kind='table'",
+            )
 
         cols = table.get("columns")
         rows = table.get("rows")
         if not isinstance(cols, list) or not isinstance(rows, list):
-            raise HTTPException(status_code=422, detail="publish: table must include columns(list) and rows(list)")
+            raise HTTPException(
+                status_code=422,
+                detail="publish: table must include columns(list) and rows(list)",
+            )
+
+        total_rows = table.get("total_rows")
+        returned_rows = table.get("returned_rows")
+
+        if total_rows is not None and not isinstance(total_rows, int):
+            total_rows = None
+        if returned_rows is not None and not isinstance(returned_rows, int):
+            returned_rows = None
 
         # reconstruct DataFrame from rows/columns (server only stores sample)
         df = pd.DataFrame(rows, columns=cols)
@@ -178,12 +269,24 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         if html_simple is not None and not isinstance(html_simple, str):
             html_simple = None
 
-        store.set_table(df, html_simple=html_simple, view_id=view_id)
-        store.register_view(view_id=view_id, section=section, label=label, kind="table", activate_if_first=False)
+        store.set_table(
+            df,
+            html_simple=html_simple,
+            view_id=view_id,
+            total_rows=total_rows,
+            returned_rows=returned_rows,
+        )
+
+        # store.register_view(
+        #     view_id=view_id,
+        #     section=section,
+        #     label=label,
+        #     kind="table",
+        #     activate_if_first=False,
+        # )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
-
-    return {"ok": True, "ignored": False, "view_id": view_id}
+        return {"ok": True, "ignored": False, "view_id": view_id}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -198,6 +301,13 @@ def index(view: str | None = None) -> HTMLResponse:
 
     active_view = store.get_active_view_id()
     kind = store.get_kind(active_view)
+
+    # Only show the "artifact" UI when the latest artifact is not a plot/table.
+    # (Plots/tables also populate st.artifact for unified status/history.)
+    if store.has_artifact(view_id=active_view):
+        art = store.get_artifact(view_id=active_view)
+        if art.kind not in ("plot", "table"):
+            kind = "artifact"
 
     table_html_simple = None
     if (
@@ -214,10 +324,56 @@ def index(view: str | None = None) -> HTMLResponse:
         kind=kind,
         table_view_mode=config.get_table_view_mode(),
         table_html_simple=table_html_simple,
-        max_table_rows_simple=config.MAX_TABLE_ROWS_SIMPLE,
-        max_table_rows_rich=config.MAX_TABLE_ROWS_RICH,
+        max_table_rows_simple=config.get_max_table_rows_simple(),
+        max_table_rows_rich=config.get_max_table_rows_rich(),
         ui_settings=UI,
         views=store.list_views(),
         active_view_id=active_view,
     )
     return HTMLResponse(content=html_str)
+
+
+@app.get("/artifact")
+def get_artifact(view: str | None = None) -> dict[str, Any]:
+    """
+    Render the latest artifact for the view and return HTML + meta.
+    """
+    vid = view or store.get_active_view_id()
+    if not store.has_artifact(view_id=vid):
+        raise HTTPException(
+            status_code=404, detail="No artifact has been published yet."
+        )
+
+    art = store.get_artifact(view_id=vid)
+    rr = render_any(art.obj, view_id=vid, kind_hint=art.kind)
+
+    return {
+        "view_id": vid,
+        "kind": rr.kind,
+        "html": rr.html,
+        "mime": rr.mime,
+        "truncation": (
+            None
+            if rr.truncation is None
+            else {
+                "truncated": rr.truncation.truncated,
+                "reason": rr.truncation.reason,
+                "details": rr.truncation.details,
+            }
+        ),
+        "meta": rr.meta or {},
+    }
+
+
+@app.get("/views")
+def get_views() -> list[dict[str, Any]]:
+    return [
+        {
+            "view_id": v.view_id,
+            "section": v.section,
+            "label": v.label,
+            "kind": v.kind,
+            "icon_key": v.icon_key,
+        }
+        for v in store.list_views()
+    ]

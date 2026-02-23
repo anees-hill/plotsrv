@@ -21,6 +21,6 @@ def test_set_table_view_mode_invalid_raises() -> None:
 
 
 def test_max_table_rows_constants_positive() -> None:
-    assert config.MAX_TABLE_ROWS_SIMPLE > 0
-    assert config.MAX_TABLE_ROWS_RICH > 0
-    assert config.MAX_TABLE_ROWS_RICH >= config.MAX_TABLE_ROWS_SIMPLE
+    assert config.get_max_table_rows_simple() > 0
+    assert config.get_max_table_rows_rich() > 0
+    assert config.get_max_table_rows_rich() >= config.get_max_table_rows_simple()

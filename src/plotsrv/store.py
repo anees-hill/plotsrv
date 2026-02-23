@@ -3,14 +3,24 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 import pandas as pd
+from . import config
+from .artifacts import Artifact, ArtifactKind, Truncation
 
-
-# ------------------------------------------------------------------------------
-# Models
-# ------------------------------------------------------------------------------
+IconKey = Literal[
+    "unknown",
+    "plot",
+    "table",
+    "text",
+    "json",
+    "python",
+    "markdown",
+    "image",
+    "html",
+    "exception",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,9 +30,11 @@ class ViewMeta:
     """
 
     view_id: str
-    kind: str  # "none" | "plot" | "table"
+    kind: str  # "none" | "plot" | "table" | "artifact"
     label: str
     section: str | None = None
+
+    icon_key: IconKey = "unknown"
 
 
 @dataclass(slots=True)
@@ -34,11 +46,14 @@ class ViewState:
     """
 
     kind: str = "none"  # "none" | "plot" | "table"
+    icon_key: IconKey = "unknown"
     plot_png: bytes | None = None
     table_df: pd.DataFrame | None = None
     table_html_simple: str | None = None
-
     status: dict[str, Any] = None  # populated in __post_init__
+    table_total_rows: int | None = None
+    table_returned_rows: int | None = None
+    artifact: Artifact | None = None
 
     # publish throttling
     last_publish_at: float | None = None  # epoch seconds
@@ -52,9 +67,29 @@ class ViewState:
             }
 
 
-# ------------------------------------------------------------------------------
+def _icon_for_view_kind(
+    kind: str, *, artifact_kind: ArtifactKind | None = None
+) -> IconKey:
+    k = (kind or "none").strip().lower()
+
+    if k == "plot":
+        return "plot"
+    if k == "table":
+        return "table"
+
+    if k == "artifact":
+        ak = (artifact_kind or "python").strip().lower()
+        if ak in ("text", "json", "python", "markdown", "image", "html"):
+            return ak  # type: ignore[return-value]
+        if ak == "exception":
+            return "exception"
+        # fall back
+        return "python"
+
+    return "unknown"
+
+
 # Global store: multi-view
-# ------------------------------------------------------------------------------
 
 _VIEWS: dict[str, ViewState] = {}
 _VIEW_META: dict[str, ViewMeta] = {}
@@ -72,9 +107,7 @@ _SERVICE_INFO: dict[str, Any] = {
 _SERVICE_STOP_HOOK: Callable[[], None] | None = None
 
 
-# ------------------------------------------------------------------------------
 # Helpers
-# ------------------------------------------------------------------------------
 
 
 def _now_iso() -> str:
@@ -87,7 +120,9 @@ def _ensure_view(view_id: str) -> ViewState:
     return _VIEWS[view_id]
 
 
-def normalize_view_id(view_id: str | None, *, section: str | None = None, label: str | None = None) -> str:
+def normalize_view_id(
+    view_id: str | None, *, section: str | None = None, label: str | None = None
+) -> str:
     """
     Normalize incoming view identifiers.
 
@@ -102,9 +137,7 @@ def normalize_view_id(view_id: str | None, *, section: str | None = None, label:
     return f"{sec}:{lab}"
 
 
-# ------------------------------------------------------------------------------
 # View registry API
-# ------------------------------------------------------------------------------
 
 
 def register_view(
@@ -113,14 +146,18 @@ def register_view(
     section: str | None = None,
     label: str | None = None,
     kind: str = "none",
+    icon_key: IconKey | None = None,  # NEW
     activate_if_first: bool = True,
 ) -> str:
     vid = normalize_view_id(view_id, section=section, label=label)
     st = _ensure_view(vid)
 
-    # allow "upgrading" a view kind once it receives content
-    if kind in ("plot", "table"):
+    # allow upgrade of assigned view dropdown menu icon
+    if kind in ("plot", "table", "artifact"):
         st.kind = kind
+
+    if icon_key is not None:
+        st.icon_key = icon_key
 
     meta = _VIEW_META.get(vid)
     if meta is None:
@@ -129,18 +166,23 @@ def register_view(
             kind=st.kind,
             label=(label or vid),
             section=section,
+            icon_key=st.icon_key,
         )
     else:
-        # keep label/section if new values supplied
         _VIEW_META[vid] = ViewMeta(
             view_id=vid,
             kind=st.kind,
             label=(label or meta.label),
             section=(section if section is not None else meta.section),
+            icon_key=st.icon_key,
         )
 
     global _ACTIVE_VIEW_ID
-    if activate_if_first and (_ACTIVE_VIEW_ID is None or _ACTIVE_VIEW_ID == "default") and len(_VIEW_META) == 1:
+    if (
+        activate_if_first
+        and (_ACTIVE_VIEW_ID is None or _ACTIVE_VIEW_ID == "default")
+        and len(_VIEW_META) == 1
+    ):
         _ACTIVE_VIEW_ID = vid
 
     return vid
@@ -148,14 +190,49 @@ def register_view(
 
 def list_views() -> list[ViewMeta]:
     """
-    Return UI-ready view metadata, stable ordering:
-      section then label.
+    Return UI-ready view metadata.
+
+    Ordering rules:
+      - sections listed in config come first, in order
+      - remaining sections come afterwards alphabetically
+      - labels.<section> listed come first within that section, in order
+      - remaining labels come afterwards alphabetically
     """
     metas = list(_VIEW_META.values())
 
-    def _key(m: ViewMeta) -> tuple[str, str]:
-        sec = m.section or ""
-        return (sec, m.label)
+    # Pull in optional configured order
+    section_order = config.get_view_order_sections()  # list[str] | None
+
+    section_rank: dict[str, int] = {}
+    if section_order:
+        for i, s in enumerate(section_order):
+            section_rank[s] = i
+
+    def _section_sort_key(sec: str) -> tuple[int, str]:
+        # (0, rank) for configured sections, else (1, alpha)
+        if sec in section_rank:
+            return (0, f"{section_rank[sec]:09d}")
+        return (1, sec.lower())
+
+    # Pre-fetch label ranking maps for sections that have them
+    label_rank_by_section: dict[str, dict[str, int]] = {}
+    for m in metas:
+        sec = (m.section or "default").strip() or "default"
+        if sec in label_rank_by_section:
+            continue
+        order = config.get_view_order_labels(sec)
+        if order:
+            label_rank_by_section[sec] = {lab: i for i, lab in enumerate(order)}
+
+    def _label_sort_key(sec: str, label: str) -> tuple[int, str]:
+        ranks = label_rank_by_section.get(sec)
+        if ranks and label in ranks:
+            return (0, f"{ranks[label]:09d}")
+        return (1, label.lower())
+
+    def _key(m: ViewMeta) -> tuple[tuple[int, str], tuple[int, str]]:
+        sec = (m.section or "default").strip() or "default"
+        return (_section_sort_key(sec), _label_sort_key(sec, m.label))
 
     return sorted(metas, key=_key)
 
@@ -175,9 +252,7 @@ def get_view_state(view_id: str | None = None) -> ViewState:
     return _ensure_view(vid)
 
 
-# ------------------------------------------------------------------------------
 # Backwards-compatible single-view API (uses active view)
-# ------------------------------------------------------------------------------
 
 
 def get_kind(view_id: str | None = None) -> str:
@@ -186,10 +261,25 @@ def get_kind(view_id: str | None = None) -> str:
 
 def set_plot(png_bytes: bytes, *, view_id: str | None = None) -> None:
     st = get_view_state(view_id)
+    vid = view_id or _ACTIVE_VIEW_ID
+
     st.kind = "plot"
+    st.icon_key = _icon_for_view_kind("plot")
     st.plot_png = png_bytes
+
+    st.artifact = Artifact(
+        kind="plot",
+        obj=png_bytes,
+        created_at=datetime.now(timezone.utc),
+        view_id=vid,
+    )
+
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+
+    register_view(
+        view_id=vid, kind="plot", icon_key=st.icon_key, activate_if_first=False
+    )
 
 
 def get_plot(*, view_id: str | None = None) -> bytes:
@@ -204,18 +294,87 @@ def has_plot(*, view_id: str | None = None) -> bool:
     return st.plot_png is not None
 
 
-def set_table(df: pd.DataFrame, html_simple: str | None, *, view_id: str | None = None) -> None:
+def set_table(
+    df: pd.DataFrame,
+    html_simple: str | None,
+    *,
+    view_id: str | None = None,
+    total_rows: int | None = None,
+    returned_rows: int | None = None,
+) -> None:
     st = get_view_state(view_id)
+    st.icon_key = _icon_for_view_kind("table")
+    vid = view_id or _ACTIVE_VIEW_ID
+
     st.kind = "table"
     st.table_df = df
     st.table_html_simple = html_simple
+
+    st.table_total_rows = total_rows
+    st.table_returned_rows = returned_rows
+
+    st.artifact = Artifact(
+        kind="table",
+        obj=df,
+        created_at=datetime.now(timezone.utc),
+        view_id=vid,
+    )
+
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+
+    register_view(
+        view_id=vid, kind="table", icon_key=st.icon_key, activate_if_first=False
+    )
+
+
+def set_artifact(
+    *,
+    obj: Any,
+    kind: ArtifactKind,
+    label: str | None = None,
+    section: str | None = None,
+    view_id: str | None = None,
+    truncation: Truncation | None = None,
+) -> None:
+    st = get_view_state(view_id)
+    vid = view_id or _ACTIVE_VIEW_ID
+
+    st.kind = "artifact"
+    st.icon_key = _icon_for_view_kind("artifact", artifact_kind=kind)
+    st.artifact = Artifact(
+        kind=kind,
+        obj=obj,
+        created_at=datetime.now(timezone.utc),
+        label=label,
+        section=section,
+        view_id=vid,
+        truncation=truncation,
+    )
+
+    st.status["last_updated"] = _now_iso()
+    st.status["last_error"] = None
+
+    register_view(
+        view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
+    )
 
 
 def has_table(*, view_id: str | None = None) -> bool:
     st = get_view_state(view_id)
     return st.table_df is not None
+
+
+def has_artifact(*, view_id: str | None = None) -> bool:
+    st = get_view_state(view_id)
+    return st.artifact is not None
+
+
+def get_artifact(*, view_id: str | None = None) -> Artifact:
+    st = get_view_state(view_id)
+    if st.artifact is None:
+        raise LookupError("No artifact available")
+    return st.artifact
 
 
 def get_table_df(*, view_id: str | None = None) -> pd.DataFrame:
@@ -230,6 +389,11 @@ def get_table_html_simple(*, view_id: str | None = None) -> str:
     if st.table_html_simple is None:
         raise LookupError("No simple HTML table available")
     return st.table_html_simple
+
+
+def get_table_counts(*, view_id: str | None = None) -> tuple[int | None, int | None]:
+    st = get_view_state(view_id)
+    return (st.table_total_rows, st.table_returned_rows)
 
 
 # ------------------------------------------------------------------------------
@@ -255,16 +419,11 @@ def get_status(*, view_id: str | None = None) -> dict[str, Any]:
     return dict(st.status)
 
 
-# ------------------------------------------------------------------------------
 # Publish throttling
-# ------------------------------------------------------------------------------
 
 
 def should_accept_publish(
-    *,
-    view_id: str,
-    update_limit_s: int | None,
-    now_s: float,
+    *, view_id: str, update_limit_s: int | None, now_s: float
 ) -> bool:
     """
     Server-side throttling:
@@ -291,16 +450,11 @@ def note_publish(view_id: str, *, now_s: float) -> None:
     st.last_publish_at = now_s
 
 
-# ------------------------------------------------------------------------------
 # Service info + shutdown control (global)
-# ------------------------------------------------------------------------------
 
 
 def set_service_info(
-    *,
-    service_mode: bool,
-    target: str | None,
-    refresh_rate_s: int | None,
+    *, service_mode: bool, target: str | None, refresh_rate_s: int | None
 ) -> None:
     _SERVICE_INFO["service_mode"] = bool(service_mode)
     _SERVICE_INFO["service_target"] = target
@@ -336,9 +490,7 @@ def request_service_stop() -> bool:
     return True
 
 
-# ------------------------------------------------------------------------------
 # Reset
-# ------------------------------------------------------------------------------
 
 
 def reset() -> None:
