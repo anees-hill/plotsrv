@@ -297,6 +297,11 @@ def _to_publish_payload(
 
     # kind == "artifact"
     if kind == "artifact":
+        if isinstance(obj, dict) and "html" in obj:
+            payload["artifact_kind"] = "html"
+            payload["artifact"] = _json_safe(obj)
+            return payload
+
         artifact_kind = _infer_artifact_kind(obj)
         payload["artifact_kind"] = artifact_kind
 
@@ -318,7 +323,7 @@ def _to_publish_payload(
 
         return payload
 
-    raise ValueError(f"Unknown publish kind: {kind!r}")
+        raise ValueError(f"Unknown publish kind: {kind!r}")
 
 
 def publish_artifact(
