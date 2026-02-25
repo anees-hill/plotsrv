@@ -373,6 +373,19 @@ def publish_artifact(
 
                     # artifact
                     ak = artifact_kind or coerced.artifact_kind or "text"
+
+                    if ak == "html":
+                        return publish_artifact(
+                            {"html": str(coerced.obj), "unsafe": True},
+                            host=host,
+                            port=port,
+                            label=label,
+                            section=section,
+                            artifact_kind="html",
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
+
                     return publish_artifact(
                         coerced.obj,
                         host=host,
