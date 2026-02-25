@@ -33,7 +33,6 @@ dev = [
 [project.scripts]
 plotsrv = "plotsrv.cli:main"
 
-
 [tool.coverage.run]
 source = ["plotsrv"]
 branch = true
@@ -44,4 +43,14 @@ skip_covered = false
 fail_under = 80
 omit = [
   "tests/*",
+]
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/plotsrv"]
+include = [
+  "src/plotsrv/static/**",
 ]
