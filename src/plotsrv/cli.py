@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import urllib.request
 import json
 import os
 import subprocess
@@ -392,6 +393,23 @@ def _find_project_root(start: Path) -> Path | None:
     return None
 
 
+def _wait_for_server(host: str, port: int, *, timeout_s: float = 5.0) -> bool:
+    """
+    Wait until the plotsrv server is accepting HTTP connections.
+    Returns True if ready, else False.
+    """
+    deadline = time.time() + float(timeout_s)
+    url = f"http://{host}:{port}/status"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=0.2) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.1)
+    return False
+
+
 def _default_run_target() -> str:
     """
     If user runs `plotsrv run` with no target, use a safe project root.
@@ -565,7 +583,6 @@ def _start_watch_threads(
                 if sig is not None and sig == last_sig:
                     time.sleep(max(0.05, float(every)))
                     continue
-                last_sig = sig
 
                 try:
                     fk2 = infer_file_kind(pth)
@@ -588,6 +605,8 @@ def _start_watch_threads(
                     )
                     time.sleep(max(0.05, float(every)))
                     continue
+
+                last_sig = sig
 
                 if kind == "text":
                     txt = raw.decode(encoding, errors="replace")
@@ -951,6 +970,8 @@ def _run_passive_server_forever(
 
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
+    _wait_for_server(host, port, timeout_s=5.0)
+
     if watch_specs:
         _start_watch_threads(
             watch_specs,
@@ -1225,6 +1246,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Start server first
     start_server(host=args.host, port=args.port, auto_on_show=False, quiet=args.quiet)
+
+    _wait_for_server(args.host, args.port, timeout_s=5.0)
 
     # Watches
     if watch_specs:
