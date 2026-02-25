@@ -345,6 +345,10 @@ def publish_artifact(
 
     debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
 
+    # Make HTML permissive
+    if artifact_kind == "html" and isinstance(obj, str):
+        obj = {"html": obj, "unsafe": True}
+
     # Path-like publishing (file -> inferred kind -> publish)
     if not isinstance(obj, (str, bytes, bytearray)):
         p: Path | None
