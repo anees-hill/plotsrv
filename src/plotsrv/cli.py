@@ -336,6 +336,12 @@ def _is_excluded(dv: DiscoveredView, excludes: set[str]) -> bool:
     return (lab in excludes) or (sec in excludes) or (vid in excludes)
 
 
+def _with_text_anchor_header(text: str, anchor: WatchReadMode) -> str:
+    if anchor != "tail":
+        return text
+    return "\ufeffPLOTSRV_ANCHOR=tail\n" + text
+
+
 def _resolve_target_to_path_if_importable(target: str) -> str | None:
     """
     If target is importable as a module/package (and not module:function),
@@ -567,7 +573,10 @@ def _start_watch_threads(
         )
 
         def _worker(
-            pth: Path = p, view_label: str = label, view_section: str = section
+            pth: Path = p,
+            view_label: str = label,
+            view_section: str = section,
+            watch_read_mode: WatchReadMode = read_mode,
         ) -> None:
             last_sig: tuple[int, int] | None = None
             while True:
@@ -586,9 +595,9 @@ def _start_watch_threads(
 
                 try:
                     fk2 = infer_file_kind(pth)
-                    if fk2 == "csv" and read_mode == "tail":
+                    if fk2 == "csv" and watch_read_mode == "tail":
                         raw = _read_csv_tail_with_header_bytes(pth, max_bytes=max_bytes)
-                    elif read_mode == "head":
+                    elif watch_read_mode == "head":
                         raw = _read_head_bytes(pth, max_bytes=max_bytes)
                     else:
                         raw = _read_tail_bytes(pth, max_bytes=max_bytes)
@@ -610,8 +619,9 @@ def _start_watch_threads(
 
                 if kind == "text":
                     txt = raw.decode(encoding, errors="replace")
+                    txt2 = _with_text_anchor_header(txt, watch_read_mode)
                     publish_artifact(
-                        txt,
+                        txt2,
                         host=host,
                         port=port,
                         label=view_label,
@@ -674,13 +684,21 @@ def _start_watch_threads(
                             force=force,
                         )
                     else:
+                        obj_to_publish = coerced.obj
+                        ak = coerced.artifact_kind or "text"
+
+                        if ak == "text":
+                            obj_to_publish = _with_text_anchor_header(
+                                str(coerced.obj), watch_read_mode
+                            )
+
                         publish_artifact(
-                            coerced.obj,
+                            obj_to_publish,
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
-                            artifact_kind=coerced.artifact_kind or "text",
+                            artifact_kind=ak,
                             update_limit_s=update_limit_s,
                             force=force,
                         )
@@ -1071,8 +1089,9 @@ def _run_watch_mode(
 
             if kind == "text":
                 txt = raw.decode(encoding, errors="replace")
+                txt2 = _with_text_anchor_header(txt, mode)
                 publish_artifact(
-                    txt,
+                    txt2,
                     host=host,
                     port=port,
                     label=view_label,
@@ -1134,16 +1153,25 @@ def _run_watch_mode(
                         force=force,
                     )
                 else:
+                    obj_to_publish = coerced.obj
+                    ak = coerced.artifact_kind or "text"
+
+                    if ak == "text":
+                        obj_to_publish = _with_text_anchor_header(
+                            str(coerced.obj), mode
+                        )
+
                     publish_artifact(
-                        coerced.obj,
+                        obj_to_publish,
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
-                        artifact_kind=coerced.artifact_kind or "text",
+                        artifact_kind=ak,
                         update_limit_s=update_limit_s,
                         force=force,
                     )
+
             except Exception as e:
                 txt = raw.decode(encoding, errors="replace")
                 publish_artifact(
