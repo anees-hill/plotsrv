@@ -1,12 +1,12 @@
 # src/plotsrv/renderers/text.py
 from __future__ import annotations
 
-from typing import Any
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
+from .. import config
 from .base import RenderResult
-from .limits import DEFAULT_TEXT_LIMITS, TextLimits, truncate_text
+from .limits import TextLimits, truncate_text
 
 ANCHOR_PREFIX = "\ufeffPLOTSRV_ANCHOR="  # BOM + prefix
 
@@ -20,23 +20,25 @@ class TextPayload:
 class TextRenderer:
     kind = "text"
 
-    def __init__(self, *, limits: TextLimits | None = None) -> None:
-        self._limits = limits or DEFAULT_TEXT_LIMITS
-
     def can_render(self, obj: Any) -> bool:
         return isinstance(obj, (str, bytes, bytearray, TextPayload))
 
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         text, anchor = _to_text_and_anchor(obj)
-        out, truncation = truncate_text(text, limits=self._limits, anchor=anchor)
 
-        # Phase 1.1:
-        # - word wrap toggle
-        # - copy button
-        #
-        # Phase 1.2:
-        # - truncation UX stays primarily in the global artifact truncation line
-        #   (but we keep obvious "…" suffix from truncate_text)
+        max_chars = config.get_truncation_max_chars("text")
+        if max_chars is None:
+            out = text
+            from ..artifacts import Truncation
+
+            truncation = Truncation(truncated=False)
+        else:
+            out, truncation = truncate_text(
+                text,
+                limits=TextLimits(max_chars=max_chars),
+                anchor=anchor,
+            )
+
         toolbar = """
         <div class="artifact-toolbar" data-plotsrv-toolbar="text">
           <div class="artifact-toolbar-group">
@@ -65,7 +67,6 @@ def _strip_anchor_header(text: str) -> tuple[str, Literal["head", "tail"]]:
     header = text if nl == -1 else text[:nl]
     rest = "" if nl == -1 else text[nl + 1 :]
 
-    # header looks like "\ufeffPLOTSRV_ANCHOR=tail"
     val = header[len(ANCHOR_PREFIX) :].strip().lower()
     anchor: Literal["head", "tail"] = "tail" if val == "tail" else "head"
     return rest, anchor
