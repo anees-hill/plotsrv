@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from . import config, store
+from . import config, store, settings
 from .discovery import DiscoveredView, discover_views
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
 from .publisher import publish_artifact
@@ -124,6 +124,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--quiet", action="store_true", help="Reduce uvicorn logging noise"
+    )
+    run_p.add_argument(
+        "--name",
+        default=None,
+        help="Optional instance name used to select per-instance settings from plotsrv.yml",
+    )
+    run_p.add_argument(
+        "--config",
+        default=None,
+        help="Path to plotsrv.yml (or plotsrv.yaml). If omitted, uses ./plotsrv.yml or env PLOTSRV_CONFIG.",
+    )
+    run_p.add_argument(
+        "--truncate",
+        default=None,
+        help="Override truncation max chars for text/html/markdown. Examples: 50000 or 'off'.",
+    )
+    run_p.add_argument(
+        "--no-truncate",
+        action="store_true",
+        help="Disable truncation for text/html/markdown (overrides config).",
     )
 
     # New mode flag
@@ -802,6 +822,24 @@ def _run_subprocess_as_main(target: str) -> subprocess.Popen[bytes]:
     return subprocess.Popen(cmd)
 
 
+def _parse_truncate_arg(raw: str | None, *, no_truncate: bool) -> object:
+    if no_truncate:
+        return settings._TRUNCATE_OFF
+
+    if raw is None:
+        return settings._UNSET
+
+    s = str(raw).strip().lower()
+    if s in ("off", "none", "false", "0"):
+        return settings._TRUNCATE_OFF
+
+    try:
+        n = int(float(s))
+        return max(1, n)
+    except Exception:
+        return settings._UNSET
+
+
 def _run_subprocess_call_importpath(
     target: str,
     *,
@@ -1195,6 +1233,22 @@ def _run_watch_mode(
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    truncate_override = _parse_truncate_arg(
+        getattr(args, "truncate", None),
+        no_truncate=bool(getattr(args, "no_truncate", False)),
+    )
+
+    from . import settings as _settings
+
+    if getattr(args, "config", None):
+        _settings.set_runtime_context(config_path=str(args.config))
+
+    if getattr(args, "name", None):
+        _settings.set_runtime_context(name=str(args.name))
+
+    if truncate_override is not settings._UNSET:
+        _settings.set_runtime_context(truncate_override=truncate_override)
 
     if args.cmd == "watch":
         read_mode = "head" if args.head else ("tail" if args.tail else None)
