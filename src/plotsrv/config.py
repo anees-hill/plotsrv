@@ -1,339 +1,268 @@
 # src/plotsrv/config.py
 from __future__ import annotations
 
-import configparser
-import os
-from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
+
+from . import settings
 
 TableViewMode = Literal["simple", "rich"]
+_RUNTIME_TABLE_VIEW_MODE: TableViewMode | None = None
 
-TABLE_VIEW_MODE: TableViewMode = "rich"
-MAX_TABLE_ROWS_SIMPLE: int = 200
-MAX_TABLE_ROWS_RICH: int = 1000
+PLOTSRV_COLOURS = {
+    "served-apple": "#9E2239",
+    "grey": "#C8C8C8",
+    "light-red": "#D55970",
+    "pink": "#F1C5CD",
+    "dirty-pink": "#BA8E96",
+}
+
+# Defaults (match your current defaults)
+_DEFAULTS: dict[str, Any] = {
+    "table-settings": {
+        "table_view_mode": "rich",
+        "max_table_rows_simple": 200,
+        "max_table_rows_rich": 1000,
+    },
+    "render-settings": {
+        "plot_dpi": 200,
+        "plot_default_figsize_in": (12.0, 6.0),  # tuple[float,float] | None
+        "plot_bbox_tight": True,
+        "plot_pad_inches": 0.10,
+    },
+    "view-order-settings": {
+        # sections: list[str]
+        # labels: {section: [labels...]}
+    },
+    "truncation": {
+        # defaults:
+        # - text: 50_000 (existing behaviour)
+        # - html/markdown: OFF by default (your request)
+        "text": 50_000,
+        "html": None,
+        "markdown": None,
+    },
+}
+
 _MAX_TABLE_ROWS_INF: int = 1_000_000_000
-
-# Plot rendering defaults (static PNG generation)
-
-# Higher default DPI makes PNGs crisper on high-res displays.
-PLOT_DPI: int = 200
-
-# If set, and the incoming matplotlib Figure is still at the default size,
-# we will "upgrade" it to this size for rendering only.
-PLOT_DEFAULT_FIGSIZE_IN: tuple[float, float] | None = (12.0, 6.0)
-
-# Keep tight bounding box, but allow padding so labels don't get clipped.
-PLOT_BBOX_TIGHT: bool = True
-PLOT_PAD_INCHES: float = 0.10
-
-# View ordering (optional)
-
-# If set, these determine dropdown ordering:
-# - sections listed come first in the given order
-# - remaining sections come afterwards alphabetically
-# - labels.<section> listed come first in given order within section
-# - remaining labels come afterwards alphabetically
-VIEW_ORDER_SECTIONS: list[str] | None = None
-VIEW_ORDER_LABELS: dict[str, list[str]] = {}
-
-# Internal: lazy load ini once
-_LOADED_RENDER_SETTINGS: bool = False
-
-
-def get_table_view_mode() -> TableViewMode:
-    _load_ini_settings_once()
-    return TABLE_VIEW_MODE
 
 
 def set_table_view_mode(mode: TableViewMode) -> None:
     """
-    Set how DataFrames are shown in the browser.
+    Backwards compatible setter.
 
-    - "simple": static HTML (df.head(N).to_html()).
-    - "rich": Tabulator JS grid over a sample of the DataFrame.
+    This is a runtime override for the current process only.
+    It does NOT write to plotsrv.yml.
     """
-    global TABLE_VIEW_MODE
-    if mode not in ("simple", "rich"):
+    global _RUNTIME_TABLE_VIEW_MODE
+    m = str(mode).strip().lower()
+    if m not in ("simple", "rich"):
         raise ValueError("table_view_mode must be 'simple' or 'rich'")
-    TABLE_VIEW_MODE = mode
+    _RUNTIME_TABLE_VIEW_MODE = m  # type: ignore[assignment]
 
 
-# plotsrv.ini resolution + parsing (render settings)
+def _as_bool(x: Any, default: bool) -> bool:
+    if isinstance(x, bool):
+        return x
+    if isinstance(x, (int, float)):
+        return bool(x)
+    if isinstance(x, str):
+        s = x.strip().lower()
+        if s in ("true", "1", "yes", "y", "on"):
+            return True
+        if s in ("false", "0", "no", "n", "off"):
+            return False
+    return default
 
 
-def _strip_quotes(s: str) -> str:
-    s = s.strip()
-    if len(s) >= 2 and ((s[0] == s[-1] == "'") or (s[0] == s[-1] == '"')):
-        return s[1:-1].strip()
-    return s
+def _as_int_or_inf(x: Any, default: int, *, min_value: int = 1) -> int:
+    if x is None:
+        return default
+    if isinstance(x, str):
+        s = x.strip().lower()
+        if s in ("inf", "infinity", "none", "null", ""):
+            return _MAX_TABLE_ROWS_INF
+        try:
+            n = int(float(s))
+            return n if n >= min_value else default
+        except Exception:
+            return default
+    try:
+        n2 = int(x)
+        return n2 if n2 >= min_value else default
+    except Exception:
+        return default
 
 
-def _resolve_ini_path() -> Path | None:
-    """
-    Resolution order:
-      1) env var PLOTSRV_INI
-      2) ./plotsrv.ini (cwd)
-      3) None
-    """
-    env_path = os.environ.get("PLOTSRV_INI")
-    if env_path:
-        p = Path(env_path).expanduser()
-        if p.exists() and p.is_file():
-            return p
+def _as_float(x: Any, default: float, *, min_value: float | None = None) -> float:
+    if x is None:
+        return default
+    try:
+        f = float(x)
+        if min_value is not None and f < min_value:
+            return default
+        return f
+    except Exception:
+        return default
 
-    cwd_ini = Path.cwd() / "plotsrv.ini"
-    if cwd_ini.exists() and cwd_ini.is_file():
-        return cwd_ini
+
+def _parse_figsize(x: Any) -> tuple[float, float] | None:
+    # allow:
+    # - null/None => disable
+    # - "12,6" / "12x6"
+    # - [12, 6]
+    # - {"w": 12, "h": 6}
+    if x is None:
+        return None
+
+    if isinstance(x, (list, tuple)) and len(x) >= 2:
+        try:
+            w = float(x[0])
+            h = float(x[1])
+            if w > 0 and h > 0:
+                return (w, h)
+        except Exception:
+            return None
+
+    if isinstance(x, dict):
+        try:
+            w = float(x.get("w"))
+            h = float(x.get("h"))
+            if w > 0 and h > 0:
+                return (w, h)
+        except Exception:
+            return None
+
+    if isinstance(x, str):
+        s = x.strip()
+        if not s:
+            return None
+        parts = [p.strip() for p in s.replace("x", ",").split(",") if p.strip()]
+        if len(parts) >= 2:
+            try:
+                w = float(parts[0])
+                h = float(parts[1])
+                if w > 0 and h > 0:
+                    return (w, h)
+            except Exception:
+                return None
 
     return None
 
 
-def _parse_table_view_mode(raw: str, default: TableViewMode) -> TableViewMode:
-    s = _strip_quotes(raw).strip().lower()
-    if s in ("simple", "rich"):
-        return s  # type: ignore[return-value]
-    return default
+def _merged_section(section: str) -> dict[str, Any]:
+    base = dict(_DEFAULTS.get(section, {}) or {})
+    sec = settings.get_section(section)
+    base.update(sec)
+    return base
 
 
-def _parse_int_or_inf(raw: str, *, default: int, min_value: int = 1) -> int:
-    s = _strip_quotes(raw).strip().lower()
-
-    if s in ("inf", "infinity", "none", "null", ""):
-        return _MAX_TABLE_ROWS_INF
-
-    try:
-        n = int(float(s))  # allow "1000.0"
-        if n >= min_value:
-            return n
-    except Exception:
-        pass
-
-    return default
-
-
-def _parse_listish(raw: str) -> list[str]:
-    """
-    Parse an ini value into an ordered list of strings.
-
-    Supports:
-      - comma-separated: "a, b, c"
-      - multiline values:
-            a
-            b
-            c
-      - mixtures of both
-    """
-    s = _strip_quotes(raw)
-    if not s.strip():
-        return []
-
-    # Normalize commas to newlines, then splitlines.
-    s = s.replace(",", "\n")
-    items: list[str] = []
-    for line in s.splitlines():
-        t = line.strip()
-        if t:
-            items.append(t)
-    return items
+# ---- View ordering ------------------------------------------------------------
 
 
 def get_view_order_sections() -> list[str] | None:
-    _load_ini_settings_once()
-    return list(VIEW_ORDER_SECTIONS) if VIEW_ORDER_SECTIONS else None
+    sec = _merged_section("view-order-settings")
+    xs = sec.get("sections")
+    if isinstance(xs, list):
+        out = [str(x).strip() for x in xs if str(x).strip()]
+        return out or None
+    return None
 
 
 def get_view_order_labels(section: str) -> list[str] | None:
-    _load_ini_settings_once()
-    key = (section or "").strip()
-    vals = VIEW_ORDER_LABELS.get(key)
-    return list(vals) if vals else None
+    sec = _merged_section("view-order-settings")
+    labels = sec.get("labels")
+    if not isinstance(labels, dict):
+        return None
+    key = (section or "").strip() or "default"
+    xs = labels.get(key)
+    if isinstance(xs, list):
+        out = [str(x).strip() for x in xs if str(x).strip()]
+        return out or None
+    return None
 
 
-def _load_ini_settings_once() -> None:
-    """
-    Read settings from plotsrv.ini once.
-
-    Sections:
-
-    [view-order-settings]
-      sections = polars, pandas, plotnine
-      # OR multiline:
-      # sections =
-      #   polars
-      #   pandas
-      #   plotnine
-      #
-      # label ordering per section:
-      # labels.polars = MEM-USED, CPU%
-      # labels.pandas =
-      #   A
-      #   B
-
-    [table-settings]
-      table_view_mode = rich
-      max_table_rows_simple = 200
-      max_table_rows_rich = 1000
-      # use "inf" to effectively disable limits:
-      # max_table_rows_rich = inf
-
-    [render-settings]
-      plot_dpi = 200
-      plot_default_figsize_in = 12,6   # or blank to disable
-      plot_bbox_tight = true
-      plot_pad_inches = 0.10
-    """
-    global _LOADED_RENDER_SETTINGS
-    global TABLE_VIEW_MODE, MAX_TABLE_ROWS_SIMPLE, MAX_TABLE_ROWS_RICH
-    global PLOT_DPI, PLOT_DEFAULT_FIGSIZE_IN, PLOT_BBOX_TIGHT, PLOT_PAD_INCHES
-    global VIEW_ORDER_SECTIONS, VIEW_ORDER_LABELS
-
-    if _LOADED_RENDER_SETTINGS:
-        return
-
-    _LOADED_RENDER_SETTINGS = True
-    ini_path = _resolve_ini_path()
-    if ini_path is None:
-        return
-
-    cfg = configparser.ConfigParser()
-    cfg.read(ini_path)
-
-    # view-order-settings
-    osec = "view-order-settings"
-    if cfg.has_section(osec):
-        # sections = ...
-        try:
-            raw = cfg.get(osec, "sections", fallback="").strip()
-            sections = _parse_listish(raw)
-            VIEW_ORDER_SECTIONS = sections or None
-        except Exception:
-            pass
-
-        # labels.<section> = ...
-        # e.g. labels.polars = MEM-USED, CPU%
-        try:
-            for key, val in cfg.items(osec):
-                k = key.strip()
-                if not k.startswith("labels."):
-                    continue
-                sec = k[len("labels.") :].strip()
-                if not sec:
-                    continue
-                labels = _parse_listish(val)
-                if labels:
-                    VIEW_ORDER_LABELS[sec] = labels
-        except Exception:
-            pass
-
-    # table-settings
-    tsec = "table-settings"
-    if cfg.has_section(tsec):
-        # table_view_mode
-        try:
-            raw_mode = cfg.get(tsec, "table_view_mode", fallback=str(TABLE_VIEW_MODE))
-            TABLE_VIEW_MODE = _parse_table_view_mode(raw_mode, TABLE_VIEW_MODE)
-        except Exception:
-            pass
-
-        # max_table_rows_simple / rich (supports inf)
-        try:
-            raw = cfg.get(
-                tsec, "max_table_rows_simple", fallback=str(MAX_TABLE_ROWS_SIMPLE)
-            )
-            MAX_TABLE_ROWS_SIMPLE = _parse_int_or_inf(
-                raw, default=MAX_TABLE_ROWS_SIMPLE, min_value=1
-            )
-        except Exception:
-            pass
-
-        try:
-            raw = cfg.get(
-                tsec, "max_table_rows_rich", fallback=str(MAX_TABLE_ROWS_RICH)
-            )
-            MAX_TABLE_ROWS_RICH = _parse_int_or_inf(
-                raw, default=MAX_TABLE_ROWS_RICH, min_value=1
-            )
-        except Exception:
-            pass
-
-    # render-settings
-    rsec = "render-settings"
-    if not cfg.has_section(rsec):
-        return
-
-    # plot_dpi
-    try:
-        dpi = cfg.getint(rsec, "plot_dpi", fallback=PLOT_DPI)
-        if dpi >= 50:
-            PLOT_DPI = dpi
-    except Exception:
-        pass
-
-    # plot_default_figsize_in
-    raw_size = _strip_quotes(
-        cfg.get(rsec, "plot_default_figsize_in", fallback="")
-    ).strip()
-    if raw_size:
-        try:
-            parts = [p.strip() for p in raw_size.replace("x", ",").split(",")]
-            w = float(parts[0])
-            h = float(parts[1])
-            if w > 0 and h > 0:
-                PLOT_DEFAULT_FIGSIZE_IN = (w, h)
-        except Exception:
-            pass
-    else:
-        PLOT_DEFAULT_FIGSIZE_IN = None
-
-    # plot_bbox_tight
-    try:
-        PLOT_BBOX_TIGHT = cfg.getboolean(
-            rsec, "plot_bbox_tight", fallback=PLOT_BBOX_TIGHT
-        )
-    except Exception:
-        pass
-
-    # plot_pad_inches
-    try:
-        pad = float(
-            _strip_quotes(
-                cfg.get(rsec, "plot_pad_inches", fallback=str(PLOT_PAD_INCHES))
-            )
-        )
-        if pad >= 0:
-            PLOT_PAD_INCHES = pad
-    except Exception:
-        pass
+# ---- Table settings -----------------------------------------------------------
 
 
-# Public getters for render settings (ensure ini loaded)
+def get_table_view_mode() -> TableViewMode:
+    if _RUNTIME_TABLE_VIEW_MODE is not None:
+        return _RUNTIME_TABLE_VIEW_MODE
 
-
-def get_plot_dpi() -> int:
-    _load_ini_settings_once()
-    return int(PLOT_DPI)
-
-
-def get_plot_default_figsize_in() -> tuple[float, float] | None:
-    _load_ini_settings_once()
-    return PLOT_DEFAULT_FIGSIZE_IN
-
-
-def get_plot_bbox_tight() -> bool:
-    _load_ini_settings_once()
-    return bool(PLOT_BBOX_TIGHT)
-
-
-def get_plot_pad_inches() -> float:
-    _load_ini_settings_once()
-    return float(PLOT_PAD_INCHES)
+    sec = _merged_section("table-settings")
+    raw = str(sec.get("table_view_mode") or "rich").strip().lower()
+    return "simple" if raw == "simple" else "rich"
 
 
 def get_max_table_rows_simple() -> int:
-    _load_ini_settings_once()
-    return int(MAX_TABLE_ROWS_SIMPLE)
+    sec = _merged_section("table-settings")
+    return _as_int_or_inf(sec.get("max_table_rows_simple"), 200, min_value=1)
 
 
 def get_max_table_rows_rich() -> int:
-    _load_ini_settings_once()
-    return int(MAX_TABLE_ROWS_RICH)
+    sec = _merged_section("table-settings")
+    return _as_int_or_inf(sec.get("max_table_rows_rich"), 1000, min_value=1)
+
+
+# ---- Render settings ----------------------------------------------------------
+
+
+def get_plot_dpi() -> int:
+    sec = _merged_section("render-settings")
+    dpi = _as_int_or_inf(sec.get("plot_dpi"), 200, min_value=50)
+    return int(dpi)
+
+
+def get_plot_default_figsize_in() -> tuple[float, float] | None:
+    sec = _merged_section("render-settings")
+    val = sec.get("plot_default_figsize_in", (12.0, 6.0))
+    return _parse_figsize(val)
+
+
+def get_plot_bbox_tight() -> bool:
+    sec = _merged_section("render-settings")
+    return _as_bool(sec.get("plot_bbox_tight"), True)
+
+
+def get_plot_pad_inches() -> float:
+    sec = _merged_section("render-settings")
+    return _as_float(sec.get("plot_pad_inches"), 0.10, min_value=0.0)
+
+
+# ---- Truncation ---------------------------------------------------------------
+# Note: JSON is explicitly "do nothing".
+# We only use this for text/html/markdown for now.
+
+
+def get_truncation_max_chars(kind: Literal["text", "html", "markdown"]) -> int | None:
+    """
+    Returns:
+      - int => truncate to this max chars
+      - None => truncation disabled for this kind
+    """
+    override = settings.get_truncate_override()
+
+    if not settings.is_truncate_override_unset(override):
+        if settings.is_truncate_override_off(override):
+            return None
+        return int(max(1, int(override)))
+
+    sec = _merged_section("truncation")
+    val = sec.get(kind)
+
+    if val is None:
+        return None
+
+    if isinstance(val, str) and val.strip().lower() in (
+        "off",
+        "none",
+        "false",
+        "0",
+        "",
+    ):
+        return None
+
+    default_val = _DEFAULTS["truncation"].get(kind)
+    if default_val is None:
+        return None
+
+    return _as_int_or_inf(val, int(default_val), min_value=1)

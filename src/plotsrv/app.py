@@ -18,22 +18,35 @@ from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
 
-
 app = FastAPI()
-
-# Load UI settings once at startup
-UI = get_ui_settings()
 register_default_renderers()
-
 
 # Static files shipped inside plotsrv package (logo, etc.)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Optional user assets mount for custom logos etc.
-if UI.assets_dir is not None and UI.assets_dir.exists():
-    app.mount("/assets", StaticFiles(directory=str(UI.assets_dir)), name="assets")
+
+def _ensure_assets_mount() -> None:
+    """
+    Mount /assets based on current runtime UI settings.
+
+    Lazy- so CLI args (--config/--name) are already
+    applied before we resolve paths.
+    """
+    ui = get_ui_settings()
+    assets_dir = ui.assets_dir
+    if assets_dir is None or not assets_dir.exists():
+        return
+
+    existing = app.router.routes
+    for route in existing:
+        if getattr(route, "path", None) == "/assets":
+            current_dir = getattr(getattr(route, "app", None), "directory", None)
+            if current_dir == str(assets_dir):
+                return
+
+    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
 
 @app.get("/status")
@@ -320,13 +333,16 @@ def index(view: str | None = None) -> HTMLResponse:
         except LookupError:
             table_html_simple = None
 
+    ui = get_ui_settings()
+    _ensure_assets_mount()
+
     html_str = html_mod.render_index(
         kind=kind,
         table_view_mode=config.get_table_view_mode(),
         table_html_simple=table_html_simple,
         max_table_rows_simple=config.get_max_table_rows_simple(),
         max_table_rows_rich=config.get_max_table_rows_rich(),
-        ui_settings=UI,
+        ui_settings=ui,
         views=store.list_views(),
         active_view_id=active_view,
     )
