@@ -3,24 +3,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import plotsrv.settings as settings
 import plotsrv.ui_config as ui_config
 
 
 def _reset_ui_cache() -> None:
     ui_config._UI_SETTINGS = None  # type: ignore[attr-defined]
+    ui_config._UI_CACHE_KEY = None  # type: ignore[attr-defined]
+    settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
+    settings._CONFIG_CACHE.clear()  # type: ignore[attr-defined]
 
 
-def test_load_ui_settings_defaults_when_no_ini(monkeypatch, tmp_path: Path) -> None:
-    """
-    Ensure we do NOT accidentally read ./plotsrv.ini from the repo root.
-    """
+def test_load_ui_settings_defaults_when_no_config(monkeypatch, tmp_path: Path) -> None:
     _reset_ui_cache()
-
-    # Run in empty temp dir so ./plotsrv.ini resolution can't find a real one
     monkeypatch.chdir(tmp_path)
-
-    # And ensure env var not set
-    monkeypatch.delenv("PLOTSRV_INI", raising=False)
+    monkeypatch.delenv("PLOTSRV_CONFIG", raising=False)
+    monkeypatch.delenv("PLOTSRV_NAME", raising=False)
 
     ui = ui_config.load_ui_settings()
 
@@ -32,30 +30,25 @@ def test_load_ui_settings_defaults_when_no_ini(monkeypatch, tmp_path: Path) -> N
     assert ui.show_view_selector is True
 
 
-def test_load_ui_settings_reads_page_title_and_favicon_from_ini(monkeypatch, tmp_path: Path) -> None:
-    """
-    G2: Confirm ini keys work.
-    NOTE: your parser uses key 'favicon' (not favicon_url).
-    """
+def test_load_ui_settings_reads_page_title_and_favicon_from_yaml(
+    tmp_path: Path,
+) -> None:
     _reset_ui_cache()
-    monkeypatch.chdir(tmp_path)
 
-    ini = tmp_path / "plotsrv.ini"
-    ini.write_text(
-        "\n".join(
-            [
-                "[ui-settings]",
-                'page_title = "My INI Title"',
-                'favicon = "/assets/my.ico"',
-                "",
-            ]
-        ),
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+ui-settings:
+  default:
+    page_title: "My YAML Title"
+    favicon: "/assets/my.ico"
+""".strip(),
         encoding="utf-8",
     )
 
-    monkeypatch.setenv("PLOTSRV_INI", str(ini))
+    settings.set_runtime_context(config_path=yml)
 
     ui = ui_config.load_ui_settings()
 
-    assert ui.page_title == "My INI Title"
+    assert ui.page_title == "My YAML Title"
     assert ui.favicon_url == "/assets/my.ico"

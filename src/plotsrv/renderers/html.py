@@ -4,6 +4,8 @@ from __future__ import annotations
 from typing import Any
 import re
 
+from .. import config
+from ..artifacts import Truncation
 from .base import RenderResult, Renderer
 from .limits import DEFAULT_TEXT_LIMITS, truncate_text
 
@@ -132,7 +134,16 @@ class HtmlRenderer(Renderer):
         else:
             raw_html = str(obj)
 
-        raw_html2, truncation = truncate_text(raw_html, limits=DEFAULT_TEXT_LIMITS)
+        max_chars = config.get_truncation_max_chars("html")
+        if max_chars is None:
+            raw_html2 = raw_html
+            truncation = Truncation(truncated=False)
+        else:
+            from .limits import TextLimits
+
+            raw_html2, truncation = truncate_text(
+                raw_html, limits=TextLimits(max_chars=max_chars)
+            )
 
         if unsafe:
             # Unsafe mode: do not sanitize; isolate in sandboxed iframe.

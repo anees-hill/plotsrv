@@ -12,7 +12,13 @@ wheels/
 # Other
 .coverage
 coverage.xml
+.vscode/settings.json
 
 # For testing only
 www/*
+plotsrv.yaml
+plotsrv.yml
 plotsrv.ini
+
+
+

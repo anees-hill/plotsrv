@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import urllib.request
 import json
 import os
 import subprocess
@@ -13,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from . import config, store
+from . import config, store, settings
 from .discovery import DiscoveredView, discover_views
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
 from .publisher import publish_artifact
@@ -123,6 +124,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--quiet", action="store_true", help="Reduce uvicorn logging noise"
+    )
+    run_p.add_argument(
+        "--name",
+        default=None,
+        help="Optional instance name used to select per-instance settings from plotsrv.yml",
+    )
+    run_p.add_argument(
+        "--config",
+        default=None,
+        help="Path to plotsrv.yml (or plotsrv.yaml). If omitted, uses ./plotsrv.yml or env PLOTSRV_CONFIG.",
+    )
+    run_p.add_argument(
+        "--truncate",
+        default=None,
+        help="Override truncation max chars for text/html/markdown. Examples: 50000 or 'off'.",
+    )
+    run_p.add_argument(
+        "--no-truncate",
+        action="store_true",
+        help="Disable truncation for text/html/markdown (overrides config).",
     )
 
     # New mode flag
@@ -335,6 +356,12 @@ def _is_excluded(dv: DiscoveredView, excludes: set[str]) -> bool:
     return (lab in excludes) or (sec in excludes) or (vid in excludes)
 
 
+def _with_text_anchor_header(text: str, anchor: WatchReadMode) -> str:
+    if anchor != "tail":
+        return text
+    return "\ufeffPLOTSRV_ANCHOR=tail\n" + text
+
+
 def _resolve_target_to_path_if_importable(target: str) -> str | None:
     """
     If target is importable as a module/package (and not module:function),
@@ -390,6 +417,23 @@ def _find_project_root(start: Path) -> Path | None:
             break
         cur = parent
     return None
+
+
+def _wait_for_server(host: str, port: int, *, timeout_s: float = 5.0) -> bool:
+    """
+    Wait until the plotsrv server is accepting HTTP connections.
+    Returns True if ready, else False.
+    """
+    deadline = time.time() + float(timeout_s)
+    url = f"http://{host}:{port}/status"
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=0.2) as resp:
+                if resp.status == 200:
+                    return True
+        except Exception:
+            time.sleep(0.1)
+    return False
 
 
 def _default_run_target() -> str:
@@ -549,7 +593,10 @@ def _start_watch_threads(
         )
 
         def _worker(
-            pth: Path = p, view_label: str = label, view_section: str = section
+            pth: Path = p,
+            view_label: str = label,
+            view_section: str = section,
+            watch_read_mode: WatchReadMode = read_mode,
         ) -> None:
             last_sig: tuple[int, int] | None = None
             while True:
@@ -565,13 +612,12 @@ def _start_watch_threads(
                 if sig is not None and sig == last_sig:
                     time.sleep(max(0.05, float(every)))
                     continue
-                last_sig = sig
 
                 try:
                     fk2 = infer_file_kind(pth)
-                    if fk2 == "csv" and read_mode == "tail":
+                    if fk2 == "csv" and watch_read_mode == "tail":
                         raw = _read_csv_tail_with_header_bytes(pth, max_bytes=max_bytes)
-                    elif read_mode == "head":
+                    elif watch_read_mode == "head":
                         raw = _read_head_bytes(pth, max_bytes=max_bytes)
                     else:
                         raw = _read_tail_bytes(pth, max_bytes=max_bytes)
@@ -589,10 +635,13 @@ def _start_watch_threads(
                     time.sleep(max(0.05, float(every)))
                     continue
 
+                last_sig = sig
+
                 if kind == "text":
                     txt = raw.decode(encoding, errors="replace")
+                    txt2 = _with_text_anchor_header(txt, watch_read_mode)
                     publish_artifact(
-                        txt,
+                        txt2,
                         host=host,
                         port=port,
                         label=view_label,
@@ -655,13 +704,21 @@ def _start_watch_threads(
                             force=force,
                         )
                     else:
+                        obj_to_publish = coerced.obj
+                        ak = coerced.artifact_kind or "text"
+
+                        if ak == "text":
+                            obj_to_publish = _with_text_anchor_header(
+                                str(coerced.obj), watch_read_mode
+                            )
+
                         publish_artifact(
-                            coerced.obj,
+                            obj_to_publish,
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
-                            artifact_kind=coerced.artifact_kind or "text",
+                            artifact_kind=ak,
                             update_limit_s=update_limit_s,
                             force=force,
                         )
@@ -763,6 +820,24 @@ def _run_subprocess_as_main(target: str) -> subprocess.Popen[bytes]:
     # Otherwise treat as module/package
     cmd = [sys.executable, "-m", target]
     return subprocess.Popen(cmd)
+
+
+def _parse_truncate_arg(raw: str | None, *, no_truncate: bool) -> object:
+    if no_truncate:
+        return settings._TRUNCATE_OFF
+
+    if raw is None:
+        return settings._UNSET
+
+    s = str(raw).strip().lower()
+    if s in ("off", "none", "false", "0"):
+        return settings._TRUNCATE_OFF
+
+    try:
+        n = int(float(s))
+        return max(1, n)
+    except Exception:
+        return settings._UNSET
 
 
 def _run_subprocess_call_importpath(
@@ -951,6 +1026,8 @@ def _run_passive_server_forever(
 
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
+    _wait_for_server(host, port, timeout_s=5.0)
+
     if watch_specs:
         _start_watch_threads(
             watch_specs,
@@ -1050,8 +1127,9 @@ def _run_watch_mode(
 
             if kind == "text":
                 txt = raw.decode(encoding, errors="replace")
+                txt2 = _with_text_anchor_header(txt, mode)
                 publish_artifact(
-                    txt,
+                    txt2,
                     host=host,
                     port=port,
                     label=view_label,
@@ -1113,16 +1191,25 @@ def _run_watch_mode(
                         force=force,
                     )
                 else:
+                    obj_to_publish = coerced.obj
+                    ak = coerced.artifact_kind or "text"
+
+                    if ak == "text":
+                        obj_to_publish = _with_text_anchor_header(
+                            str(coerced.obj), mode
+                        )
+
                     publish_artifact(
-                        coerced.obj,
+                        obj_to_publish,
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
-                        artifact_kind=coerced.artifact_kind or "text",
+                        artifact_kind=ak,
                         update_limit_s=update_limit_s,
                         force=force,
                     )
+
             except Exception as e:
                 txt = raw.decode(encoding, errors="replace")
                 publish_artifact(
@@ -1146,6 +1233,22 @@ def _run_watch_mode(
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    truncate_override = _parse_truncate_arg(
+        getattr(args, "truncate", None),
+        no_truncate=bool(getattr(args, "no_truncate", False)),
+    )
+
+    from . import settings as _settings
+
+    if getattr(args, "config", None):
+        _settings.set_runtime_context(config_path=str(args.config))
+
+    if getattr(args, "name", None):
+        _settings.set_runtime_context(name=str(args.name))
+
+    if truncate_override is not settings._UNSET:
+        _settings.set_runtime_context(truncate_override=truncate_override)
 
     if args.cmd == "watch":
         read_mode = "head" if args.head else ("tail" if args.tail else None)
@@ -1225,6 +1328,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Start server first
     start_server(host=args.host, port=args.port, auto_on_show=False, quiet=args.quiet)
+
+    _wait_for_server(args.host, args.port, timeout_s=5.0)
 
     # Watches
     if watch_specs:

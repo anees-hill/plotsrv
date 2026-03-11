@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 from typing import Any
-
+from .. import config
+from ..artifacts import Truncation
+from .limits import TextLimits
 from .base import RenderResult, Renderer
 from .limits import DEFAULT_TEXT_LIMITS, truncate_text
 
@@ -121,8 +123,14 @@ class MarkdownRenderer(Renderer):
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         text, unsafe_html = _coerce_markdown_obj(obj)
 
-        # optional truncation (keep UI responsive)
-        text2, truncation = truncate_text(text, limits=DEFAULT_TEXT_LIMITS)
+        max_chars = config.get_truncation_max_chars("markdown")
+        if max_chars is None:
+            text2 = text
+            truncation = Truncation(truncated=False)
+        else:
+            text2, truncation = truncate_text(
+                text, limits=TextLimits(max_chars=max_chars)
+            )
 
         # Render markdown -> HTML body
         try:

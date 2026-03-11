@@ -895,8 +895,8 @@ wheels = [
 
 [[package]]
 name = "plotsrv"
-version = "0.0.1"
-source = { virtual = "." }
+version = "0.0.4"
+source = { editable = "." }
 dependencies = [
     { name = "bleach" },
     { name = "fastapi" },
@@ -908,7 +908,7 @@ dependencies = [
     { name = "uvicorn" },
 ]
 
-[package.dev-dependencies]
+[package.optional-dependencies]
 dev = [
     { name = "httpx" },
     { name = "polars-lts-cpu" },
@@ -923,24 +923,21 @@ dev = [
 requires-dist = [
     { name = "bleach", specifier = ">=6.3.0" },
     { name = "fastapi", specifier = ">=0.121.3" },
+    { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.28.1" },
     { name = "markdown", specifier = ">=3.10.2" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "plotnine", specifier = ">=0.15.1" },
+    { name = "polars-lts-cpu", marker = "extra == 'dev'", specifier = ">=1.33.1" },
+    { name = "psutil", marker = "extra == 'dev'", specifier = ">=7.2.2" },
+    { name = "pyarrow", marker = "extra == 'dev'", specifier = ">=20.0.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.1" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.32.5" },
+    { name = "seaborn", marker = "extra == 'dev'", specifier = ">=0.13.2" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
-    { name = "polars-lts-cpu", specifier = ">=1.33.1" },
-    { name = "psutil", specifier = ">=7.2.2" },
-    { name = "pyarrow", specifier = ">=20.0.0" },
-    { name = "pytest", specifier = ">=9.0.1" },
-    { name = "pytest-cov", specifier = ">=7.0.0" },
-    { name = "seaborn", specifier = ">=0.13.2" },
-]
+provides-extras = ["dev"]
 
 [[package]]
 name = "pluggy"
