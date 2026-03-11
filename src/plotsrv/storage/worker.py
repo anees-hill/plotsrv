@@ -24,12 +24,6 @@ class StorageTask:
 class StorageWorker:
     """
     Lightweight background worker for optional disk snapshot persistence.
-
-    Design goals for 0.0.5:
-    - best effort
-    - never block live publish path
-    - tolerate storage errors silently by default
-    - single worker thread is sufficient
     """
 
     def __init__(self, *, max_queue_size: int = 1000) -> None:
@@ -122,7 +116,7 @@ class StorageWorker:
             try:
                 self._process_task(item)
             except Exception:
-                # Best-effort persistence only in 0.0.5 foundation.
+                # Best-effort persistence only in this 0.0.5 version for now.
                 pass
             finally:
                 self._queue.task_done()
