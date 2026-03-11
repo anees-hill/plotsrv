@@ -1,6 +1,6 @@
 [project]
 name = "plotsrv"
-version = "0.0.4"
+version = "0.0.4.1"
 description = "Lightweight monitoring of Python processes, built on FastAPI"
 readme = "README.md"
 requires-python = ">=3.11"
