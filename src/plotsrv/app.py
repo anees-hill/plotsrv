@@ -17,6 +17,7 @@ from .backends import df_to_rich_sample
 from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
+from .storage.worker import enqueue_snapshot
 
 app = FastAPI()
 register_default_renderers()
@@ -151,10 +152,10 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         "kind": "plot"|"table",
         "plot_png_b64": "...",       # if plot
         "table": {                   # if table
-            "columns": [...],
-            "rows": [...],
-            "total_rows": 123,
-            "returned_rows": 100
+          "columns": [...],
+          "rows": [...],
+          "total_rows": 123,
+          "returned_rows": 100
         },
         "table_html_simple": "<table>...</table>",  # optional
         "update_limit_s": 600,        # optional throttling
@@ -217,38 +218,41 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
             )
 
         store.set_plot(png_bytes, view_id=view_id)
-        # store.register_view(
-        #     view_id=view_id,
-        #     section=section,
-        #     label=label,
-        #     kind="plot",
-        #     activate_if_first=False,
-        # )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
+
+        enqueue_snapshot(
+            view_id=view_id,
+            kind="plot",
+            obj=png_bytes,
+            section=section if isinstance(section, str) else None,
+            label=label if isinstance(label, str) else None,
+        )
+
         return {"ok": True, "ignored": False, "view_id": view_id}
 
     elif kind == "artifact":
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
         artifact_obj = payload.get("artifact")
 
-        # store artifact for /artifact rendering
         store.set_artifact(
             obj=artifact_obj,
-            kind=artifact_kind,  # type: ignore[arg-type]  # (or cast to ArtifactKind)
+            kind=artifact_kind,  # type: ignore[arg-type]
             label=label,
             section=section,
             view_id=view_id,
         )
-        # store.register_view(
-        #     view_id=view_id,
-        #     section=section,
-        #     label=label,
-        #     kind="artifact",
-        #     activate_if_first=False,
-        # )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
+
+        enqueue_snapshot(
+            view_id=view_id,
+            kind=artifact_kind,
+            obj=artifact_obj,
+            section=section if isinstance(section, str) else None,
+            label=label if isinstance(label, str) else None,
+        )
+
         return {"ok": True, "ignored": False, "view_id": view_id}
 
     elif kind == "table":
@@ -289,16 +293,21 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
             total_rows=total_rows,
             returned_rows=returned_rows,
         )
-
-        # store.register_view(
-        #     view_id=view_id,
-        #     section=section,
-        #     label=label,
-        #     kind="table",
-        #     activate_if_first=False,
-        # )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
+
+        enqueue_snapshot(
+            view_id=view_id,
+            kind="table",
+            obj=df,
+            section=section if isinstance(section, str) else None,
+            label=label if isinstance(label, str) else None,
+            extra={
+                "total_rows": total_rows,
+                "returned_rows": returned_rows,
+            },
+        )
+
         return {"ok": True, "ignored": False, "view_id": view_id}
 
 
