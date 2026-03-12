@@ -29,11 +29,8 @@ def render_index(
     views = views or []
     active_view_id = active_view_id or "default"
 
-    # Page chrome (safe defaults for older UISettings)
     page_title = getattr(ui, "page_title", None) or "plotsrv - live view"
     favicon_url = getattr(ui, "favicon_url", None) or "/static/plotsrv_favicon.png"
-
-    # --- Head deps -------------------------------------------------------------
 
     tabulator_head = ""
     include_tabulator = kind in ("table", "artifact") and table_view_mode != "simple"
@@ -48,7 +45,6 @@ def render_index(
 ></script>
         """
 
-    # --- Shared statusline HTML ------------------------------------------------
     statusline_html = ""
     if ui.show_statusline:
         statusline_html = """
@@ -70,7 +66,6 @@ def render_index(
         </div>
         """
 
-    # --- Controls blocks -------------------------------------------------------
     def _terminate_button_html() -> str:
         if not ui.terminate_process_option:
             return ""
@@ -79,9 +74,6 @@ def render_index(
         """
 
     def _auto_refresh_controls_html() -> str:
-        """
-        Auto-refresh controls (used for plot/table/artifact).
-        """
         if not ui.auto_refresh_option:
             return ""
         return """
@@ -102,19 +94,36 @@ def render_index(
             </label>
         """
 
-    # --- View dropdown (custom, with icons) -----------------------------------
+    def _history_controls_html() -> str:
+        return """
+          <label class="interval ps-history">
+            <span>History</span>
+            <select id="history-select" class="ps-select">
+              <option value="">Loading…</option>
+            </select>
+          </label>
 
-    LOGO_BY_KEY = {
-        "plot": "/static/logo_plot.png",
-        "table": "/static/logo_table.png",
-        "image": "/static/logo_image.png",
-        "markdown": "/static/logo_markdown.png",
-        "json": "/static/logo_json.png",
-        "python": "/static/logo_python.png",
-        "exception": "/static/logo_exception.png",
-        "txt": "/static/logo_txt.png",
-        "html": "/static/logo_html.png",
-    }
+          <button
+            type="button"
+            id="history-live-btn"
+            class="ps-btn"
+            onclick="returnToLive()"
+            disabled>
+            Back to live
+          </button>
+        """
+
+    history_banner_html = """
+    <div id="history-banner" class="ps-history-banner" hidden>
+      <div class="ps-history-banner__main">
+        <span class="badge">HISTORICAL</span>
+        <span id="history-banner-text" class="ps-history-banner__text">
+          Viewing a stored snapshot.
+        </span>
+      </div>
+      <button type="button" class="ps-btn" onclick="returnToLive()">Back to live</button>
+    </div>
+    """
 
     LOGO_BY_KEY = {
         "unknown": "/static/logo_unknown.png",
@@ -138,8 +147,6 @@ def render_index(
 
     dropdown_html = ""
     if getattr(ui, "show_view_selector", True) and len(views) > 0:
-        # group by section, preserving the incoming ordering of `views`.
-        # (store.list_views() applies the configured order from plotsrv.ini)
         groups: dict[str, list[ViewMeta]] = {}
         sections: list[str] = []
         for v in views:
@@ -149,7 +156,6 @@ def render_index(
                 sections.append(sec)
             groups[sec].append(v)
 
-        # find active view meta (for button display)
         active_meta = None
         for v in views:
             if v.view_id == active_view_id:
@@ -158,7 +164,6 @@ def render_index(
         active_label = active_meta.label if active_meta else active_view_id
         active_icon = _icon_url(active_meta) if active_meta else LOGO_BY_KEY["txt"]
 
-        # build menu
         menu_parts: list[str] = []
         for sec in sections:
             menu_parts.append('<div class="ps-viewselect__group">')
@@ -197,8 +202,6 @@ def render_index(
           </div>
         """
 
-    # --- Main content ----------------------------------------------------------
-
     if kind == "table":
         table_controls = """
           <button type="button" class="ps-btn" onclick="window.location.reload()">Refresh</button>
@@ -209,11 +212,14 @@ def render_index(
           <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
             """
 
+        table_controls += _history_controls_html()
         table_controls += _auto_refresh_controls_html()
         table_controls += _terminate_button_html()
 
         if table_view_mode == "simple" and table_html_simple is not None:
             main_content = f"""
+              {history_banner_html}
+
               <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
                 <div class="table-scroll ps-table-scroll ps-table--simple">
                   {table_html_simple}
@@ -232,6 +238,8 @@ def render_index(
             """
         else:
             main_content = f"""
+              {history_banner_html}
+
               <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
                 <div id="table-grid" class="table-grid ps-tablegrid ps-table--rich"></div>
               </div>
@@ -257,6 +265,7 @@ def render_index(
             <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
             """
 
+        plot_controls += _history_controls_html()
         plot_controls += _auto_refresh_controls_html()
         plot_controls += _terminate_button_html()
 
@@ -270,6 +279,8 @@ def render_index(
             """
 
         main_content = f"""
+          {history_banner_html}
+
           <div class="plot-frame ps-frame ps-frame--plot plot-frame--plot">
             <img id="plot" class="ps-plot" src="/plot?view={active_view_id}" alt="Current plot (or none yet)" />
           </div>
@@ -298,10 +309,13 @@ def render_index(
             <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
             """
 
+        artifact_controls += _history_controls_html()
         artifact_controls += _auto_refresh_controls_html()
         artifact_controls += _terminate_button_html()
 
         main_content = """
+          {history_banner_html}
+
           <div class="plot-frame ps-frame ps-frame--artifact plot-frame--artifact">
             <div class="ps-artifact" style="width:100%;">
               <div id="artifact-topline" class="ps-artifact__meta" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
@@ -320,13 +334,20 @@ def render_index(
 
           <div class="note ps-note" id="status"></div>
         """.format(
+            history_banner_html=history_banner_html,
             artifact_controls=artifact_controls,
             statusline_html=statusline_html,
         )
 
     else:
-        controls = _auto_refresh_controls_html() + _terminate_button_html()
+        controls = (
+            _history_controls_html()
+            + _auto_refresh_controls_html()
+            + _terminate_button_html()
+        )
         main_content = f"""
+          {history_banner_html}
+
           <div class="plot-frame empty ps-frame ps-frame--empty plot-frame--empty">
             <div class="empty-state ps-empty">
               No plot or table has been published yet.<br />
@@ -342,8 +363,6 @@ def render_index(
 
           <div class="note ps-note" id="status"></div>
         """
-
-    # --- Full page -------------------------------------------------------------
 
     header_fill = ui.header_fill_colour or "#ffffff"
     header_text = ui.header_text or "live viewer"
