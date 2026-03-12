@@ -135,6 +135,7 @@ def status(view: str | None = None) -> dict[str, object]:
     s = store.get_status(view_id=vid)
     s.update(store.get_service_info())
     s["view_id"] = vid
+    s["freshness"] = store.get_freshness(view_id=vid)
     return s
 
 

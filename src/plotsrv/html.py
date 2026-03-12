@@ -44,7 +44,6 @@ def render_index(
 "https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"
 ></script>
         """
-
     statusline_html = ""
     if ui.show_statusline:
         statusline_html = """
@@ -58,6 +57,8 @@ def render_index(
           <span class="ps-statusline__item"><strong>Mode:</strong> <span id="status-mode">—</span></span>
           &nbsp;|&nbsp;
           <span class="ps-statusline__item"><strong>Server refresh:</strong> <span id="status-srv-refresh">—</span></span>
+          &nbsp;|&nbsp;
+          <span class="ps-statusline__item"><strong>Freshness:</strong> <span id="status-freshness">—</span></span>
           <span id="status-error-wrap" class="ps-statusline__error" style="display:none;">
             &nbsp;|&nbsp;
             <strong style="color:#792424;">Error:</strong>
@@ -102,15 +103,6 @@ def render_index(
               <option value="">Loading…</option>
             </select>
           </label>
-
-          <button
-            type="button"
-            id="history-live-btn"
-            class="ps-btn"
-            onclick="returnToLive()"
-            disabled>
-            Back to live
-          </button>
         """
 
     history_banner_html = """

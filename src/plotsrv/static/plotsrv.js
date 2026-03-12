@@ -89,14 +89,12 @@
 
   function _syncHistoryControls() {
     const sel = document.getElementById("history-select");
-    const btn = document.getElementById("history-live-btn");
 
     if (sel) {
       const value = _currentSnapshot || "";
       if (sel.value !== value) sel.value = value;
     }
 
-    if (btn) btn.disabled = !_isHistoryMode();
     _setHistoryBanner();
     _syncAutoRefreshAvailability();
   }
@@ -291,6 +289,7 @@
       const err = document.getElementById("status-error");
       const mode = document.getElementById("status-mode");
       const srvRate = document.getElementById("status-srv-refresh");
+      const freshness = document.getElementById("status-freshness");
 
       if (updated) updated.textContent = _fmtLocalTime(s.last_updated);
       if (updatedAgo) updatedAgo.textContent = _fmtAgo(s.last_updated);
@@ -322,6 +321,19 @@
           srvRate.textContent = "once";
         } else {
           srvRate.textContent = "—";
+        }
+      }
+
+      if (freshness) {
+        const f = s.freshness || null;
+
+        if (!f || f.enabled === false) {
+          freshness.textContent = "—";
+        } else {
+          const emoji = f.emoji || "";
+          const label = f.label || "Unknown";
+          const age = (typeof f.age_s === "number") ? ` (${f.age_s}s old)` : "";
+          freshness.textContent = `${emoji} ${label}${age}`.trim();
         }
       }
 

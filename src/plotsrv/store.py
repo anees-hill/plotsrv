@@ -419,6 +419,99 @@ def get_status(*, view_id: str | None = None) -> dict[str, Any]:
     return dict(st.status)
 
 
+def _parse_iso_utc(s: str | None) -> datetime | None:
+    if not s or not isinstance(s, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
+    """
+    Compute freshness state for a view from its last_updated timestamp and config.
+
+    States:
+      - "disabled"
+      - "unknown"
+      - "ok"
+      - "warn"
+      - "error"
+    """
+    vid = view_id or _ACTIVE_VIEW_ID
+
+    enabled = config.get_freshness_enabled()
+    expected_every_s = config.get_freshness_expected_every_s(vid)
+    warn_after_s = config.get_freshness_warn_after_s(vid)
+    error_after_s = config.get_freshness_error_after_s(vid)
+
+    if not enabled:
+        return {
+            "enabled": False,
+            "state": "disabled",
+            "emoji": "",
+            "label": "",
+            "age_s": None,
+            "expected_every_s": expected_every_s,
+            "warn_after_s": warn_after_s,
+            "error_after_s": error_after_s,
+        }
+
+    # sensible fallback ladder
+    if warn_after_s is None and expected_every_s is not None:
+        warn_after_s = expected_every_s
+    if error_after_s is None and warn_after_s is not None:
+        error_after_s = warn_after_s * 2
+
+    st = get_view_state(vid)
+    last_updated_raw = st.status.get("last_updated")
+    last_updated_dt = _parse_iso_utc(last_updated_raw)
+
+    if last_updated_dt is None:
+        return {
+            "enabled": True,
+            "state": "unknown",
+            "emoji": "⚪",
+            "label": "No data yet",
+            "age_s": None,
+            "expected_every_s": expected_every_s,
+            "warn_after_s": warn_after_s,
+            "error_after_s": error_after_s,
+        }
+
+    now = datetime.now(timezone.utc)
+    age_s = max(0, int((now - last_updated_dt).total_seconds()))
+
+    state = "ok"
+    emoji = "✅"
+    label = "Fresh"
+
+    if error_after_s is not None and age_s >= error_after_s:
+        state = "error"
+        emoji = "❌"
+        label = "Overdue"
+    elif warn_after_s is not None and age_s >= warn_after_s:
+        state = "warn"
+        emoji = "⚠️"
+        label = "Stale"
+
+    return {
+        "enabled": True,
+        "state": state,
+        "emoji": emoji,
+        "label": label,
+        "age_s": age_s,
+        "expected_every_s": expected_every_s,
+        "warn_after_s": warn_after_s,
+        "error_after_s": error_after_s,
+    }
+
+
 # Publish throttling
 
 
