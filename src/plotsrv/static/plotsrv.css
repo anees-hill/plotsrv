@@ -90,7 +90,7 @@ body {
 .ps-viewselect__icon {
   width: 14px;
   height: 14px;
-  opacity: 0.75; /* grey-ish logos */
+  opacity: 0.75;
   display: block;
 }
 
@@ -279,6 +279,58 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* History */
+.ps-history select,
+.ps-select {
+  padding: 0.22rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  font-size: 0.88rem;
+}
+
+.ps-history-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid #ead4a4;
+  border-radius: 8px;
+  background: #fff8e8;
+}
+
+.ps-history-banner__main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.ps-history-banner__text {
+  font-size: 0.9rem;
+  color: #5e4d22;
+}
+
+.ps-is-history .ps-history-banner {
+  display: flex;
+}
+
+.ps-history-banner[hidden] {
+  display: none !important;
+}
+
+.ps-history option[disabled] {
+  color: #888;
+}
+
+/* Disabled auto-refresh while historical */
+.ps-disabled-control {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
 .artifact-toolbar {
   width: 100%;
   display: flex;
@@ -343,7 +395,6 @@ body {
   display: block;
 }
 
-
 /* Text renderer */
 .plotsrv-pre {
   width: 100%;
@@ -354,7 +405,7 @@ body {
   border: 1px solid #eee;
   border-radius: 6px;
   background: #fff;
-  white-space: pre; /* default: no wrap */
+  white-space: pre;
   font-size: 0.85rem;
   line-height: 1.35;
 }
@@ -399,7 +450,6 @@ body {
   margin-right: 0.25rem;
 }
 
-/* Find highlights */
 .json-hit {
   outline: 2px solid rgba(121, 36, 36, 0.25);
   border-radius: 4px;

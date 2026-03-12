@@ -2,15 +2,12 @@
 (function () {
   "use strict";
 
-  // This object is injected by html.py
   const CFG = window.PLOTSRV_CONFIG || {};
   const ACTIVE_VIEW = CFG.active_view_id || "default";
   const max_table_rows_rich = CFG.max_table_rows_rich || 1000;
 
   const LS_AUTO_ENABLED = "plotsrv:auto_refresh_enabled";
   const LS_AUTO_INTERVAL = "plotsrv:auto_refresh_interval";
-
-  // Phase 1 local storage keys
   const LS_TEXT_WRAP = "plotsrv:text_wrap_enabled";
   const LS_JSON_FIND = "plotsrv:json_find_query";
 
@@ -29,6 +26,147 @@
 
   let _autoRefreshTimer = null;
   let _tabulatorInstance = null;
+  let _historyItems = [];
+  let _currentSnapshot = _readSnapshotFromUrl();
+
+  function _readSnapshotFromUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const val = params.get("snapshot");
+      return val ? String(val) : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function _writeSnapshotToUrl(snapshotId) {
+    try {
+      const url = new URL(window.location.href);
+      if (snapshotId) url.searchParams.set("snapshot", snapshotId);
+      else url.searchParams.delete("snapshot");
+      window.history.replaceState({}, "", url.toString());
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function _snapshotQuery() {
+    return _currentSnapshot
+      ? "&snapshot=" + encodeURIComponent(_currentSnapshot)
+      : "";
+  }
+
+  function _isHistoryMode() {
+    return !!_currentSnapshot;
+  }
+
+  function _currentHistoryMeta() {
+    if (!_currentSnapshot) return null;
+    for (const item of _historyItems) {
+      if (item.snapshot_id === _currentSnapshot) return item;
+    }
+    return null;
+  }
+
+  function _setHistoryBanner() {
+    const banner = document.getElementById("history-banner");
+    const text = document.getElementById("history-banner-text");
+    const body = document.body;
+    if (!banner || !text || !body) return;
+
+    if (!_isHistoryMode()) {
+      banner.hidden = true;
+      body.classList.remove("ps-is-history");
+      return;
+    }
+
+    const meta = _currentHistoryMeta();
+    const when = meta && meta.created_at ? _fmtLocalTime(meta.created_at) : _currentSnapshot;
+    text.textContent = "Viewing stored snapshot from " + when + ". Live updates are paused.";
+    banner.hidden = false;
+    body.classList.add("ps-is-history");
+  }
+
+  function _syncHistoryControls() {
+    const sel = document.getElementById("history-select");
+    const btn = document.getElementById("history-live-btn");
+
+    if (sel) {
+      const value = _currentSnapshot || "";
+      if (sel.value !== value) sel.value = value;
+    }
+
+    if (btn) btn.disabled = !_isHistoryMode();
+    _setHistoryBanner();
+    _syncAutoRefreshAvailability();
+  }
+
+  function _syncAutoRefreshAvailability() {
+    const toggle = document.getElementById("auto-refresh-toggle");
+    const interval = document.getElementById("auto-refresh-interval");
+
+    if (!toggle) return;
+
+    const isHistory = _isHistoryMode();
+
+    toggle.disabled = isHistory;
+    if (interval) interval.disabled = isHistory;
+
+    const toggleWrap = toggle.closest(".toggle");
+    const intervalWrap = interval ? interval.closest(".interval") : null;
+
+    if (toggleWrap) toggleWrap.classList.toggle("ps-disabled-control", isHistory);
+    if (intervalWrap) intervalWrap.classList.toggle("ps-disabled-control", isHistory);
+
+    if (isHistory) {
+      _stopAutoRefresh();
+    } else if (toggle.checked) {
+      _startAutoRefresh();
+    }
+  }
+
+  async function loadHistory() {
+    const sel = document.getElementById("history-select");
+    if (!sel) return;
+
+    try {
+      const res = await fetch("/history?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
+      if (!res.ok) throw new Error("history fetch failed");
+
+      const data = await res.json();
+      const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
+      _historyItems = snapshots;
+
+      const parts = [];
+      parts.push(`<option value="">Live (latest)</option>`);
+
+      if (snapshots.length === 0) {
+        parts.push(`<option value="__none__" disabled>No previous entries</option>`);
+      } else {
+        for (const snap of snapshots) {
+          const ts = snap.created_at ? _fmtLocalTime(snap.created_at) : snap.snapshot_id;
+          const kind = snap.kind ? ` · ${_escapeHtml(snap.kind)}` : "";
+          parts.push(
+            `<option value="${_escapeHtml(snap.snapshot_id)}">${_escapeHtml(ts)}${kind}</option>`
+          );
+        }
+      }
+
+      sel.innerHTML = parts.join("");
+
+      if (_currentSnapshot) {
+        const exists = snapshots.some((x) => x.snapshot_id === _currentSnapshot);
+        if (!exists) _currentSnapshot = null;
+      }
+
+      sel.value = _currentSnapshot || "";
+      _syncHistoryControls();
+    } catch (e) {
+      sel.innerHTML = `<option value="">Live (latest)</option><option value="__err__" disabled>History unavailable</option>`;
+      _historyItems = [];
+      _syncHistoryControls();
+    }
+  }
 
   function _saveAutoRefreshState() {
     const toggle = document.getElementById("auto-refresh-toggle");
@@ -52,6 +190,7 @@
   }
 
   function _startAutoRefresh() {
+    if (_isHistoryMode()) return;
     _stopAutoRefresh();
     const ms = _getAutoRefreshMs();
     _autoRefreshTimer = setInterval(_tickAutoRefresh, ms);
@@ -70,10 +209,14 @@
       const savedEnabled = localStorage.getItem(LS_AUTO_ENABLED);
       if (savedEnabled === "1") {
         toggle.checked = true;
-        _tickAutoRefresh();
-        _startAutoRefresh();
+        if (!_isHistoryMode()) {
+          _tickAutoRefresh();
+          _startAutoRefresh();
+        }
       }
     }
+
+    _syncAutoRefreshAvailability();
   }
 
   function _fmtLocalTime(iso) {
@@ -108,7 +251,6 @@
       const byId = {};
       for (const v of views) byId[v.view_id] = v;
 
-      // menu item icons
       const items = wrap.querySelectorAll("[data-plotsrv-view]");
       items.forEach((btn) => {
         const vid = btn.getAttribute("data-plotsrv-view");
@@ -123,7 +265,6 @@
         }
       });
 
-      // active button icon
       const activeMeta = byId[ACTIVE_VIEW];
       if (activeMeta) {
         const iconKey = activeMeta.icon_key || "unknown";
@@ -148,7 +289,6 @@
       const duration = document.getElementById("status-duration");
       const errWrap = document.getElementById("status-error-wrap");
       const err = document.getElementById("status-error");
-
       const mode = document.getElementById("status-mode");
       const srvRate = document.getElementById("status-srv-refresh");
 
@@ -169,10 +309,14 @@
         }
       }
 
-      if (mode) mode.textContent = s.service_mode ? "service" : "interactive";
+      if (mode) {
+        mode.textContent = _isHistoryMode() ? "historical" : (s.service_mode ? "service" : "interactive");
+      }
 
       if (srvRate) {
-        if (s.service_mode && s.service_refresh_rate_s) {
+        if (_isHistoryMode()) {
+          srvRate.textContent = "paused";
+        } else if (s.service_mode && s.service_refresh_rate_s) {
           srvRate.textContent = "every " + s.service_refresh_rate_s + "s";
         } else if (s.service_mode) {
           srvRate.textContent = "once";
@@ -190,17 +334,18 @@
   function refreshPlot() {
     const img = document.getElementById("plot");
     if (!img) return;
-    img.src = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now();
+    img.src = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&_ts=" + Date.now();
     refreshStatus();
   }
 
   function exportImage() {
-    window.location.href = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + "&download=1&_ts=" + Date.now();
+    window.location.href =
+      "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&download=1&_ts=" + Date.now();
   }
 
   function exportTable() {
     window.location.href =
-      "/table/export?view=" + encodeURIComponent(ACTIVE_VIEW) + "&format=csv&_ts=" + Date.now();
+      "/table/export?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&format=csv&_ts=" + Date.now();
   }
 
   function terminateServer() {
@@ -219,7 +364,9 @@
     const grid = document.getElementById("table-grid");
     if (!grid) return;
 
-    const res = await fetch("/table/data?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
+    const res = await fetch(
+      "/table/data?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&_ts=" + Date.now()
+    );
     if (!res.ok) {
       console.error("Failed to load table data");
       return;
@@ -236,6 +383,7 @@
         const isTrunc = returned < total;
         status.innerHTML =
           `Showing ${returned} of ${total} rows (rich table mode).` +
+          (_isHistoryMode() ? ` <span class="badge">SNAPSHOT</span>` : "") +
           (isTrunc
             ? ` <span class="badge" title="This view is showing a sampled subset of the full data.">TRUNCATED</span>`
             : "");
@@ -271,6 +419,11 @@
   }
 
   function _tickAutoRefresh() {
+    if (_isHistoryMode()) {
+      _stopAutoRefresh();
+      return;
+    }
+
     const img = document.getElementById("plot");
     if (img) {
       refreshPlot();
@@ -297,6 +450,10 @@
 
     toggle.addEventListener("change", function () {
       _saveAutoRefreshState();
+      if (_isHistoryMode()) {
+        _stopAutoRefresh();
+        return;
+      }
       if (toggle.checked) {
         _tickAutoRefresh();
         _startAutoRefresh();
@@ -308,7 +465,7 @@
     if (interval) {
       interval.addEventListener("change", function () {
         _saveAutoRefreshState();
-        if (toggle.checked) _startAutoRefresh();
+        if (!_isHistoryMode() && toggle.checked) _startAutoRefresh();
       });
     }
   }
@@ -336,17 +493,14 @@
         else closeMenu();
       });
 
-      // click outside closes
       document.addEventListener("click", function (ev) {
         if (!wrap.contains(ev.target)) closeMenu();
       });
 
-      // ESC closes
       document.addEventListener("keydown", function (ev) {
         if (ev.key === "Escape") closeMenu();
       });
 
-      // click item navigates
       menu.addEventListener("click", function (ev) {
         const item = ev.target && ev.target.closest ? ev.target.closest("[data-plotsrv-view]") : null;
         if (!item) return;
@@ -357,10 +511,9 @@
         window.location.href = "/?view=" + encodeURIComponent(v);
       });
 
-      return; // don't bind the old select
+      return;
     }
 
-    // Old select (fallback)
     const sel = document.getElementById("view-select");
     if (!sel) return;
 
@@ -369,6 +522,42 @@
       const v = sel.value;
       window.location.href = "/?view=" + encodeURIComponent(v);
     });
+  }
+
+  function _bindHistoryControls() {
+    const sel = document.getElementById("history-select");
+    if (sel) {
+      sel.addEventListener("change", function () {
+        const value = String(sel.value || "");
+        _currentSnapshot = value ? value : null;
+        _writeSnapshotToUrl(_currentSnapshot);
+        _syncHistoryControls();
+        _reloadCurrentView();
+      });
+    }
+  }
+
+  function _reloadCurrentView() {
+    if (document.getElementById("artifact-root")) {
+      loadArtifact().then(() => refreshStatus());
+      return;
+    }
+    if (document.getElementById("table-grid")) {
+      loadTable().then(() => refreshStatus());
+      return;
+    }
+    if (document.getElementById("plot")) {
+      refreshPlot();
+      return;
+    }
+    refreshStatus();
+  }
+
+  function returnToLive() {
+    _currentSnapshot = null;
+    _writeSnapshotToUrl(null);
+    _syncHistoryControls();
+    _reloadCurrentView();
   }
 
   function _escapeHtml(s) {
@@ -392,7 +581,6 @@
     const reason = trunc.reason ? " — " + _escapeHtml(trunc.reason) : "";
     let details = "";
 
-    // If details is an object, try to show a compact single-line summary.
     if (trunc.details && typeof trunc.details === "object") {
       try {
         const parts = [];
@@ -415,10 +603,6 @@
       `<span class="note" style="margin-left:0.35rem;">${reason}${details}</span>`;
   }
 
-  // ---------------------------------------------------------------------------
-  // Phase 1: Artifact UX enhancements (text + json)
-  // ---------------------------------------------------------------------------
-
   function _findNearest(el, selector) {
     if (!el) return null;
     if (el.closest) return el.closest(selector);
@@ -431,9 +615,7 @@
         await navigator.clipboard.writeText(text);
         return true;
       }
-    } catch (e) {
-      // fall back below
-    }
+    } catch (e) {}
 
     try {
       const ta = document.createElement("textarea");
@@ -459,7 +641,6 @@
     if (toolbar.getAttribute("data-plotsrv-bound") === "1") return;
     toolbar.setAttribute("data-plotsrv-bound", "1");
 
-    // Restore wrap state
     const wrapEnabled = localStorage.getItem(LS_TEXT_WRAP) === "1";
     if (wrapEnabled) pre.classList.add("plotsrv-pre--wrap");
 
@@ -569,11 +750,9 @@
       if (state.hits.length) _goto(0);
     }
 
-    // Restore last query
     const saved = localStorage.getItem(LS_JSON_FIND);
     if (saved && !input.value) input.value = saved;
 
-    // Initial find if there is a saved query
     if (String(input.value || "").trim()) _runFind();
 
     toolbar.addEventListener("click", function (ev) {
@@ -594,7 +773,6 @@
     });
 
     input.addEventListener("input", function () {
-      // light debounce
       if (input._plotsrvTimer) clearTimeout(input._plotsrvTimer);
       input._plotsrvTimer = setTimeout(_runFind, 120);
     });
@@ -614,16 +792,14 @@
     _initJsonToolbar(root);
   }
 
-  // ---------------------------------------------------------------------------
-  // Artifact loading
-  // ---------------------------------------------------------------------------
-
   async function loadArtifact() {
     const root = document.getElementById("artifact-root");
     if (!root) return;
 
     try {
-      const res = await fetch("/artifact?view=" + encodeURIComponent(ACTIVE_VIEW) + "&_ts=" + Date.now());
+      const res = await fetch(
+        "/artifact?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&_ts=" + Date.now()
+      );
       if (!res.ok) {
         root.innerHTML = `<div class="note">Failed to load artifact (${res.status}).</div>`;
         _renderTruncationBadge(null);
@@ -633,15 +809,15 @@
       const data = await res.json();
 
       const kindEl = document.getElementById("artifact-kind");
-      if (kindEl) kindEl.textContent = data.kind ? "Kind: " + data.kind : "";
+      if (kindEl) {
+        const prefix = data.kind ? "Kind: " + data.kind : "";
+        kindEl.textContent = _isHistoryMode() ? prefix + " · snapshot" : prefix;
+      }
 
       root.innerHTML = data.html || "";
       _renderTruncationBadge(data.truncation || null);
-
-      // bind toolbars etc
       _initArtifactEnhancements(root);
 
-      // if artifact renders a table placeholder, ensure data loads
       if (document.getElementById("table-grid")) {
         await loadTable();
       }
@@ -655,25 +831,32 @@
     loadArtifact().then(() => refreshStatus());
   }
 
-  // Expose functions used by inline onclick handlers
   window.refreshPlot = refreshPlot;
   window.exportImage = exportImage;
   window.exportTable = exportTable;
   window.terminateServer = terminateServer;
   window.refreshArtifact = refreshArtifact;
+  window.returnToLive = returnToLive;
 
   document.addEventListener("DOMContentLoaded", function () {
-    refreshStatus();
-
-    if (document.getElementById("artifact-root")) {
-      loadArtifact().then(() => refreshStatus());
-    } else if (document.getElementById("table-grid")) {
-      loadTable().then(() => refreshStatus());
-    }
-
     _bindAutoRefreshControls();
     _bindViewDropdown();
-    refreshViewIcons();
-    _restoreAutoRefreshState();
+    _bindHistoryControls();
+
+    loadHistory().then(() => {
+      refreshStatus();
+
+      if (document.getElementById("artifact-root")) {
+        loadArtifact().then(() => refreshStatus());
+      } else if (document.getElementById("table-grid")) {
+        loadTable().then(() => refreshStatus());
+      } else {
+        refreshStatus();
+      }
+
+      refreshViewIcons();
+      _restoreAutoRefreshState();
+      _syncHistoryControls();
+    });
   });
 })();
