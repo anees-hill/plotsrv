@@ -18,6 +18,7 @@ from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
 from .storage.worker import enqueue_snapshot
+from .storage.backend import list_snapshots, load_snapshot
 
 app = FastAPI()
 register_default_renderers()
@@ -50,6 +51,81 @@ def _ensure_assets_mount() -> None:
     app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
 
+def _storage_root() -> Path:
+    return config.get_storage_root_dir()
+
+
+def _snapshot_summary_dict(snap: Any) -> dict[str, Any]:
+    return {
+        "snapshot_id": snap.snapshot_id,
+        "view_id": snap.view_id,
+        "section": snap.section,
+        "label": snap.label,
+        "kind": snap.kind,
+        "created_at": snap.created_at,
+        "payload_filename": snap.payload_filename,
+        "payload_format": snap.payload_format,
+        "size_bytes": snap.size_bytes,
+        "payload_exists": snap.payload_exists,
+        "extra": snap.extra or {},
+    }
+
+
+def _load_snapshot_or_404(*, view_id: str, snapshot_id: str):
+    try:
+        return load_snapshot(
+            root_dir=_storage_root(),
+            view_id=view_id,
+            snapshot_id=snapshot_id,
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+def _render_plot_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, Any]:
+    src = f"/plot?view={view_id}&snapshot={snapshot_id}"
+    html = f"""
+    <div class="plot-frame">
+      <img id="plot" src="{src}" alt="Plot snapshot" />
+    </div>
+    """.strip()
+
+    return {
+        "view_id": view_id,
+        "snapshot_id": snapshot_id,
+        "kind": "plot",
+        "html": html,
+        "mime": "text/html",
+        "truncation": None,
+        "meta": {
+            "src": src,
+            "snapshot": True,
+        },
+    }
+
+
+def _render_table_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, Any]:
+    data_src = f"/table/data?view={view_id}&snapshot={snapshot_id}"
+    html = """
+    <div class="plot-frame">
+      <div id="table-grid" class="table-grid"></div>
+    </div>
+    """.strip()
+
+    return {
+        "view_id": view_id,
+        "snapshot_id": snapshot_id,
+        "kind": "table",
+        "html": html,
+        "mime": "text/html",
+        "truncation": None,
+        "meta": {
+            "data_src": data_src,
+            "snapshot": True,
+        },
+    }
+
+
 @app.get("/status")
 def status(view: str | None = None) -> dict[str, object]:
     """
@@ -62,33 +138,109 @@ def status(view: str | None = None) -> dict[str, object]:
     return s
 
 
-@app.get("/plot")
-def get_plot(download: bool = False, view: str | None = None) -> Response:
+@app.get("/history")
+def get_history(view: str | None = None) -> dict[str, Any]:
     """
-    Return the current plot PNG for a view; 404 if none.
+    List stored snapshots for a view, newest first.
     """
     vid = view or store.get_active_view_id()
-    try:
-        png = store.get_plot(view_id=vid)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="No plot has been published yet.")
+    snaps = list_snapshots(root_dir=_storage_root(), view_id=vid)
+
+    return {
+        "view_id": vid,
+        "count": len(snaps),
+        "snapshots": [_snapshot_summary_dict(s) for s in snaps],
+    }
+
+
+@app.get("/plot")
+def get_plot(
+    download: bool = False,
+    view: str | None = None,
+    snapshot: str | None = None,
+) -> Response:
+    """
+    Return the current plot PNG for a view, or a historical snapshot if requested.
+    """
+    vid = view or store.get_active_view_id()
+
+    if snapshot:
+        loaded = _load_snapshot_or_404(view_id=vid, snapshot_id=snapshot)
+        if str(loaded.meta.kind).strip().lower() != "plot":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Snapshot {snapshot!r} is not a plot snapshot.",
+            )
+        png = loaded.obj
+        if not isinstance(png, (bytes, bytearray)):
+            raise HTTPException(
+                status_code=500,
+                detail="Stored plot snapshot payload was not valid PNG bytes.",
+            )
+    else:
+        try:
+            png = store.get_plot(view_id=vid)
+        except LookupError:
+            raise HTTPException(
+                status_code=404, detail="No plot has been published yet."
+            )
 
     headers: dict[str, str] = {
         "Cache-Control": "no-store, max-age=0",
         "Pragma": "no-cache",
     }
     if download:
-        headers["Content-Disposition"] = 'attachment; filename="plotsrv_plot.png"'
+        filename = f"plotsrv_plot_{snapshot}.png" if snapshot else "plotsrv_plot.png"
+        headers["Content-Disposition"] = f'attachment; filename="{filename}"'
 
-    return Response(png, media_type="image/png", headers=headers)
+    return Response(bytes(png), media_type="image/png", headers=headers)
 
 
 @app.get("/table/data")
 def get_table_data(
     limit: int = Query(default=config.get_max_table_rows_rich(), ge=1),
     view: str | None = None,
+    snapshot: str | None = None,
 ) -> dict[str, Any]:
     vid = view or store.get_active_view_id()
+
+    if snapshot:
+        loaded = _load_snapshot_or_404(view_id=vid, snapshot_id=snapshot)
+        if str(loaded.meta.kind).strip().lower() != "table":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Snapshot {snapshot!r} is not a table snapshot.",
+            )
+        df = loaded.obj
+        if not isinstance(df, pd.DataFrame):
+            raise HTTPException(
+                status_code=500,
+                detail="Stored table snapshot payload was not a DataFrame.",
+            )
+
+        max_rows = min(limit, config.get_max_table_rows_rich())
+        rows_df = df.head(max_rows)
+        columns = list(rows_df.columns)
+        rows = rows_df.to_dict(orient="records")
+
+        total_rows = None
+        returned_rows = None
+        if isinstance(loaded.meta.extra, dict):
+            raw_total = loaded.meta.extra.get("total_rows")
+            raw_returned = loaded.meta.extra.get("returned_rows")
+            total_rows = raw_total if isinstance(raw_total, int) else None
+            returned_rows = raw_returned if isinstance(raw_returned, int) else None
+
+        total_rows = total_rows if total_rows is not None else len(df)
+        returned_rows = returned_rows if returned_rows is not None else len(rows)
+
+        return {
+            "columns": columns,
+            "rows": rows,
+            "total_rows": total_rows,
+            "returned_rows": returned_rows,
+            "snapshot_id": snapshot,
+        }
 
     if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")
@@ -102,7 +254,6 @@ def get_table_data(
 
     total_rows, returned_rows = store.get_table_counts(view_id=vid)
 
-    # fall back safely if older publishers didn’t send counts
     total_rows = total_rows if total_rows is not None else len(df)
     returned_rows = returned_rows if returned_rows is not None else len(rows)
 
@@ -115,16 +266,15 @@ def get_table_data(
 
 
 @app.get("/table/export")
-def export_table(format: str = "csv", view: str | None = None) -> Response:
+def export_table(
+    format: str = "csv",
+    view: str | None = None,
+    snapshot: str | None = None,
+) -> Response:
     """
-    Export the current table (CSV for now).
+    Export the current table (CSV for now), or a historical table snapshot.
     """
     vid = view or store.get_active_view_id()
-
-    if not store.has_table(view_id=vid):
-        raise HTTPException(status_code=404, detail="No table has been published yet.")
-
-    df = store.get_table_df(view_id=vid)
 
     fmt = (format or "csv").lower().strip()
     if fmt != "csv":
@@ -132,6 +282,30 @@ def export_table(format: str = "csv", view: str | None = None) -> Response:
             status_code=400, detail="Only format=csv is supported right now."
         )
 
+    if snapshot:
+        loaded = _load_snapshot_or_404(view_id=vid, snapshot_id=snapshot)
+        if str(loaded.meta.kind).strip().lower() != "table":
+            raise HTTPException(
+                status_code=400,
+                detail=f"Snapshot {snapshot!r} is not a table snapshot.",
+            )
+        df = loaded.obj
+        if not isinstance(df, pd.DataFrame):
+            raise HTTPException(
+                status_code=500,
+                detail="Stored table snapshot payload was not a DataFrame.",
+            )
+
+        csv_bytes = df.to_csv(index=False).encode("utf-8")
+        headers = {
+            "Content-Disposition": f'attachment; filename="plotsrv_table_{snapshot}.csv"',
+        }
+        return Response(csv_bytes, media_type="text/csv", headers=headers)
+
+    if not store.has_table(view_id=vid):
+        raise HTTPException(status_code=404, detail="No table has been published yet.")
+
+    df = store.get_table_df(view_id=vid)
     csv_bytes = df.to_csv(index=False).encode("utf-8")
     headers = {
         "Content-Disposition": 'attachment; filename="plotsrv_table.csv"',
@@ -175,7 +349,6 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         payload.get("view_id"), section=section, label=label
     )
 
-    # auto-register view so it appears in dropdown even before content arrives
     store.register_view(
         view_id=view_id,
         section=section,
@@ -185,7 +358,6 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         activate_if_first=False,
     )
 
-    # throttling (server-side)
     update_limit_s = payload.get("update_limit_s")
     force = bool(payload.get("force") or False)
 
@@ -201,7 +373,6 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
                 "view_id": view_id,
             }
 
-    # apply publish
     if kind == "plot":
         b64 = payload.get("plot_png_b64")
         if not b64:
@@ -279,7 +450,6 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         if returned_rows is not None and not isinstance(returned_rows, int):
             returned_rows = None
 
-        # reconstruct DataFrame from rows/columns (server only stores sample)
         df = pd.DataFrame(rows, columns=cols)
 
         html_simple = payload.get("table_html_simple")
@@ -324,8 +494,6 @@ def index(view: str | None = None) -> HTMLResponse:
     active_view = store.get_active_view_id()
     kind = store.get_kind(active_view)
 
-    # Only show the "artifact" UI when the latest artifact is not a plot/table.
-    # (Plots/tables also populate st.artifact for unified status/history.)
     if store.has_artifact(view_id=active_view):
         art = store.get_artifact(view_id=active_view)
         if art.kind not in ("plot", "table"):
@@ -359,11 +527,48 @@ def index(view: str | None = None) -> HTMLResponse:
 
 
 @app.get("/artifact")
-def get_artifact(view: str | None = None) -> dict[str, Any]:
+def get_artifact(
+    view: str | None = None,
+    snapshot: str | None = None,
+) -> dict[str, Any]:
     """
-    Render the latest artifact for the view and return HTML + meta.
+    Render the latest artifact for the view, or a historical snapshot if requested.
     """
     vid = view or store.get_active_view_id()
+
+    if snapshot:
+        loaded = _load_snapshot_or_404(view_id=vid, snapshot_id=snapshot)
+        kind_hint = str(loaded.meta.kind).strip().lower()
+
+        if kind_hint == "plot":
+            return _render_plot_snapshot_html(view_id=vid, snapshot_id=snapshot)
+
+        if kind_hint == "table":
+            return _render_table_snapshot_html(view_id=vid, snapshot_id=snapshot)
+
+        rr = render_any(loaded.obj, view_id=vid, kind_hint=kind_hint)
+        return {
+            "view_id": vid,
+            "snapshot_id": snapshot,
+            "kind": rr.kind,
+            "html": rr.html,
+            "mime": rr.mime,
+            "truncation": (
+                None
+                if rr.truncation is None
+                else {
+                    "truncated": rr.truncation.truncated,
+                    "reason": rr.truncation.reason,
+                    "details": rr.truncation.details,
+                }
+            ),
+            "meta": {
+                **(rr.meta or {}),
+                "snapshot": True,
+                "snapshot_meta": _snapshot_summary_dict(loaded.meta),
+            },
+        }
+
     if not store.has_artifact(view_id=vid):
         raise HTTPException(
             status_code=404, detail="No artifact has been published yet."
