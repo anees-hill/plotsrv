@@ -285,6 +285,108 @@ def get_storage_stats(*, root_dir: Path) -> dict[str, Any]:
     }
 
 
+def list_stored_views(*, root_dir: Path) -> list[dict[str, Any]]:
+    """
+    Return per-view storage summaries.
+
+    Best effort:
+    - derives the true view_id from snapshot metadata where possible
+    - tolerates missing / malformed metadata
+    """
+    root = ensure_storage_root(root_dir)
+
+    if not root.exists():
+        return []
+
+    out: list[dict[str, Any]] = []
+
+    for child in root.iterdir():
+        if not child.is_dir():
+            continue
+
+        metas: list[SnapshotMeta] = []
+        for meta_path in sorted(child.glob("*__meta.json")):
+            try:
+                raw = json.loads(meta_path.read_text(encoding="utf-8"))
+                if not isinstance(raw, dict):
+                    continue
+                metas.append(_meta_from_dict(raw))
+            except Exception:
+                continue
+
+        if metas:
+            metas.sort(key=lambda x: x.snapshot_id, reverse=True)
+            view_id = metas[0].view_id or child.name
+            snapshot_count = len(metas)
+            total_bytes = 0
+            last_created_at = metas[0].created_at
+
+            for m in metas:
+                try:
+                    total_bytes += int(m.size_bytes)
+                except Exception:
+                    pass
+
+            out.append(
+                {
+                    "view_id": view_id,
+                    "snapshot_count": snapshot_count,
+                    "total_bytes": total_bytes,
+                    "last_created_at": last_created_at,
+                }
+            )
+            continue
+
+        # empty / orphaned directory
+        out.append(
+            {
+                "view_id": child.name,
+                "snapshot_count": 0,
+                "total_bytes": 0,
+                "last_created_at": None,
+            }
+        )
+
+    out.sort(key=lambda x: str(x.get("view_id") or "").lower())
+    return out
+
+
+def delete_all_snapshots(*, root_dir: Path) -> int:
+    """
+    Delete all stored snapshots for all views.
+
+    Returns number of files removed (best effort).
+    """
+    root = ensure_storage_root(root_dir)
+
+    if not root.exists() or not root.is_dir():
+        return 0
+
+    removed = 0
+
+    for child in list(root.iterdir()):
+        if not child.is_dir():
+            continue
+
+        for p in list(child.iterdir()):
+            try:
+                if p.is_file():
+                    p.unlink()
+                    removed += 1
+            except Exception:
+                pass
+
+        try:
+            next(child.iterdir())
+        except StopIteration:
+            try:
+                child.rmdir()
+            except Exception:
+                pass
+
+    return removed
+
+
 # ------------------------------------------------------------------------------
 # Internal helpers
 # ------------------------------------------------------------------------------
