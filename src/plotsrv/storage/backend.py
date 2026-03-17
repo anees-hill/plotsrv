@@ -455,6 +455,14 @@ def _serialise_payload(*, kind: str, obj: Any) -> dict[str, Any]:
         }
 
     if k == "html":
+        if isinstance(obj, dict) and "html" in obj:
+            raw = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
+            return {
+                "data": raw,
+                "suffix": "json",
+                "format": "json",
+            }
+
         return {
             "data": str(obj).encode("utf-8"),
             "suffix": "html",
@@ -503,6 +511,9 @@ def _deserialise_payload(*, meta: SnapshotMeta, payload_path: Path) -> Any:
         return pd.read_csv(payload_path)
 
     if kind == "json" or fmt == "json":
+        return json.loads(payload_path.read_text(encoding="utf-8"))
+
+    if kind == "html" and fmt == "json":
         return json.loads(payload_path.read_text(encoding="utf-8"))
 
     if kind == "image" and fmt == "binary_image":
