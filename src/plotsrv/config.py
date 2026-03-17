@@ -36,7 +36,6 @@ _DEFAULTS: dict[str, Any] = {
         "html": None,
         "markdown": None,
     },
-    # 0.0.5 storage defaults are intentionally conservative and opt-in.
     "storage-settings": {
         "enabled": False,
         "root_dir": ".plotsrv/store",
@@ -49,7 +48,7 @@ _DEFAULTS: dict[str, Any] = {
         "enabled": False,
         "expected_every": None,
         "warn_after": None,
-        "error_after": None,
+        "overdue_after": None,
         "views": {},
     },
 }
@@ -368,8 +367,38 @@ def get_storage_root_dir() -> Path:
     return (base / p).resolve()
 
 
-def get_storage_max_snapshot_size_bytes() -> int:
+def _storage_view_overrides() -> dict[str, Any]:
     sec = _merged_section("storage-settings")
+    views = sec.get("views")
+    return views if isinstance(views, dict) else {}
+
+
+def get_storage_view_settings(view_id: str) -> dict[str, Any]:
+    overrides = _storage_view_overrides()
+    raw = overrides.get(view_id)
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def get_storage_view_enabled(view_id: str) -> bool:
+    view_sec = get_storage_view_settings(view_id)
+    if "enabled" in view_sec:
+        return _as_bool(view_sec.get("enabled"), get_storage_enabled())
+    return get_storage_enabled()
+
+
+def get_storage_max_snapshot_size_bytes(view_id: str | None = None) -> int:
+    sec = _merged_section("storage-settings")
+
+    if view_id:
+        view_sec = get_storage_view_settings(view_id)
+        if "max_snapshot_size_mb" in view_sec:
+            mb = _as_float(
+                view_sec.get("max_snapshot_size_mb"),
+                20.0,
+                min_value=0.001,
+            )
+            return max(1, int(mb * 1024 * 1024))
+
     mb = _as_float(sec.get("max_snapshot_size_mb"), 20.0, min_value=0.001)
     return max(1, int(mb * 1024 * 1024))
 
@@ -382,21 +411,6 @@ def get_storage_default_keep_last() -> int | None:
 def get_storage_default_min_store_interval_s() -> int | None:
     sec = _merged_section("storage-settings")
     return _parse_duration_seconds(sec.get("default_min_store_interval"))
-
-
-def _storage_view_overrides() -> dict[str, Any]:
-    sec = _merged_section("storage-settings")
-    views = sec.get("views")
-    return views if isinstance(views, dict) else {}
-
-
-def get_storage_view_settings(view_id: str) -> dict[str, Any]:
-    """
-    Exact view_id match only for 0.0.5 foundation.
-    """
-    overrides = _storage_view_overrides()
-    raw = overrides.get(view_id)
-    return dict(raw) if isinstance(raw, dict) else {}
 
 
 def get_storage_keep_last(view_id: str) -> int | None:
@@ -450,10 +464,23 @@ def get_freshness_warn_after_s(view_id: str | None = None) -> int | None:
     return _parse_duration_seconds(sec.get("warn_after"))
 
 
-def get_freshness_error_after_s(view_id: str | None = None) -> int | None:
+def get_freshness_overdue_after_s(view_id: str | None = None) -> int | None:
     sec = _merged_section("freshness-settings")
     if view_id:
         view_sec = get_freshness_view_settings(view_id)
-        if "error_after" in view_sec:
+        if "overdue_after" in view_sec:
+            return _parse_duration_seconds(view_sec.get("overdue_after"))
+        if "error_after" in view_sec:  # legacy alias
             return _parse_duration_seconds(view_sec.get("error_after"))
+
+    if sec.get("overdue_after") is not None:
+        return _parse_duration_seconds(sec.get("overdue_after"))
     return _parse_duration_seconds(sec.get("error_after"))
+
+
+def get_freshness_error_after_s(view_id: str | None = None) -> int | None:
+    """
+    Legacy alias retained for backwards compatibility.
+    Prefer get_freshness_overdue_after_s().
+    """
+    return get_freshness_overdue_after_s(view_id)

@@ -46,7 +46,14 @@ def render_index(
         """
     statusline_html = ""
     if ui.show_statusline:
-        statusline_html = """
+        freshness_html = ""
+        if ui.show_freshness:
+            freshness_html = """
+              &nbsp;|&nbsp;
+              <span class="ps-statusline__item"><strong>Freshness:</strong> <span id="status-freshness">—</span></span>
+            """
+
+        statusline_html = f"""
         <div class=
 "note ps-note ps-statusline"
  id="statusline">
@@ -57,8 +64,7 @@ def render_index(
           <span class="ps-statusline__item"><strong>Mode:</strong> <span id="status-mode">—</span></span>
           &nbsp;|&nbsp;
           <span class="ps-statusline__item"><strong>Server refresh:</strong> <span id="status-srv-refresh">—</span></span>
-          &nbsp;|&nbsp;
-          <span class="ps-statusline__item"><strong>Freshness:</strong> <span id="status-freshness">—</span></span>
+          {freshness_html}
           <span id="status-error-wrap" class="ps-statusline__error" style="display:none;">
             &nbsp;|&nbsp;
             <strong style="color:#792424;">Error:</strong>
@@ -96,6 +102,8 @@ def render_index(
         """
 
     def _history_controls_html() -> str:
+        if not ui.show_history_controls:
+            return ""
         return """
           <label class="interval ps-history">
             <span>History</span>
@@ -105,17 +113,19 @@ def render_index(
           </label>
         """
 
-    history_banner_html = """
-    <div id="history-banner" class="ps-history-banner" hidden>
-      <div class="ps-history-banner__main">
-        <span class="badge">HISTORICAL</span>
-        <span id="history-banner-text" class="ps-history-banner__text">
-          Viewing a stored snapshot.
-        </span>
-      </div>
-      <button type="button" class="ps-btn" onclick="returnToLive()">Back to live</button>
-    </div>
-    """
+    history_banner_html = ""
+    if ui.show_history_banner:
+        history_banner_html = """
+        <div id="history-banner" class="ps-history-banner" hidden>
+          <div class="ps-history-banner__main">
+            <span class="badge">HISTORICAL</span>
+            <span id="history-banner-text" class="ps-history-banner__text">
+              Viewing a stored snapshot.
+            </span>
+          </div>
+          <button type="button" class="ps-btn" onclick="returnToLive()">Back to live</button>
+        </div>
+        """
 
     LOGO_BY_KEY = {
         "unknown": "/static/logo_unknown.png",
@@ -154,7 +164,7 @@ def render_index(
                 active_meta = v
                 break
         active_label = active_meta.label if active_meta else active_view_id
-        active_icon = _icon_url(active_meta) if active_meta else LOGO_BY_KEY["txt"]
+        active_icon = _icon_url(active_meta)
 
         menu_parts: list[str] = []
         for sec in sections:
