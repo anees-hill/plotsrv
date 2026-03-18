@@ -448,7 +448,7 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
     enabled = config.get_freshness_enabled()
     expected_every_s = config.get_freshness_expected_every_s(vid)
     warn_after_s = config.get_freshness_warn_after_s(vid)
-    error_after_s = config.get_freshness_error_after_s(vid)
+    overdue_after_s = config.get_freshness_overdue_after_s(vid)
 
     if not enabled:
         return {
@@ -459,14 +459,14 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
             "age_s": None,
             "expected_every_s": expected_every_s,
             "warn_after_s": warn_after_s,
-            "error_after_s": error_after_s,
+            "overdue_after_s": overdue_after_s,
+            "error_after_s": overdue_after_s,  # legacy alias
         }
 
-    # sensible fallback ladder
     if warn_after_s is None and expected_every_s is not None:
         warn_after_s = expected_every_s
-    if error_after_s is None and warn_after_s is not None:
-        error_after_s = warn_after_s * 2
+    if overdue_after_s is None and warn_after_s is not None:
+        overdue_after_s = warn_after_s * 2
 
     st = get_view_state(vid)
     last_updated_raw = st.status.get("last_updated")
@@ -481,7 +481,8 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
             "age_s": None,
             "expected_every_s": expected_every_s,
             "warn_after_s": warn_after_s,
-            "error_after_s": error_after_s,
+            "overdue_after_s": overdue_after_s,
+            "error_after_s": overdue_after_s,  # legacy alias
         }
 
     now = datetime.now(timezone.utc)
@@ -491,7 +492,7 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
     emoji = "✅"
     label = "Fresh"
 
-    if error_after_s is not None and age_s >= error_after_s:
+    if overdue_after_s is not None and age_s >= overdue_after_s:
         state = "error"
         emoji = "❌"
         label = "Overdue"
@@ -508,7 +509,8 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
         "age_s": age_s,
         "expected_every_s": expected_every_s,
         "warn_after_s": warn_after_s,
-        "error_after_s": error_after_s,
+        "overdue_after_s": overdue_after_s,
+        "error_after_s": overdue_after_s,  # legacy alias
     }
 
 

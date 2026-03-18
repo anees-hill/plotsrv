@@ -28,6 +28,7 @@
   let _tabulatorInstance = null;
   let _historyItems = [];
   let _currentSnapshot = _readSnapshotFromUrl();
+  let _plotObjectUrl = null;
 
   function _readSnapshotFromUrl() {
     try {
@@ -66,6 +67,82 @@
       if (item.snapshot_id === _currentSnapshot) return item;
     }
     return null;
+  }
+
+  function _setStatusMessage(html) {
+    const status = document.getElementById("status");
+    if (status) status.innerHTML = html || "";
+  }
+
+  function _clearPlotObjectUrl() {
+    if (_plotObjectUrl) {
+      try {
+        URL.revokeObjectURL(_plotObjectUrl);
+      } catch (e) {
+        // ignore
+      }
+      _plotObjectUrl = null;
+    }
+  }
+
+  function _formatAgeShort(totalSeconds) {
+    if (typeof totalSeconds !== "number" || !isFinite(totalSeconds) || totalSeconds < 0) {
+      return "";
+    }
+
+    const s = Math.floor(totalSeconds);
+    if (s < 60) return `${s}s old`;
+
+    const m = Math.floor(s / 60);
+    if (m < 60) return `${m}m old`;
+
+    const h = Math.floor(m / 60);
+    const remM = m % 60;
+    if (h < 24) {
+      return remM > 0 ? `${h}h ${remM}m old` : `${h}h old`;
+    }
+
+    const d = Math.floor(h / 24);
+    const remH = h % 24;
+    return remH > 0 ? `${d}d ${remH}h old` : `${d}d old`;
+  }
+
+  async function _handleMissingSnapshot(kindLabel) {
+    const msg =
+      `Selected snapshot is no longer available` +
+      ` and may have been pruned by storage policy.`;
+
+    if (document.getElementById("artifact-root")) {
+      const root = document.getElementById("artifact-root");
+      if (root) {
+        root.innerHTML = `<div class="note">Snapshot deleted. ${_escapeHtml(msg)}</div>`;
+      }
+    }
+
+    if (document.getElementById("table-grid")) {
+      _setStatusMessage(
+        `<span class="badge">SNAPSHOT DELETED</span> ${_escapeHtml(msg)}`
+      );
+    }
+
+    if (document.getElementById("plot")) {
+      const img = document.getElementById("plot");
+      if (img) {
+        img.removeAttribute("src");
+        img.alt = "Snapshot deleted";
+      }
+      _setStatusMessage(
+        `<span class="badge">SNAPSHOT DELETED</span> ${_escapeHtml(msg)}`
+      );
+    }
+
+    try {
+      await loadHistory();
+    } catch (e) {
+      // ignore
+    }
+
+    refreshStatus();
   }
 
   function _setHistoryBanner() {
@@ -332,7 +409,7 @@
         } else {
           const emoji = f.emoji || "";
           const label = f.label || "Unknown";
-          const age = (typeof f.age_s === "number") ? ` (${f.age_s}s old)` : "";
+          const age = (typeof f.age_s === "number") ? ` (${_formatAgeShort(f.age_s)})` : "";
           freshness.textContent = `${emoji} ${label}${age}`.trim();
         }
       }
@@ -343,11 +420,39 @@
     }
   }
 
-  function refreshPlot() {
+  async function refreshPlot() {
     const img = document.getElementById("plot");
     if (!img) return;
-    img.src = "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&_ts=" + Date.now();
-    refreshStatus();
+
+    const url =
+      "/plot?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&_ts=" + Date.now();
+
+    if (!_isHistoryMode()) {
+      _clearPlotObjectUrl();
+      img.src = url;
+      refreshStatus();
+      return;
+    }
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        if (res.status === 404 && _isHistoryMode()) {
+          await _handleMissingSnapshot("plot");
+          return;
+        }
+        _setStatusMessage(`Failed to load plot snapshot (${res.status}).`);
+        return;
+      }
+
+      const blob = await res.blob();
+      _clearPlotObjectUrl();
+      _plotObjectUrl = URL.createObjectURL(blob);
+      img.src = _plotObjectUrl;
+      refreshStatus();
+    } catch (e) {
+      _setStatusMessage("Failed to load plot snapshot (network error).");
+    }
   }
 
   function exportImage() {
@@ -379,7 +484,12 @@
     const res = await fetch(
       "/table/data?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&_ts=" + Date.now()
     );
+
     if (!res.ok) {
+      if (res.status === 404 && _isHistoryMode()) {
+        await _handleMissingSnapshot("table");
+        return;
+      }
       console.error("Failed to load table data");
       return;
     }
@@ -813,6 +923,10 @@
         "/artifact?view=" + encodeURIComponent(ACTIVE_VIEW) + _snapshotQuery() + "&_ts=" + Date.now()
       );
       if (!res.ok) {
+        if (res.status === 404 && _isHistoryMode()) {
+          await _handleMissingSnapshot("artifact");
+          return;
+        }
         root.innerHTML = `<div class="note">Failed to load artifact (${res.status}).</div>`;
         _renderTruncationBadge(null);
         return;
@@ -862,6 +976,8 @@
         loadArtifact().then(() => refreshStatus());
       } else if (document.getElementById("table-grid")) {
         loadTable().then(() => refreshStatus());
+      } else if (document.getElementById("plot")) {
+        refreshPlot().then(() => refreshStatus());
       } else {
         refreshStatus();
       }

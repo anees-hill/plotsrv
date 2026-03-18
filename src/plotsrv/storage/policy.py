@@ -27,16 +27,16 @@ def should_store_snapshot(
     """
     Decide whether an incoming live publish should be persisted to disk.
 
-    0.0.5 admission checks:
-    - global storage enabled
+    Admission checks:
+    - storage enabled globally / for this view
     - payload size <= max snapshot size
     - min_store_interval respected
     """
     keep_last = config.get_storage_keep_last(view_id)
     min_store_interval_s = config.get_storage_min_store_interval_s(view_id)
-    max_snapshot_size_bytes = config.get_storage_max_snapshot_size_bytes()
+    max_snapshot_size_bytes = config.get_storage_max_snapshot_size_bytes(view_id)
 
-    if not config.get_storage_enabled():
+    if not config.get_storage_view_enabled(view_id):
         return AdmissionDecision(
             accepted=False,
             reason="storage_disabled",
