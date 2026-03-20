@@ -821,6 +821,10 @@ def _passive_register_views(
 ) -> None:
     """
     AST discovery + view registration only. Does NOT start server. Does NOT loop.
+
+    If nothing is discovered, leave the dropdown empty rather than creating
+    a fake "default" entry. The server/UI can still operate with the implicit
+    active view until a real publish arrives.
     """
     discovered_all = discover_views(scan_root)
     discovered = [
@@ -830,10 +834,6 @@ def _passive_register_views(
     ]
 
     if len(discovered) == 0:
-        store.register_view(
-            view_id="default", section="default", label="default", kind="none"
-        )
-        store.set_active_view("default")
         return
 
     for dv in discovered:

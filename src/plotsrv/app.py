@@ -358,6 +358,10 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         icon_key="unknown",
         activate_if_first=False,
     )
+    current_active = store.get_active_view_id()
+    known_view_ids = {v.view_id for v in store.list_views()}
+    if current_active not in known_view_ids:
+        store.set_active_view(view_id)
 
     update_limit_s = payload.get("update_limit_s")
     force = bool(payload.get("force") or False)
