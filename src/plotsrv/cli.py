@@ -196,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # Watches (unchanged)
+    # Watches
     run_p.add_argument(
         "--watch",
         action=_WatchPathAction,
@@ -269,7 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read watched file from the end (tail). Binds to most recent --watch if present; else next --watch.",
     )
 
-    # Dedicated watch subcommand (unchanged)
+    # Dedicated watch subcommand
     watch_p = sub.add_parser("watch", help="Watch a text/JSON file and publish it live")
     watch_p.add_argument("path", help="Path to a text/log/json file")
     watch_p.add_argument("--host", default="127.0.0.1")
@@ -318,6 +318,7 @@ def build_parser() -> argparse.ArgumentParser:
     mx.add_argument(
         "--tail", action="store_true", help="Read file from the end (tail)."
     )
+
     store_p = sub.add_parser("store", help="Inspect or clear plotsrv stored snapshots")
     store_p.add_argument(
         "--name",
@@ -427,6 +428,65 @@ def _with_text_anchor_header(text: str, anchor: WatchReadMode) -> str:
     if anchor != "tail":
         return text
     return "\ufeffPLOTSRV_ANCHOR=tail\n" + text
+
+
+def _post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> None:
+    url = f"http://{host}:{port}/publish"
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=2.0) as resp:
+        _ = resp.read()
+
+
+def _publish_watch_payload(
+    *,
+    host: str,
+    port: int,
+    label: str,
+    section: str,
+    kind: str,
+    artifact: Any = None,
+    artifact_kind: str | None = None,
+    table_df: Any = None,
+    update_limit_s: int | None = None,
+    force: bool = False,
+) -> None:
+    payload: dict[str, Any] = {
+        "kind": kind,
+        "label": label,
+        "section": section,
+        "update_limit_s": update_limit_s,
+        "force": force,
+        "publish_source": "watch",
+    }
+
+    if kind == "artifact":
+        payload["artifact"] = artifact
+        payload["artifact_kind"] = artifact_kind or "text"
+
+    elif kind == "table":
+        import pandas as pd
+
+        if not isinstance(table_df, pd.DataFrame):
+            raise TypeError("watch table publish expected pandas DataFrame")
+
+        payload["table"] = {
+            "columns": list(table_df.columns),
+            "rows": table_df.to_dict(orient="records"),
+            "total_rows": len(table_df),
+            "returned_rows": len(table_df),
+        }
+        payload["table_html_simple"] = None
+
+    else:
+        raise ValueError(f"Unsupported watch publish kind: {kind!r}")
+
+    _post_publish_payload(host=host, port=port, payload=payload)
 
 
 def _resolve_target_to_path_if_importable(target: str) -> str | None:
@@ -689,12 +749,13 @@ def _start_watch_threads(
                     else:
                         raw = _read_tail_bytes(pth, max_bytes=max_bytes)
                 except Exception as e:
-                    publish_artifact(
-                        f"[plotsrv watch] read error: {type(e).__name__}: {e}",
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=view_section,
+                        kind="artifact",
+                        artifact=f"[plotsrv watch] read error: {type(e).__name__}: {e}",
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -707,12 +768,13 @@ def _start_watch_threads(
                 if kind == "text":
                     txt = raw.decode(encoding, errors="replace")
                     txt2 = _with_text_anchor_header(txt, watch_read_mode)
-                    publish_artifact(
-                        txt2,
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=view_section,
+                        kind="artifact",
+                        artifact=txt2,
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -724,24 +786,26 @@ def _start_watch_threads(
                     try:
                         txt = raw.decode(encoding, errors="replace")
                         obj = json.loads(txt)
-                        publish_artifact(
-                            obj,
+                        _publish_watch_payload(
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
+                            kind="artifact",
+                            artifact=obj,
                             artifact_kind="json",
                             update_limit_s=update_limit_s,
                             force=force,
                         )
                     except Exception as e:
                         txt = raw.decode(encoding, errors="replace")
-                        publish_artifact(
-                            f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
+                        _publish_watch_payload(
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
+                            kind="artifact",
+                            artifact=f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
                             artifact_kind="text",
                             update_limit_s=update_limit_s,
                             force=force,
@@ -760,13 +824,13 @@ def _start_watch_threads(
                     )
 
                     if coerced.publish_kind == "table":
-                        publish_artifact(
-                            coerced.obj,
+                        _publish_watch_payload(
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
-                            artifact_kind=None,
+                            kind="table",
+                            table_df=coerced.obj,
                             update_limit_s=update_limit_s,
                             force=force,
                         )
@@ -779,24 +843,26 @@ def _start_watch_threads(
                                 str(coerced.obj), watch_read_mode
                             )
 
-                        publish_artifact(
-                            obj_to_publish,
+                        _publish_watch_payload(
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
+                            kind="artifact",
+                            artifact=obj_to_publish,
                             artifact_kind=ak,
                             update_limit_s=update_limit_s,
                             force=force,
                         )
                 except Exception as e:
                     txt = raw.decode(encoding, errors="replace")
-                    publish_artifact(
-                        f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=view_section,
+                        kind="artifact",
+                        artifact=f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -1275,12 +1341,13 @@ def _run_watch_mode(
             if kind == "text":
                 txt = raw.decode(encoding, errors="replace")
                 txt2 = _with_text_anchor_header(txt, mode)
-                publish_artifact(
-                    txt2,
+                _publish_watch_payload(
                     host=host,
                     port=port,
                     label=view_label,
                     section=section,
+                    kind="artifact",
+                    artifact=txt2,
                     artifact_kind="text",
                     update_limit_s=update_limit_s,
                     force=force,
@@ -1292,24 +1359,26 @@ def _run_watch_mode(
                 try:
                     txt = raw.decode(encoding, errors="replace")
                     obj = json.loads(txt)
-                    publish_artifact(
-                        obj,
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
+                        kind="artifact",
+                        artifact=obj,
                         artifact_kind="json",
                         update_limit_s=update_limit_s,
                         force=force,
                     )
                 except Exception as e:
                     txt = raw.decode(encoding, errors="replace")
-                    publish_artifact(
-                        f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
+                        kind="artifact",
+                        artifact=f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -1327,13 +1396,13 @@ def _run_watch_mode(
                 )
 
                 if coerced.publish_kind == "table":
-                    publish_artifact(
-                        coerced.obj,
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
-                        artifact_kind=None,
+                        kind="table",
+                        table_df=coerced.obj,
                         update_limit_s=update_limit_s,
                         force=force,
                     )
@@ -1346,12 +1415,13 @@ def _run_watch_mode(
                             str(coerced.obj), mode
                         )
 
-                    publish_artifact(
-                        obj_to_publish,
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
+                        kind="artifact",
+                        artifact=obj_to_publish,
                         artifact_kind=ak,
                         update_limit_s=update_limit_s,
                         force=force,
@@ -1359,12 +1429,13 @@ def _run_watch_mode(
 
             except Exception as e:
                 txt = raw.decode(encoding, errors="replace")
-                publish_artifact(
-                    f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
+                _publish_watch_payload(
                     host=host,
                     port=port,
                     label=view_label,
                     section=section,
+                    kind="artifact",
+                    artifact=f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
                     artifact_kind="text",
                     update_limit_s=update_limit_s,
                     force=force,

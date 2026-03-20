@@ -350,6 +350,13 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         payload.get("view_id"), section=section, label=label
     )
 
+    publish_source_raw = payload.get("publish_source")
+    publish_source = (
+        str(publish_source_raw).strip().lower()
+        if isinstance(publish_source_raw, str) and publish_source_raw.strip()
+        else None
+    )
+
     store.register_view(
         view_id=view_id,
         section=section,
@@ -403,6 +410,7 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
             obj=png_bytes,
             section=section if isinstance(section, str) else None,
             label=label if isinstance(label, str) else None,
+            source=publish_source,
         )
 
         return {"ok": True, "ignored": False, "view_id": view_id}
@@ -427,6 +435,7 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
             obj=artifact_obj,
             section=section if isinstance(section, str) else None,
             label=label if isinstance(label, str) else None,
+            source=publish_source,
         )
 
         return {"ok": True, "ignored": False, "view_id": view_id}
@@ -481,6 +490,7 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
                 "total_rows": total_rows,
                 "returned_rows": returned_rows,
             },
+            source=publish_source,
         )
 
         return {"ok": True, "ignored": False, "view_id": view_id}

@@ -19,6 +19,7 @@ class StorageTask:
     section: str | None = None
     label: str | None = None
     extra: dict[str, Any] | None = None
+    source: str | None = None
 
 
 class StorageWorker:
@@ -74,14 +75,8 @@ class StorageWorker:
         section: str | None = None,
         label: str | None = None,
         extra: dict[str, Any] | None = None,
+        source: str | None = None,
     ) -> bool:
-        """
-        Queue a storage task.
-
-        Returns:
-        - True if accepted into queue
-        - False if dropped (queue full or worker unavailable)
-        """
         if not config.get_storage_enabled():
             return False
 
@@ -94,6 +89,7 @@ class StorageWorker:
             section=section,
             label=label,
             extra=extra,
+            source=source,
         )
 
         try:
@@ -130,6 +126,7 @@ class StorageWorker:
             view_id=task.view_id,
             payload_size_bytes=size_bytes,
             existing_snapshots=existing,
+            source=task.source,
         )
 
         if not decision.accepted:
@@ -175,6 +172,7 @@ def enqueue_snapshot(
     section: str | None = None,
     label: str | None = None,
     extra: dict[str, Any] | None = None,
+    source: str | None = None,
 ) -> bool:
     return get_storage_worker().submit(
         view_id=view_id,
@@ -183,4 +181,5 @@ def enqueue_snapshot(
         section=section,
         label=label,
         extra=extra,
+        source=source,
     )

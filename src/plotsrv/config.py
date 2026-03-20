@@ -38,6 +38,7 @@ _DEFAULTS: dict[str, Any] = {
     },
     "storage-settings": {
         "enabled": False,
+        "watch_enabled": False,
         "root_dir": ".plotsrv/store",
         "max_snapshot_size_mb": 20.0,
         "default_keep_last": 2,
@@ -425,6 +426,42 @@ def get_storage_min_store_interval_s(view_id: str) -> int | None:
     if "min_store_interval" in view_sec:
         return _parse_duration_seconds(view_sec.get("min_store_interval"))
     return get_storage_default_min_store_interval_s()
+
+
+def get_storage_watch_enabled() -> bool:
+    sec = _merged_section("storage-settings")
+    return _as_bool(sec.get("watch_enabled"), False)
+
+
+def get_storage_view_enabled(
+    view_id: str,
+    *,
+    source: str | None = None,
+) -> bool:
+    """
+    Source-aware storage admission.
+
+    Rules:
+    - global storage-settings.enabled is the master switch
+    - non-watch publishes default to enabled=True (subject to global enabled)
+      unless views.<view_id>.enabled overrides
+    - watch publishes default to storage-settings.watch_enabled (default False)
+      unless views.<view_id>.watch_enabled overrides
+    """
+    if not get_storage_enabled():
+        return False
+
+    view_sec = get_storage_view_settings(view_id)
+
+    if source == "watch":
+        default_watch = get_storage_watch_enabled()
+        if "watch_enabled" in view_sec:
+            return _as_bool(view_sec.get("watch_enabled"), default_watch)
+        return default_watch
+
+    if "enabled" in view_sec:
+        return _as_bool(view_sec.get("enabled"), True)
+    return True
 
 
 # ---- Freshness settings -------------------------------------------------------
