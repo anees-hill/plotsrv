@@ -118,29 +118,21 @@ def test_run_watch_mode_text_path_publishes_then_keyboardinterrupt_exits(
     p = tmp_path / "x.txt"
     p.write_text("hello", encoding="utf-8")
 
-    # Don't start real server
-    monkeypatch.setattr(cli_mod, "publish_artifact", lambda *a, **k: None)
+    calls: list[dict[str, Any]] = []
 
-    # Patch server start/stop imported inside function
-    monkeypatch.setitem(
-        cli_mod.__dict__,
-        "server",
-        None,
-    )
+    def fake_publish_watch_payload(**kwargs: Any) -> None:
+        calls.append(kwargs)
 
-    # Monkeypatch the imported names via module attribute lookup inside function:
-    # _run_watch_mode does: from .server import start_server, stop_server
-    # so we patch plotsrv.cli.start_server/stop_server after import is resolved by Python
+    monkeypatch.setattr(cli_mod, "_publish_watch_payload", fake_publish_watch_payload)
+
     monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
 
-    # Force the loop to raise KeyboardInterrupt after first sleep
     def fake_sleep(_s: float) -> None:
         raise KeyboardInterrupt()
 
     monkeypatch.setattr(cli_mod.time, "sleep", fake_sleep)
 
-    # Run
     rc = cli_mod._run_watch_mode(
         str(p),
         host="127.0.0.1",
@@ -158,6 +150,10 @@ def test_run_watch_mode_text_path_publishes_then_keyboardinterrupt_exits(
         read_mode="head",
     )
     assert rc == 0
+    assert calls
+    assert calls[0]["kind"] == "artifact"
+    assert calls[0]["artifact_kind"] == "text"
+    assert calls[0]["artifact"] == "hello"
 
 
 def test_run_watch_mode_json_parse_error_publishes_text_error(
@@ -169,22 +165,19 @@ def test_run_watch_mode_json_parse_error_publishes_text_error(
 
     calls: list[dict[str, Any]] = []
 
-    def fake_publish_artifact(obj: Any, **kwargs: Any) -> None:
-        calls.append({"obj": obj, **kwargs})
+    def fake_publish_watch_payload(**kwargs: Any) -> None:
+        calls.append(kwargs)
 
-    monkeypatch.setattr(cli_mod, "publish_artifact", fake_publish_artifact)
+    monkeypatch.setattr(cli_mod, "_publish_watch_payload", fake_publish_watch_payload)
 
-    # Make json.loads always fail to guarantee JSON parse error path
     monkeypatch.setattr(
         cli_mod.json, "loads", lambda _s: (_ for _ in ()).throw(ValueError("boom"))
     )
 
-    # Stop after one iteration
     monkeypatch.setattr(
         cli_mod.time, "sleep", lambda _s: (_ for _ in ()).throw(KeyboardInterrupt())
     )
 
-    # Patch server hooks
     monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
 
@@ -205,10 +198,10 @@ def test_run_watch_mode_json_parse_error_publishes_text_error(
         read_mode="head",
     )
     assert rc == 0
-    assert calls, "expected publish_artifact to be called"
-    # should publish text error
+    assert calls, "expected _publish_watch_payload to be called"
+    assert calls[0]["kind"] == "artifact"
     assert calls[0]["artifact_kind"] == "text"
-    assert "JSON parse error" in str(calls[0]["obj"])
+    assert "JSON parse error" in str(calls[0]["artifact"])
 
 
 def test_run_watch_mode_auto_parse_error_branch(
@@ -220,12 +213,11 @@ def test_run_watch_mode_auto_parse_error_branch(
 
     calls: list[dict[str, Any]] = []
 
-    def fake_publish_artifact(obj: Any, **kwargs: Any) -> None:
-        calls.append({"obj": obj, **kwargs})
+    def fake_publish_watch_payload(**kwargs: Any) -> None:
+        calls.append(kwargs)
 
-    monkeypatch.setattr(cli_mod, "publish_artifact", fake_publish_artifact)
+    monkeypatch.setattr(cli_mod, "_publish_watch_payload", fake_publish_watch_payload)
 
-    # Ensure auto mode uses coercer and coercer fails
     monkeypatch.setattr(
         cli_mod,
         "coerce_file_to_publishable",
@@ -256,5 +248,6 @@ def test_run_watch_mode_auto_parse_error_branch(
     )
     assert rc == 0
     assert calls
+    assert calls[0]["kind"] == "artifact"
     assert calls[0]["artifact_kind"] == "text"
-    assert "parse error" in str(calls[0]["obj"])
+    assert "parse error" in str(calls[0]["artifact"])

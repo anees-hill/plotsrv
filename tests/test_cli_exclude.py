@@ -107,8 +107,9 @@ def test_run_passive_dir_mode_excludes_views(monkeypatch: pytest.MonkeyPatch) ->
     # explicit view_id exclusion
     assert "etl-1:import" not in view_ids
 
-    # nothing left => default view is registered
-    assert "default" in view_ids
+    # nothing left => no fake default entry is registered
+    assert view_ids == set()
+    assert store.get_active_view_id() == "default"
 
 
 def test_run_passive_dir_mode_includes_only(monkeypatch: pytest.MonkeyPatch) -> None:

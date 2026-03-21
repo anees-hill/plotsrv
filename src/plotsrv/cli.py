@@ -524,6 +524,24 @@ def _resolve_module_part(target: str) -> str:
     return target.strip()
 
 
+def _get_server_hooks() -> tuple[Any, Any]:
+    """
+    Resolve server hooks in a monkeypatch-friendly way.
+
+    If tests have patched plotsrv.cli.start_server / stop_server, use those.
+    Otherwise import the real implementations lazily.
+    """
+    start = globals().get("start_server")
+    stop = globals().get("stop_server")
+
+    if callable(start) and callable(stop):
+        return start, stop
+
+    from .server import start_server as _start_server, stop_server as _stop_server
+
+    return _start_server, _stop_server
+
+
 def _find_project_root(start: Path) -> Path | None:
     """
     Walk upwards looking for something that indicates a Python project.
@@ -1235,8 +1253,8 @@ def _run_passive_server_forever(
       - optional file watches
       - wait forever until Ctrl+C or /shutdown
     """
-    from .server import start_server, stop_server
 
+    start_server, stop_server = _get_server_hooks()
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
     _wait_for_server(host, port, timeout_s=5.0)
@@ -1286,7 +1304,8 @@ def _run_watch_mode(
     quiet: bool,
     read_mode: WatchReadMode | None,
 ) -> int:
-    from .server import start_server, stop_server
+
+    start_server, stop_server = _get_server_hooks()
 
     p = Path(path).expanduser().resolve()
     if not p.exists() or not p.is_file():
@@ -1555,7 +1574,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     # mode == "callable"
-    from .server import start_server, stop_server
+    start_server, stop_server = _get_server_hooks()
 
     # Start server first
     start_server(host=args.host, port=args.port, auto_on_show=False, quiet=args.quiet)
