@@ -74,7 +74,7 @@ def test_submit_starts_worker_and_queues_task(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_submit_returns_false_when_queue_full(monkeypatch: pytest.MonkeyPatch) -> None:
-    w = worker_mod.StorageWorker()
+    w = worker_mod.StorageWorker(max_queue_size=1)
     monkeypatch.setattr(worker_mod.config, "get_storage_enabled", lambda: True)
     monkeypatch.setattr(w, "start", lambda: None)
 
