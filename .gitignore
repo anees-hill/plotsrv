@@ -13,6 +13,7 @@ wheels/
 .coverage
 coverage.xml
 .vscode/settings.json
+.pytest*
 
 # For testing only
 www/*

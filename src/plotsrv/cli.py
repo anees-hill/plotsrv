@@ -18,6 +18,13 @@ from . import config, store, settings
 from .discovery import DiscoveredView, discover_views
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
 from .publisher import publish_artifact
+from .storage.backend import (
+    delete_all_snapshots,
+    delete_all_snapshots_for_view,
+    get_storage_stats,
+    list_snapshots,
+    list_stored_views,
+)
 
 WatchReadMode = Literal["head", "tail"]
 RunMode = Literal["passive", "callable"]
@@ -189,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # Watches (unchanged)
+    # Watches
     run_p.add_argument(
         "--watch",
         action=_WatchPathAction,
@@ -262,7 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Read watched file from the end (tail). Binds to most recent --watch if present; else next --watch.",
     )
 
-    # Dedicated watch subcommand (unchanged)
+    # Dedicated watch subcommand
     watch_p = sub.add_parser("watch", help="Watch a text/JSON file and publish it live")
     watch_p.add_argument("path", help="Path to a text/log/json file")
     watch_p.add_argument("--host", default="127.0.0.1")
@@ -312,12 +319,73 @@ def build_parser() -> argparse.ArgumentParser:
         "--tail", action="store_true", help="Read file from the end (tail)."
     )
 
+    store_p = sub.add_parser("store", help="Inspect or clear plotsrv stored snapshots")
+    store_p.add_argument(
+        "--name",
+        default=None,
+        help="Optional instance name used to select per-instance settings from plotsrv.yml",
+    )
+    store_p.add_argument(
+        "--config",
+        default=None,
+        help="Path to plotsrv.yml (or plotsrv.yaml). If omitted, uses ./plotsrv.yml or env PLOTSRV_CONFIG.",
+    )
+
+    store_sub = store_p.add_subparsers(dest="store_cmd", required=True)
+
+    store_stats_p = store_sub.add_parser("stats", help="Show storage statistics")
+
+    store_list_p = store_sub.add_parser("list", help="List stored views or snapshots")
+    store_list_p.add_argument(
+        "--view",
+        default=None,
+        help="View id to inspect. If omitted, lists stored views.",
+    )
+
+    store_clear_p = store_sub.add_parser("clear", help="Delete stored snapshots")
+    store_clear_p.add_argument(
+        "--view",
+        default=None,
+        help="Delete stored snapshots for one view id.",
+    )
+    store_clear_p.add_argument(
+        "--all",
+        action="store_true",
+        help="Delete all stored snapshots for all views.",
+    )
+    store_clear_p.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt.",
+    )
+
     return p
 
 
 def _die(msg: str) -> int:
     print(f"plotsrv: error: {msg}", file=sys.stderr)
     return 2
+
+
+def _fmt_bytes(n: int) -> str:
+    units = ["B", "KB", "MB", "GB", "TB"]
+    x = float(max(0, int(n)))
+    for unit in units:
+        if x < 1024.0 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(x)} {unit}"
+            return f"{x:.1f} {unit}"
+        x /= 1024.0
+    return f"{int(n)} B"
+
+
+def _confirm(prompt: str) -> bool:
+    try:
+        ans = input(f"{prompt} [y/N]: ").strip().lower()
+    except EOFError:
+        return False
+    return ans in ("y", "yes")
 
 
 def _norm_tokens(raw: list[str]) -> set[str]:
@@ -362,6 +430,65 @@ def _with_text_anchor_header(text: str, anchor: WatchReadMode) -> str:
     return "\ufeffPLOTSRV_ANCHOR=tail\n" + text
 
 
+def _post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> None:
+    url = f"http://{host}:{port}/publish"
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=2.0) as resp:
+        _ = resp.read()
+
+
+def _publish_watch_payload(
+    *,
+    host: str,
+    port: int,
+    label: str,
+    section: str,
+    kind: str,
+    artifact: Any = None,
+    artifact_kind: str | None = None,
+    table_df: Any = None,
+    update_limit_s: int | None = None,
+    force: bool = False,
+) -> None:
+    payload: dict[str, Any] = {
+        "kind": kind,
+        "label": label,
+        "section": section,
+        "update_limit_s": update_limit_s,
+        "force": force,
+        "publish_source": "watch",
+    }
+
+    if kind == "artifact":
+        payload["artifact"] = artifact
+        payload["artifact_kind"] = artifact_kind or "text"
+
+    elif kind == "table":
+        import pandas as pd
+
+        if not isinstance(table_df, pd.DataFrame):
+            raise TypeError("watch table publish expected pandas DataFrame")
+
+        payload["table"] = {
+            "columns": list(table_df.columns),
+            "rows": table_df.to_dict(orient="records"),
+            "total_rows": len(table_df),
+            "returned_rows": len(table_df),
+        }
+        payload["table_html_simple"] = None
+
+    else:
+        raise ValueError(f"Unsupported watch publish kind: {kind!r}")
+
+    _post_publish_payload(host=host, port=port, payload=payload)
+
+
 def _resolve_target_to_path_if_importable(target: str) -> str | None:
     """
     If target is importable as a module/package (and not module:function),
@@ -395,6 +522,24 @@ def _resolve_module_part(target: str) -> str:
     if ":" in target:
         return target.split(":", 1)[0].strip()
     return target.strip()
+
+
+def _get_server_hooks() -> tuple[Any, Any]:
+    """
+    Resolve server hooks in a monkeypatch-friendly way.
+
+    If tests have patched plotsrv.cli.start_server / stop_server, use those.
+    Otherwise import the real implementations lazily.
+    """
+    start = globals().get("start_server")
+    stop = globals().get("stop_server")
+
+    if callable(start) and callable(stop):
+        return start, stop
+
+    from .server import start_server as _start_server, stop_server as _stop_server
+
+    return _start_server, _stop_server
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -622,12 +767,13 @@ def _start_watch_threads(
                     else:
                         raw = _read_tail_bytes(pth, max_bytes=max_bytes)
                 except Exception as e:
-                    publish_artifact(
-                        f"[plotsrv watch] read error: {type(e).__name__}: {e}",
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=view_section,
+                        kind="artifact",
+                        artifact=f"[plotsrv watch] read error: {type(e).__name__}: {e}",
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -640,12 +786,13 @@ def _start_watch_threads(
                 if kind == "text":
                     txt = raw.decode(encoding, errors="replace")
                     txt2 = _with_text_anchor_header(txt, watch_read_mode)
-                    publish_artifact(
-                        txt2,
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=view_section,
+                        kind="artifact",
+                        artifact=txt2,
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -657,24 +804,26 @@ def _start_watch_threads(
                     try:
                         txt = raw.decode(encoding, errors="replace")
                         obj = json.loads(txt)
-                        publish_artifact(
-                            obj,
+                        _publish_watch_payload(
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
+                            kind="artifact",
+                            artifact=obj,
                             artifact_kind="json",
                             update_limit_s=update_limit_s,
                             force=force,
                         )
                     except Exception as e:
                         txt = raw.decode(encoding, errors="replace")
-                        publish_artifact(
-                            f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
+                        _publish_watch_payload(
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
+                            kind="artifact",
+                            artifact=f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
                             artifact_kind="text",
                             update_limit_s=update_limit_s,
                             force=force,
@@ -693,13 +842,13 @@ def _start_watch_threads(
                     )
 
                     if coerced.publish_kind == "table":
-                        publish_artifact(
-                            coerced.obj,
+                        _publish_watch_payload(
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
-                            artifact_kind=None,
+                            kind="table",
+                            table_df=coerced.obj,
                             update_limit_s=update_limit_s,
                             force=force,
                         )
@@ -712,24 +861,26 @@ def _start_watch_threads(
                                 str(coerced.obj), watch_read_mode
                             )
 
-                        publish_artifact(
-                            obj_to_publish,
+                        _publish_watch_payload(
                             host=host,
                             port=port,
                             label=view_label,
                             section=view_section,
+                            kind="artifact",
+                            artifact=obj_to_publish,
                             artifact_kind=ak,
                             update_limit_s=update_limit_s,
                             force=force,
                         )
                 except Exception as e:
                     txt = raw.decode(encoding, errors="replace")
-                    publish_artifact(
-                        f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=view_section,
+                        kind="artifact",
+                        artifact=f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -754,6 +905,10 @@ def _passive_register_views(
 ) -> None:
     """
     AST discovery + view registration only. Does NOT start server. Does NOT loop.
+
+    If nothing is discovered, leave the dropdown empty rather than creating
+    a fake "default" entry. The server/UI can still operate with the implicit
+    active view until a real publish arrives.
     """
     discovered_all = discover_views(scan_root)
     discovered = [
@@ -763,10 +918,6 @@ def _passive_register_views(
     ]
 
     if len(discovered) == 0:
-        store.register_view(
-            view_id="default", section="default", label="default", kind="none"
-        )
-        store.set_active_view("default")
         return
 
     for dv in discovered:
@@ -838,6 +989,86 @@ def _parse_truncate_arg(raw: str | None, *, no_truncate: bool) -> object:
         return max(1, n)
     except Exception:
         return settings._UNSET
+
+
+def _run_store_stats() -> int:
+    root = config.get_storage_root_dir()
+    stats = get_storage_stats(root_dir=root)
+
+    print(f"root_dir: {stats['root_dir']}")
+    print(f"view_count: {stats['view_count']}")
+    print(f"snapshot_count: {stats['snapshot_count']}")
+    print(f"total_bytes: {stats['total_bytes']} ({_fmt_bytes(stats['total_bytes'])})")
+    return 0
+
+
+def _run_store_list(*, view_id: str | None) -> int:
+    root = config.get_storage_root_dir()
+
+    if view_id:
+        snaps = list_snapshots(root_dir=root, view_id=view_id)
+        print(f"view_id: {view_id}")
+        print(f"snapshot_count: {len(snaps)}")
+        print("")
+
+        if not snaps:
+            print("(no snapshots)")
+            return 0
+
+        for s in snaps:
+            created = s.created_at or s.snapshot_id
+            kind = s.kind or "unknown"
+            size = _fmt_bytes(int(s.size_bytes or 0))
+            exists = "ok" if s.payload_exists else "missing"
+            print(
+                f"{s.snapshot_id}  {created}  {kind}  {size}  {exists}  {s.payload_filename}"
+            )
+        return 0
+
+    views = list_stored_views(root_dir=root)
+    print(f"root_dir: {root}")
+    print("")
+
+    if not views:
+        print("(no stored views)")
+        return 0
+
+    for v in views:
+        last = v.get("last_created_at") or "—"
+        count = int(v.get("snapshot_count") or 0)
+        size = _fmt_bytes(int(v.get("total_bytes") or 0))
+        print(f"{v['view_id']}  snapshots={count}  size={size}  last={last}")
+
+    return 0
+
+
+def _run_store_clear(*, view_id: str | None, clear_all: bool, assume_yes: bool) -> int:
+    root = config.get_storage_root_dir()
+
+    if clear_all and view_id:
+        return _die("store clear: use either --view or --all, not both")
+
+    if not clear_all and not view_id:
+        return _die("store clear: specify --view <view_id> or --all")
+
+    if clear_all:
+        if not assume_yes:
+            if not _confirm(f"Delete ALL stored snapshots under {root}?"):
+                print("Aborted.")
+                return 0
+
+        removed = delete_all_snapshots(root_dir=root)
+        print(f"Removed {removed} file(s) from {root}")
+        return 0
+
+    if not assume_yes:
+        if not _confirm(f"Delete stored snapshots for view {view_id!r}?"):
+            print("Aborted.")
+            return 0
+
+    removed = delete_all_snapshots_for_view(root_dir=root, view_id=str(view_id))
+    print(f"Removed {removed} file(s) for view {view_id!r}")
+    return 0
 
 
 def _run_subprocess_call_importpath(
@@ -1022,8 +1253,8 @@ def _run_passive_server_forever(
       - optional file watches
       - wait forever until Ctrl+C or /shutdown
     """
-    from .server import start_server, stop_server
 
+    start_server, stop_server = _get_server_hooks()
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
     _wait_for_server(host, port, timeout_s=5.0)
@@ -1073,7 +1304,8 @@ def _run_watch_mode(
     quiet: bool,
     read_mode: WatchReadMode | None,
 ) -> int:
-    from .server import start_server, stop_server
+
+    start_server, stop_server = _get_server_hooks()
 
     p = Path(path).expanduser().resolve()
     if not p.exists() or not p.is_file():
@@ -1128,12 +1360,13 @@ def _run_watch_mode(
             if kind == "text":
                 txt = raw.decode(encoding, errors="replace")
                 txt2 = _with_text_anchor_header(txt, mode)
-                publish_artifact(
-                    txt2,
+                _publish_watch_payload(
                     host=host,
                     port=port,
                     label=view_label,
                     section=section,
+                    kind="artifact",
+                    artifact=txt2,
                     artifact_kind="text",
                     update_limit_s=update_limit_s,
                     force=force,
@@ -1145,24 +1378,26 @@ def _run_watch_mode(
                 try:
                     txt = raw.decode(encoding, errors="replace")
                     obj = json.loads(txt)
-                    publish_artifact(
-                        obj,
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
+                        kind="artifact",
+                        artifact=obj,
                         artifact_kind="json",
                         update_limit_s=update_limit_s,
                         force=force,
                     )
                 except Exception as e:
                     txt = raw.decode(encoding, errors="replace")
-                    publish_artifact(
-                        f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
+                        kind="artifact",
+                        artifact=f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
                         artifact_kind="text",
                         update_limit_s=update_limit_s,
                         force=force,
@@ -1180,13 +1415,13 @@ def _run_watch_mode(
                 )
 
                 if coerced.publish_kind == "table":
-                    publish_artifact(
-                        coerced.obj,
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
-                        artifact_kind=None,
+                        kind="table",
+                        table_df=coerced.obj,
                         update_limit_s=update_limit_s,
                         force=force,
                     )
@@ -1199,12 +1434,13 @@ def _run_watch_mode(
                             str(coerced.obj), mode
                         )
 
-                    publish_artifact(
-                        obj_to_publish,
+                    _publish_watch_payload(
                         host=host,
                         port=port,
                         label=view_label,
                         section=section,
+                        kind="artifact",
+                        artifact=obj_to_publish,
                         artifact_kind=ak,
                         update_limit_s=update_limit_s,
                         force=force,
@@ -1212,12 +1448,13 @@ def _run_watch_mode(
 
             except Exception as e:
                 txt = raw.decode(encoding, errors="replace")
-                publish_artifact(
-                    f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
+                _publish_watch_payload(
                     host=host,
                     port=port,
                     label=view_label,
                     section=section,
+                    kind="artifact",
+                    artifact=f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
                     artifact_kind="text",
                     update_limit_s=update_limit_s,
                     force=force,
@@ -1249,6 +1486,19 @@ def main(argv: list[str] | None = None) -> int:
 
     if truncate_override is not settings._UNSET:
         _settings.set_runtime_context(truncate_override=truncate_override)
+
+    if args.cmd == "store":
+        if args.store_cmd == "stats":
+            return _run_store_stats()
+        if args.store_cmd == "list":
+            return _run_store_list(view_id=getattr(args, "view", None))
+        if args.store_cmd == "clear":
+            return _run_store_clear(
+                view_id=getattr(args, "view", None),
+                clear_all=bool(getattr(args, "all", False)),
+                assume_yes=bool(getattr(args, "yes", False)),
+            )
+        return _die("store: unknown subcommand")
 
     if args.cmd == "watch":
         read_mode = "head" if args.head else ("tail" if args.tail else None)
@@ -1324,7 +1574,7 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     # mode == "callable"
-    from .server import start_server, stop_server
+    start_server, stop_server = _get_server_hooks()
 
     # Start server first
     start_server(host=args.host, port=args.port, auto_on_show=False, quiet=args.quiet)

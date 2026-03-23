@@ -24,6 +24,7 @@ from fastapi import BackgroundTasks
 from .app import app
 from .backends import fig_to_png_bytes, df_to_html_simple
 from . import store, config
+from .storage.worker import stop_storage_worker
 
 # plotnine support (optional)
 try:  # pragma: no cover
@@ -260,6 +261,7 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
     if join and _SERVER_THREAD is not None:
         _SERVER_THREAD.join(timeout=timeout)
 
+    stop_storage_worker(join=False)
     _unpatch_matplotlib_show()
 
 

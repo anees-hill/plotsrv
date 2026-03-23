@@ -7,8 +7,8 @@ from typing import Any
 
 from . import settings
 
-DEFAULT_LOGO_URL = "/static/plotsrv_logo.jpg"
-DEFAULT_HEADER_TEXT = "live viewer"
+DEFAULT_LOGO_URL = "/static/plotsrv_logo.png"
+DEFAULT_HEADER_TEXT = ""
 DEFAULT_HEADER_FILL = "#ffffff"
 DEFAULT_PAGE_TITLE = "plotsrv - live view"
 DEFAULT_FAVICON_URL = "/static/plotsrv_favicon.png"
@@ -33,6 +33,11 @@ class UISettings:
     auto_refresh_option: bool
     export_image: bool
     export_table: bool
+
+    # Storage / history controls
+    show_history_controls: bool
+    show_history_banner: bool
+    show_freshness: bool
 
     # Lower UI bits
     show_statusline: bool
@@ -90,7 +95,6 @@ _UI_CACHE_KEY: tuple[str | None, str | None] | None = None
 
 
 def load_ui_settings() -> UISettings:
-    # defaults (current behaviour)
     page_title = DEFAULT_PAGE_TITLE
     favicon_url = DEFAULT_FAVICON_URL
 
@@ -98,18 +102,21 @@ def load_ui_settings() -> UISettings:
     header_text = DEFAULT_HEADER_TEXT
     header_fill = DEFAULT_HEADER_FILL
 
-    # controls
     show_view_selector = True
     terminate_process_option = True
     auto_refresh_option = True
     export_image = True
     export_table = True
+
+    show_history_controls = True
+    show_history_banner = True
+    show_freshness = True
+
     show_statusline = True
     show_help_note = True
 
     assets_dir: Path | None = None
 
-    # YAML ui-settings section (merged global + instance[name])
     ui = settings.get_section("ui-settings")
 
     if isinstance(ui.get("page_title"), str) and ui["page_title"].strip():
@@ -131,10 +138,16 @@ def load_ui_settings() -> UISettings:
     auto_refresh_option = _as_bool(ui.get("auto_refresh_option"), auto_refresh_option)
     export_image = _as_bool(ui.get("export_image"), export_image)
     export_table = _as_bool(ui.get("export_table"), export_table)
+
+    show_history_controls = _as_bool(
+        ui.get("show_history_controls"), show_history_controls
+    )
+    show_history_banner = _as_bool(ui.get("show_history_banner"), show_history_banner)
+    show_freshness = _as_bool(ui.get("show_freshness"), show_freshness)
+
     show_statusline = _as_bool(ui.get("show_statusline"), show_statusline)
     show_help_note = _as_bool(ui.get("show_help_note"), show_help_note)
 
-    # logo/favicon
     if isinstance(ui.get("logo"), str):
         logo_url, ad = _resolve_asset_url(ui["logo"], default_url=DEFAULT_LOGO_URL)
         if ad is not None:
@@ -158,6 +171,9 @@ def load_ui_settings() -> UISettings:
         auto_refresh_option=auto_refresh_option,
         export_image=export_image,
         export_table=export_table,
+        show_history_controls=show_history_controls,
+        show_history_banner=show_history_banner,
+        show_freshness=show_freshness,
         show_statusline=show_statusline,
         show_help_note=show_help_note,
         assets_dir=assets_dir,
