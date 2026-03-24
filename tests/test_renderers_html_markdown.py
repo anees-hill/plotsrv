@@ -49,6 +49,9 @@ def test_html_renderer_unsafe_iframe_mode() -> None:
 def test_html_renderer_safe_mode_without_bleach_escapes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Force renderer into safe mode regardless of default config
+    monkeypatch.setattr(html_mod.config, "get_html_sanitize", lambda: True)
+
     # Force bleach import to fail even if installed
     monkeypatch.delitem(sys.modules, "bleach", raising=False)
 
@@ -78,6 +81,9 @@ def test_html_renderer_safe_mode_without_bleach_escapes(
 def test_html_renderer_safe_mode_with_bleach_sanitizes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Force renderer into safe mode regardless of default config
+    monkeypatch.setattr(html_mod.config, "get_html_sanitize", lambda: True)
+
     # Fake bleach module
     def fake_clean(s: str, **kwargs: Any) -> str:
         # crude "sanitize": strip script/style blocks (like real flow) and remove any remaining "<script"
@@ -104,6 +110,15 @@ def test_html_renderer_safe_mode_with_bleach_sanitizes(
     assert "plotsrv-html--sanitized" in rr.html
     assert "<div>Hi</div>" in rr.html
     assert "<script" not in rr.html.lower()
+
+
+def test_html_renderer_default_mode_uses_config_default() -> None:
+    r = html_mod.HtmlRenderer()
+    rr = r.render("<div>Hi</div>", view_id="v1")
+
+    assert rr.kind == "html"
+    assert rr.meta
+    assert rr.meta["mode"] == "unsafe_iframe"
 
 
 # ----------------------------
