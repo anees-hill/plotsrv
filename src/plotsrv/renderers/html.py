@@ -120,15 +120,19 @@ class HtmlRenderer(Renderer):
           - obj: str => treated as raw HTML
           - obj: {"html": "<...>", "unsafe": bool, "sandbox": "..."} (optional)
         """
-        unsafe = False
-        sandbox = (
-            "allow-forms allow-modals allow-popups allow-downloads"  # conservative
-        )
+        sanitize = config.get_html_sanitize()
+        unsafe = not sanitize
+        sandbox = config.get_html_sandbox()
         raw_html = ""
 
         if isinstance(obj, dict):
             raw_html = str(obj.get("html") or "")
-            unsafe = bool(obj.get("unsafe") or False)
+
+            if "unsafe" in obj:
+                unsafe = bool(obj.get("unsafe"))
+            elif "sanitize" in obj:
+                unsafe = not bool(obj.get("sanitize"))
+
             if obj.get("sandbox"):
                 sandbox = str(obj.get("sandbox") or sandbox)
         else:

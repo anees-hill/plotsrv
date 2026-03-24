@@ -30,6 +30,12 @@ _DEFAULTS: dict[str, Any] = {
         "plot_bbox_tight": True,
         "plot_pad_inches": 0.10,
     },
+    "artifact-render-settings": {
+        "html_sanitize": False,
+        "html_sandbox": "allow-forms allow-modals allow-popups allow-downloads",
+        "markdown_sanitize": True,
+        "markdown_sandbox": "allow-forms allow-modals allow-popups allow-downloads",
+    },
     "view-order-settings": {},
     "truncation": {
         "text": 50_000,
@@ -304,6 +310,37 @@ def get_plot_bbox_tight() -> bool:
 def get_plot_pad_inches() -> float:
     sec = _merged_section("render-settings")
     return _as_float(sec.get("plot_pad_inches"), 0.10, min_value=0.0)
+
+
+# ---- Artifact render settings ------------------------------------------------
+
+
+def get_html_sanitize() -> bool:
+    sec = _merged_section("artifact-render-settings")
+    return _as_bool(sec.get("html_sanitize"), False)
+
+
+def get_html_sandbox() -> str:
+    sec = _merged_section("artifact-render-settings")
+    raw = sec.get("html_sandbox")
+    default = "allow-forms allow-modals allow-popups allow-downloads"
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return default
+
+
+def get_markdown_sanitize() -> bool:
+    sec = _merged_section("artifact-render-settings")
+    return _as_bool(sec.get("markdown_sanitize"), True)
+
+
+def get_markdown_sandbox() -> str:
+    sec = _merged_section("artifact-render-settings")
+    raw = sec.get("markdown_sandbox")
+    default = "allow-forms allow-modals allow-popups allow-downloads"
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    return default
 
 
 # ---- Truncation ---------------------------------------------------------------
