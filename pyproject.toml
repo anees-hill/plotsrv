@@ -1,7 +1,7 @@
 [project]
 name = "plotsrv"
 version = "0.0.6"
-description = "Lightweight monitoring of Python processes, built on FastAPI"
+description = "Cheap observability for Python processes"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
