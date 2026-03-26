@@ -368,7 +368,7 @@ def render_index(
 
     header_fill = ui.header_fill_colour or "#ffffff"
     header_text = ui.header_text or ""
-    logo_url = ui.logo_url or "/static/plotsrv_logo.png"
+    logo_url = ui.logo_url or "/static/plotsrv_title_logo.png"
 
     cfg_json = json.dumps(
         {
