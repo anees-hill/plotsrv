@@ -1,12 +1,19 @@
 [project]
 name = "plotsrv"
-version = "0.0.5"
-description = "Lightweight monitoring of Python processes, built on FastAPI"
+version = "0.0.6"
+description = "Cheap observability for Python processes"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
     "bleach>=6.3.0",
@@ -54,3 +61,9 @@ packages = ["src/plotsrv"]
 include = [
   "src/plotsrv/static/**",
 ]
+
+[[tool.uv.index]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+publish-url = "https://test.pypi.org/legacy/"
+explicit = true
