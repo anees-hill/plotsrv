@@ -19,9 +19,9 @@ except Exception:  # pragma: no cover
     pl = None  # type: ignore[assignment]
 
 import uvicorn
-from fastapi import BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 
-from .app import app
+from .app import app, require_local_request
 from .backends import fig_to_png_bytes, df_to_html_simple
 from . import store, config
 from .storage.worker import stop_storage_worker
@@ -39,7 +39,7 @@ _SERVER_THREAD: threading.Thread | None = None
 _SERVER: uvicorn.Server | None = None
 _SERVER_RUNNING: bool = False
 
-_DEFAULT_HOST: str = "0.0.0.0"
+_DEFAULT_HOST: str = "127.0.0.1"
 _DEFAULT_PORT: int = 8000
 _CURRENT_HOST: str = _DEFAULT_HOST
 _CURRENT_PORT: int = _DEFAULT_PORT
@@ -225,7 +225,7 @@ def _unpatch_matplotlib_show() -> None:
 
 def start_server(
     *,
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 8000,
     auto_on_show: bool = True,
     quiet: bool = True,

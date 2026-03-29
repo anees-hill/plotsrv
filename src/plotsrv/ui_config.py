@@ -103,7 +103,7 @@ def load_ui_settings() -> UISettings:
     header_fill = DEFAULT_HEADER_FILL
 
     show_view_selector = True
-    terminate_process_option = True
+    terminate_process_option = False
     auto_refresh_option = True
     export_image = True
     export_table = True
