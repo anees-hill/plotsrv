@@ -29,6 +29,7 @@ dependencies = [
 [dependency-groups]
 test = [
     "pytest~=9.0.1",
+    "pytest-benchmark~=5.2.3",
     "pytest-cov~=7.0.0",
     "httpx~=0.28.1",
 ]
