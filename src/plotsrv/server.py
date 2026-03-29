@@ -293,13 +293,17 @@ refresh_plot_server = refresh_view
 
 
 @app.post("/shutdown")
-def shutdown(background_tasks: BackgroundTasks) -> dict[str, str]:
+def shutdown(background_tasks: BackgroundTasks, request) -> dict[str, str]:
     """
     Shutdown endpoint triggered from the browser.
 
-    - If a CLI RunnerService is running, request it to stop cleanly.
-    - Otherwise just stop the uvicorn viewer thread.
+    Disabled by default.
     """
+    if not config.get_shutdown_enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if config.get_control_local_only():
+        require_local_request(request)
 
     def _do_shutdown() -> None:
         stopped_service = store.request_service_stop()

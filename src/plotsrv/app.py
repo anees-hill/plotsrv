@@ -2,25 +2,37 @@
 from __future__ import annotations
 
 import base64
+import ipaddress
 import time
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import store, config
 from . import html as html_mod
-from .backends import df_to_rich_sample
 from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
 from .storage.worker import enqueue_snapshot
 from .storage.backend import list_snapshots, load_snapshot
 
-app = FastAPI()
+
+def _build_app() -> FastAPI:
+    docs_enabled = config.get_docs_enabled()
+    openapi_enabled = config.get_openapi_enabled()
+
+    return FastAPI(
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if openapi_enabled else None,
+    )
+
+
+app = _build_app()
 register_default_renderers()
 
 # Static files shipped inside plotsrv package (logo, etc.)
@@ -49,6 +61,28 @@ def _ensure_assets_mount() -> None:
                 return
 
     app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
+
+def _client_ip(request: Request) -> str | None:
+    client = request.client
+    if client is None:
+        return None
+    return client.host
+
+
+def _is_loopback_ip(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def require_local_request(request: Request) -> None:
+    host = _client_ip(request)
+    if not _is_loopback_ip(host):
+        raise HTTPException(status_code=403, detail="Local access only")
 
 
 def _storage_root() -> Path:
@@ -127,10 +161,10 @@ def _render_table_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, 
 
 
 @app.get("/status")
-def status(view: str | None = None) -> dict[str, object]:
-    """
-    Status for a single view (default: active view).
-    """
+def status(request: Request, view: str | None = None) -> dict[str, object]:
+    if config.get_internal_read_local_only():
+        require_local_request(request)
+
     vid = view or store.get_active_view_id()
     s = store.get_status(view_id=vid)
     s.update(store.get_service_info())
@@ -140,10 +174,10 @@ def status(view: str | None = None) -> dict[str, object]:
 
 
 @app.get("/history")
-def get_history(view: str | None = None) -> dict[str, Any]:
-    """
-    List stored snapshots for a view, newest first.
-    """
+def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
+    if config.get_internal_read_local_only():
+        require_local_request(request)
+
     vid = view or store.get_active_view_id()
     snaps = list_snapshots(root_dir=_storage_root(), view_id=vid)
 
@@ -315,7 +349,7 @@ def export_table(
 
 
 @app.post("/publish")
-def publish(payload: dict[str, Any]) -> dict[str, Any]:
+def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     """
     Publish a plot or table into a specific view.
 
@@ -337,6 +371,9 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         "force": false                # optional bypass throttling
       }
     """
+    if config.get_control_local_only():
+        require_local_request(request)
+
     kind = str(payload.get("kind") or "").strip().lower()
     if kind not in ("plot", "table", "artifact"):
         raise HTTPException(
@@ -502,11 +539,9 @@ def index(view: str | None = None) -> HTMLResponse:
     Main HTML viewer.
 
     Supports: /?view=<view_id>
+    This is request-local only and does not mutate global active view.
     """
-    if view:
-        store.set_active_view(view)
-
-    active_view = store.get_active_view_id()
+    active_view = view or store.get_active_view_id()
     kind = store.get_kind(active_view)
 
     if store.has_artifact(view_id=active_view):
@@ -611,7 +646,10 @@ def get_artifact(
 
 
 @app.get("/views")
-def get_views() -> list[dict[str, Any]]:
+def get_views(request: Request) -> list[dict[str, Any]]:
+    if config.get_internal_read_local_only():
+        require_local_request(request)
+
     return [
         {
             "view_id": v.view_id,
