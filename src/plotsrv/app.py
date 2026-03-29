@@ -63,6 +63,50 @@ def _ensure_assets_mount() -> None:
     app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
 
+def _container_item_count(obj: Any) -> int:
+    if isinstance(obj, dict):
+        n = len(obj)
+        for v in obj.values():
+            n += _container_item_count(v)
+        return n
+    if isinstance(obj, (list, tuple, set)):
+        n = len(obj)
+        for v in obj:
+            n += _container_item_count(v)
+        return n
+    return 0
+
+
+def _validate_artifact_size(obj: Any) -> None:
+    max_text = config.get_publish_max_artifact_text_chars()
+    max_items = config.get_publish_max_json_container_items()
+
+    if isinstance(obj, str):
+        if len(obj) > max_text:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: artifact text too large (>{max_text} chars)",
+            )
+        return
+
+    if isinstance(obj, (dict, list, tuple, set)):
+        item_count = _container_item_count(obj)
+        if item_count > max_items:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: artifact JSON/container too large (>{max_items} items)",
+            )
+        return
+
+    # repr-like fallback
+    s = repr(obj)
+    if len(s) > max_text:
+        raise HTTPException(
+            status_code=413,
+            detail=f"publish: artifact representation too large (>{max_text} chars)",
+        )
+
+
 def _client_ip(request: Request) -> str | None:
     client = request.client
     if client is None:
@@ -432,6 +476,12 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
         try:
             png_bytes = base64.b64decode(b64.encode("utf-8"))
+            max_plot_bytes = config.get_publish_max_plot_bytes()
+            if len(png_bytes) > max_plot_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"publish: decoded plot too large (>{max_plot_bytes} bytes)",
+                )
         except Exception:
             raise HTTPException(
                 status_code=422, detail="publish: plot_png_b64 was not valid base64"
@@ -455,6 +505,8 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     elif kind == "artifact":
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
         artifact_obj = payload.get("artifact")
+
+        _validate_artifact_size(artifact_obj)
 
         store.set_artifact(
             obj=artifact_obj,
@@ -492,6 +544,28 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 status_code=422,
                 detail="publish: table must include columns(list) and rows(list)",
             )
+
+        max_rows = config.get_publish_max_table_rows()
+        max_cols = config.get_publish_max_table_columns()
+
+        if len(cols) > max_cols:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: table has too many columns (>{max_cols})",
+            )
+
+        if len(rows) > max_rows:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: table has too many rows (>{max_rows})",
+            )
+
+        for i, row in enumerate(rows[:50]):
+            if isinstance(row, dict) and len(row) > max_cols:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"publish: table row {i} has too many fields (>{max_cols})",
+                )
 
         total_rows = table.get("total_rows")
         returned_rows = table.get("returned_rows")

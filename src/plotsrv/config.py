@@ -65,6 +65,13 @@ _DEFAULTS: dict[str, Any] = {
         "overdue_after": None,
         "views": {},
     },
+    "publish-limits": {
+        "max_plot_bytes": 5 * 1024 * 1024,
+        "max_table_rows": 5000,
+        "max_table_columns": 200,
+        "max_artifact_text_chars": 200_000,
+        "max_json_container_items": 20_000,
+    },
 }
 
 _MAX_TABLE_ROWS_INF: int = 1_000_000_000
@@ -593,3 +600,31 @@ def get_control_local_only() -> bool:
 def get_internal_read_local_only() -> bool:
     sec = _merged_section("security-settings")
     return _as_bool(sec.get("internal_read_local_only"), True)
+
+
+# ---- Publish limits -----------------------------------------------------------
+
+
+def get_publish_max_plot_bytes() -> int:
+    sec = _merged_section("publish-limits")
+    return _as_int_or_inf(sec.get("max_plot_bytes"), 5 * 1024 * 1024, min_value=1)
+
+
+def get_publish_max_table_rows() -> int:
+    sec = _merged_section("publish-limits")
+    return _as_int_or_inf(sec.get("max_table_rows"), 5000, min_value=1)
+
+
+def get_publish_max_table_columns() -> int:
+    sec = _merged_section("publish-limits")
+    return _as_int_or_inf(sec.get("max_table_columns"), 200, min_value=1)
+
+
+def get_publish_max_artifact_text_chars() -> int:
+    sec = _merged_section("publish-limits")
+    return _as_int_or_inf(sec.get("max_artifact_text_chars"), 200_000, min_value=1)
+
+
+def get_publish_max_json_container_items() -> int:
+    sec = _merged_section("publish-limits")
+    return _as_int_or_inf(sec.get("max_json_container_items"), 20_000, min_value=1)
