@@ -268,7 +268,7 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
 @contextmanager
 def plot_session(
     *,
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 8000,
     auto_on_show: bool = True,
     quiet: bool = True,
