@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import shutil
 import ipaddress
 import time
 from pathlib import Path
@@ -40,27 +41,41 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+_ASSETS_CACHE_DIR = STATIC_DIR / "_runtime_assets"
+
 
 def _ensure_assets_mount() -> None:
     """
-    Mount /assets based on current runtime UI settings.
-
-    Lazy- so CLI args (--config/--name) are already
-    applied before we resolve paths.
+    Mount /assets using a dedicated cache directory containing only explicitly
+    configured asset files (for example logo/favicon), not their whole parents.
     """
     ui = get_ui_settings()
-    assets_dir = ui.assets_dir
-    if assets_dir is None or not assets_dir.exists():
+
+    asset_files: list[Path] = []
+    if ui.assets_dir is not None:
+        # backwards compatibility: if assets_dir is actually a file, use it
+        if ui.assets_dir.exists() and ui.assets_dir.is_file():
+            asset_files.append(ui.assets_dir)
+
+    # Rebuild cache dir
+    if not asset_files:
         return
+
+    _ASSETS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    for src in asset_files:
+        dst = _ASSETS_CACHE_DIR / src.name
+        if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
+            shutil.copy2(src, dst)
 
     existing = app.router.routes
     for route in existing:
         if getattr(route, "path", None) == "/assets":
             current_dir = getattr(getattr(route, "app", None), "directory", None)
-            if current_dir == str(assets_dir):
+            if current_dir == str(_ASSETS_CACHE_DIR):
                 return
 
-    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+    app.mount("/assets", StaticFiles(directory=str(_ASSETS_CACHE_DIR)), name="assets")
 
 
 def _container_item_count(obj: Any) -> int:
