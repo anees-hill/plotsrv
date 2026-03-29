@@ -31,10 +31,17 @@ _DEFAULTS: dict[str, Any] = {
         "plot_pad_inches": 0.10,
     },
     "artifact-render-settings": {
-        "html_sanitize": False,
-        "html_sandbox": "allow-forms allow-modals allow-popups allow-downloads",
+        "html_sanitize": True,
+        "html_sandbox": "",
         "markdown_sanitize": True,
-        "markdown_sandbox": "allow-forms allow-modals allow-popups allow-downloads",
+        "markdown_sandbox": "",
+    },
+    "security-settings": {
+        "docs_enabled": False,
+        "openapi_enabled": False,
+        "shutdown_enabled": False,
+        "control_local_only": True,
+        "internal_read_local_only": True,
     },
     "view-order-settings": {},
     "truncation": {
@@ -558,3 +565,31 @@ def get_freshness_error_after_s(view_id: str | None = None) -> int | None:
     Prefer get_freshness_overdue_after_s().
     """
     return get_freshness_overdue_after_s(view_id)
+
+
+# ---- Security settings --------------------------------------------------------
+
+
+def get_docs_enabled() -> bool:
+    sec = _merged_section("security-settings")
+    return _as_bool(sec.get("docs_enabled"), False)
+
+
+def get_openapi_enabled() -> bool:
+    sec = _merged_section("security-settings")
+    return _as_bool(sec.get("openapi_enabled"), False)
+
+
+def get_shutdown_enabled() -> bool:
+    sec = _merged_section("security-settings")
+    return _as_bool(sec.get("shutdown_enabled"), False)
+
+
+def get_control_local_only() -> bool:
+    sec = _merged_section("security-settings")
+    return _as_bool(sec.get("control_local_only"), True)
+
+
+def get_internal_read_local_only() -> bool:
+    sec = _merged_section("security-settings")
+    return _as_bool(sec.get("internal_read_local_only"), True)
