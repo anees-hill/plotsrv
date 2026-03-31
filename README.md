@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_icon_logo.png" alt="plotsrv" width="200">
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_title_logo.png" alt="plotsrv" width="520">
+  <img src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_icon_logo.png" width="200"><br>
+  <img src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_title_logo.png" width="520">
 </p>
 
 ---
@@ -14,9 +12,12 @@
 
 **Cheap observability for Python processes, with a browser UI and almost no setup.**
 
+> **Live demo:** https://demo.plotsrv.com  
+> See plotsrv rendering live plots, tables, JSON, text, and other artifacts in a real browser UI.
+
 `plotsrv` is a lightweight Python server for exposing live Python objects and on-disk files in a single browser UI. It gives you quick visibility into pipelines, experiments, batch jobs, and long-running processes without needing a full observability stack.
 
-Add a decorator to functions you want to expose, or publish artifacts directly from your code. `plotsrv` handles discovery, view registration, and object-specific rendering automatically.
+Add a decorator to functions you want to expose, or publish artifacts directly from your code. Fire up the server with a single command, and plotsrv takes care of discovery, view registration, and object-specific rendering automatically.
 
 **Key features**:
 
