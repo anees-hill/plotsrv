@@ -18,6 +18,8 @@ def reset_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store.reset()
     config.set_table_view_mode("simple")
     monkeypatch.setattr(app_mod.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(app_mod.config, "get_control_local_only", lambda: False)
+    monkeypatch.setattr(app_mod.config, "get_internal_read_local_only", lambda: False)
     yield
     store.reset()
     config.set_table_view_mode("simple")
@@ -352,7 +354,7 @@ def test_publish_sets_active_view_when_current_active_unknown(
     assert store.get_active_view_id() == "ops:log"
 
 
-def test_index_with_view_param_sets_active_view_and_artifact_kind(
+def test_index_with_view_param_is_request_local_and_does_not_set_active_view(
     client: TestClient,
 ) -> None:
     vid = store.register_view(section="ops", label="log", kind="none")
@@ -360,9 +362,11 @@ def test_index_with_view_param_sets_active_view_and_artifact_kind(
         obj="hello", kind="text", section="ops", label="log", view_id=vid
     )
 
+    store.set_active_view("default")
+
     r = client.get(f"/?view={vid}")
     assert r.status_code == 200
-    assert store.get_active_view_id() == vid
+    assert store.get_active_view_id() == "default"
 
 
 def test_index_table_simple_lookuperror_falls_back_to_none(

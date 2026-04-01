@@ -79,7 +79,7 @@ ui-settings:
     s = ui.load_ui_settings()
     assert s.logo_url == f"/assets/{logo.name}"
     assert s.favicon_url == f"/assets/{favicon.name}"
-    assert s.assets_dir == tmp_path.resolve()
+    assert s.assets_dir == logo.resolve()
 
 
 def test_load_ui_settings_bad_logo_path_falls_back_to_default(

@@ -2,25 +2,38 @@
 from __future__ import annotations
 
 import base64
+import shutil
+import ipaddress
 import time
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import store, config
 from . import html as html_mod
-from .backends import df_to_rich_sample
 from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
 from .storage.worker import enqueue_snapshot
 from .storage.backend import list_snapshots, load_snapshot
 
-app = FastAPI()
+
+def _build_app() -> FastAPI:
+    docs_enabled = config.get_docs_enabled()
+    openapi_enabled = config.get_openapi_enabled()
+
+    return FastAPI(
+        docs_url="/docs" if docs_enabled else None,
+        redoc_url="/redoc" if docs_enabled else None,
+        openapi_url="/openapi.json" if openapi_enabled else None,
+    )
+
+
+app = _build_app()
 register_default_renderers()
 
 # Static files shipped inside plotsrv package (logo, etc.)
@@ -28,27 +41,107 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+_ASSETS_CACHE_DIR = STATIC_DIR / "_runtime_assets"
+
 
 def _ensure_assets_mount() -> None:
     """
-    Mount /assets based on current runtime UI settings.
-
-    Lazy- so CLI args (--config/--name) are already
-    applied before we resolve paths.
+    Mount /assets using a dedicated cache directory containing only explicitly
+    configured asset files (for example logo/favicon), not their whole parents.
     """
     ui = get_ui_settings()
-    assets_dir = ui.assets_dir
-    if assets_dir is None or not assets_dir.exists():
+
+    asset_files: list[Path] = []
+    if ui.assets_dir is not None:
+        # backwards compatibility: if assets_dir is actually a file, use it
+        if ui.assets_dir.exists() and ui.assets_dir.is_file():
+            asset_files.append(ui.assets_dir)
+
+    # Rebuild cache dir
+    if not asset_files:
         return
+
+    _ASSETS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    for src in asset_files:
+        dst = _ASSETS_CACHE_DIR / src.name
+        if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
+            shutil.copy2(src, dst)
 
     existing = app.router.routes
     for route in existing:
         if getattr(route, "path", None) == "/assets":
             current_dir = getattr(getattr(route, "app", None), "directory", None)
-            if current_dir == str(assets_dir):
+            if current_dir == str(_ASSETS_CACHE_DIR):
                 return
 
-    app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+    app.mount("/assets", StaticFiles(directory=str(_ASSETS_CACHE_DIR)), name="assets")
+
+
+def _container_item_count(obj: Any) -> int:
+    if isinstance(obj, dict):
+        n = len(obj)
+        for v in obj.values():
+            n += _container_item_count(v)
+        return n
+    if isinstance(obj, (list, tuple, set)):
+        n = len(obj)
+        for v in obj:
+            n += _container_item_count(v)
+        return n
+    return 0
+
+
+def _validate_artifact_size(obj: Any) -> None:
+    max_text = config.get_publish_max_artifact_text_chars()
+    max_items = config.get_publish_max_json_container_items()
+
+    if isinstance(obj, str):
+        if len(obj) > max_text:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: artifact text too large (>{max_text} chars)",
+            )
+        return
+
+    if isinstance(obj, (dict, list, tuple, set)):
+        item_count = _container_item_count(obj)
+        if item_count > max_items:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: artifact JSON/container too large (>{max_items} items)",
+            )
+        return
+
+    # repr-like fallback
+    s = repr(obj)
+    if len(s) > max_text:
+        raise HTTPException(
+            status_code=413,
+            detail=f"publish: artifact representation too large (>{max_text} chars)",
+        )
+
+
+def _client_ip(request: Request) -> str | None:
+    client = request.client
+    if client is None:
+        return None
+    return client.host
+
+
+def _is_loopback_ip(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        return ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        return False
+
+
+def require_local_request(request: Request) -> None:
+    host = _client_ip(request)
+    if not _is_loopback_ip(host):
+        raise HTTPException(status_code=403, detail="Local access only")
 
 
 def _storage_root() -> Path:
@@ -127,10 +220,10 @@ def _render_table_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, 
 
 
 @app.get("/status")
-def status(view: str | None = None) -> dict[str, object]:
-    """
-    Status for a single view (default: active view).
-    """
+def status(request: Request, view: str | None = None) -> dict[str, object]:
+    if config.get_internal_read_local_only():
+        require_local_request(request)
+
     vid = view or store.get_active_view_id()
     s = store.get_status(view_id=vid)
     s.update(store.get_service_info())
@@ -140,10 +233,10 @@ def status(view: str | None = None) -> dict[str, object]:
 
 
 @app.get("/history")
-def get_history(view: str | None = None) -> dict[str, Any]:
-    """
-    List stored snapshots for a view, newest first.
-    """
+def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
+    if config.get_internal_read_local_only():
+        require_local_request(request)
+
     vid = view or store.get_active_view_id()
     snaps = list_snapshots(root_dir=_storage_root(), view_id=vid)
 
@@ -315,7 +408,7 @@ def export_table(
 
 
 @app.post("/publish")
-def publish(payload: dict[str, Any]) -> dict[str, Any]:
+def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     """
     Publish a plot or table into a specific view.
 
@@ -337,6 +430,9 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
         "force": false                # optional bypass throttling
       }
     """
+    if config.get_control_local_only():
+        require_local_request(request)
+
     kind = str(payload.get("kind") or "").strip().lower()
     if kind not in ("plot", "table", "artifact"):
         raise HTTPException(
@@ -395,6 +491,12 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
 
         try:
             png_bytes = base64.b64decode(b64.encode("utf-8"))
+            max_plot_bytes = config.get_publish_max_plot_bytes()
+            if len(png_bytes) > max_plot_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"publish: decoded plot too large (>{max_plot_bytes} bytes)",
+                )
         except Exception:
             raise HTTPException(
                 status_code=422, detail="publish: plot_png_b64 was not valid base64"
@@ -418,6 +520,8 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
     elif kind == "artifact":
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
         artifact_obj = payload.get("artifact")
+
+        _validate_artifact_size(artifact_obj)
 
         store.set_artifact(
             obj=artifact_obj,
@@ -455,6 +559,28 @@ def publish(payload: dict[str, Any]) -> dict[str, Any]:
                 status_code=422,
                 detail="publish: table must include columns(list) and rows(list)",
             )
+
+        max_rows = config.get_publish_max_table_rows()
+        max_cols = config.get_publish_max_table_columns()
+
+        if len(cols) > max_cols:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: table has too many columns (>{max_cols})",
+            )
+
+        if len(rows) > max_rows:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: table has too many rows (>{max_rows})",
+            )
+
+        for i, row in enumerate(rows[:50]):
+            if isinstance(row, dict) and len(row) > max_cols:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"publish: table row {i} has too many fields (>{max_cols})",
+                )
 
         total_rows = table.get("total_rows")
         returned_rows = table.get("returned_rows")
@@ -502,11 +628,9 @@ def index(view: str | None = None) -> HTMLResponse:
     Main HTML viewer.
 
     Supports: /?view=<view_id>
+    This is request-local only and does not mutate global active view.
     """
-    if view:
-        store.set_active_view(view)
-
-    active_view = store.get_active_view_id()
+    active_view = view or store.get_active_view_id()
     kind = store.get_kind(active_view)
 
     if store.has_artifact(view_id=active_view):
@@ -611,7 +735,10 @@ def get_artifact(
 
 
 @app.get("/views")
-def get_views() -> list[dict[str, Any]]:
+def get_views(request: Request) -> list[dict[str, Any]]:
+    if config.get_internal_read_local_only():
+        require_local_request(request)
+
     return [
         {
             "view_id": v.view_id,
