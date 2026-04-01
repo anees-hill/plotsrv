@@ -118,7 +118,7 @@ def test_html_renderer_default_mode_uses_config_default() -> None:
 
     assert rr.kind == "html"
     assert rr.meta
-    assert rr.meta["mode"] == "unsafe_iframe"
+    assert rr.meta["mode"] == "sanitized"
 
 
 # ----------------------------
