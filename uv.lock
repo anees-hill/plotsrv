@@ -895,7 +895,7 @@ wheels = [
 
 [[package]]
 name = "plotsrv"
-version = "0.0.6"
+version = "0.0.7"
 source = { editable = "." }
 dependencies = [
     { name = "bleach" },
@@ -923,27 +923,27 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "bleach", specifier = "~=6.3.0" },
-    { name = "fastapi", specifier = "~=0.121.3" },
-    { name = "markdown", specifier = "~=3.10.2" },
-    { name = "matplotlib", specifier = "~=3.10.7" },
-    { name = "plotnine", specifier = "~=0.15.1" },
-    { name = "pyyaml", specifier = "~=6.0.3" },
-    { name = "requests", specifier = "~=2.32.5" },
-    { name = "uvicorn", specifier = "~=0.38.0" },
+    { name = "bleach", specifier = ">=6.0" },
+    { name = "fastapi", specifier = ">=0.111,<1" },
+    { name = "markdown", specifier = ">=3.6,<4" },
+    { name = "matplotlib", specifier = ">=3.8,<4" },
+    { name = "plotnine", specifier = ">=0.14" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "requests", specifier = ">=2.31,<3" },
+    { name = "uvicorn", specifier = ">=0.30,<1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "polars-lts-cpu", specifier = "~=1.33.1" },
-    { name = "pyarrow", specifier = "~=20.0.0" },
-    { name = "seaborn", specifier = "~=0.13.2" },
+    { name = "polars-lts-cpu", specifier = ">=1.33,<2" },
+    { name = "pyarrow", specifier = ">=20,<21" },
+    { name = "seaborn", specifier = ">=0.13,<1" },
 ]
 test = [
-    { name = "httpx", specifier = "~=0.28.1" },
-    { name = "pytest", specifier = "~=9.0.1" },
-    { name = "pytest-benchmark", specifier = "~=5.2.3" },
-    { name = "pytest-cov", specifier = "~=7.0.0" },
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "pytest", specifier = ">=9,<10" },
+    { name = "pytest-benchmark", specifier = ">=5,<6" },
+    { name = "pytest-cov", specifier = ">=7,<8" },
 ]
 
 [[package]]
