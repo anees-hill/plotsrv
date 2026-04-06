@@ -221,7 +221,7 @@ def _render_table_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, 
 
 @app.get("/status")
 def status(request: Request, view: str | None = None) -> dict[str, object]:
-    if config.get_internal_read_local_only():
+    if config.get_status_local_only():
         require_local_request(request)
 
     vid = view or store.get_active_view_id()
@@ -234,7 +234,7 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
 
 @app.get("/history")
 def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
-    if config.get_internal_read_local_only():
+    if config.get_history_local_only():
         require_local_request(request)
 
     vid = view or store.get_active_view_id()
@@ -491,15 +491,16 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
         try:
             png_bytes = base64.b64decode(b64.encode("utf-8"))
-            max_plot_bytes = config.get_publish_max_plot_bytes()
-            if len(png_bytes) > max_plot_bytes:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"publish: decoded plot too large (>{max_plot_bytes} bytes)",
-                )
         except Exception:
             raise HTTPException(
                 status_code=422, detail="publish: plot_png_b64 was not valid base64"
+            )
+
+        max_plot_bytes = config.get_publish_max_plot_bytes()
+        if len(png_bytes) > max_plot_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"publish: decoded plot too large (>{max_plot_bytes} bytes)",
             )
 
         store.set_plot(png_bytes, view_id=view_id)
@@ -736,7 +737,7 @@ def get_artifact(
 
 @app.get("/views")
 def get_views(request: Request) -> list[dict[str, Any]]:
-    if config.get_internal_read_local_only():
+    if config.get_views_local_only():
         require_local_request(request)
 
     return [

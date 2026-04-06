@@ -31,7 +31,7 @@ _DEFAULTS: dict[str, Any] = {
         "plot_pad_inches": 0.10,
     },
     "artifact-render-settings": {
-        "html_sanitize": True,
+        "html_sanitize": False,
         "html_sandbox": "",
         "markdown_sanitize": True,
         "markdown_sandbox": "",
@@ -41,7 +41,9 @@ _DEFAULTS: dict[str, Any] = {
         "openapi_enabled": False,
         "shutdown_enabled": False,
         "control_local_only": True,
-        "internal_read_local_only": True,
+        "status_local_only": False,
+        "history_local_only": False,
+        "views_local_only": True,
     },
     "view-order-settings": {},
     "truncation": {
@@ -337,8 +339,8 @@ def get_html_sanitize() -> bool:
 def get_html_sandbox() -> str:
     sec = _merged_section("artifact-render-settings")
     raw = sec.get("html_sandbox")
-    default = "allow-forms allow-modals allow-popups allow-downloads"
-    if isinstance(raw, str) and raw.strip():
+    default = ""
+    if isinstance(raw, str):
         return raw.strip()
     return default
 
@@ -351,8 +353,8 @@ def get_markdown_sanitize() -> bool:
 def get_markdown_sandbox() -> str:
     sec = _merged_section("artifact-render-settings")
     raw = sec.get("markdown_sandbox")
-    default = "allow-forms allow-modals allow-popups allow-downloads"
-    if isinstance(raw, str) and raw.strip():
+    default = ""
+    if isinstance(raw, str):
         return raw.strip()
     return default
 
@@ -597,9 +599,19 @@ def get_control_local_only() -> bool:
     return _as_bool(sec.get("control_local_only"), True)
 
 
-def get_internal_read_local_only() -> bool:
+def get_status_local_only() -> bool:
     sec = _merged_section("security-settings")
-    return _as_bool(sec.get("internal_read_local_only"), True)
+    return _as_bool(sec.get("status_local_only"), False)
+
+
+def get_history_local_only() -> bool:
+    sec = _merged_section("security-settings")
+    return _as_bool(sec.get("history_local_only"), False)
+
+
+def get_views_local_only() -> bool:
+    sec = _merged_section("security-settings")
+    return _as_bool(sec.get("views_local_only"), True)
 
 
 # ---- Publish limits -----------------------------------------------------------
