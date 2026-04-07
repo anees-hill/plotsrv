@@ -13,7 +13,9 @@ def reset_state(monkeypatch: pytest.MonkeyPatch) -> None:
     store.reset()
     config.set_table_view_mode("simple")
     monkeypatch.setattr(config, "get_control_local_only", lambda: False)
-    monkeypatch.setattr(config, "get_internal_read_local_only", lambda: False)
+    monkeypatch.setattr(config, "get_status_local_only", lambda: False)
+    monkeypatch.setattr(config, "get_history_local_only", lambda: False)
+    monkeypatch.setattr(config, "get_views_local_only", lambda: False)
     yield
     store.reset()
     config.set_table_view_mode("simple")
