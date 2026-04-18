@@ -11,8 +11,8 @@
   const core = window.PLOTSRV.core;
 
   core.storageKeys = {
-    autoRefreshEnabled: "plotsrv:v1:auto_refresh_enabled",
-    autoRefreshInterval: "plotsrv:v1:auto_refresh_interval",
+    autoRefreshEnabled: "plotsrv:v2:auto_refresh_enabled",
+    autoRefreshInterval: "plotsrv:v2:auto_refresh_interval",
     textWrapEnabled: "plotsrv:v1:text_wrap_enabled",
     jsonFindQuery: "plotsrv:v1:json_find_query",
   };
