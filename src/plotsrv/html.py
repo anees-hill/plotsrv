@@ -373,6 +373,9 @@ def render_index(
     cfg_json = json.dumps(
         {
             "active_view_id": active_view_id,
+            "kind": kind,
+            "table_view_mode": table_view_mode,
+            "max_table_rows_simple": max_table_rows_simple,
             "max_table_rows_rich": max_table_rows_rich,
         },
         ensure_ascii=False,
@@ -390,8 +393,21 @@ def render_index(
       <script>
         window.PLOTSRV_CONFIG = {cfg_json};
       </script>
-      <script src="/static/plotsrv.js" defer></script>
       {tabulator_head}
+      <script src="/static/js/core/dom.js" defer></script>
+      <script src="/static/js/core/state.js" defer></script>
+      <script src="/static/js/core/storage.js" defer></script>
+      <script src="/static/js/core/history.js" defer></script>
+      <script src="/static/js/core/status.js" defer></script>
+      <script src="/static/js/core/auto_refresh.js" defer></script>
+      <script src="/static/js/core/view_selector.js" defer></script>
+      <script src="/static/js/renderers/artifact.js" defer></script>
+      <script src="/static/js/renderers/plot.js" defer></script>
+      <script src="/static/js/renderers/table.js" defer></script>
+      <script src="/static/js/renderers/json.js" defer></script>
+      <script src="/static/js/renderers/text.js" defer></script>
+      <script src="/static/js/renderers/code.js" defer></script>
+      <script src="/static/js/core/app.js" defer></script>
     </head>
     <body class="ps-body"
           data-kind="{kind}"
