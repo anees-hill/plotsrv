@@ -740,13 +740,16 @@ def get_views(request: Request) -> list[dict[str, Any]]:
     if config.get_views_local_only():
         require_local_request(request)
 
-    return [
-        {
-            "view_id": v.view_id,
-            "section": v.section,
-            "label": v.label,
-            "kind": v.kind,
-            "icon_key": v.icon_key,
-        }
-        for v in store.list_views()
-    ]
+    out: list[dict[str, Any]] = []
+    for v in store.list_views():
+        out.append(
+            {
+                "view_id": v.view_id,
+                "section": v.section,
+                "label": v.label,
+                "kind": v.kind,
+                "icon_key": v.icon_key,
+                "freshness": store.get_freshness(view_id=v.view_id),
+            }
+        )
+    return out
