@@ -1,0 +1,36 @@
+.plotsrv-markdown {
+  width: 100%;
+  line-height: 1.55;
+}
+
+.plotsrv-markdown pre {
+  overflow: auto;
+  max-height: 600px;
+  padding: 0.75rem;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.plotsrv-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.plotsrv-markdown table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.plotsrv-markdown th,
+.plotsrv-markdown td {
+  border: 1px solid #e8e8e8;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.artifact-warn {
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--danger-text);
+}

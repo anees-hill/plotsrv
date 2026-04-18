@@ -1,0 +1,16 @@
+.ps-code {
+  width: 100%;
+  margin: 0;
+  overflow: auto;
+  max-height: 600px;
+  padding: 0.75rem;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.ps-code code {
+  white-space: pre;
+}

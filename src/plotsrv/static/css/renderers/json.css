@@ -1,0 +1,45 @@
+.json-tree {
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.json-children {
+  margin: 0.35rem 0 0.35rem 1.25rem;
+  padding: 0;
+}
+
+.json-children > li {
+  list-style: none;
+  margin: 0.15rem 0;
+}
+
+.json-summaryline {
+  cursor: pointer;
+}
+
+.json-key {
+  font-weight: 600;
+}
+
+.json-val {
+  color: #333;
+}
+
+.json-summary {
+  color: #666;
+}
+
+.json-badge {
+  margin-right: 0.25rem;
+}
+
+.json-hit {
+  outline: 2px solid rgba(121, 36, 36, 0.25);
+  border-radius: 4px;
+}
+
+.json-hit-current {
+  outline: 2px solid rgba(121, 36, 36, 0.65);
+  background: rgba(255, 236, 236, 0.6);
+  border-radius: 4px;
+}

@@ -1,0 +1,47 @@
+.ps-traceback {
+  width: 100%;
+}
+
+.ps-traceback__header {
+  margin-bottom: 0.75rem;
+  font-size: 0.95rem;
+}
+
+.ps-traceback__frames {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ps-traceback__frame {
+  border: 1px solid #eee;
+  border-radius: 6px;
+  background: #fff;
+  padding: 0.25rem 0.5rem;
+}
+
+.ps-traceback__summary {
+  cursor: pointer;
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.ps-traceback__func {
+  font-weight: 600;
+}
+
+.ps-traceback__where {
+  color: var(--muted);
+}
+
+.ps-traceback__code {
+  margin: 0.5rem 0 0;
+  overflow: auto;
+  max-height: 400px;
+  padding: 0.75rem;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  background: #fafafa;
+  line-height: 1.4;
+}

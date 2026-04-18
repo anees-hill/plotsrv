@@ -1,0 +1,11 @@
+#plot,
+.ps-plot {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.plot-frame--plot {
+  align-items: center;
+  justify-content: center;
+}

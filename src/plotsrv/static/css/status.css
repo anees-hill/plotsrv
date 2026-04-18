@@ -1,0 +1,73 @@
+.note,
+.ps-note {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ps-statusline {
+  display: block;
+}
+
+.ps-statusline__item {
+  white-space: nowrap;
+}
+
+.ps-statusline__error {
+  white-space: nowrap;
+}
+
+/* History */
+.ps-history-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--history-border);
+  border-radius: 8px;
+  background: var(--history-bg);
+}
+
+.ps-history-banner__main {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.ps-history-banner__text {
+  font-size: 0.9rem;
+  color: var(--history-text);
+}
+
+.ps-is-history .ps-history-banner {
+  display: flex;
+}
+
+.ps-history-banner[hidden] {
+  display: none !important;
+}
+
+.ps-history option[disabled] {
+  color: #888;
+}
+
+/* Disabled auto-refresh while historical */
+.ps-disabled-control {
+  opacity: 0.6;
+  pointer-events: none;
+}

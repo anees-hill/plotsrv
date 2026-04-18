@@ -1,0 +1,30 @@
+.plot-frame--table {
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+.ps-table-scroll {
+  width: 100%;
+}
+
+.ps-table--simple table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.ps-table--simple th,
+.ps-table--simple td {
+  border: 1px solid #e8e8e8;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.9rem;
+}
+
+.ps-table--simple th {
+  position: sticky;
+  top: 0;
+  background: #fafafa;
+  z-index: 1;
+}

@@ -1,0 +1,18 @@
+.plotsrv-pre {
+  width: 100%;
+  margin: 0;
+  overflow: auto;
+  max-height: 600px;
+  padding: 0.5rem;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  background: #fff;
+  white-space: pre;
+  font-size: 0.85rem;
+  line-height: 1.35;
+}
+
+.plotsrv-pre--wrap {
+  white-space: pre-wrap;
+  word-break: break-word;
+}

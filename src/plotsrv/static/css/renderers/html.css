@@ -1,0 +1,22 @@
+.plotsrv-html-iframe-wrap {
+  width: 100%;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.plotsrv-html-iframe {
+  width: 100%;
+  height: 600px;
+  border: 0;
+  display: block;
+}
+
+.plotsrv-html {
+  width: 100%;
+}
+
+.plotsrv-html--escaped {
+  width: 100%;
+}
