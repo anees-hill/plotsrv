@@ -44,26 +44,24 @@ def render_index(
 "https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"
 ></script>
         """
+
     statusline_html = ""
     if ui.show_statusline:
         freshness_html = ""
         if ui.show_freshness:
             freshness_html = """
               &nbsp;|&nbsp;
-              <span class="ps-statusline__item"><strong>Freshness:</strong> <span id="status-freshness">—</span></span>
+              <span class="ps-statusline__item">
+                <strong>Freshness:</strong> <span id="status-freshness">—</span>
+              </span>
             """
 
         statusline_html = f"""
-        <div class=
-"note ps-note ps-statusline"
- id="statusline">
-          <span class="ps-statusline__item"><strong>Last updated:</strong> <span id="status-updated">—</span> <span id="status-updated-ago"></span></span>
-          &nbsp;|&nbsp;
-          <span class="ps-statusline__item"><strong>Last run time:</strong> <span id="status-duration">—</span></span>
-          &nbsp;|&nbsp;
-          <span class="ps-statusline__item"><strong>Mode:</strong> <span id="status-mode">—</span></span>
-          &nbsp;|&nbsp;
-          <span class="ps-statusline__item"><strong>Server refresh:</strong> <span id="status-srv-refresh">—</span></span>
+        <div class="note ps-note ps-statusline" id="statusline">
+          <span class="ps-statusline__item">
+            <strong>Last updated:</strong> <span id="status-updated">—</span>
+            <span id="status-updated-ago"></span>
+          </span>
           {freshness_html}
           <span id="status-error-wrap" class="ps-statusline__error" style="display:none;">
             &nbsp;|&nbsp;
@@ -73,32 +71,35 @@ def render_index(
         </div>
         """
 
+    def _refresh_control_html(action: str) -> str:
+        return (
+            f'<button type="button" class="ps-btn" onclick="{action}">Refresh</button>'
+        )
+
     def _terminate_button_html() -> str:
         if not ui.terminate_process_option:
             return ""
         return """
-          <button type="button" class="danger ps-btn ps-btn--danger" onclick="terminateServer()">Terminate plotsrv server</button>
+          <button type="button" class="ps-btn ps-btn--danger" onclick="terminateServer()">Terminate plotsrv server</button>
         """
 
     def _auto_refresh_controls_html() -> str:
         if not ui.auto_refresh_option:
             return ""
         return """
-            <label class="toggle ps-toggle">
-              <input id="auto-refresh-toggle" type="checkbox" />
-              <span>Auto-refresh</span>
-            </label>
-
-            <label class="interval ps-interval">
-              <span>Every</span>
-              <select id="auto-refresh-interval" class="ps-select">
-                <option value="2">2s</option>
-                <option value="5" selected>5s</option>
-                <option value="10">10s</option>
-                <option value="30">30s</option>
-                <option value="60">60s</option>
-              </select>
-            </label>
+          <label class="ps-auto-refresh">
+            <span>Auto-refresh</span>
+            <select id="auto-refresh-select" class="ps-select">
+              <option value="off" selected>Off</option>
+              <option value="2">2s</option>
+              <option value="5">5s</option>
+              <option value="10">10s</option>
+              <option value="30">30s</option>
+              <option value="60">60s</option>
+              <option value="120">120s</option>
+              <option value="300">300s</option>
+            </select>
+          </label>
         """
 
     def _history_controls_html() -> str:
@@ -111,20 +112,6 @@ def render_index(
               <option value="">Loading…</option>
             </select>
           </label>
-        """
-
-    history_banner_html = ""
-    if ui.show_history_banner:
-        history_banner_html = """
-        <div id="history-banner" class="ps-history-banner" hidden>
-          <div class="ps-history-banner__main">
-            <span class="badge">HISTORICAL</span>
-            <span id="history-banner-text" class="ps-history-banner__text">
-              Viewing a stored snapshot.
-            </span>
-          </div>
-          <button type="button" class="ps-btn" onclick="returnToLive()">Back to live</button>
-        </div>
         """
 
     LOGO_BY_KEY = {
@@ -204,167 +191,128 @@ def render_index(
           </div>
         """
 
-    if kind == "table":
-        table_controls = """
-          <button type="button" class="ps-btn" onclick="window.location.reload()">Refresh</button>
+    def _footer_html(*, controls_html: str) -> str:
+        return f"""
+          <div class="ps-footer-controls">
+            {controls_html}
+          </div>
+
+          <div class="ps-footer-inline">
+            <div class="note ps-note" id="status"></div>
+          </div>
+
+          {statusline_html}
         """
 
-        if ui.export_table:
-            table_controls += """
-          <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
-            """
+    content_html = ""
+    footer_html = ""
 
-        table_controls += _history_controls_html()
-        table_controls += _auto_refresh_controls_html()
-        table_controls += _terminate_button_html()
+    if kind == "table":
+        controls_html = (
+            _refresh_control_html("window.location.reload()")
+            + (
+                """
+                <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
+                """
+                if ui.export_table
+                else ""
+            )
+            + _history_controls_html()
+            + _auto_refresh_controls_html()
+            + _terminate_button_html()
+        )
 
         if table_view_mode == "simple" and table_html_simple is not None:
-            main_content = f"""
-              {history_banner_html}
-
+            content_html = f"""
               <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
                 <div class="table-scroll ps-table-scroll ps-table--simple">
                   {table_html_simple}
                 </div>
               </div>
-
-              <div class="controls ps-controls">
-                {table_controls}
-              </div>
-
-              {statusline_html}
-
-              <div class="note ps-note" id="status">
-                Showing up to {max_table_rows_simple} rows (simple table mode).
-              </div>
             """
         else:
-            main_content = f"""
-              {history_banner_html}
-
+            content_html = """
               <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
                 <div id="table-grid" class="table-grid ps-tablegrid ps-table--rich"></div>
               </div>
-
-              <div class="controls ps-controls">
-                {table_controls}
-              </div>
-
-              {statusline_html}
-
-              <div class="note ps-note" id="status">
-                Showing up to {max_table_rows_rich} rows (rich table mode).
-              </div>
             """
+
+        footer_html = _footer_html(controls_html=controls_html)
 
     elif kind == "plot":
-        plot_controls = """
-            <button type="button" class="ps-btn" onclick="refreshPlot()">Refresh</button>
-        """
+        controls_html = (
+            _refresh_control_html("refreshPlot()")
+            + (
+                """
+                <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
+                """
+                if ui.export_image
+                else ""
+            )
+            + _history_controls_html()
+            + _auto_refresh_controls_html()
+            + _terminate_button_html()
+        )
 
-        if ui.export_image:
-            plot_controls += """
-            <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
-            """
-
-        plot_controls += _history_controls_html()
-        plot_controls += _auto_refresh_controls_html()
-        plot_controls += _terminate_button_html()
-
-        help_note = ""
-        if ui.show_help_note:
-            help_note = """
-              <div class="note ps-note" id="status">
-                If no plot has been published yet, you may see a broken image until your code calls
-                <code>refresh_view</code> or <code>plt.show()</code>.
-              </div>
-            """
-
-        main_content = f"""
-          {history_banner_html}
-
+        content_html = f"""
           <div class="plot-frame ps-frame ps-frame--plot plot-frame--plot">
             <img id="plot" class="ps-plot" src="/plot?view={active_view_id}" alt="Current plot (or none yet)" />
           </div>
-
-          <div class="controls ps-controls">
-            {plot_controls}
-          </div>
-
-          {statusline_html}
-
-          {help_note}
         """
+        footer_html = _footer_html(controls_html=controls_html)
 
     elif kind == "artifact":
-        artifact_controls = """
-            <button type="button" class="ps-btn" onclick="refreshArtifact()">Refresh</button>
-        """
+        controls_html = (
+            _refresh_control_html("refreshArtifact()")
+            + (
+                """
+                <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
+                """
+                if ui.export_image
+                else ""
+            )
+            + (
+                """
+                <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
+                """
+                if ui.export_table
+                else ""
+            )
+            + _history_controls_html()
+            + _auto_refresh_controls_html()
+            + _terminate_button_html()
+        )
 
-        if ui.export_image:
-            artifact_controls += """
-            <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
-            """
-
-        if ui.export_table:
-            artifact_controls += """
-            <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
-            """
-
-        artifact_controls += _history_controls_html()
-        artifact_controls += _auto_refresh_controls_html()
-        artifact_controls += _terminate_button_html()
-
-        main_content = """
-          {history_banner_html}
-
+        content_html = """
           <div class="plot-frame ps-frame ps-frame--artifact plot-frame--artifact">
-            <div class="ps-artifact" style="width:100%;">
-              <div id="artifact-topline" class="ps-artifact__meta" style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.5rem;">
-                <span id="artifact-kind" class="note ps-note" style="margin:0;"></span>
-                <span id="artifact-truncation" class="note ps-note" style="margin:0;"></span>
+            <div class="ps-artifact">
+              <div id="artifact-topline" class="ps-artifact__meta">
+                <span id="artifact-kind" class="note ps-note"></span>
+                <span id="artifact-truncation" class="note ps-note"></span>
               </div>
               <div id="artifact-root" class="ps-artifact__content"></div>
             </div>
           </div>
-
-          <div class="controls ps-controls">
-            {artifact_controls}
-          </div>
-
-          {statusline_html}
-
-          <div class="note ps-note" id="status"></div>
-        """.format(
-            history_banner_html=history_banner_html,
-            artifact_controls=artifact_controls,
-            statusline_html=statusline_html,
-        )
+        """
+        footer_html = _footer_html(controls_html=controls_html)
 
     else:
-        controls = (
-            _history_controls_html()
+        controls_html = (
+            _refresh_control_html("window.location.reload()")
+            + _history_controls_html()
             + _auto_refresh_controls_html()
             + _terminate_button_html()
         )
-        main_content = f"""
-          {history_banner_html}
 
+        content_html = """
           <div class="plot-frame empty ps-frame ps-frame--empty plot-frame--empty">
             <div class="empty-state ps-empty">
               No plot or table has been published yet.<br />
               Call <code>refresh_view(fig)</code> or <code>refresh_view(df)</code> in Python.
             </div>
           </div>
-
-          <div class="controls ps-controls">
-            {controls}
-          </div>
-
-          {statusline_html}
-
-          <div class="note ps-note" id="status"></div>
         """
+        footer_html = _footer_html(controls_html=controls_html)
 
     header_fill = ui.header_fill_colour or "#ffffff"
     header_text = ui.header_text or ""
@@ -419,14 +367,23 @@ def render_index(
           <div class="header-title ps-header__title">{header_text}</div>
         </div>
 
+        <div class="header-centre ps-header__centre">
+          <div id="header-history" class="ps-header__history" hidden>
+            <span id="header-history-label" class="ps-header__history-label">Historical mode</span>
+            <button type="button" class="ps-header__linkbtn" onclick="returnToLive()">Return to Live</button>
+          </div>
+        </div>
+
         <div class="header-right ps-header__right">
+          <span id="header-freshness-dot" class="ps-header__freshness-dot" hidden aria-hidden="true"></span>
           {dropdown_html}
         </div>
       </header>
 
       <main class="page ps-page">
         <section class="plot-card ps-card">
-          {main_content}
+          {content_html}
+          {footer_html}
         </section>
       </main>
 
