@@ -10,20 +10,18 @@
 
   const core = window.PLOTSRV.core;
   const state = window.PLOTSRV.state;
-  const renderers = window.PLOTSRV.renderers;
 
-  function saveAutoRefreshState() {
-    const toggle = document.getElementById("auto-refresh-toggle");
-    const interval = document.getElementById("auto-refresh-interval");
-    if (toggle) core.savePref(core.storageKeys.autoRefreshEnabled, toggle.checked ? "1" : "0");
-    if (interval) core.savePref(core.storageKeys.autoRefreshInterval, String(interval.value || "5"));
+  function getSelect() {
+    return document.getElementById("auto-refresh-select");
   }
 
-  function getAutoRefreshMs() {
-    const sel = document.getElementById("auto-refresh-interval");
-    if (!sel) return 5000;
-    const seconds = Number(sel.value || 5);
-    return Math.max(1, seconds) * 1000;
+  function getSelectedSeconds() {
+    const sel = getSelect();
+    if (!sel) return 0;
+    const raw = String(sel.value || "off").trim().toLowerCase();
+    if (raw === "off" || raw === "") return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? n : 0;
   }
 
   function stopAutoRefresh() {
@@ -34,123 +32,101 @@
   }
 
   function tickAutoRefresh() {
-    if (core.isHistoryMode()) {
+    if (typeof core.isHistoryMode === "function" && core.isHistoryMode()) {
       stopAutoRefresh();
       return;
     }
 
-    const img = document.getElementById("plot");
-    if (img && typeof renderers.refreshPlot === "function") {
-      renderers.refreshPlot();
-      return;
-    }
-
-    if (document.getElementById("artifact-root") && typeof renderers.loadArtifact === "function") {
-      renderers.loadArtifact().then(() => {
-        if (typeof core.refreshStatus === "function") core.refreshStatus();
-      });
-      return;
-    }
-
-    if (document.getElementById("table-grid") && typeof renderers.loadTable === "function") {
-      renderers.loadTable().then(() => {
-        if (typeof core.refreshStatus === "function") core.refreshStatus();
-      });
-      return;
-    }
-
-    if (typeof core.refreshStatus === "function") {
-      core.refreshStatus();
+    if (typeof core.reloadCurrentView === "function") {
+      core.reloadCurrentView();
     }
   }
 
   function startAutoRefresh() {
-    if (core.isHistoryMode()) return;
+    const seconds = getSelectedSeconds();
+    if (seconds <= 0) {
+      stopAutoRefresh();
+      return;
+    }
+
+    if (typeof core.isHistoryMode === "function" && core.isHistoryMode()) {
+      stopAutoRefresh();
+      return;
+    }
+
     stopAutoRefresh();
-    const ms = getAutoRefreshMs();
-    state.autoRefreshTimer = setInterval(tickAutoRefresh, ms);
+    state.autoRefreshTimer = setInterval(tickAutoRefresh, seconds * 1000);
   }
 
-  function syncAutoRefreshAvailability() {
-    const toggle = document.getElementById("auto-refresh-toggle");
-    const interval = document.getElementById("auto-refresh-interval");
-
-    if (!toggle) return;
-
-    const isHistory = core.isHistoryMode();
-
-    toggle.disabled = isHistory;
-    if (interval) interval.disabled = isHistory;
-
-    const toggleWrap = toggle.closest(".toggle");
-    const intervalWrap = interval ? interval.closest(".interval") : null;
-
-    if (toggleWrap) toggleWrap.classList.toggle("ps-disabled-control", isHistory);
-    if (intervalWrap) intervalWrap.classList.toggle("ps-disabled-control", isHistory);
-
-    if (isHistory) {
-      stopAutoRefresh();
-    } else if (toggle.checked) {
-      startAutoRefresh();
-    }
+  function saveAutoRefreshState() {
+    const sel = getSelect();
+    if (!sel || !core.storageKeys || typeof core.savePref !== "function") return;
+    core.savePref(core.storageKeys.autoRefreshInterval, sel.value || "off");
   }
 
   function restoreAutoRefreshState() {
-    const toggle = document.getElementById("auto-refresh-toggle");
-    const interval = document.getElementById("auto-refresh-interval");
+    const sel = getSelect();
+    if (!sel || !core.storageKeys || typeof core.loadPref !== "function") return;
 
-    if (interval) {
-      const savedInterval = core.loadPref(core.storageKeys.autoRefreshInterval, null);
-      if (savedInterval) interval.value = savedInterval;
+    const savedValue = core.loadPref(core.storageKeys.autoRefreshInterval, "off");
+    sel.value = savedValue ? String(savedValue) : "off";
+
+    if (typeof core.syncAutoRefreshAvailability === "function") {
+      core.syncAutoRefreshAvailability();
     }
 
-    if (toggle) {
-      const savedEnabled = core.loadPref(core.storageKeys.autoRefreshEnabled, null);
-      if (savedEnabled === "1") {
-        toggle.checked = true;
-        if (!core.isHistoryMode()) {
-          tickAutoRefresh();
-          startAutoRefresh();
-        }
-      }
+    if (getSelectedSeconds() > 0) {
+      tickAutoRefresh();
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+    }
+  }
+
+  function syncAutoRefreshAvailability() {
+    const sel = getSelect();
+    if (!sel) return;
+
+    const isHistory =
+      typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
+
+    sel.disabled = isHistory;
+
+    const wrap = sel.closest(".ps-auto-refresh");
+    if (wrap) {
+      wrap.classList.toggle("ps-disabled-control", isHistory);
     }
 
-    syncAutoRefreshAvailability();
+    if (isHistory) {
+      stopAutoRefresh();
+      return;
+    }
+
+    if (getSelectedSeconds() > 0) {
+      startAutoRefresh();
+    } else {
+      stopAutoRefresh();
+    }
   }
 
   function bindAutoRefreshControls() {
-    const toggle = document.getElementById("auto-refresh-toggle");
-    const interval = document.getElementById("auto-refresh-interval");
-    if (!toggle) return;
+    const sel = getSelect();
+    if (!sel) return;
 
-    toggle.addEventListener("change", function () {
+    sel.addEventListener("change", function () {
       saveAutoRefreshState();
-      if (core.isHistoryMode()) {
-        stopAutoRefresh();
-        return;
-      }
-      if (toggle.checked) {
-        tickAutoRefresh();
-        startAutoRefresh();
-      } else {
-        stopAutoRefresh();
+      if (typeof core.syncAutoRefreshAvailability === "function") {
+        core.syncAutoRefreshAvailability();
       }
     });
-
-    if (interval) {
-      interval.addEventListener("change", function () {
-        saveAutoRefreshState();
-        if (!core.isHistoryMode() && toggle.checked) startAutoRefresh();
-      });
-    }
   }
 
-  core.saveAutoRefreshState = saveAutoRefreshState;
-  core.getAutoRefreshMs = getAutoRefreshMs;
+  core.getSelectedSeconds = getSelectedSeconds;
   core.stopAutoRefresh = stopAutoRefresh;
-  core.tickAutoRefresh = tickAutoRefresh;
   core.startAutoRefresh = startAutoRefresh;
-  core.syncAutoRefreshAvailability = syncAutoRefreshAvailability;
+  core.tickAutoRefresh = tickAutoRefresh;
+  core.saveAutoRefreshState = saveAutoRefreshState;
   core.restoreAutoRefreshState = restoreAutoRefreshState;
+  core.syncAutoRefreshAvailability = syncAutoRefreshAvailability;
   core.bindAutoRefreshControls = bindAutoRefreshControls;
 })();
