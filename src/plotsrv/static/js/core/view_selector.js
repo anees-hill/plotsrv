@@ -33,32 +33,35 @@
       }
 
       btn.addEventListener("click", function () {
-        if (menu.hidden) openMenu();
-        else closeMenu();
+        if (menu.hidden) {
+          openMenu();
+        } else {
+          closeMenu();
+        }
       });
 
       document.addEventListener("click", function (ev) {
-        if (!wrap.contains(ev.target)) closeMenu();
+        if (!wrap.contains(ev.target)) {
+          closeMenu();
+        }
       });
 
       document.addEventListener("keydown", function (ev) {
-        if (ev.key === "Escape") closeMenu();
+        if (ev.key === "Escape") {
+          closeMenu();
+        }
       });
 
       menu.addEventListener("click", function (ev) {
-        const item = ev.target && ev.target.closest
-          ? ev.target.closest("[data-plotsrv-view]")
-          : null;
+        const item =
+          ev.target && ev.target.closest
+            ? ev.target.closest("[data-plotsrv-view]")
+            : null;
         if (!item) return;
 
         const v = item.getAttribute("data-plotsrv-view");
         if (!v) return;
 
-        if (typeof core.saveAutoRefreshState === "function") {
-          core.saveAutoRefreshState();
-        }
-
-        closeMenu();
         window.location.href = "/?view=" + encodeURIComponent(v);
       });
 
@@ -69,9 +72,6 @@
     if (!sel) return;
 
     sel.addEventListener("change", function () {
-      if (typeof core.saveAutoRefreshState === "function") {
-        core.saveAutoRefreshState();
-      }
       const v = sel.value;
       window.location.href = "/?view=" + encodeURIComponent(v);
     });
