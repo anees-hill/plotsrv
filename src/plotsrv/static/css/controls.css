@@ -1,10 +1,3 @@
-.controls {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
 .ps-btn,
 .controls button {
   padding: 0.4rem 0.9rem;
@@ -14,6 +7,7 @@
   cursor: pointer;
   font-size: 0.9rem;
   color: var(--text);
+  line-height: 1.2;
 }
 
 .ps-btn:hover,
@@ -28,9 +22,14 @@
   background: var(--danger-bg);
 }
 
-.toggle,
+.ps-btn--danger:hover,
+.controls .danger:hover {
+  background: #ffdede;
+}
+
 .interval,
-.ps-history {
+.ps-history,
+.ps-auto-refresh {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -41,10 +40,6 @@
   font-size: 0.9rem;
 }
 
-.toggle input {
-  transform: translateY(1px);
-}
-
 .ps-history select,
 .ps-select {
   padding: 0.22rem 0.35rem;
@@ -52,6 +47,65 @@
   border-radius: 4px;
   background: #fff;
   font-size: 0.88rem;
+}
+
+/* Header historical indicator */
+.ps-header__history {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.28rem 0.5rem;
+  border: 1px solid #e2b500;
+  background: #fffaf0;
+  border-radius: 6px;
+  min-height: 32px;
+}
+
+.ps-header__history[hidden] {
+  display: none !important;
+}
+
+.ps-header__history-label {
+  font-size: 0.88rem;
+  font-weight: 650;
+  color: #9b7a00;
+  white-space: nowrap;
+}
+
+.ps-header__linkbtn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #555;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.ps-header__linkbtn:hover {
+  text-decoration: underline;
+}
+
+/* Header freshness dot */
+.ps-header__freshness-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  display: inline-block;
+  flex: 0 0 auto;
+  background: #f2c200;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08) inset;
+}
+
+.ps-header__freshness-dot.is-warn {
+  background: #f2c200;
+}
+
+.ps-header__freshness-dot.is-error {
+  background: #d55970;
+}
+
+.ps-header__freshness-dot[hidden] {
+  display: none !important;
 }
 
 /* Custom view selector (with icons) */
@@ -144,6 +198,14 @@
   background: #efefef;
 }
 
+.ps-viewselect__item--warn {
+  box-shadow: inset 4px 0 0 #c99800;
+}
+
+.ps-viewselect__item--error {
+  box-shadow: inset 4px 0 0 #b3314a;
+}
+
 .ps-viewselect__itemicon {
   width: 14px;
   height: 14px;
@@ -203,4 +265,14 @@
 .artifact-counter {
   font-size: 0.8rem;
   color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .ps-viewselect__label {
+    max-width: 42vw;
+  }
+
+  .artifact-input {
+    min-width: 150px;
+  }
 }
