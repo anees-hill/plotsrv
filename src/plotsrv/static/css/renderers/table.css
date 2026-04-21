@@ -1,9 +1,114 @@
 .plot-frame--table {
   align-items: stretch;
   justify-content: stretch;
+  padding: 0.25rem;
+  background: #fcfcfc;
 }
 
-.ps-table-scroll {
+.ps-table-shell {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.ps-table-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.48rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ps-table-topbar__left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ps-table-topbar__right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.ps-table-status {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--text);
+}
+
+.ps-table-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.ps-table-toolbar__search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.ps-table-toolbar__label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.ps-table-input {
+  min-width: 240px;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.ps-table-input:focus {
+  outline: none;
+  border-color: #c8c8c8;
+  box-shadow: 0 0 0 2px rgba(213, 89, 112, 0.08);
+}
+
+.ps-table-input:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background: #f7f7f7;
+}
+
+.ps-table--rich {
+  width: 100%;
+  min-height: 72vh;
+}
+
+.ps-table--rich .tabulator {
+  border: 0;
+  background: #fff;
+  font-size: 0.9rem;
+}
+
+.ps-table--rich .tabulator-header {
+  border-bottom: 1px solid #e8e8e8;
+  background: #fafafa;
+}
+
+.ps-table--rich .tabulator-col {
+  background: #fafafa;
+}
+
+.ps-table--rich .tabulator-row {
+  background: #fff;
+}
+
+.ps-table--rich .tabulator-row:nth-child(even) {
+  background: #fcfcfc;
+}
+
+.ps-table--simple {
   width: 100%;
 }
 
@@ -27,4 +132,32 @@
   top: 0;
   background: #fafafa;
   z-index: 1;
+}
+
+@media (max-width: 900px) {
+  .ps-table-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ps-table-topbar__right {
+    width: 100%;
+  }
+
+  .ps-table-toolbar {
+    width: 100%;
+  }
+
+  .ps-table-toolbar__search {
+    width: 100%;
+  }
+
+  .ps-table-input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .ps-table--rich {
+    min-height: 64vh;
+  }
 }
