@@ -149,6 +149,27 @@
   background: #fafafa;
 }
 
+.ps-table--rich .tabulator-col .tabulator-header-filter {
+  padding: 0.3rem 0.35rem 0.4rem;
+}
+
+.ps-table--rich .tabulator-col .tabulator-header-filter input {
+  width: 100%;
+  min-width: 0;
+  padding: 0.28rem 0.42rem;
+  border: 1px solid #d9d9d9;
+  border-radius: 5px;
+  background: #fff;
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.ps-table--rich .tabulator-col .tabulator-header-filter input:focus {
+  outline: none;
+  border-color: #c8c8c8;
+  box-shadow: 0 0 0 2px rgba(213, 89, 112, 0.08);
+}
+
 .ps-table--rich .tabulator-row {
   background: #fff;
 }

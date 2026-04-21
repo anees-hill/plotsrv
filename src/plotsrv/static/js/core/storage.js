@@ -15,7 +15,7 @@
     autoRefreshInterval: "plotsrv:v2:auto_refresh_interval",
     textWrapEnabled: "plotsrv:v1:text_wrap_enabled",
     jsonFindQuery: "plotsrv:v1:json_find_query",
-    tablePrefsPrefix: "plotsrv:v1:table_prefs:",
+    tablePrefsPrefix: "plotsrv:v2:table_prefs:",
   };
 
   core.loadPref = function (key, fallbackValue) {
@@ -45,6 +45,7 @@
       column_order: [],
       hidden_fields: [],
       search_query: "",
+      header_filters: {},
     };
 
     try {
@@ -53,6 +54,16 @@
 
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") return fallback;
+
+      const headerFilters =
+        parsed.header_filters && typeof parsed.header_filters === "object"
+          ? parsed.header_filters
+          : {};
+
+      const cleanHeaderFilters = {};
+      for (const [key, value] of Object.entries(headerFilters)) {
+        cleanHeaderFilters[String(key)] = String(value ?? "");
+      }
 
       return {
         column_order: Array.isArray(parsed.column_order)
@@ -63,6 +74,7 @@
           : [],
         search_query:
           typeof parsed.search_query === "string" ? parsed.search_query : "",
+        header_filters: cleanHeaderFilters,
       };
     } catch (e) {
       return fallback;
@@ -70,6 +82,13 @@
   };
 
   core.saveTablePrefs = function (viewId, prefs) {
+    const headerFilters = {};
+    if (prefs && prefs.header_filters && typeof prefs.header_filters === "object") {
+      for (const [key, value] of Object.entries(prefs.header_filters)) {
+        headerFilters[String(key)] = String(value ?? "");
+      }
+    }
+
     const payload = {
       column_order: Array.isArray(prefs && prefs.column_order)
         ? prefs.column_order.map(String)
@@ -81,6 +100,7 @@
         prefs && typeof prefs.search_query === "string"
           ? prefs.search_query
           : "",
+      header_filters: headerFilters,
     };
 
     try {

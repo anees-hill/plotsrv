@@ -21,6 +21,7 @@
       column_order: [],
       hidden_fields: [],
       search_query: "",
+      header_filters: {},
     };
   }
 
@@ -148,8 +149,36 @@
         title: field,
         field: field,
         visible: !hidden.has(field),
+        headerFilter: "input",
+        headerFilterPlaceholder: "Filter…",
+        headerFilterFunc: "like",
       };
     });
+  }
+
+  function getCurrentHeaderFilters() {
+    const out = {};
+
+    if (
+      !state.tabulatorInstance ||
+      typeof state.tabulatorInstance.getHeaderFilters !== "function"
+    ) {
+      return out;
+    }
+
+    try {
+      const filters = state.tabulatorInstance.getHeaderFilters();
+      if (!Array.isArray(filters)) return out;
+
+      for (const item of filters) {
+        if (!item || !item.field) continue;
+        out[String(item.field)] = String(item.value ?? "");
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return out;
   }
 
   function getCurrentColumnState() {
@@ -162,6 +191,10 @@
         hidden_fields: Array.isArray(prefs.hidden_fields) ? prefs.hidden_fields : [],
         search_query:
           typeof prefs.search_query === "string" ? prefs.search_query : "",
+        header_filters:
+          prefs.header_filters && typeof prefs.header_filters === "object"
+            ? prefs.header_filters
+            : {},
       };
     }
 
@@ -199,12 +232,26 @@
       hidden_fields: hidden,
       search_query:
         typeof prefs.search_query === "string" ? prefs.search_query : "",
+      header_filters: getCurrentHeaderFilters(),
     };
   }
 
   function persistCurrentColumnState() {
     const current = getCurrentColumnState();
     saveViewTablePrefs(current);
+  }
+
+  function persistSearchQuery() {
+    const input = document.getElementById("table-search-input");
+    const prefs = getCurrentColumnState();
+    prefs.search_query = input ? String(input.value || "") : "";
+    saveViewTablePrefs(prefs);
+  }
+
+  function persistHeaderFilters() {
+    const prefs = getCurrentColumnState();
+    prefs.header_filters = getCurrentHeaderFilters();
+    saveViewTablePrefs(prefs);
   }
 
   function closeColumnsPanel() {
@@ -263,6 +310,7 @@
 
         persistCurrentColumnState();
         renderColumnsPanel();
+        applyTableSearch(false);
         refreshTableStatus();
       });
 
@@ -282,13 +330,15 @@
     const q = String(input.value || "").trim().toLowerCase();
 
     if (saveToPrefs !== false) {
-      const prefs = loadViewTablePrefs();
-      prefs.search_query = input.value || "";
-      saveViewTablePrefs(prefs);
+      persistSearchQuery();
     }
 
     if (!q) {
-      state.tabulatorInstance.clearFilter(true);
+      try {
+        state.tabulatorInstance.clearFilter();
+      } catch (e) {
+        // ignore
+      }
       refreshTableStatus();
       return;
     }
@@ -331,6 +381,46 @@
     });
 
     refreshTableStatus();
+  }
+
+  function applySavedHeaderFilters(prefs) {
+    if (
+      !state.tabulatorInstance ||
+      typeof state.tabulatorInstance.setHeaderFilterValue !== "function"
+    ) {
+      return;
+    }
+
+    const filters =
+      prefs && prefs.header_filters && typeof prefs.header_filters === "object"
+        ? prefs.header_filters
+        : {};
+
+    for (const field of Array.isArray(state.tableFields) ? state.tableFields : []) {
+      const value = Object.prototype.hasOwnProperty.call(filters, field)
+        ? filters[field]
+        : "";
+      try {
+        state.tabulatorInstance.setHeaderFilterValue(field, value);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  function clearAllHeaderFilters() {
+    if (
+      !state.tabulatorInstance ||
+      typeof state.tabulatorInstance.clearHeaderFilter !== "function"
+    ) {
+      return;
+    }
+
+    try {
+      state.tabulatorInstance.clearHeaderFilter();
+    } catch (e) {
+      // ignore
+    }
   }
 
   function bindTableToolbar() {
@@ -394,10 +484,12 @@
         if (!state.tabulatorInstance) return;
 
         try {
-          state.tabulatorInstance.clearFilter(true);
+          state.tabulatorInstance.clearFilter();
         } catch (e) {
           // ignore
         }
+
+        clearAllHeaderFilters();
 
         try {
           state.tabulatorInstance.clearSort();
@@ -423,6 +515,7 @@
         }
 
         renderColumnsPanel();
+        applyTableSearch(false);
         refreshTableStatus();
       });
 
@@ -439,6 +532,7 @@
     state.tableEventsBound = true;
 
     state.tabulatorInstance.on("dataFiltered", function () {
+      persistHeaderFilters();
       refreshTableStatus();
     });
 
@@ -508,6 +602,7 @@
       wireTableEvents();
       bindTableToolbar();
       renderColumnsPanel();
+      applySavedHeaderFilters(prefs);
       applyTableSearch(false);
       refreshTableStatus();
       return;
@@ -532,6 +627,7 @@
     wireTableEvents();
     bindTableToolbar();
     renderColumnsPanel();
+    applySavedHeaderFilters(prefs);
     applyTableSearch(false);
     refreshTableStatus();
   }
