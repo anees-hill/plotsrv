@@ -199,11 +199,11 @@
 }
 
 .ps-viewselect__item--warn {
-  box-shadow: inset 4px 0 0 #c99800;
+  box-shadow: inset 2px 0 0 #f2c200;
 }
 
 .ps-viewselect__item--error {
-  box-shadow: inset 4px 0 0 #b3314a;
+  box-shadow: inset 2px 0 0 #d55970;
 }
 
 .ps-viewselect__itemicon {
