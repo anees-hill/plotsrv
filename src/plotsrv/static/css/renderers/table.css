@@ -80,6 +80,55 @@
   background: #f7f7f7;
 }
 
+.ps-table-columns {
+  position: relative;
+}
+
+.ps-table-columns__panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: min(320px, 72vw);
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  padding: 0.55rem;
+  z-index: 40;
+}
+
+.ps-table-columns__panel-header {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 0.45rem;
+}
+
+.ps-table-columns__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ps-table-columns__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.9rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ps-table-columns__item input {
+  margin: 0;
+}
+
+.ps-btn--quiet {
+  background: #fff;
+}
+
 .ps-table--rich {
   width: 100%;
   min-height: 72vh;
@@ -155,6 +204,12 @@
   .ps-table-input {
     min-width: 0;
     width: 100%;
+  }
+
+  .ps-table-columns__panel {
+    left: 0;
+    right: auto;
+    width: min(360px, 92vw);
   }
 
   .ps-table--rich {
