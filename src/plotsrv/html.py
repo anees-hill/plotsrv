@@ -169,7 +169,7 @@ def render_index(
                             role="option"
                             aria-selected="{is_sel}"
                             data-plotsrv-view="{v.view_id}">
-                      <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{v.view_id}" hidden></span>
+                      <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{v.view_id}" hidden aria-hidden="true"></span>
                       <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
                       <span class="ps-viewselect__itemlabel">{v.label}</span>
                     </button>
@@ -194,18 +194,15 @@ def render_index(
           </div>
         """
 
-    def _footer_html(*, controls_html: str, include_status_inline: bool = True) -> str:
-        status_inline_html = (
-            '<div class="ps-footer-inline"><div class="note ps-note" id="status"></div></div>'
-            if include_status_inline
-            else '<div class="ps-footer-inline"></div>'
-        )
+    def _footer_html(*, controls_html: str) -> str:
         return f"""
           <div class="ps-footer-controls">
             {controls_html}
           </div>
 
-          {status_inline_html}
+          <div class="ps-footer-inline">
+            <div class="note ps-note" id="status"></div>
+          </div>
 
           {statusline_html}
         """
@@ -228,121 +225,83 @@ def render_index(
             + _terminate_button_html()
         )
 
+        table_shell_open = """
+          <div class="ps-table-shell">
+            <div class="ps-table-topbar">
+              <div class="ps-table-topbar__left">
+                <p id="table-status-inline" class="ps-table-status"></p>
+              </div>
+              <div class="ps-table-topbar__right">
+                <div class="ps-table-toolbar">
+                  <label class="ps-table-toolbar__search">
+                    <span class="ps-table-toolbar__label">Search</span>
+                    <input
+                      id="table-search-input"
+                      class="ps-table-input"
+                      type="text"
+                      placeholder="Search loaded rows…"
+                      autocomplete="off"
+                    />
+                  </label>
+
+                  <button
+                    id="table-filters-toggle-btn"
+                    type="button"
+                    class="ps-btn"
+                    aria-expanded="false"
+                    aria-controls="table-filter-panel">
+                    Filters
+                  </button>
+
+                  <button
+                    id="table-reset-btn"
+                    type="button"
+                    class="ps-btn">
+                    Reset view
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div id="table-filter-panel" class="ps-table-filter-panel" hidden>
+              <div class="ps-table-filter-panel__header">
+                <div class="ps-table-filter-panel__title">Filters</div>
+                <button
+                  id="table-filter-add-btn"
+                  type="button"
+                  class="ps-btn">
+                  Add filter
+                </button>
+              </div>
+
+              <div id="table-filter-rows" class="ps-table-filter-rows"></div>
+            </div>
+
+            <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
+        """
+
+        table_shell_close = "</div>"
+
         if table_view_mode == "simple" and table_html_simple is not None:
             content_html = f"""
+              {table_shell_open}
               <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
-                <div class="ps-table-shell">
-                  <div class="ps-table-topbar">
-                    <div class="ps-table-topbar__left">
-                      <p id="status" class="ps-table-status"></p>
-                    </div>
-                    <div class="ps-table-topbar__right">
-                      <div class="ps-table-toolbar">
-                        <label class="ps-table-toolbar__search">
-                          <span class="ps-table-toolbar__label">Search</span>
-                          <input
-                            id="table-search-input"
-                            class="ps-table-input"
-                            type="text"
-                            placeholder="Search all visible values"
-                            autocomplete="off"
-                          />
-                        </label>
-
-                        <div class="ps-table-columns">
-                          <button
-                            type="button"
-                            id="table-columns-btn"
-                            class="ps-btn ps-btn--quiet"
-                            aria-expanded="false"
-                            aria-controls="table-columns-panel">
-                            Columns
-                          </button>
-
-                          <div
-                            id="table-columns-panel"
-                            class="ps-table-columns__panel"
-                            hidden>
-                            <div class="ps-table-columns__panel-header">Show / hide columns</div>
-                            <div
-                              id="table-columns-list"
-                              class="ps-table-columns__list">
-                            </div>
-                          </div>
-                        </div>
-
-                        <button type="button" id="table-reset-btn" class="ps-btn ps-btn--quiet">
-                          Reset view
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="table-scroll ps-table-scroll ps-table--simple">
-                    {table_html_simple}
-                  </div>
+                <div class="table-scroll ps-table-scroll ps-table--simple">
+                  {table_html_simple}
                 </div>
               </div>
+              {table_shell_close}
             """
         else:
-            content_html = """
+            content_html = f"""
+              {table_shell_open}
               <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
-                <div class="ps-table-shell">
-                  <div class="ps-table-topbar">
-                    <div class="ps-table-topbar__left">
-                      <p id="status" class="ps-table-status"></p>
-                    </div>
-                    <div class="ps-table-topbar__right">
-                      <div class="ps-table-toolbar">
-                        <label class="ps-table-toolbar__search">
-                          <span class="ps-table-toolbar__label">Search</span>
-                          <input
-                            id="table-search-input"
-                            class="ps-table-input"
-                            type="text"
-                            placeholder="Search all visible values"
-                            autocomplete="off"
-                          />
-                        </label>
-
-                        <div class="ps-table-columns">
-                          <button
-                            type="button"
-                            id="table-columns-btn"
-                            class="ps-btn ps-btn--quiet"
-                            aria-expanded="false"
-                            aria-controls="table-columns-panel">
-                            Columns
-                          </button>
-
-                          <div
-                            id="table-columns-panel"
-                            class="ps-table-columns__panel"
-                            hidden>
-                            <div class="ps-table-columns__panel-header">Show / hide columns</div>
-                            <div
-                              id="table-columns-list"
-                              class="ps-table-columns__list">
-                            </div>
-                          </div>
-                        </div>
-
-                        <button type="button" id="table-reset-btn" class="ps-btn ps-btn--quiet">
-                          Reset view
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div id="table-grid" class="table-grid ps-tablegrid ps-table--rich"></div>
-                </div>
+                <div id="table-grid" class="table-grid ps-tablegrid ps-table--rich"></div>
               </div>
+              {table_shell_close}
             """
 
-        footer_html = _footer_html(
-            controls_html=controls_html,
-            include_status_inline=False,
-        )
+        footer_html = _footer_html(controls_html=controls_html)
 
     elif kind == "plot":
         controls_html = (

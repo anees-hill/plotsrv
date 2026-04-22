@@ -12,34 +12,132 @@
   const state = window.PLOTSRV.state;
   const config = window.PLOTSRV.config;
 
-  function getViewId() {
-    return config.activeViewId || "default";
+  const FILTER_OPS = {
+    text: [
+      { value: "contains", label: "contains" },
+      { value: "eq", label: "is equal to" },
+      { value: "neq", label: "is not equal to" },
+      { value: "missing", label: "is missing" },
+      { value: "not_missing", label: "is not missing" },
+    ],
+    number: [
+      { value: "missing", label: "is missing" },
+      { value: "not_missing", label: "is not missing" },
+      { value: "lt", label: "is less than" },
+      { value: "lte", label: "is less than or equal to" },
+      { value: "gt", label: "is greater than" },
+      { value: "gte", label: "is greater than or equal to" },
+      { value: "eq", label: "is equal to" },
+      { value: "neq", label: "is not equal to" },
+      { value: "between", label: "is between" },
+      { value: "not_between", label: "is not between" },
+    ],
+  };
+
+  function tablePrefKey() {
+    return "plotsrv:v3:table_state:" + String(config.activeViewId || "default");
   }
 
-  function getDefaultTablePrefs() {
+  function defaultTableUiState() {
     return {
-      column_order: [],
-      hidden_fields: [],
-      search_query: "",
-      header_filters: {},
+      searchQuery: "",
+      filtersOpen: false,
+      filters: [],
     };
   }
 
-  function loadViewTablePrefs() {
-    if (typeof core.loadTablePrefs !== "function") {
-      return getDefaultTablePrefs();
+  function getTableUiState() {
+    if (!state.tableUiState) {
+      state.tableUiState = defaultTableUiState();
     }
-    return core.loadTablePrefs(getViewId());
+    return state.tableUiState;
   }
 
-  function saveViewTablePrefs(prefs) {
-    if (typeof core.saveTablePrefs !== "function") return;
-    core.saveTablePrefs(getViewId(), prefs);
+  function saveTableUiState() {
+    const ui = getTableUiState();
+
+    try {
+      localStorage.setItem(tablePrefKey(), JSON.stringify(ui));
+    } catch (e) {
+      // ignore
+    }
   }
 
-  function clearViewTablePrefs() {
-    if (typeof core.clearTablePrefs !== "function") return;
-    core.clearTablePrefs(getViewId());
+  function loadTableUiState() {
+    let parsed = null;
+
+    try {
+      const raw = localStorage.getItem(tablePrefKey());
+      if (raw) parsed = JSON.parse(raw);
+    } catch (e) {
+      parsed = null;
+    }
+
+    const base = defaultTableUiState();
+    const filters = Array.isArray(parsed && parsed.filters) ? parsed.filters : [];
+
+    state.tableUiState = {
+      searchQuery:
+        parsed && typeof parsed.searchQuery === "string" ? parsed.searchQuery : base.searchQuery,
+      filtersOpen:
+        parsed && typeof parsed.filtersOpen === "boolean"
+          ? parsed.filtersOpen
+          : base.filtersOpen,
+      filters: filters.map(normalizeFilter).filter(Boolean),
+    };
+  }
+
+  function newFilterId() {
+    return "f_" + Math.random().toString(36).slice(2, 10);
+  }
+
+  function normalizeFilter(filter) {
+    if (!filter || typeof filter !== "object") return null;
+
+    return {
+      id: typeof filter.id === "string" && filter.id ? filter.id : newFilterId(),
+      field: typeof filter.field === "string" ? filter.field : "",
+      op: typeof filter.op === "string" ? filter.op : "contains",
+      value: typeof filter.value === "string" ? filter.value : "",
+      valueTo: typeof filter.valueTo === "string" ? filter.valueTo : "",
+    };
+  }
+
+  function getFieldType(field) {
+    const map = state.tableFieldTypes || {};
+    return map[field] === "number" ? "number" : "text";
+  }
+
+  function inferFieldTypes(columns, rows) {
+    const out = {};
+    const fields = Array.isArray(columns) ? columns.slice() : [];
+    const sampleRows = Array.isArray(rows) ? rows.slice(0, 50) : [];
+
+    for (const field of fields) {
+      let numericHits = 0;
+      let textHits = 0;
+
+      for (const row of sampleRows) {
+        const value = row ? row[field] : null;
+        if (value == null || value === "") continue;
+
+        if (typeof value === "number" && Number.isFinite(value)) {
+          numericHits += 1;
+          continue;
+        }
+
+        const n = Number(value);
+        if (typeof value === "string" && value.trim() !== "" && Number.isFinite(n)) {
+          numericHits += 1;
+        } else {
+          textHits += 1;
+        }
+      }
+
+      out[field] = numericHits > 0 && textHits === 0 ? "number" : "text";
+    }
+
+    return out;
   }
 
   function getActiveRowCount() {
@@ -64,47 +162,51 @@
 
   function updateTableStatus(data, activeCount) {
     const status = document.getElementById("status");
-    if (!status) return;
+    const inline = document.getElementById("table-status-inline");
+
+    const targetEls = [status, inline].filter(Boolean);
+    if (!targetEls.length) return;
 
     const total = Number(data.total_rows ?? 0);
     const returned = Number(data.returned_rows ?? (data.rows ? data.rows.length : 0));
 
-    if (total <= 0 && returned <= 0) {
-      status.textContent = "";
-      return;
-    }
-
-    const isTrunc = returned < total;
-    const hasFilter = typeof activeCount === "number" && activeCount !== returned;
-
     let html = "";
 
-    if (hasFilter) {
-      html =
-        "Showing " +
-        activeCount +
-        " filtered rows of " +
-        returned +
-        " loaded";
-      if (total > returned) {
-        html += " (" + total + " total)";
-      } else {
-        html += ".";
-      }
+    if (total <= 0 && returned <= 0) {
+      html = "";
     } else {
-      html =
-        "Showing " +
-        returned +
-        (total > returned ? " of " + total : "") +
-        " rows.";
+      const isTrunc = returned < total;
+      const hasFilter = typeof activeCount === "number" && activeCount !== returned;
+
+      if (hasFilter) {
+        html =
+          "Showing " +
+          activeCount +
+          " filtered rows of " +
+          returned +
+          " loaded";
+        if (total > returned) {
+          html += " (" + total + " total)";
+        } else {
+          html += ".";
+        }
+      } else {
+        html =
+          "Showing " +
+          returned +
+          (total > returned ? " of " + total : "") +
+          " rows.";
+      }
+
+      if (isTrunc) {
+        html +=
+          ' <span class="badge" title="This view is showing a sampled subset of the full data.">TRUNCATED</span>';
+      }
     }
 
-    if (isTrunc) {
-      html +=
-        ' <span class="badge" title="This view is showing a sampled subset of the full data.">TRUNCATED</span>';
+    for (const el of targetEls) {
+      el.innerHTML = html;
     }
-
-    status.innerHTML = html;
   }
 
   function refreshTableStatus() {
@@ -112,446 +214,537 @@
     updateTableStatus(state.tableLastPayload, getActiveRowCount());
   }
 
-  function getOrderedFields(defaultFields, preferredOrder) {
-    const seen = new Set();
-    const out = [];
+  function getSearchQuery() {
+    return getTableUiState().searchQuery || "";
+  }
 
-    const pref = Array.isArray(preferredOrder) ? preferredOrder : [];
-    const defs = Array.isArray(defaultFields) ? defaultFields : [];
+  function setSearchQuery(value) {
+    const ui = getTableUiState();
+    ui.searchQuery = String(value || "");
+    saveTableUiState();
+  }
 
-    for (const field of pref) {
-      const f = String(field || "");
-      if (!f || seen.has(f)) continue;
-      if (defs.includes(f)) {
-        out.push(f);
-        seen.add(f);
-      }
+  function getFilters() {
+    return Array.isArray(getTableUiState().filters) ? getTableUiState().filters : [];
+  }
+
+  function setFilters(filters) {
+    const ui = getTableUiState();
+    ui.filters = Array.isArray(filters) ? filters.map(normalizeFilter).filter(Boolean) : [];
+    saveTableUiState();
+  }
+
+  function setFiltersOpen(isOpen) {
+    const ui = getTableUiState();
+    ui.filtersOpen = !!isOpen;
+    saveTableUiState();
+  }
+
+  function getOperatorOptions(field) {
+    const fieldType = getFieldType(field);
+    return fieldType === "number" ? FILTER_OPS.number : FILTER_OPS.text;
+  }
+
+  function operatorNeedsValue(op) {
+    return !["missing", "not_missing"].includes(op);
+  }
+
+  function operatorNeedsTwoValues(op) {
+    return ["between", "not_between"].includes(op);
+  }
+
+  function renderOperatorOptions(field, selectedOp) {
+    const options = getOperatorOptions(field);
+    return options
+      .map(function (op) {
+        const sel = op.value === selectedOp ? ' selected="selected"' : "";
+        return '<option value="' + escapeHtml(op.value) + '"' + sel + ">" + escapeHtml(op.label) + "</option>";
+      })
+      .join("");
+  }
+
+  function escapeHtml(s) {
+    if (typeof core.escapeHtml === "function") {
+      return core.escapeHtml(s);
+    }
+    return String(s);
+  }
+
+  function renderFilterRows() {
+    const wrap = document.getElementById("table-filter-rows");
+    if (!wrap) return;
+
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+    const filters = getFilters();
+
+    if (!filters.length) {
+      wrap.innerHTML = '<div class="note ps-note">No filters yet.</div>';
+      return;
     }
 
-    for (const field of defs) {
-      const f = String(field || "");
-      if (!f || seen.has(f)) continue;
-      out.push(f);
-      seen.add(f);
-    }
-
-    return out;
-  }
-
-  function buildColumnDefs(fields, prefs) {
-    const hidden = new Set(
-      Array.isArray(prefs && prefs.hidden_fields) ? prefs.hidden_fields : []
-    );
-    const orderedFields = getOrderedFields(fields, prefs && prefs.column_order);
-
-    return orderedFields.map(function (field) {
-      return {
-        title: field,
-        field: field,
-        visible: !hidden.has(field),
-        headerFilter: "input",
-        headerFilterPlaceholder: "Filter…",
-        headerFilterFunc: "like",
-      };
-    });
-  }
-
-  function getCurrentHeaderFilters() {
-    const out = {};
-
-    if (
-      !state.tabulatorInstance ||
-      typeof state.tabulatorInstance.getHeaderFilters !== "function"
-    ) {
-      return out;
-    }
-
-    try {
-      const filters = state.tabulatorInstance.getHeaderFilters();
-      if (!Array.isArray(filters)) return out;
-
-      for (const item of filters) {
-        if (!item || !item.field) continue;
-        out[String(item.field)] = String(item.value ?? "");
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    return out;
-  }
-
-  function getCurrentColumnState() {
-    const fields = Array.isArray(state.tableFields) ? state.tableFields.slice() : [];
-    const prefs = loadViewTablePrefs();
-
-    if (!state.tabulatorInstance || typeof state.tabulatorInstance.getColumns !== "function") {
-      return {
-        column_order: Array.isArray(prefs.column_order) ? prefs.column_order : fields,
-        hidden_fields: Array.isArray(prefs.hidden_fields) ? prefs.hidden_fields : [],
-        search_query:
-          typeof prefs.search_query === "string" ? prefs.search_query : "",
-        header_filters:
-          prefs.header_filters && typeof prefs.header_filters === "object"
-            ? prefs.header_filters
-            : {},
-      };
-    }
-
-    const order = [];
-    const hidden = [];
-
-    try {
-      const cols = state.tabulatorInstance.getColumns();
-      for (const col of cols) {
-        if (!col || typeof col.getField !== "function") continue;
-        const field = col.getField();
-        if (!field) continue;
-        order.push(String(field));
-
-        try {
-          if (typeof col.isVisible === "function" && !col.isVisible()) {
-            hidden.push(String(field));
-          }
-        } catch (e) {
-          // ignore
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    for (const field of fields) {
-      if (!order.includes(field)) {
-        order.push(field);
-      }
-    }
-
-    return {
-      column_order: order,
-      hidden_fields: hidden,
-      search_query:
-        typeof prefs.search_query === "string" ? prefs.search_query : "",
-      header_filters: getCurrentHeaderFilters(),
-    };
-  }
-
-  function persistCurrentColumnState() {
-    const current = getCurrentColumnState();
-    saveViewTablePrefs(current);
-  }
-
-  function persistSearchQuery() {
-    const input = document.getElementById("table-search-input");
-    const prefs = getCurrentColumnState();
-    prefs.search_query = input ? String(input.value || "") : "";
-    saveViewTablePrefs(prefs);
-  }
-
-  function persistHeaderFilters() {
-    const prefs = getCurrentColumnState();
-    prefs.header_filters = getCurrentHeaderFilters();
-    saveViewTablePrefs(prefs);
-  }
-
-  function closeColumnsPanel() {
-    const panel = document.getElementById("table-columns-panel");
-    const btn = document.getElementById("table-columns-btn");
-    if (panel) panel.hidden = true;
-    if (btn) btn.setAttribute("aria-expanded", "false");
-  }
-
-  function toggleColumnsPanel() {
-    const panel = document.getElementById("table-columns-panel");
-    const btn = document.getElementById("table-columns-btn");
-    if (!panel || !btn) return;
-
-    const nextHidden = !panel.hidden;
-    panel.hidden = nextHidden;
-    btn.setAttribute("aria-expanded", nextHidden ? "false" : "true");
-  }
-
-  function renderColumnsPanel() {
-    const panelList = document.getElementById("table-columns-list");
-    if (!panelList) return;
-
-    const prefs = loadViewTablePrefs();
-    const hidden = new Set(
-      Array.isArray(prefs.hidden_fields) ? prefs.hidden_fields : []
-    );
-    const orderedFields = getOrderedFields(
-      Array.isArray(state.tableFields) ? state.tableFields : [],
-      prefs.column_order
-    );
-
-    panelList.innerHTML = "";
-
-    for (const field of orderedFields) {
-      const row = document.createElement("label");
-      row.className = "ps-table-columns__item";
-
-      const cb = document.createElement("input");
-      cb.type = "checkbox";
-      cb.checked = !hidden.has(field);
-      cb.setAttribute("data-field", field);
-
-      cb.addEventListener("change", function () {
-        if (!state.tabulatorInstance) return;
-
-        try {
-          if (cb.checked) {
-            state.tabulatorInstance.showColumn(field);
-          } else {
-            state.tabulatorInstance.hideColumn(field);
-          }
-        } catch (e) {
-          // ignore
-        }
-
-        persistCurrentColumnState();
-        renderColumnsPanel();
-        applyTableSearch(false);
-        refreshTableStatus();
+    const fieldOptions = fields
+      .map(function (field) {
+        return field;
       });
 
-      const text = document.createElement("span");
-      text.textContent = field;
+    wrap.innerHTML = filters
+      .map(function (filter) {
+        const field = filter.field || fieldOptions[0] || "";
+        const op = filter.op || "contains";
+        const twoValues = operatorNeedsTwoValues(op);
+        const singleClass = twoValues ? "" : " ps-table-filter-row--single";
 
-      row.appendChild(cb);
-      row.appendChild(text);
-      panelList.appendChild(row);
+        const fieldSelect =
+          '<select class="ps-table-filter-select" data-filter-part="field" data-filter-id="' +
+          escapeHtml(filter.id) +
+          '">' +
+          fieldOptions
+            .map(function (f) {
+              const sel = f === field ? ' selected="selected"' : "";
+              return '<option value="' + escapeHtml(f) + '"' + sel + ">" + escapeHtml(f) + "</option>";
+            })
+            .join("") +
+          "</select>";
+
+        const opSelect =
+          '<select class="ps-table-filter-select" data-filter-part="op" data-filter-id="' +
+          escapeHtml(filter.id) +
+          '">' +
+          renderOperatorOptions(field, op) +
+          "</select>";
+
+        const valueInput =
+          '<input class="ps-table-filter-value" data-filter-part="value" data-filter-id="' +
+          escapeHtml(filter.id) +
+          '" type="text" value="' +
+          escapeHtml(filter.value || "") +
+          '"' +
+          (operatorNeedsValue(op) ? "" : ' disabled="disabled"') +
+          ' placeholder="Value" />';
+
+        const valueToInput = twoValues
+          ? '<input class="ps-table-filter-value" data-filter-part="valueTo" data-filter-id="' +
+            escapeHtml(filter.id) +
+            '" type="text" value="' +
+            escapeHtml(filter.valueTo || "") +
+            '" placeholder="And value" />'
+          : "";
+
+        const removeBtn =
+          '<button type="button" class="ps-btn ps-table-filter-remove" data-filter-action="remove" data-filter-id="' +
+          escapeHtml(filter.id) +
+          '">Remove</button>';
+
+        return (
+          '<div class="ps-table-filter-row' +
+          singleClass +
+          '" data-filter-row="' +
+          escapeHtml(filter.id) +
+          '">' +
+          fieldSelect +
+          opSelect +
+          valueInput +
+          valueToInput +
+          removeBtn +
+          "</div>"
+        );
+      })
+      .join("");
+  }
+
+  function describeFilter(filter) {
+    const field = filter.field || "";
+    const op = filter.op || "";
+    const value = filter.value || "";
+    const valueTo = filter.valueTo || "";
+
+    const labelMap = {};
+    for (const group of [FILTER_OPS.text, FILTER_OPS.number]) {
+      for (const item of group) {
+        labelMap[item.value] = item.label;
+      }
+    }
+
+    const opLabel = labelMap[op] || op;
+
+    if (operatorNeedsTwoValues(op)) {
+      return field + " " + opLabel + " " + value + " and " + valueTo;
+    }
+
+    if (operatorNeedsValue(op)) {
+      return field + " " + opLabel + " " + value;
+    }
+
+    return field + " " + opLabel;
+  }
+
+  function isFilterComplete(filter) {
+    if (!filter.field || !filter.op) return false;
+    if (!operatorNeedsValue(filter.op)) return true;
+    if (operatorNeedsTwoValues(filter.op)) {
+      return String(filter.value || "").trim() !== "" && String(filter.valueTo || "").trim() !== "";
+    }
+    return String(filter.value || "").trim() !== "";
+  }
+
+  function renderActiveFilters() {
+    const wrap = document.getElementById("table-active-filters");
+    if (!wrap) return;
+
+    const active = getFilters().filter(isFilterComplete);
+
+    if (!active.length) {
+      wrap.hidden = true;
+      wrap.innerHTML = "";
+      return;
+    }
+
+    wrap.hidden = false;
+    wrap.innerHTML = active
+      .map(function (filter) {
+        return (
+          '<span class="ps-table-filter-chip">' +
+          '<span>' +
+          escapeHtml(describeFilter(filter)) +
+          "</span>" +
+          '<button type="button" title="Remove filter" data-filter-chip-remove="' +
+          escapeHtml(filter.id) +
+          '">×</button>' +
+          "</span>"
+        );
+      })
+      .join("");
+  }
+
+  function syncFilterPanelUi() {
+    const panel = document.getElementById("table-filter-panel");
+    const btn = document.getElementById("table-filters-toggle-btn");
+    const isOpen = !!getTableUiState().filtersOpen;
+
+    if (panel) {
+      panel.hidden = !isOpen;
+    }
+    if (btn) {
+      btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
     }
   }
 
-  function applyTableSearch(saveToPrefs) {
-    const input = document.getElementById("table-search-input");
-    if (!input || !state.tabulatorInstance) return;
+  function getFieldValueForFilter(rowData, field) {
+    return rowData ? rowData[field] : null;
+  }
 
-    const q = String(input.value || "").trim().toLowerCase();
+  function isMissing(value) {
+    return value == null || String(value).trim() === "";
+  }
 
-    if (saveToPrefs !== false) {
-      persistSearchQuery();
+  function matchesSingleFilter(rowData, filter) {
+    if (!isFilterComplete(filter)) return true;
+
+    const raw = getFieldValueForFilter(rowData, filter.field);
+    const fieldType = getFieldType(filter.field);
+    const op = filter.op;
+
+    if (op === "missing") return isMissing(raw);
+    if (op === "not_missing") return !isMissing(raw);
+
+    if (fieldType === "number") {
+      const a = Number(raw);
+      const b = Number(filter.value);
+      const c = Number(filter.valueTo);
+
+      if (!Number.isFinite(a)) return false;
+
+      if (op === "lt") return a < b;
+      if (op === "lte") return a <= b;
+      if (op === "gt") return a > b;
+      if (op === "gte") return a >= b;
+      if (op === "eq") return a === b;
+      if (op === "neq") return a !== b;
+      if (op === "between") return a >= Math.min(b, c) && a <= Math.max(b, c);
+      if (op === "not_between") return !(a >= Math.min(b, c) && a <= Math.max(b, c));
+
+      return true;
     }
 
-    if (!q) {
-      try {
-        state.tabulatorInstance.clearFilter();
-      } catch (e) {
-        // ignore
-      }
+    const text = String(raw == null ? "" : raw).toLowerCase();
+    const q = String(filter.value || "").toLowerCase();
+
+    if (op === "contains") return text.includes(q);
+    if (op === "eq") return text === q;
+    if (op === "neq") return text !== q;
+
+    return true;
+  }
+
+  function applyAllTableFilters() {
+    if (!state.tabulatorInstance) return;
+
+    const searchQuery = getSearchQuery().trim().toLowerCase();
+    const filters = getFilters().filter(isFilterComplete);
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+
+    if (!searchQuery && !filters.length) {
+      state.tabulatorInstance.clearFilter(true);
       refreshTableStatus();
       return;
     }
 
-    const visibleFields = [];
-
-    try {
-      const cols = state.tabulatorInstance.getColumns();
-      for (const col of cols) {
-        if (!col || typeof col.getField !== "function") continue;
-        const field = col.getField();
-        if (!field) continue;
-
-        try {
-          if (typeof col.isVisible === "function" && col.isVisible()) {
-            visibleFields.push(String(field));
-          }
-        } catch (e) {
-          visibleFields.push(String(field));
-        }
-      }
-    } catch (e) {
-      // ignore
-    }
-
-    const fields =
-      visibleFields.length > 0
-        ? visibleFields
-        : Array.isArray(state.tableFields)
-          ? state.tableFields
-          : [];
-
     state.tabulatorInstance.setFilter(function (rowData) {
-      for (const field of fields) {
-        const raw = rowData[field];
-        const text = String(raw == null ? "" : raw).toLowerCase();
-        if (text.includes(q)) return true;
+      if (searchQuery) {
+        let matched = false;
+        for (const field of fields) {
+          const raw = rowData[field];
+          const text = String(raw == null ? "" : raw).toLowerCase();
+          if (text.includes(searchQuery)) {
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) return false;
       }
-      return false;
+
+      for (const filter of filters) {
+        if (!matchesSingleFilter(rowData, filter)) return false;
+      }
+
+      return true;
     });
 
     refreshTableStatus();
   }
 
-  function applySavedHeaderFilters(prefs) {
-    if (
-      !state.tabulatorInstance ||
-      typeof state.tabulatorInstance.setHeaderFilterValue !== "function"
-    ) {
-      return;
-    }
-
-    const filters =
-      prefs && prefs.header_filters && typeof prefs.header_filters === "object"
-        ? prefs.header_filters
-        : {};
-
-    for (const field of Array.isArray(state.tableFields) ? state.tableFields : []) {
-      const value = Object.prototype.hasOwnProperty.call(filters, field)
-        ? filters[field]
-        : "";
-      try {
-        state.tabulatorInstance.setHeaderFilterValue(field, value);
-      } catch (e) {
-        // ignore
-      }
+  function restoreToolbarInputs() {
+    const input = document.getElementById("table-search-input");
+    if (input) {
+      input.value = getSearchQuery();
     }
   }
 
-  function clearAllHeaderFilters() {
-    if (
-      !state.tabulatorInstance ||
-      typeof state.tabulatorInstance.clearHeaderFilter !== "function"
-    ) {
-      return;
-    }
+  function addFilter(initial) {
+    const filters = getFilters().slice();
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+    filters.push(
+      normalizeFilter(
+        initial || {
+          id: newFilterId(),
+          field: fields[0] || "",
+          op: getFieldType(fields[0] || "") === "number" ? "eq" : "contains",
+          value: "",
+          valueTo: "",
+        }
+      )
+    );
+    setFilters(filters);
+    renderFilterRows();
+    renderActiveFilters();
+    applyAllTableFilters();
+  }
 
-    try {
-      state.tabulatorInstance.clearHeaderFilter();
-    } catch (e) {
-      // ignore
-    }
+  function removeFilter(filterId) {
+    const filters = getFilters().filter(function (f) {
+      return f.id !== filterId;
+    });
+    setFilters(filters);
+    renderFilterRows();
+    renderActiveFilters();
+    applyAllTableFilters();
+  }
+
+  function updateFilter(filterId, part, value) {
+    const filters = getFilters().map(function (filter) {
+      if (filter.id !== filterId) return filter;
+
+      const next = {
+        id: filter.id,
+        field: filter.field,
+        op: filter.op,
+        value: filter.value,
+        valueTo: filter.valueTo,
+      };
+
+      next[part] = String(value || "");
+
+      if (part === "field") {
+        const allowedOps = getOperatorOptions(next.field).map(function (x) {
+          return x.value;
+        });
+        if (!allowedOps.includes(next.op)) {
+          next.op = getFieldType(next.field) === "number" ? "eq" : "contains";
+          next.value = "";
+          next.valueTo = "";
+        }
+      }
+
+      if (part === "op") {
+        if (!operatorNeedsValue(next.op)) {
+          next.value = "";
+          next.valueTo = "";
+        } else if (!operatorNeedsTwoValues(next.op)) {
+          next.valueTo = "";
+        }
+      }
+
+      return next;
+    });
+
+    setFilters(filters);
+    renderFilterRows();
+    renderActiveFilters();
+    applyAllTableFilters();
   }
 
   function bindTableToolbar() {
     const input = document.getElementById("table-search-input");
     const resetBtn = document.getElementById("table-reset-btn");
-    const columnsBtn = document.getElementById("table-columns-btn");
-    const panel = document.getElementById("table-columns-panel");
+    const filtersToggleBtn = document.getElementById("table-filters-toggle-btn");
+    const addFilterBtn = document.getElementById("table-filter-add-btn");
+    const filterRows = document.getElementById("table-filter-rows");
+    const activeFilters = document.getElementById("table-active-filters");
+
+    restoreToolbarInputs();
+    syncFilterPanelUi();
+    renderFilterRows();
+    renderActiveFilters();
 
     if (input && !input.dataset.plotsrvBound) {
       let timer = null;
 
       input.addEventListener("input", function () {
+        const q = String(input.value || "");
+        setSearchQuery(q);
+
         if (timer) clearTimeout(timer);
         timer = setTimeout(function () {
-          applyTableSearch(true);
+          applyAllTableFilters();
         }, 120);
       });
 
       input.dataset.plotsrvBound = "1";
     }
 
-    if (columnsBtn && !columnsBtn.dataset.plotsrvBound) {
-      columnsBtn.addEventListener("click", function (ev) {
-        ev.stopPropagation();
-        toggleColumnsPanel();
-      });
-
-      columnsBtn.dataset.plotsrvBound = "1";
-    }
-
-    if (panel && !panel.dataset.plotsrvBound) {
-      panel.addEventListener("click", function (ev) {
-        ev.stopPropagation();
-      });
-      panel.dataset.plotsrvBound = "1";
-    }
-
-    if (!document.body.dataset.plotsrvTablePanelBound) {
-      document.addEventListener("click", function () {
-        closeColumnsPanel();
-      });
-
-      document.addEventListener("keydown", function (ev) {
-        if (ev.key === "Escape") closeColumnsPanel();
-      });
-
-      document.body.dataset.plotsrvTablePanelBound = "1";
-    }
-
     if (resetBtn && !resetBtn.dataset.plotsrvBound) {
       resetBtn.addEventListener("click", function () {
-        const prefs = getDefaultTablePrefs();
-        clearViewTablePrefs();
+        state.tableUiState = defaultTableUiState();
+        saveTableUiState();
 
-        if (input) {
-          input.value = "";
-        }
+        if (input) input.value = "";
 
-        closeColumnsPanel();
-
-        if (!state.tabulatorInstance) return;
-
-        try {
-          state.tabulatorInstance.clearFilter();
-        } catch (e) {
-          // ignore
-        }
-
-        clearAllHeaderFilters();
-
-        try {
-          state.tabulatorInstance.clearSort();
-        } catch (e) {
-          // ignore
-        }
-
-        if (Array.isArray(state.tableFields) && state.tableFields.length > 0) {
-          const defaultColumns = buildColumnDefs(state.tableFields, prefs);
-          state.tableColumnDefs = defaultColumns;
+        if (state.tabulatorInstance) {
+          try {
+            state.tabulatorInstance.clearFilter(true);
+          } catch (e) {
+            // ignore
+          }
 
           try {
-            state.tabulatorInstance.setColumns(defaultColumns);
+            state.tabulatorInstance.clearSort();
+          } catch (e) {
+            // ignore
+          }
+
+          if (Array.isArray(state.tableColumnDefs) && state.tableColumnDefs.length > 0) {
+            try {
+              state.tabulatorInstance.setColumns(state.tableColumnDefs);
+            } catch (e) {
+              // ignore
+            }
+          }
+
+          try {
+            state.tabulatorInstance.replaceData(state.tableRows || []);
           } catch (e) {
             // ignore
           }
         }
 
-        try {
-          state.tabulatorInstance.replaceData(state.tableRows || []);
-        } catch (e) {
-          // ignore
-        }
-
-        renderColumnsPanel();
-        applyTableSearch(false);
-        refreshTableStatus();
+        renderFilterRows();
+        renderActiveFilters();
+        syncFilterPanelUi();
+        applyAllTableFilters();
       });
 
       resetBtn.dataset.plotsrvBound = "1";
     }
-  }
 
-  function wireTableEvents() {
-    if (!state.tabulatorInstance || typeof state.tabulatorInstance.on !== "function") {
-      return;
+    if (filtersToggleBtn && !filtersToggleBtn.dataset.plotsrvBound) {
+      filtersToggleBtn.addEventListener("click", function () {
+        setFiltersOpen(!getTableUiState().filtersOpen);
+        syncFilterPanelUi();
+      });
+
+      filtersToggleBtn.dataset.plotsrvBound = "1";
     }
 
-    if (state.tableEventsBound) return;
-    state.tableEventsBound = true;
+    if (addFilterBtn && !addFilterBtn.dataset.plotsrvBound) {
+      addFilterBtn.addEventListener("click", function () {
+        addFilter();
+      });
 
-    state.tabulatorInstance.on("dataFiltered", function () {
-      persistHeaderFilters();
-      refreshTableStatus();
-    });
+      addFilterBtn.dataset.plotsrvBound = "1";
+    }
 
-    state.tabulatorInstance.on("columnMoved", function () {
-      persistCurrentColumnState();
-      renderColumnsPanel();
-      applyTableSearch(false);
-    });
+    if (filterRows && !filterRows.dataset.plotsrvBound) {
+      filterRows.addEventListener("change", function (ev) {
+        const target = ev.target;
+        if (!target || !target.getAttribute) return;
 
-    state.tabulatorInstance.on("columnVisibilityChanged", function () {
-      persistCurrentColumnState();
-      renderColumnsPanel();
-      applyTableSearch(false);
-    });
+        const filterId = target.getAttribute("data-filter-id");
+        const part = target.getAttribute("data-filter-part");
+
+        if (!filterId || !part) return;
+        updateFilter(filterId, part, target.value);
+      });
+
+      filterRows.addEventListener("input", function (ev) {
+        const target = ev.target;
+        if (!target || !target.getAttribute) return;
+
+        const filterId = target.getAttribute("data-filter-id");
+        const part = target.getAttribute("data-filter-part");
+
+        if (!filterId || !part || (part !== "value" && part !== "valueTo")) return;
+        updateFilter(filterId, part, target.value);
+      });
+
+      filterRows.addEventListener("click", function (ev) {
+        const target = ev.target && ev.target.closest
+          ? ev.target.closest("[data-filter-action='remove']")
+          : null;
+        if (!target) return;
+
+        const filterId = target.getAttribute("data-filter-id");
+        if (!filterId) return;
+
+        removeFilter(filterId);
+      });
+
+      filterRows.dataset.plotsrvBound = "1";
+    }
+
+    if (activeFilters && !activeFilters.dataset.plotsrvBound) {
+      activeFilters.addEventListener("click", function (ev) {
+        const btn = ev.target && ev.target.closest
+          ? ev.target.closest("[data-filter-chip-remove]")
+          : null;
+        if (!btn) return;
+
+        const filterId = btn.getAttribute("data-filter-chip-remove");
+        if (!filterId) return;
+
+        removeFilter(filterId);
+      });
+
+      activeFilters.dataset.plotsrvBound = "1";
+    }
   }
 
   async function loadTable() {
     const grid = document.getElementById("table-grid");
     if (!grid) return;
+
+    if (!state.tableUiState) {
+      loadTableUiState();
+    }
 
     const snapshotQuery =
       typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "";
@@ -580,30 +773,22 @@
     }
 
     const data = await res.json();
-    const fields = (data.columns || []).slice();
-    const prefs = loadViewTablePrefs();
-    const columns = buildColumnDefs(fields, prefs);
+    const columns = (data.columns || []).map(function (col) {
+      return { title: col, field: col };
+    });
     const rows = data.rows || [];
 
     state.tableLastPayload = data;
     state.tableRows = rows;
-    state.tableFields = fields;
+    state.tableFields = (data.columns || []).slice();
+    state.tableFieldTypes = inferFieldTypes(data.columns || [], rows);
     state.tableColumnDefs = columns;
 
-    const input = document.getElementById("table-search-input");
-    if (input) {
-      input.value = typeof prefs.search_query === "string" ? prefs.search_query : "";
-    }
-
     if (state.tabulatorInstance) {
-      state.tableEventsBound = false;
       state.tabulatorInstance.setColumns(columns);
       state.tabulatorInstance.replaceData(rows);
-      wireTableEvents();
       bindTableToolbar();
-      renderColumnsPanel();
-      applySavedHeaderFilters(prefs);
-      applyTableSearch(false);
+      applyAllTableFilters();
       refreshTableStatus();
       return;
     }
@@ -624,11 +809,14 @@
       movableColumns: true,
     });
 
-    wireTableEvents();
+    if (typeof state.tabulatorInstance.on === "function") {
+      state.tabulatorInstance.on("dataFiltered", function () {
+        refreshTableStatus();
+      });
+    }
+
     bindTableToolbar();
-    renderColumnsPanel();
-    applySavedHeaderFilters(prefs);
-    applyTableSearch(false);
+    applyAllTableFilters();
     refreshTableStatus();
   }
 
