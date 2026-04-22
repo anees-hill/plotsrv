@@ -12,6 +12,10 @@
   gap: 0.5rem;
 }
 
+.ps-table-filter-panel.is-open {
+  display: flex;
+}
+
 .ps-table-topbar {
   display: flex;
   align-items: center;
@@ -89,9 +93,13 @@
   flex-direction: column;
   gap: 0.65rem;
   padding: 0.7rem 0.8rem;
-  border: 1px solid var(--border);
+  border: 1px solid #ead7df;
   border-radius: 8px;
-  background: #fff;
+  background: linear-gradient(180deg, #fcf7f9 0%, #f8f1f4 100%);
+}
+
+.ps-table-filter-panel[hidden] {
+  display: none !important;
 }
 
 .ps-table-filter-panel__header {

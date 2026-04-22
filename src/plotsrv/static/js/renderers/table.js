@@ -77,20 +77,19 @@
 
     const base = defaultTableUiState();
     const filters = Array.isArray(parsed && parsed.filters) ? parsed.filters : [];
+    const normalizedFilters = filters.map(normalizeFilter).filter(Boolean);
+    const hasSavedFilters = normalizedFilters.some(isFilterComplete);
 
     state.tableUiState = {
       searchQuery:
         parsed && typeof parsed.searchQuery === "string"
           ? parsed.searchQuery
           : base.searchQuery,
-      filtersOpen:
-        parsed && typeof parsed.filtersOpen === "boolean"
-          ? parsed.filtersOpen
-          : base.filtersOpen,
-      filters: filters.map(normalizeFilter).filter(Boolean),
+      filtersOpen: hasSavedFilters,
+      filters: normalizedFilters,
     };
   }
-
+  
   function newFilterId() {
     return "f_" + Math.random().toString(36).slice(2, 10);
   }
@@ -442,15 +441,14 @@
     btn.classList.toggle("is-active", hasActiveFilters());
   }
 
-  function syncFilterPanelUi() {
+   function syncFilterPanelUi() {
     const panel = document.getElementById("table-filter-panel");
     const btn = document.getElementById("table-filters-toggle-btn");
-    const ui = getTableUiState();
-
-    const shouldShow = !!ui.filtersOpen || hasActiveFilters();
+    const shouldShow = !!getTableUiState().filtersOpen || hasActiveFilters();
 
     if (panel) {
       panel.hidden = !shouldShow;
+      panel.classList.toggle("is-open", shouldShow);
     }
 
     if (btn) {
@@ -458,7 +456,9 @@
     }
 
     syncFilterButtonUi();
-  }
+  }   
+
+
 
   function getFieldValueForFilter(rowData, field) {
     return rowData ? rowData[field] : null;
@@ -572,6 +572,7 @@
     );
 
     setFilters(filters);
+    setFiltersOpen(true);
     renderFilterRows();
     renderActiveFilters();
     syncFilterPanelUi();
@@ -584,6 +585,11 @@
     });
 
     setFilters(filters);
+
+    if (filters.length === 0) {
+      setFiltersOpen(false);
+    }
+
     renderFilterRows();
     renderActiveFilters();
     syncFilterPanelUi();
@@ -716,8 +722,13 @@
 
     if (filtersToggleBtn && !filtersToggleBtn.dataset.plotsrvBound) {
       filtersToggleBtn.addEventListener("click", function () {
-        const willOpen = !(!!getTableUiState().filtersOpen || hasActiveFilters());
-        setFiltersOpen(willOpen);
+        const ui = getTableUiState();
+        const nextOpen = !ui.filtersOpen;
+
+        ui.filtersOpen = nextOpen;
+        saveTableUiState();
+
+        renderFilterRows();
         syncFilterPanelUi();
       });
 
