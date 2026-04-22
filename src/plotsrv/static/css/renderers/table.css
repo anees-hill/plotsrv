@@ -172,6 +172,22 @@
   color: var(--text);
 }
 
+#table-filters-toggle-btn {
+  position: relative;
+}
+
+#table-filters-toggle-btn.is-active::after {
+  content: "";
+  position: absolute;
+  top: 0.22rem;
+  right: 0.22rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #d55970;
+  box-shadow: 0 0 0 2px #fff;
+}
+
 .ps-table--rich {
   width: 100%;
   min-height: 72vh;

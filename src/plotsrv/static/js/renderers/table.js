@@ -12,6 +12,8 @@
   const state = window.PLOTSRV.state;
   const config = window.PLOTSRV.config;
 
+  const MAX_FILTERS = 10;
+
   const FILTER_OPS = {
     text: [
       { value: "contains", label: "contains" },
@@ -78,7 +80,9 @@
 
     state.tableUiState = {
       searchQuery:
-        parsed && typeof parsed.searchQuery === "string" ? parsed.searchQuery : base.searchQuery,
+        parsed && typeof parsed.searchQuery === "string"
+          ? parsed.searchQuery
+          : base.searchQuery,
       filtersOpen:
         parsed && typeof parsed.filtersOpen === "boolean"
           ? parsed.filtersOpen
@@ -258,7 +262,15 @@
     return options
       .map(function (op) {
         const sel = op.value === selectedOp ? ' selected="selected"' : "";
-        return '<option value="' + escapeHtml(op.value) + '"' + sel + ">" + escapeHtml(op.label) + "</option>";
+        return (
+          '<option value="' +
+          escapeHtml(op.value) +
+          '"' +
+          sel +
+          ">" +
+          escapeHtml(op.label) +
+          "</option>"
+        );
       })
       .join("");
   }
@@ -268,6 +280,14 @@
       return core.escapeHtml(s);
     }
     return String(s);
+  }
+
+  function getCompleteFilters() {
+    return getFilters().filter(isFilterComplete);
+  }
+
+  function hasActiveFilters() {
+    return getCompleteFilters().length > 0;
   }
 
   function renderFilterRows() {
@@ -282,10 +302,9 @@
       return;
     }
 
-    const fieldOptions = fields
-      .map(function (field) {
-        return field;
-      });
+    const fieldOptions = fields.map(function (field) {
+      return field;
+    });
 
     wrap.innerHTML = filters
       .map(function (filter) {
@@ -391,7 +410,7 @@
     const wrap = document.getElementById("table-active-filters");
     if (!wrap) return;
 
-    const active = getFilters().filter(isFilterComplete);
+    const active = getCompleteFilters();
 
     if (!active.length) {
       wrap.hidden = true;
@@ -404,7 +423,7 @@
       .map(function (filter) {
         return (
           '<span class="ps-table-filter-chip">' +
-          '<span>' +
+          "<span>" +
           escapeHtml(describeFilter(filter)) +
           "</span>" +
           '<button type="button" title="Remove filter" data-filter-chip-remove="' +
@@ -416,17 +435,29 @@
       .join("");
   }
 
+  function syncFilterButtonUi() {
+    const btn = document.getElementById("table-filters-toggle-btn");
+    if (!btn) return;
+
+    btn.classList.toggle("is-active", hasActiveFilters());
+  }
+
   function syncFilterPanelUi() {
     const panel = document.getElementById("table-filter-panel");
     const btn = document.getElementById("table-filters-toggle-btn");
-    const isOpen = !!getTableUiState().filtersOpen;
+    const ui = getTableUiState();
+
+    const shouldShow = !!ui.filtersOpen || hasActiveFilters();
 
     if (panel) {
-      panel.hidden = !isOpen;
+      panel.hidden = !shouldShow;
     }
+
     if (btn) {
-      btn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+      btn.setAttribute("aria-expanded", shouldShow ? "true" : "false");
     }
+
+    syncFilterButtonUi();
   }
 
   function getFieldValueForFilter(rowData, field) {
@@ -480,7 +511,7 @@
     if (!state.tabulatorInstance) return;
 
     const searchQuery = getSearchQuery().trim().toLowerCase();
-    const filters = getFilters().filter(isFilterComplete);
+    const filters = getCompleteFilters();
     const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
 
     if (!searchQuery && !filters.length) {
@@ -523,6 +554,11 @@
   function addFilter(initial) {
     const filters = getFilters().slice();
     const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+
+    if (filters.length >= MAX_FILTERS) {
+      return;
+    }
+
     filters.push(
       normalizeFilter(
         initial || {
@@ -534,9 +570,11 @@
         }
       )
     );
+
     setFilters(filters);
     renderFilterRows();
     renderActiveFilters();
+    syncFilterPanelUi();
     applyAllTableFilters();
   }
 
@@ -544,13 +582,17 @@
     const filters = getFilters().filter(function (f) {
       return f.id !== filterId;
     });
+
     setFilters(filters);
     renderFilterRows();
     renderActiveFilters();
+    syncFilterPanelUi();
     applyAllTableFilters();
   }
 
-  function updateFilter(filterId, part, value) {
+  function updateFilter(filterId, part, value, options) {
+    const shouldRerender = !!(options && options.rerender);
+
     const filters = getFilters().map(function (filter) {
       if (filter.id !== filterId) return filter;
 
@@ -568,6 +610,7 @@
         const allowedOps = getOperatorOptions(next.field).map(function (x) {
           return x.value;
         });
+
         if (!allowedOps.includes(next.op)) {
           next.op = getFieldType(next.field) === "number" ? "eq" : "contains";
           next.value = "";
@@ -588,8 +631,13 @@
     });
 
     setFilters(filters);
-    renderFilterRows();
+
+    if (shouldRerender) {
+      renderFilterRows();
+    }
+
     renderActiveFilters();
+    syncFilterPanelUi();
     applyAllTableFilters();
   }
 
@@ -668,7 +716,8 @@
 
     if (filtersToggleBtn && !filtersToggleBtn.dataset.plotsrvBound) {
       filtersToggleBtn.addEventListener("click", function () {
-        setFiltersOpen(!getTableUiState().filtersOpen);
+        const willOpen = !(!!getTableUiState().filtersOpen || hasActiveFilters());
+        setFiltersOpen(willOpen);
         syncFilterPanelUi();
       });
 
@@ -678,9 +727,29 @@
     if (addFilterBtn && !addFilterBtn.dataset.plotsrvBound) {
       addFilterBtn.addEventListener("click", function () {
         addFilter();
+        const filters = getFilters();
+        const newest = filters[filters.length - 1];
+        if (!newest) return;
+
+        window.requestAnimationFrame(function () {
+          const firstInput = document.querySelector(
+            '[data-filter-id="' + newest.id + '"][data-filter-part="value"]'
+          );
+          if (firstInput && typeof firstInput.focus === "function") {
+            firstInput.focus();
+          }
+        });
       });
 
       addFilterBtn.dataset.plotsrvBound = "1";
+    }
+
+    if (addFilterBtn) {
+      addFilterBtn.disabled = getFilters().length >= MAX_FILTERS;
+      addFilterBtn.title =
+        getFilters().length >= MAX_FILTERS
+          ? "Maximum number of filters reached"
+          : "";
     }
 
     if (filterRows && !filterRows.dataset.plotsrvBound) {
@@ -692,7 +761,9 @@
         const part = target.getAttribute("data-filter-part");
 
         if (!filterId || !part) return;
-        updateFilter(filterId, part, target.value);
+
+        const rerender = part === "field" || part === "op";
+        updateFilter(filterId, part, target.value, { rerender: rerender });
       });
 
       filterRows.addEventListener("input", function (ev) {
@@ -703,13 +774,15 @@
         const part = target.getAttribute("data-filter-part");
 
         if (!filterId || !part || (part !== "value" && part !== "valueTo")) return;
-        updateFilter(filterId, part, target.value);
+
+        updateFilter(filterId, part, target.value, { rerender: false });
       });
 
       filterRows.addEventListener("click", function (ev) {
-        const target = ev.target && ev.target.closest
-          ? ev.target.closest("[data-filter-action='remove']")
-          : null;
+        const target =
+          ev.target && ev.target.closest
+            ? ev.target.closest("[data-filter-action='remove']")
+            : null;
         if (!target) return;
 
         const filterId = target.getAttribute("data-filter-id");
@@ -723,9 +796,10 @@
 
     if (activeFilters && !activeFilters.dataset.plotsrvBound) {
       activeFilters.addEventListener("click", function (ev) {
-        const btn = ev.target && ev.target.closest
-          ? ev.target.closest("[data-filter-chip-remove]")
-          : null;
+        const btn =
+          ev.target && ev.target.closest
+            ? ev.target.closest("[data-filter-chip-remove]")
+            : null;
         if (!btn) return;
 
         const filterId = btn.getAttribute("data-filter-chip-remove");
