@@ -4,36 +4,35 @@ from __future__ import annotations
 import base64
 import json
 import os
+import urllib.error
 import urllib.request
-from typing import Any
 from datetime import date, datetime
 import math
-import urllib.error
 from pathlib import Path
+from typing import Any
+
 import pandas as pd
 
 from . import config
 from .backends import df_to_html_simple, df_to_rich_sample, fig_to_png_bytes
 from .file_kinds import coerce_file_to_publishable
+from .json_model import build_json_document
 
-# Optional: polars support
 try:  # pragma: no cover
     import polars as pl  # type: ignore
 except Exception:  # pragma: no cover
     pl = None  # type: ignore[assignment]
 
-# Optional: matplotlib
 try:  # pragma: no cover
     import matplotlib
 
-    matplotlib.use("Agg")  # safe headless default
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.figure import Figure
 except Exception:  # pragma: no cover
     plt = None  # type: ignore[assignment]
     Figure = None  # type: ignore[assignment]
 
-# Optional: plotnine
 try:  # pragma: no cover
     from plotnine.ggplot import ggplot as PlotnineGGPlot  # type: ignore[attr-defined]
 except Exception:  # pragma: no cover
@@ -41,20 +40,14 @@ except Exception:  # pragma: no cover
 
 
 def _is_na(x: Any) -> bool:
-    """
-    Return True only for scalar-like NA values.
-    pd.isna(list/dict/array) returns array-like -> must NOT be used as bool.
-    """
     try:
         res = pd.isna(x)
     except Exception:
         return False
 
-    # pd.isna(scalar) -> bool / numpy.bool_
-    if isinstance(res, (bool,)):
+    if isinstance(res, bool):
         return res
 
-    # numpy scalar bool
     try:
         import numpy as np  # type: ignore
 
@@ -63,7 +56,6 @@ def _is_na(x: Any) -> bool:
     except Exception:
         pass
 
-    # array-like result => not a scalar NA check
     return False
 
 
@@ -71,14 +63,12 @@ def _json_safe(x: Any) -> Any:
     if x is None:
         return None
 
-    # Containers FIRST
     if isinstance(x, dict):
         return {str(k): _json_safe(v) for k, v in x.items()}
 
     if isinstance(x, (list, tuple, set)):
         return [_json_safe(v) for v in x]
 
-    # Then primitives / scalars
     if isinstance(x, (str, int, bool)):
         return x
 
@@ -124,30 +114,18 @@ def _to_dataframe(obj: Any) -> pd.DataFrame:
 
 
 def _to_figure(obj: Any | None) -> Any:
-    """
-    Normalize to a matplotlib Figure.
-
-    Supports:
-      - None -> plt.gcf()
-      - matplotlib Figure
-      - plotnine ggplot -> .draw()
-    """
     if plt is None:
         raise RuntimeError("matplotlib is not available; cannot publish plot")
 
-    # None => current figure
     if obj is None:
         return plt.gcf()
 
-    # Matplotlib Figure
     if Figure is not None and isinstance(obj, Figure):  # type: ignore[arg-type]
         return obj
 
-    # Plotnine ggplot
     if PlotnineGGPlot is not None and isinstance(obj, PlotnineGGPlot):  # type: ignore[arg-type]
         return obj.draw()
 
-    # Generic plotnine-like object (duck typing)
     if hasattr(obj, "draw") and obj.__class__.__module__.startswith("plotnine"):
         return obj.draw()
 
@@ -164,24 +142,19 @@ def _infer_artifact_kind(obj: Any) -> str:
         return "json"
     if _try_array_payload(obj) is not None:
         return "json"
-
     return "python"
 
 
 def _looks_like_plot(obj: Any) -> bool:
-    # None means "current figure" in the API
     if obj is None:
         return True
 
-    # Matplotlib figure
     if Figure is not None and isinstance(obj, Figure):  # type: ignore[arg-type]
         return True
 
-    # Plotnine ggplot (safe isinstance check)
     if PlotnineGGPlot is not None and isinstance(obj, PlotnineGGPlot):  # type: ignore[arg-type]
         return True
 
-    # Plotnine-like object (duck typing, but NO draw call)
     if hasattr(obj, "draw") and obj.__class__.__module__.startswith("plotnine"):
         return True
 
@@ -189,11 +162,6 @@ def _looks_like_plot(obj: Any) -> bool:
 
 
 def _try_array_payload(obj: Any) -> dict[str, Any] | None:
-    """
-    If obj looks like a numpy array / torch tensor, return a JSON-safe summary payload.
-    Otherwise return None.
-    """
-    # --- numpy ---
     try:
         import numpy as np  # type: ignore
 
@@ -207,7 +175,6 @@ def _try_array_payload(obj: Any) -> dict[str, Any] | None:
                 "size": int(arr.size),
             }
 
-            # Small sample (kept very bounded)
             max_elems = 2000
             if arr.size <= max_elems:
                 payload["data"] = arr.tolist()
@@ -223,7 +190,6 @@ def _try_array_payload(obj: Any) -> dict[str, Any] | None:
     except Exception:
         pass
 
-    # --- torch ---
     try:
         import torch  # type: ignore
 
@@ -255,6 +221,30 @@ def _try_array_payload(obj: Any) -> dict[str, Any] | None:
         pass
 
     return None
+
+
+def _to_json_artifact_document(
+    obj: Any,
+    *,
+    raw_text: str | None = None,
+    source_format: str = "python_object",
+    source_filename: str | None = None,
+) -> dict[str, Any]:
+    if _try_array_payload(obj) is not None:
+        array_payload = _try_array_payload(obj)
+        return build_json_document(
+            array_payload,
+            source_format=source_format,
+            raw_text=raw_text,
+            source_filename=source_filename,
+        )
+
+    return build_json_document(
+        obj,
+        source_format=source_format,
+        raw_text=raw_text,
+        source_filename=source_filename,
+    )
 
 
 def _to_publish_payload(
@@ -295,7 +285,6 @@ def _to_publish_payload(
         )
         return payload
 
-    # kind == "artifact"
     if kind == "artifact":
         if isinstance(obj, dict) and "html" in obj:
             payload["artifact_kind"] = "html"
@@ -312,18 +301,21 @@ def _to_publish_payload(
                 payload["artifact"] = str(obj)
 
         elif artifact_kind == "json":
-            arr_payload = _try_array_payload(obj)
-            if arr_payload is not None:
-                payload["artifact"] = _json_safe(arr_payload)
-            else:
-                payload["artifact"] = _json_safe(obj)
+            payload["artifact"] = _json_safe(
+                _to_json_artifact_document(
+                    obj,
+                    source_format="python_object",
+                    raw_text=None,
+                    source_filename=None,
+                )
+            )
 
         else:
             payload["artifact"] = repr(obj)
 
         return payload
 
-        raise ValueError(f"Unknown publish kind: {kind!r}")
+    raise ValueError(f"Unknown publish kind: {kind!r}")
 
 
 def publish_artifact(
@@ -333,23 +325,16 @@ def publish_artifact(
     port: int = 8000,
     label: str,
     section: str | None = None,
-    artifact_kind: str | None = None,  # "text"|"json"|"python"|None
+    artifact_kind: str | None = None,
     update_limit_s: int | None = None,
     force: bool = False,
 ) -> None:
-    """
-    Publish a generic artifact (text/json/python) to the server.
-
-    The server should accept kind="artifact" payloads.
-    """
-
     debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
 
-    # Make HTML permissive
     if artifact_kind == "html" and isinstance(obj, str):
         obj = {"html": obj, "unsafe": True}
 
-    # Path-like publishing (file -> inferred kind -> publish)
+    # Path-like publishing
     if not isinstance(obj, (str, bytes, bytearray)):
         p: Path | None
         try:
@@ -368,7 +353,6 @@ def publish_artifact(
                     coerced = coerce_file_to_publishable(path)
 
                     if coerced.publish_kind == "table":
-                        # Reuse the existing table pipeline/renderers
                         return publish_view(
                             coerced.obj,
                             host=host,
@@ -380,7 +364,6 @@ def publish_artifact(
                             kind="table",
                         )
 
-                    # artifact
                     ak = artifact_kind or coerced.artifact_kind or "text"
 
                     if ak == "html":
@@ -391,6 +374,24 @@ def publish_artifact(
                             label=label,
                             section=section,
                             artifact_kind="html",
+                            update_limit_s=update_limit_s,
+                            force=force,
+                        )
+
+                    if ak == "json":
+                        doc = _to_json_artifact_document(
+                            coerced.obj,
+                            raw_text=coerced.raw_text,
+                            source_format=coerced.source_format or "python_object",
+                            source_filename=coerced.source_filename,
+                        )
+                        return publish_artifact(
+                            doc,
+                            host=host,
+                            port=port,
+                            label=label,
+                            section=section,
+                            artifact_kind="json",
                             update_limit_s=update_limit_s,
                             force=force,
                         )
@@ -446,7 +447,6 @@ def publish_artifact(
 
     kind2 = (artifact_kind or "").strip().lower() or None
     if kind2 is None:
-        # sensible inference
         if isinstance(obj, (dict, list, tuple)):
             kind2 = "json"
         elif isinstance(obj, (str, bytes, bytearray)):
@@ -463,7 +463,6 @@ def publish_artifact(
         force=force,
     )
 
-    # If caller forced an artifact_kind, override it (optional)
     if artifact_kind is not None:
         payload["artifact_kind"] = artifact_kind
 
@@ -513,11 +512,10 @@ def publish_view(
     section: str | None = None,
     update_limit_s: int | None = None,
     force: bool = False,
-    kind: str | None = None,  # if you added the earlier patch
+    kind: str | None = None,
 ) -> None:
     debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
 
-    # decide kind
     if kind is None:
         kind2 = "table" if _is_dataframe(obj) else "plot"
     else:

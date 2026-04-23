@@ -18,7 +18,7 @@ FileKind = Literal[
     "unknown",
 ]
 
-PublishKind = Literal["artifact", "table"]  # (plot not needed for file coercion yet)
+PublishKind = Literal["artifact", "table"]
 
 ArtifactKind = Literal["text", "json", "markdown", "image", "html"]
 
@@ -30,6 +30,11 @@ class FileCoerceResult:
     obj: Any
     file_kind: FileKind
     mime: str | None = None
+
+    # New: preserve original source where relevant
+    raw_text: str | None = None
+    source_format: str | None = None
+    source_filename: str | None = None
 
 
 def infer_file_kind(path: Path) -> FileKind:
@@ -83,19 +88,14 @@ def coerce_file_to_publishable(
     """
     Convert a file to a publishable object.
 
-    - json/ini/toml/yaml -> artifact(json) with dict/list
+    - json/ini/toml/yaml -> artifact(json) with dict/list, preserving raw text
     - markdown -> artifact(markdown) with text
-    - csv -> publish as table using pandas DataFrame (CAPPED rows)
+    - csv -> publish as table using pandas DataFrame
     - image -> artifact(image) with {mime, data_b64}
     - unknown -> artifact(text) with text
-
-    `raw`:
-      - If provided, use these bytes instead of reading the file again.
-      - Useful for watch-mode where you already tail-read.
     """
     fk = infer_file_kind(path)
 
-    # Load bytes (either from caller or disk)
     if raw is None:
         raw2 = path.read_bytes()
         if max_bytes is not None:
@@ -113,6 +113,9 @@ def coerce_file_to_publishable(
             artifact_kind="json",
             obj=obj,
             file_kind=fk,
+            raw_text=txt,
+            source_format="json",
+            source_filename=path.name,
         )
 
     # --- INI/CFG ---
@@ -132,30 +135,39 @@ def coerce_file_to_publishable(
             artifact_kind="json",
             obj=out,
             file_kind=fk,
+            raw_text=txt,
+            source_format="ini",
+            source_filename=path.name,
         )
 
-    # --- TOML (stdlib tomllib) ---
+    # --- TOML ---
     if fk == "toml":
+        txt = raw.decode(encoding, errors="replace")
         try:
             import tomllib  # py3.11+
         except Exception:  # pragma: no cover
-            txt = raw.decode(encoding, errors="replace")
             return FileCoerceResult(
                 publish_kind="artifact",
                 artifact_kind="text",
                 obj=txt,
                 file_kind="unknown",
+                raw_text=txt,
+                source_format="toml",
+                source_filename=path.name,
             )
 
-        obj = tomllib.loads(raw.decode(encoding, errors="replace"))
+        obj = tomllib.loads(txt)
         return FileCoerceResult(
             publish_kind="artifact",
             artifact_kind="json",
             obj=obj,
             file_kind=fk,
+            raw_text=txt,
+            source_format="toml",
+            source_filename=path.name,
         )
 
-    # --- YAML (optional dependency) ---
+    # --- YAML ---
     if fk == "yaml":
         txt = raw.decode(encoding, errors="replace")
         try:
@@ -166,6 +178,9 @@ def coerce_file_to_publishable(
                 artifact_kind="text",
                 obj=f"[plotsrv] YAML parsing requires PyYAML. Showing raw text.\n\n{txt}",
                 file_kind=fk,
+                raw_text=txt,
+                source_format="yaml",
+                source_filename=path.name,
             )
 
         obj = yaml.safe_load(txt)
@@ -174,6 +189,9 @@ def coerce_file_to_publishable(
             artifact_kind="json",
             obj=obj,
             file_kind=fk,
+            raw_text=txt,
+            source_format="yaml",
+            source_filename=path.name,
         )
 
     # --- Markdown ---
@@ -184,6 +202,9 @@ def coerce_file_to_publishable(
             artifact_kind="markdown",
             obj=txt,
             file_kind=fk,
+            raw_text=txt,
+            source_format="markdown",
+            source_filename=path.name,
         )
 
     # --- HTML ---
@@ -194,9 +215,12 @@ def coerce_file_to_publishable(
             artifact_kind="html",
             obj=txt,
             file_kind=fk,
+            raw_text=txt,
+            source_format="html",
+            source_filename=path.name,
         )
 
-    # --- CSV -> publish as TABLE (reuse existing table UI) ---
+    # --- CSV ---
     if fk == "csv":
         import io
         import pandas as pd
@@ -222,8 +246,12 @@ def coerce_file_to_publishable(
             artifact_kind=None,
             obj=df,
             file_kind=fk,
+            raw_text=txt,
+            source_format="csv",
+            source_filename=path.name,
         )
 
+    # --- Image ---
     if fk == "image":
         import base64
 
@@ -236,13 +264,17 @@ def coerce_file_to_publishable(
             obj=payload,
             file_kind=fk,
             mime=mime,
+            source_filename=path.name,
         )
 
-    # Default -> text
+    # --- Default -> text ---
     txt = raw.decode(encoding, errors="replace")
     return FileCoerceResult(
         publish_kind="artifact",
         artifact_kind="text",
         obj=txt,
         file_kind=fk,
+        raw_text=txt,
+        source_format="text",
+        source_filename=path.name,
     )
