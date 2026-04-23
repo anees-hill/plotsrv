@@ -37,7 +37,7 @@
   };
 
   function tablePrefKey() {
-    return "plotsrv:v3:table_state:" + String(config.activeViewId || "default");
+    return "plotsrv:v4:table_state:" + String(config.activeViewId || "default");
   }
 
   function defaultTableUiState() {
@@ -45,6 +45,8 @@
       searchQuery: "",
       filtersOpen: false,
       filters: [],
+      columnsOpen: false,
+      hiddenColumns: [],
     };
   }
 
@@ -78,7 +80,15 @@
     const base = defaultTableUiState();
     const filters = Array.isArray(parsed && parsed.filters) ? parsed.filters : [];
     const normalizedFilters = filters.map(normalizeFilter).filter(Boolean);
+    const hiddenColumns = Array.isArray(parsed && parsed.hiddenColumns)
+      ? parsed.hiddenColumns
+          .filter(function (x) {
+            return typeof x === "string" && x;
+          })
+      : [];
+
     const hasSavedFilters = normalizedFilters.some(isFilterComplete);
+    const hasHiddenColumns = hiddenColumns.length > 0;
 
     state.tableUiState = {
       searchQuery:
@@ -87,9 +97,11 @@
           : base.searchQuery,
       filtersOpen: hasSavedFilters,
       filters: normalizedFilters,
+      columnsOpen: hasHiddenColumns,
+      hiddenColumns: hiddenColumns,
     };
   }
-  
+
   function newFilterId() {
     return "f_" + Math.random().toString(36).slice(2, 10);
   }
@@ -141,6 +153,13 @@
     }
 
     return out;
+  }
+
+  function escapeHtml(s) {
+    if (typeof core.escapeHtml === "function") {
+      return core.escapeHtml(s);
+    }
+    return String(s);
   }
 
   function getActiveRowCount() {
@@ -243,6 +262,32 @@
     saveTableUiState();
   }
 
+  function getHiddenColumns() {
+    return Array.isArray(getTableUiState().hiddenColumns)
+      ? getTableUiState().hiddenColumns
+      : [];
+  }
+
+  function setHiddenColumns(fields) {
+    const ui = getTableUiState();
+    ui.hiddenColumns = Array.isArray(fields)
+      ? fields.filter(function (x) {
+          return typeof x === "string" && x;
+        })
+      : [];
+    saveTableUiState();
+  }
+
+  function setColumnsOpen(isOpen) {
+    const ui = getTableUiState();
+    ui.columnsOpen = !!isOpen;
+    saveTableUiState();
+  }
+
+  function hasHiddenColumns() {
+    return getHiddenColumns().length > 0;
+  }
+
   function getOperatorOptions(field) {
     const fieldType = getFieldType(field);
     return fieldType === "number" ? FILTER_OPS.number : FILTER_OPS.text;
@@ -272,13 +317,6 @@
         );
       })
       .join("");
-  }
-
-  function escapeHtml(s) {
-    if (typeof core.escapeHtml === "function") {
-      return core.escapeHtml(s);
-    }
-    return String(s);
   }
 
   function getCompleteFilters() {
@@ -370,6 +408,37 @@
       .join("");
   }
 
+  function renderColumnsList() {
+    const wrap = document.getElementById("table-columns-list");
+    if (!wrap) return;
+
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+    const hidden = new Set(getHiddenColumns());
+
+    if (!fields.length) {
+      wrap.innerHTML = '<div class="note ps-note">No columns available.</div>';
+      return;
+    }
+
+    wrap.innerHTML = fields
+      .map(function (field) {
+        const checked = hidden.has(field) ? "" : ' checked="checked"';
+        return (
+          '<label class="ps-table-column-item">' +
+          '<input type="checkbox" data-column-field="' +
+          escapeHtml(field) +
+          '"' +
+          checked +
+          " />" +
+          "<span>" +
+          escapeHtml(field) +
+          "</span>" +
+          "</label>"
+        );
+      })
+      .join("");
+  }
+
   function describeFilter(filter) {
     const field = filter.field || "";
     const op = filter.op || "";
@@ -441,14 +510,20 @@
     btn.classList.toggle("is-active", hasActiveFilters());
   }
 
-   function syncFilterPanelUi() {
+  function syncColumnsButtonUi() {
+    const btn = document.getElementById("table-columns-toggle-btn");
+    if (!btn) return;
+
+    btn.classList.toggle("is-active", hasHiddenColumns());
+  }
+
+  function syncFilterPanelUi() {
     const panel = document.getElementById("table-filter-panel");
     const btn = document.getElementById("table-filters-toggle-btn");
     const shouldShow = !!getTableUiState().filtersOpen || hasActiveFilters();
 
     if (panel) {
       panel.hidden = !shouldShow;
-      panel.classList.toggle("is-open", shouldShow);
     }
 
     if (btn) {
@@ -456,9 +531,23 @@
     }
 
     syncFilterButtonUi();
-  }   
+  }
 
+  function syncColumnsPanelUi() {
+    const panel = document.getElementById("table-columns-panel");
+    const btn = document.getElementById("table-columns-toggle-btn");
+    const shouldShow = !!getTableUiState().columnsOpen || hasHiddenColumns();
 
+    if (panel) {
+      panel.hidden = !shouldShow;
+    }
+
+    if (btn) {
+      btn.setAttribute("aria-expanded", shouldShow ? "true" : "false");
+    }
+
+    syncColumnsButtonUi();
+  }
 
   function getFieldValueForFilter(rowData, field) {
     return rowData ? rowData[field] : null;
@@ -542,6 +631,81 @@
     });
 
     refreshTableStatus();
+  }
+
+  function getColumnComponentByField(field) {
+    if (!state.tabulatorInstance || typeof state.tabulatorInstance.getColumns !== "function") {
+      return null;
+    }
+
+    try {
+      const cols = state.tabulatorInstance.getColumns();
+      for (const col of cols) {
+        if (!col || typeof col.getField !== "function") continue;
+        if (col.getField() === field) return col;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    return null;
+  }
+
+  function applyColumnVisibilityState() {
+    if (!state.tabulatorInstance) return;
+
+    const hidden = new Set(getHiddenColumns());
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+
+    for (const field of fields) {
+      const col = getColumnComponentByField(field);
+      if (!col) continue;
+
+      try {
+        if (hidden.has(field)) {
+          if (typeof col.hide === "function") col.hide();
+        } else {
+          if (typeof col.show === "function") col.show();
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
+
+    renderColumnsList();
+    syncColumnsPanelUi();
+  }
+
+  function getVisibleFieldsInCurrentOrder() {
+    if (!state.tabulatorInstance || typeof state.tabulatorInstance.getColumns !== "function") {
+      return Array.isArray(state.tableFields) ? state.tableFields.slice() : [];
+    }
+
+    const out = [];
+
+    try {
+      const cols = state.tabulatorInstance.getColumns();
+      for (const col of cols) {
+        if (!col || typeof col.getField !== "function") continue;
+        const field = col.getField();
+        if (!field) continue;
+
+        let visible = true;
+        try {
+          if (typeof col.isVisible === "function") {
+            visible = !!col.isVisible();
+          }
+        } catch (e) {
+          visible = true;
+        }
+
+        if (visible) out.push(field);
+      }
+    } catch (e) {
+      return Array.isArray(state.tableFields) ? state.tableFields.slice() : [];
+    }
+
+    return out;
   }
 
   function restoreToolbarInputs() {
@@ -647,18 +811,54 @@
     applyAllTableFilters();
   }
 
+  function toggleColumnVisibility(field, shouldBeVisible) {
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+    const hidden = new Set(getHiddenColumns());
+
+    if (!field || !fields.includes(field)) return;
+
+    if (!shouldBeVisible) {
+      const currentlyVisibleCount = fields.filter(function (f) {
+        return !hidden.has(f);
+      }).length;
+
+      if (currentlyVisibleCount <= 1) {
+        renderColumnsList();
+        return;
+      }
+
+      hidden.add(field);
+    } else {
+      hidden.delete(field);
+    }
+
+    setHiddenColumns(Array.from(hidden));
+    applyColumnVisibilityState();
+  }
+
+  function showAllColumns() {
+    setHiddenColumns([]);
+    setColumnsOpen(false);
+    applyColumnVisibilityState();
+  }
+
   function bindTableToolbar() {
     const input = document.getElementById("table-search-input");
     const resetBtn = document.getElementById("table-reset-btn");
     const filtersToggleBtn = document.getElementById("table-filters-toggle-btn");
+    const columnsToggleBtn = document.getElementById("table-columns-toggle-btn");
     const addFilterBtn = document.getElementById("table-filter-add-btn");
+    const showAllColumnsBtn = document.getElementById("table-columns-show-all-btn");
     const filterRows = document.getElementById("table-filter-rows");
+    const columnsList = document.getElementById("table-columns-list");
     const activeFilters = document.getElementById("table-active-filters");
 
     restoreToolbarInputs();
-    syncFilterPanelUi();
     renderFilterRows();
+    renderColumnsList();
     renderActiveFilters();
+    syncFilterPanelUi();
+    syncColumnsPanelUi();
 
     if (input && !input.dataset.plotsrvBound) {
       let timer = null;
@@ -712,8 +912,11 @@
         }
 
         renderFilterRows();
+        renderColumnsList();
         renderActiveFilters();
         syncFilterPanelUi();
+        syncColumnsPanelUi();
+        applyColumnVisibilityState();
         applyAllTableFilters();
       });
 
@@ -723,16 +926,23 @@
     if (filtersToggleBtn && !filtersToggleBtn.dataset.plotsrvBound) {
       filtersToggleBtn.addEventListener("click", function () {
         const ui = getTableUiState();
-        const nextOpen = !ui.filtersOpen;
-
-        ui.filtersOpen = nextOpen;
+        ui.filtersOpen = !ui.filtersOpen;
         saveTableUiState();
-
-        renderFilterRows();
         syncFilterPanelUi();
       });
 
       filtersToggleBtn.dataset.plotsrvBound = "1";
+    }
+
+    if (columnsToggleBtn && !columnsToggleBtn.dataset.plotsrvBound) {
+      columnsToggleBtn.addEventListener("click", function () {
+        const ui = getTableUiState();
+        ui.columnsOpen = !ui.columnsOpen;
+        saveTableUiState();
+        syncColumnsPanelUi();
+      });
+
+      columnsToggleBtn.dataset.plotsrvBound = "1";
     }
 
     if (addFilterBtn && !addFilterBtn.dataset.plotsrvBound) {
@@ -753,6 +963,14 @@
       });
 
       addFilterBtn.dataset.plotsrvBound = "1";
+    }
+
+    if (showAllColumnsBtn && !showAllColumnsBtn.dataset.plotsrvBound) {
+      showAllColumnsBtn.addEventListener("click", function () {
+        showAllColumns();
+      });
+
+      showAllColumnsBtn.dataset.plotsrvBound = "1";
     }
 
     if (addFilterBtn) {
@@ -805,6 +1023,20 @@
       filterRows.dataset.plotsrvBound = "1";
     }
 
+    if (columnsList && !columnsList.dataset.plotsrvBound) {
+      columnsList.addEventListener("change", function (ev) {
+        const target = ev.target;
+        if (!target || !target.getAttribute) return;
+
+        const field = target.getAttribute("data-column-field");
+        if (!field) return;
+
+        toggleColumnVisibility(field, !!target.checked);
+      });
+
+      columnsList.dataset.plotsrvBound = "1";
+    }
+
     if (activeFilters && !activeFilters.dataset.plotsrvBound) {
       activeFilters.addEventListener("click", function (ev) {
         const btn =
@@ -821,6 +1053,75 @@
 
       activeFilters.dataset.plotsrvBound = "1";
     }
+  }
+
+  function csvEscape(value) {
+    const text = String(value == null ? "" : value);
+    if (text.includes('"') || text.includes(",") || text.includes("\n") || text.includes("\r")) {
+      return '"' + text.replace(/"/g, '""') + '"';
+    }
+    return text;
+  }
+
+  function downloadTextFile(filename, text, mime) {
+    const blob = new Blob([text], { type: mime || "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  }
+
+  function buildCsvFromRows(rows, fields) {
+    const lines = [];
+    lines.push(fields.map(csvEscape).join(","));
+
+    for (const row of rows) {
+      const vals = fields.map(function (field) {
+        return csvEscape(row ? row[field] : "");
+      });
+      lines.push(vals.join(","));
+    }
+
+    return lines.join("\r\n");
+  }
+
+  function exportFilteredRichTable() {
+    if (!state.tabulatorInstance) return false;
+
+    let rows = [];
+    try {
+      rows = state.tabulatorInstance.getData("active");
+      if (!Array.isArray(rows)) rows = [];
+    } catch (e) {
+      rows = [];
+    }
+
+    if (!rows.length) {
+      try {
+        rows = state.tabulatorInstance.getData();
+        if (!Array.isArray(rows)) rows = [];
+      } catch (e) {
+        rows = [];
+      }
+    }
+
+    const visibleFields = getVisibleFieldsInCurrentOrder();
+    if (!visibleFields.length) return false;
+
+    const csv = buildCsvFromRows(rows, visibleFields);
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = String(config.activeViewId || "table").replace(/[^\w.-]+/g, "_");
+    const filename = base + "-" + stamp + ".csv";
+
+    downloadTextFile(filename, csv, "text/csv;charset=utf-8");
+    return true;
   }
 
   async function loadTable() {
@@ -873,6 +1174,7 @@
       state.tabulatorInstance.setColumns(columns);
       state.tabulatorInstance.replaceData(rows);
       bindTableToolbar();
+      applyColumnVisibilityState();
       applyAllTableFilters();
       refreshTableStatus();
       return;
@@ -901,11 +1203,17 @@
     }
 
     bindTableToolbar();
+    applyColumnVisibilityState();
     applyAllTableFilters();
     refreshTableStatus();
   }
 
   function exportTable() {
+    if (state.tabulatorInstance) {
+      const ok = exportFilteredRichTable();
+      if (ok) return;
+    }
+
     const snapshotQuery =
       typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "";
 

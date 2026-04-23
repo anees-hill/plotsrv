@@ -254,6 +254,15 @@ def render_index(
                   </button>
 
                   <button
+                    id="table-columns-toggle-btn"
+                    type="button"
+                    class="ps-btn"
+                    aria-expanded="false"
+                    aria-controls="table-columns-panel">
+                    Columns
+                  </button>
+
+                  <button
                     id="table-reset-btn"
                     type="button"
                     class="ps-btn">
@@ -275,6 +284,22 @@ def render_index(
               </div>
 
               <div id="table-filter-rows" class="ps-table-filter-rows"></div>
+            </div>
+
+            <div id="table-columns-panel" class="ps-table-columns-panel" hidden>
+              <div class="ps-table-columns-panel__header">
+                <div class="ps-table-columns-panel__title">Columns</div>
+                <div class="ps-table-columns-panel__actions">
+                  <button
+                    id="table-columns-show-all-btn"
+                    type="button"
+                    class="ps-btn">
+                    Show all
+                  </button>
+                </div>
+              </div>
+
+              <div id="table-columns-list" class="ps-table-columns-list"></div>
             </div>
 
             <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
