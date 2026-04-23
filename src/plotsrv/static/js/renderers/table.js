@@ -40,6 +40,18 @@
     return "plotsrv:v4:table_state:" + String(config.activeViewId || "default");
   }
 
+  function buildColumnDefs(columnNames) {
+    const hidden = new Set(getHiddenColumns());
+
+    return (columnNames || []).map(function (col) {
+      return {
+        title: col,
+        field: col,
+        visible: !hidden.has(col),
+      };
+    });
+  }
+
   function defaultTableUiState() {
     return {
       searchQuery: "",
@@ -67,41 +79,6 @@
     }
   }
 
-  function loadTableUiState() {
-    let parsed = null;
-
-    try {
-      const raw = localStorage.getItem(tablePrefKey());
-      if (raw) parsed = JSON.parse(raw);
-    } catch (e) {
-      parsed = null;
-    }
-
-    const base = defaultTableUiState();
-    const filters = Array.isArray(parsed && parsed.filters) ? parsed.filters : [];
-    const normalizedFilters = filters.map(normalizeFilter).filter(Boolean);
-    const hiddenColumns = Array.isArray(parsed && parsed.hiddenColumns)
-      ? parsed.hiddenColumns
-          .filter(function (x) {
-            return typeof x === "string" && x;
-          })
-      : [];
-
-    const hasSavedFilters = normalizedFilters.some(isFilterComplete);
-    const hasHiddenColumns = hiddenColumns.length > 0;
-
-    state.tableUiState = {
-      searchQuery:
-        parsed && typeof parsed.searchQuery === "string"
-          ? parsed.searchQuery
-          : base.searchQuery,
-      filtersOpen: hasSavedFilters,
-      filters: normalizedFilters,
-      columnsOpen: hasHiddenColumns,
-      hiddenColumns: hiddenColumns,
-    };
-  }
-
   function newFilterId() {
     return "f_" + Math.random().toString(36).slice(2, 10);
   }
@@ -116,6 +93,77 @@
       value: typeof filter.value === "string" ? filter.value : "",
       valueTo: typeof filter.valueTo === "string" ? filter.valueTo : "",
     };
+  }
+
+  function operatorNeedsValue(op) {
+    return !["missing", "not_missing"].includes(op);
+  }
+
+  function operatorNeedsTwoValues(op) {
+    return ["between", "not_between"].includes(op);
+  }
+
+  function isFilterComplete(filter) {
+    if (!filter.field || !filter.op) return false;
+    if (!operatorNeedsValue(filter.op)) return true;
+    if (operatorNeedsTwoValues(filter.op)) {
+      return (
+        String(filter.value || "").trim() !== "" &&
+        String(filter.valueTo || "").trim() !== ""
+      );
+    }
+    return String(filter.value || "").trim() !== "";
+  }
+
+  function loadTableUiState() {
+    let parsed = null;
+
+    try {
+      const raw = localStorage.getItem(tablePrefKey());
+      if (raw) parsed = JSON.parse(raw);
+    } catch (e) {
+      parsed = null;
+    }
+
+    const base = defaultTableUiState();
+    const filters = Array.isArray(parsed && parsed.filters) ? parsed.filters : [];
+    const normalizedFilters = filters.map(normalizeFilter).filter(Boolean);
+    const hiddenColumns = Array.isArray(parsed && parsed.hiddenColumns)
+      ? parsed.hiddenColumns.filter(function (x) {
+          return typeof x === "string" && x;
+        })
+      : [];
+
+    const hasSavedFilters = normalizedFilters.some(isFilterComplete);
+    const hasHiddenColumns = hiddenColumns.length > 0;
+
+    state.tableUiState = {
+      searchQuery:
+        parsed && typeof parsed.searchQuery === "string"
+          ? parsed.searchQuery
+          : base.searchQuery,
+
+      filtersOpen:
+        parsed && typeof parsed.filtersOpen === "boolean"
+          ? parsed.filtersOpen
+          : hasSavedFilters,
+
+      filters: normalizedFilters,
+
+      columnsOpen:
+        parsed && typeof parsed.columnsOpen === "boolean"
+          ? parsed.columnsOpen
+          : hasHiddenColumns,
+
+      hiddenColumns: hiddenColumns,
+    };
+  }
+
+  function escapeHtml(s) {
+    if (typeof core.escapeHtml === "function") {
+      return core.escapeHtml(s);
+    }
+    return String(s);
   }
 
   function getFieldType(field) {
@@ -153,13 +201,6 @@
     }
 
     return out;
-  }
-
-  function escapeHtml(s) {
-    if (typeof core.escapeHtml === "function") {
-      return core.escapeHtml(s);
-    }
-    return String(s);
   }
 
   function getActiveRowCount() {
@@ -293,14 +334,6 @@
     return fieldType === "number" ? FILTER_OPS.number : FILTER_OPS.text;
   }
 
-  function operatorNeedsValue(op) {
-    return !["missing", "not_missing"].includes(op);
-  }
-
-  function operatorNeedsTwoValues(op) {
-    return ["between", "not_between"].includes(op);
-  }
-
   function renderOperatorOptions(field, selectedOp) {
     const options = getOperatorOptions(field);
     return options
@@ -357,7 +390,15 @@
           fieldOptions
             .map(function (f) {
               const sel = f === field ? ' selected="selected"' : "";
-              return '<option value="' + escapeHtml(f) + '"' + sel + ">" + escapeHtml(f) + "</option>";
+              return (
+                '<option value="' +
+                escapeHtml(f) +
+                '"' +
+                sel +
+                ">" +
+                escapeHtml(f) +
+                "</option>"
+              );
             })
             .join("") +
           "</select>";
@@ -465,15 +506,6 @@
     return field + " " + opLabel;
   }
 
-  function isFilterComplete(filter) {
-    if (!filter.field || !filter.op) return false;
-    if (!operatorNeedsValue(filter.op)) return true;
-    if (operatorNeedsTwoValues(filter.op)) {
-      return String(filter.value || "").trim() !== "" && String(filter.valueTo || "").trim() !== "";
-    }
-    return String(filter.value || "").trim() !== "";
-  }
-
   function renderActiveFilters() {
     const wrap = document.getElementById("table-active-filters");
     if (!wrap) return;
@@ -520,7 +552,7 @@
   function syncFilterPanelUi() {
     const panel = document.getElementById("table-filter-panel");
     const btn = document.getElementById("table-filters-toggle-btn");
-    const shouldShow = !!getTableUiState().filtersOpen || hasActiveFilters();
+    const shouldShow = !!getTableUiState().filtersOpen;
 
     if (panel) {
       panel.hidden = !shouldShow;
@@ -536,7 +568,7 @@
   function syncColumnsPanelUi() {
     const panel = document.getElementById("table-columns-panel");
     const btn = document.getElementById("table-columns-toggle-btn");
-    const shouldShow = !!getTableUiState().columnsOpen || hasHiddenColumns();
+    const shouldShow = !!getTableUiState().columnsOpen;
 
     if (panel) {
       panel.hidden = !shouldShow;
@@ -581,7 +613,9 @@
       if (op === "eq") return a === b;
       if (op === "neq") return a !== b;
       if (op === "between") return a >= Math.min(b, c) && a <= Math.max(b, c);
-      if (op === "not_between") return !(a >= Math.min(b, c) && a <= Math.max(b, c));
+      if (op === "not_between") {
+        return !(a >= Math.min(b, c) && a <= Math.max(b, c));
+      }
 
       return true;
     }
@@ -750,10 +784,6 @@
 
     setFilters(filters);
 
-    if (filters.length === 0) {
-      setFiltersOpen(false);
-    }
-
     renderFilterRows();
     renderActiveFilters();
     syncFilterPanelUi();
@@ -838,7 +868,6 @@
 
   function showAllColumns() {
     setHiddenColumns([]);
-    setColumnsOpen(false);
     applyColumnVisibilityState();
   }
 
@@ -925,9 +954,8 @@
 
     if (filtersToggleBtn && !filtersToggleBtn.dataset.plotsrvBound) {
       filtersToggleBtn.addEventListener("click", function () {
-        const ui = getTableUiState();
-        ui.filtersOpen = !ui.filtersOpen;
-        saveTableUiState();
+        const nextOpen = !getTableUiState().filtersOpen;
+        setFiltersOpen(nextOpen);
         syncFilterPanelUi();
       });
 
@@ -936,9 +964,8 @@
 
     if (columnsToggleBtn && !columnsToggleBtn.dataset.plotsrvBound) {
       columnsToggleBtn.addEventListener("click", function () {
-        const ui = getTableUiState();
-        ui.columnsOpen = !ui.columnsOpen;
-        saveTableUiState();
+        const nextOpen = !getTableUiState().columnsOpen;
+        setColumnsOpen(nextOpen);
         syncColumnsPanelUi();
       });
 
@@ -1057,7 +1084,12 @@
 
   function csvEscape(value) {
     const text = String(value == null ? "" : value);
-    if (text.includes('"') || text.includes(",") || text.includes("\n") || text.includes("\r")) {
+    if (
+      text.includes('"') ||
+      text.includes(",") ||
+      text.includes("\n") ||
+      text.includes("\r")
+    ) {
       return '"' + text.replace(/"/g, '""') + '"';
     }
     return text;
@@ -1124,6 +1156,18 @@
     return true;
   }
 
+  function buildColumnDefs(columnNames) {
+    const hidden = new Set(getHiddenColumns());
+
+    return (columnNames || []).map(function (col) {
+      return {
+        title: col,
+        field: col,
+        visible: !hidden.has(col),
+      };
+    });
+  }
+
   async function loadTable() {
     const grid = document.getElementById("table-grid");
     if (!grid) return;
@@ -1137,10 +1181,10 @@
 
     const res = await fetch(
       "/table/data?view=" +
-        encodeURIComponent(config.activeViewId) +
-        snapshotQuery +
-        "&_ts=" +
-        Date.now()
+      encodeURIComponent(config.activeViewId) +
+      snapshotQuery +
+      "&_ts=" +
+      Date.now()
     );
 
     if (!res.ok) {
@@ -1159,9 +1203,7 @@
     }
 
     const data = await res.json();
-    const columns = (data.columns || []).map(function (col) {
-      return { title: col, field: col };
-    });
+    const columns = buildColumnDefs(data.columns || []);
     const rows = data.rows || [];
 
     state.tableLastPayload = data;
@@ -1174,7 +1216,6 @@
       state.tabulatorInstance.setColumns(columns);
       state.tabulatorInstance.replaceData(rows);
       bindTableToolbar();
-      applyColumnVisibilityState();
       applyAllTableFilters();
       refreshTableStatus();
       return;
@@ -1203,7 +1244,6 @@
     }
 
     bindTableToolbar();
-    applyColumnVisibilityState();
     applyAllTableFilters();
     refreshTableStatus();
   }
