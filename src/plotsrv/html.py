@@ -37,12 +37,9 @@ def render_index(
 
     if include_tabulator:
         tabulator_head = """
-        <link href=
-"https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css"
+        <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css"
  rel="stylesheet">
-        <script src=
-"https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"
-></script>
+        <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
         """
 
     statusline_html = ""
@@ -51,9 +48,7 @@ def render_index(
         if ui.show_freshness:
             freshness_html = """
               &nbsp;|&nbsp;
-              <span class=
-"ps-statusline__item"
->
+              <span class="ps-statusline__item">
                 <strong>Freshness:</strong> <span id="status-freshness">—</span>
               </span>
             """
@@ -353,20 +348,9 @@ def render_index(
     elif kind == "artifact":
         controls_html = (
             _refresh_control_html("refreshArtifact()")
-            + (
+            + """
+                <button type="button" class="ps-btn" onclick="exportArtifact()">Export</button>
                 """
-                <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
-                """
-                if ui.export_image
-                else ""
-            )
-            + (
-                """
-                <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
-                """
-                if ui.export_table
-                else ""
-            )
             + _history_controls_html()
             + _auto_refresh_controls_html()
             + _terminate_button_html()

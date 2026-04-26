@@ -138,11 +138,80 @@
       });
   }
 
+  function parseJsonAttr(raw) {
+    if (typeof raw !== "string" || !raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function getArtifactExportText() {
+    const jsonRoot = document.querySelector('[data-plotsrv-json="1"]');
+    if (jsonRoot) {
+      const rawText = parseJsonAttr(
+        jsonRoot.getAttribute("data-plotsrv-json-raw-text") || "null"
+      );
+      if (typeof rawText === "string") {
+        return rawText;
+      }
+
+      const prettyText = parseJsonAttr(
+        jsonRoot.getAttribute("data-plotsrv-json-pretty-text") || "null"
+      );
+      if (typeof prettyText === "string") {
+        return prettyText;
+      }
+
+      const textView = jsonRoot.querySelector("[data-json-text-view='1']");
+      if (textView) {
+        return String(textView.textContent || "");
+      }
+    }
+
+    const pre = document.querySelector('#artifact-root pre');
+    if (pre) {
+      return String(pre.textContent || "");
+    }
+
+    const root = document.getElementById("artifact-root");
+    if (root) {
+      return String(root.innerText || root.textContent || "");
+    }
+
+    return "";
+  }
+
+  function downloadTextFile(filename, text) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 1000);
+  }
+
+  function exportArtifact() {
+    const text = getArtifactExportText();
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = String(config.activeViewId || "artifact").replace(/[^\w.-]+/g, "_");
+    const filename = base + "-" + stamp + ".txt";
+    downloadTextFile(filename, text);
+  }
+
   core.renderTruncationBadge = renderTruncationBadge;
   core.loadArtifact = loadArtifact;
   core.refreshArtifact = refreshArtifact;
   core.terminateServer = terminateServer;
+  core.exportArtifact = exportArtifact;
 
   window.refreshArtifact = refreshArtifact;
   window.terminateServer = terminateServer;
+  window.exportArtifact = exportArtifact;
 })();
