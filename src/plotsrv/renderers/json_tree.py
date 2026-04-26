@@ -282,7 +282,6 @@ def _render_document_node(node: dict[str, Any]) -> str:
     icon_key = node.get("icon_key")
     node_kind = str(node.get("node_kind") or "scalar")
     value_kind = str(node.get("value_kind") or "value")
-    child_count = int(node.get("child_count") or 0)
     desc_count = int(node.get("descendant_count") or 0)
     desc_layers = int(node.get("descendant_layer_count") or 0)
     expandable = bool(node.get("expandable") or False)
@@ -306,17 +305,41 @@ def _render_document_node(node: dict[str, Any]) -> str:
             f'<img class="ps-json-typeicon" src="{_ICON_SRC[icon_key]}" alt="" />'
         )
 
-    summary_html = (
-        f'<span class="ps-json-cell ps-json-cell--summary" data-json-text="{_escape_attr(str(summary))}">({ _escape_html(str(summary)) })</span>'
-        if summary
-        else '<span class="ps-json-cell ps-json-cell--summary"></span>'
+    toggle_html = (
+        '<span class="ps-json-toggle ps-json-toggle--expandable" aria-hidden="true"></span>'
+        if expandable
+        else '<span class="ps-json-toggle ps-json-toggle--leaf" aria-hidden="true"></span>'
     )
 
-    type_html = (
-        f'<span class="ps-json-cell ps-json-cell--type" data-json-text="{_escape_attr(type_label)}">{icon_html}<span class="ps-json-typelabel">{_escape_html(type_label)}</span></span>'
-        if type_label
-        else '<span class="ps-json-cell ps-json-cell--type"></span>'
-    )
+    lead_html = f"""
+    <span class="ps-json-cell ps-json-cell--lead">
+      {toggle_html}
+      <span class="ps-json-key" data-json-text="{_escape_attr(display_key)}">{_escape_html(display_key)}</span>
+      {"<span class='badge json-badge' title='" + _escape_html(str(truncation_reason or "truncated")) + "'>…</span>" if truncated else ""}
+    </span>
+    """.strip()
+
+    summary_html = '<span class="ps-json-cell ps-json-cell--summary"></span>'
+    if expandable and summary:
+        summary_html = (
+            f'<span class="ps-json-cell ps-json-cell--summary" '
+            f'data-json-text="{_escape_attr(str(summary))}">({_escape_html(str(summary))})</span>'
+        )
+
+    type_html = '<span class="ps-json-cell ps-json-cell--type"></span>'
+    if type_label:
+        type_html = (
+            f'<span class="ps-json-cell ps-json-cell--type" '
+            f'data-json-text="{_escape_attr(type_label)}">{icon_html}'
+            f'<span class="ps-json-typelabel">{_escape_html(type_label)}</span></span>'
+        )
+
+    value_html = '<span class="ps-json-cell ps-json-cell--value"></span>'
+    if not expandable and preview is not None:
+        value_html = (
+            f'<span class="ps-json-cell ps-json-cell--value" '
+            f'data-json-text="{_escape_attr(str(preview))}">{_escape_html(str(preview))}</span>'
+        )
 
     hint_html = '<span class="ps-json-cell ps-json-cell--hint"></span>'
     if expandable and desc_layers > 0 and desc_count > 0:
@@ -330,24 +353,10 @@ def _render_document_node(node: dict[str, Any]) -> str:
             if desc_count == 1
             else f"{desc_count} nested entries"
         )
-        hint_html = f'<span class="ps-json-cell ps-json-cell--hint">{_escape_html(more_text + ", " + entry_text + " total")}</span>'
-
-    value_html = '<span class="ps-json-cell ps-json-cell--value"></span>'
-    if preview and node_kind != "container":
-        value_html = f'<span class="ps-json-cell ps-json-cell--value" data-json-text="{_escape_attr(str(preview))}">{_escape_html(str(preview))}</span>'
-
-    trunc_html = ""
-    if truncated:
-        reason = _escape_html(str(truncation_reason or "truncated"))
-        trunc_html = f'<span class="badge json-badge" title="{reason}">…</span>'
-
-    lead_html = f"""
-    <span class="ps-json-cell ps-json-cell--lead">
-      <span class="ps-json-branch ps-json-branch--{"container" if expandable else "leaf"}"></span>
-      <span class="ps-json-key" data-json-text="{_escape_attr(display_key)}">{_escape_html(display_key)}</span>
-      {trunc_html}
-    </span>
-    """.strip()
+        hint_html = (
+            f'<span class="ps-json-cell ps-json-cell--hint">'
+            f'{_escape_html(more_text + ", " + entry_text + " total")}</span>'
+        )
 
     row_inner = f"""
     {lead_html}
@@ -404,7 +413,7 @@ def _render_simple_document_node(node: dict[str, Any]) -> str:
     else:
         if summary:
             bits.append(
-                f'<span class="json-summary" data-json-text="{_escape_attr(str(summary))}">({ _escape_html(str(summary)) })</span>'
+                f'<span class="json-summary" data-json-text="{_escape_attr(str(summary))}">({_escape_html(str(summary))})</span>'
             )
         if type_label:
             bits.append(

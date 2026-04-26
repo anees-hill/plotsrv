@@ -95,7 +95,7 @@ def _summarise_scalar(x: Any, *, max_chars: int = 120) -> str:
     return s[:max_chars] + "…"
 
 
-def _infer_node_type_label(value: Any) -> tuple[str, str | None]:
+def _infer_runtime_node_type_label(value: Any) -> tuple[str, str | None]:
     if isinstance(value, dict):
         return "dict", "json"
     if isinstance(value, list):
@@ -115,13 +115,37 @@ def _infer_node_type_label(value: Any) -> tuple[str, str | None]:
     return type(value).__name__, "python"
 
 
+def _infer_file_node_type_label(value: Any) -> tuple[str, str | None]:
+    if isinstance(value, dict):
+        return "object", "json"
+    if isinstance(value, list):
+        return "list", "json"
+    if isinstance(value, tuple):
+        return "list", "json"
+    if isinstance(value, str):
+        return "str", None
+    if isinstance(value, bool):
+        return "bool", None
+    if isinstance(value, int):
+        return "int", None
+    if isinstance(value, float):
+        return "float", None
+    if value is None:
+        return "null", None
+    return type(value).__name__, "python"
+
+
 def _build_json_node(
     value: Any,
     *,
     display_key: str,
     depth: int = 0,
+    source_kind: str = "runtime",
 ) -> tuple[dict[str, Any], int, int]:
-    type_label, icon_key = _infer_node_type_label(value)
+    if source_kind == "file":
+        type_label, icon_key = _infer_file_node_type_label(value)
+    else:
+        type_label, icon_key = _infer_runtime_node_type_label(value)
 
     if isinstance(value, dict):
         children: list[dict[str, Any]] = []
@@ -135,6 +159,7 @@ def _build_json_node(
                 v,
                 display_key=str(k),
                 depth=depth + 1,
+                source_kind=source_kind,
             )
             children.append(child)
             node_count += child_nodes
@@ -146,7 +171,7 @@ def _build_json_node(
             "display_key": display_key,
             "node_kind": "container",
             "value_kind": "dict",
-            "type_label": "dict",
+            "type_label": type_label,
             "icon_key": icon_key,
             "summary": f"{len(value)} keys",
             "preview": None,
@@ -173,6 +198,7 @@ def _build_json_node(
                 v,
                 display_key=f"[{i}]",
                 depth=depth + 1,
+                source_kind=source_kind,
             )
             children.append(child)
             node_count += child_nodes
@@ -184,7 +210,7 @@ def _build_json_node(
             "display_key": display_key,
             "node_kind": "container",
             "value_kind": "list",
-            "type_label": "list",
+            "type_label": type_label,
             "icon_key": icon_key,
             "summary": f"{len(value)} items",
             "preview": None,
@@ -211,6 +237,7 @@ def _build_json_node(
                 v,
                 display_key=f"[{i}]",
                 depth=depth + 1,
+                source_kind=source_kind,
             )
             children.append(child)
             node_count += child_nodes
@@ -222,7 +249,7 @@ def _build_json_node(
             "display_key": display_key,
             "node_kind": "container",
             "value_kind": "tuple",
-            "type_label": "tuple",
+            "type_label": type_label,
             "icon_key": icon_key,
             "summary": f"{len(value)} items",
             "preview": None,
@@ -269,6 +296,7 @@ def _build_structured_document(
         parsed_obj,
         display_key="root",
         depth=0,
+        source_kind="file",
     )
 
     try:
