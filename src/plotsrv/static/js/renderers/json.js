@@ -13,8 +13,9 @@
   const renderers = window.PLOTSRV.renderers;
   const config = window.PLOTSRV.config;
 
-  function clearJsonHits(tree) {
-    const hits = tree.querySelectorAll(".json-hit, .json-hit-current");
+  function clearJsonHits(scopeEl) {
+    if (!scopeEl) return;
+    const hits = scopeEl.querySelectorAll(".json-hit, .json-hit-current");
     hits.forEach((el) => {
       el.classList.remove("json-hit");
       el.classList.remove("json-hit-current");
@@ -26,50 +27,67 @@
     return root.querySelector('[data-plotsrv-json="1"]');
   }
 
-  function loadJsonPrefs() {
-    if (typeof core.loadJsonPrefs !== "function") {
-      return {
-        mode: "json",
-        level_limit: "2",
-        find_query: "",
-      };
+  function getJsonPrefs() {
+    if (typeof core.loadJsonPrefs === "function") {
+      return core.loadJsonPrefs(config.activeViewId);
     }
-    return core.loadJsonPrefs(config.activeViewId);
+    return {
+      mode: "json",
+      level_limit: "2",
+      find_query: "",
+    };
   }
 
   function saveJsonPrefs(nextPrefs) {
-    if (typeof core.saveJsonPrefs !== "function") return;
-    core.saveJsonPrefs(config.activeViewId, nextPrefs);
+    if (typeof core.saveJsonPrefs === "function") {
+      core.saveJsonPrefs(config.activeViewId, nextPrefs);
+    }
   }
 
-  function getActivePanel(jsonRoot) {
-    if (!jsonRoot) return null;
-    return jsonRoot.querySelector('.ps-json-panel:not([hidden])');
+  function getPanels(jsonRoot) {
+    if (!jsonRoot) return [];
+    return Array.from(jsonRoot.querySelectorAll("[data-json-panel]"));
+  }
+
+  function getPanelByMode(jsonRoot, mode) {
+    return jsonRoot
+      ? jsonRoot.querySelector('[data-json-panel="' + String(mode) + '"]')
+      : null;
   }
 
   function getModeButtons(root) {
-    return root.querySelectorAll("[data-json-mode]");
+    return Array.from(root.querySelectorAll("[data-json-mode]"));
+  }
+
+  function applyModeButtonState(root, mode) {
+    getModeButtons(root).forEach((btn) => {
+      const btnMode = String(btn.getAttribute("data-json-mode") || "");
+      const isActive = btnMode === mode;
+      btn.classList.toggle("is-active", isActive);
+      btn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
   }
 
   function setMode(root, mode) {
     const jsonRoot = getJsonRoot(root);
     if (!jsonRoot) return;
 
-    const panels = jsonRoot.querySelectorAll("[data-json-panel]");
-    panels.forEach((panel) => {
-      const panelMode = panel.getAttribute("data-json-panel") || "";
-      panel.hidden = panelMode !== mode;
+    const allowed = new Set(["json", "simple", "text"]);
+    const nextMode = allowed.has(mode) ? mode : "json";
+
+    getPanels(jsonRoot).forEach((panel) => {
+      const panelMode = String(panel.getAttribute("data-json-panel") || "");
+      panel.hidden = panelMode !== nextMode;
     });
 
-    const btns = getModeButtons(root);
-    btns.forEach((btn) => {
-      const btnMode = btn.getAttribute("data-json-mode") || "";
-      btn.classList.toggle("is-active", btnMode === mode);
-      btn.setAttribute("aria-pressed", btnMode === mode ? "true" : "false");
-    });
+    applyModeButtonState(root, nextMode);
 
-    const prefs = loadJsonPrefs();
-    prefs.mode = mode;
+    if (nextMode === "text") {
+      applyTextModeContent(root);
+    }
+
+    const prefs = getJsonPrefs();
+    prefs.mode = nextMode;
     saveJsonPrefs(prefs);
   }
 
@@ -82,8 +100,9 @@
     }
   }
 
-  function getTextValue(jsonRoot) {
+  function getPreferredTextValue(jsonRoot) {
     if (!jsonRoot) return "";
+
     const rawText = parseStoredJsonText(
       jsonRoot.getAttribute("data-plotsrv-json-raw-text") || "null"
     );
@@ -94,41 +113,52 @@
     );
     if (typeof prettyText === "string") return prettyText;
 
-    const textPre = jsonRoot.querySelector("[data-json-text-view='1']");
-    return textPre ? String(textPre.textContent || "") : "";
+    const existing = jsonRoot.querySelector("[data-json-text-view='1']");
+    return existing ? String(existing.textContent || "") : "";
   }
 
   function applyTextModeContent(root) {
     const jsonRoot = getJsonRoot(root);
     if (!jsonRoot) return;
 
-    const pre = jsonRoot.querySelector("[data-json-text-view='1']");
-    if (!pre) return;
+    const textPre = jsonRoot.querySelector("[data-json-text-view='1']");
+    if (!textPre) return;
 
-    pre.textContent = getTextValue(jsonRoot);
+    textPre.textContent = getPreferredTextValue(jsonRoot);
   }
 
-  function setLevelLimit(root, levelLimit) {
+  function getRichDetailsNodes(root) {
     const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot) return;
+    if (!jsonRoot) return [];
+    return Array.from(
+      jsonRoot.querySelectorAll(
+        '[data-json-panel="json"] details[data-json-depth]'
+      )
+    );
+  }
 
+  function setLevelLimit(root, rawLevelLimit) {
+    const levelLimit = String(rawLevelLimit || "2");
     const select = root.querySelector("[data-json-level-limit='1']");
-    if (select && String(select.value || "") !== String(levelLimit || "2")) {
-      select.value = String(levelLimit || "2");
+    if (select && String(select.value || "") !== levelLimit) {
+      select.value = levelLimit;
     }
 
-    const richPanel = jsonRoot.querySelector('[data-json-panel="json"]');
-    if (!richPanel) return;
+    const detailsNodes = getRichDetailsNodes(root);
+    if (!detailsNodes.length) {
+      const prefs = getJsonPrefs();
+      prefs.level_limit = levelLimit;
+      saveJsonPrefs(prefs);
+      return;
+    }
 
-    const detailsNodes = richPanel.querySelectorAll("details[data-json-depth]");
-
-    if (String(levelLimit) === "all") {
+    if (levelLimit === "all") {
       detailsNodes.forEach((node) => {
         node.open = true;
       });
     } else {
-      const limit = Number(levelLimit);
-      if (!Number.isFinite(limit) || limit < 1) return;
+      const n = Number(levelLimit);
+      const limit = Number.isFinite(n) && n >= 1 ? n : 2;
 
       detailsNodes.forEach((node) => {
         const depth = Number(node.getAttribute("data-json-depth") || "0");
@@ -136,17 +166,13 @@
       });
     }
 
-    const prefs = loadJsonPrefs();
-    prefs.level_limit = String(levelLimit || "2");
+    const prefs = getJsonPrefs();
+    prefs.level_limit = levelLimit;
     saveJsonPrefs(prefs);
   }
 
   function expandAll(root) {
-    const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot) return;
-    const detailsNodes = jsonRoot.querySelectorAll(
-      '[data-json-panel="json"] details[data-json-depth]'
-    );
+    const detailsNodes = getRichDetailsNodes(root);
     detailsNodes.forEach((node) => {
       node.open = true;
     });
@@ -154,17 +180,13 @@
     const select = root.querySelector("[data-json-level-limit='1']");
     if (select) select.value = "all";
 
-    const prefs = loadJsonPrefs();
+    const prefs = getJsonPrefs();
     prefs.level_limit = "all";
     saveJsonPrefs(prefs);
   }
 
   function collapseAll(root) {
-    const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot) return;
-    const detailsNodes = jsonRoot.querySelectorAll(
-      '[data-json-panel="json"] details[data-json-depth]'
-    );
+    const detailsNodes = getRichDetailsNodes(root);
     detailsNodes.forEach((node) => {
       const depth = Number(node.getAttribute("data-json-depth") || "0");
       node.open = depth < 1;
@@ -173,55 +195,20 @@
     const select = root.querySelector("[data-json-level-limit='1']");
     if (select) select.value = "1";
 
-    const prefs = loadJsonPrefs();
+    const prefs = getJsonPrefs();
     prefs.level_limit = "1";
     saveJsonPrefs(prefs);
   }
 
-  function runFind(root, localState) {
+  function getSearchScope(root) {
     const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot) return;
+    if (!jsonRoot) return null;
 
-    const input = root.querySelector("[data-plotsrv-json-find='1']");
-    const countEl = root.querySelector("[data-plotsrv-json-count='1']");
-    if (!input) return;
+    const activePanel = Array.from(
+      jsonRoot.querySelectorAll("[data-json-panel]")
+    ).find((panel) => !panel.hidden);
 
-    const activePanel = getActivePanel(jsonRoot);
-    if (!activePanel) return;
-
-    const q = String(input.value || "").trim();
-    const prefs = loadJsonPrefs();
-    prefs.find_query = q;
-    saveJsonPrefs(prefs);
-
-    clearJsonHits(jsonRoot);
-    localState.hits = [];
-    localState.idx = -1;
-
-    if (countEl) countEl.textContent = "";
-
-    if (!q) return;
-
-    // Text mode intentionally doesn't do full-text highlight yet.
-    if ((activePanel.getAttribute("data-json-panel") || "") === "text") {
-      return;
-    }
-
-    const qLower = q.toLowerCase();
-    const candidates = activePanel.querySelectorAll("[data-json-text]");
-
-    candidates.forEach((el) => {
-      const t = (el.getAttribute("data-json-text") || "").toLowerCase();
-      if (!t) return;
-      if (t.includes(qLower)) {
-        el.classList.add("json-hit");
-        localState.hits.push(el);
-      }
-    });
-
-    if (localState.hits.length) {
-      gotoIndex(root, localState, 0);
-    }
+    return activePanel || jsonRoot;
   }
 
   function setCounter(root, localState) {
@@ -233,7 +220,8 @@
       return;
     }
 
-    countEl.textContent = String(localState.idx + 1) + "/" + String(localState.hits.length);
+    countEl.textContent =
+      String(localState.idx + 1) + "/" + String(localState.hits.length);
   }
 
   function openParents(el) {
@@ -265,8 +253,48 @@
     setCounter(root, localState);
   }
 
+  function runFind(root, localState) {
+    const input = root.querySelector("[data-plotsrv-json-find='1']");
+    const searchScope = getSearchScope(root);
+    if (!input || !searchScope) return;
+
+    const q = String(input.value || "").trim();
+
+    const prefs = getJsonPrefs();
+    prefs.find_query = q;
+    saveJsonPrefs(prefs);
+
+    clearJsonHits(searchScope);
+    localState.hits = [];
+    localState.idx = -1;
+    setCounter(root, localState);
+
+    if (!q) return;
+
+    const panelMode = String(searchScope.getAttribute("data-json-panel") || "");
+    if (panelMode === "text") {
+      return;
+    }
+
+    const qLower = q.toLowerCase();
+    const candidates = searchScope.querySelectorAll("[data-json-text]");
+
+    candidates.forEach((el) => {
+      const t = String(el.getAttribute("data-json-text") || "").toLowerCase();
+      if (!t) return;
+      if (t.includes(qLower)) {
+        el.classList.add("json-hit");
+        localState.hits.push(el);
+      }
+    });
+
+    if (localState.hits.length) {
+      gotoIndex(root, localState, 0);
+    }
+  }
+
   function restorePrefs(root) {
-    const prefs = loadJsonPrefs();
+    const prefs = getJsonPrefs();
 
     const input = root.querySelector("[data-plotsrv-json-find='1']");
     if (input) {
@@ -281,22 +309,22 @@
   function bindJsonToolbar(root, localState) {
     const toolbar = root.querySelector('[data-plotsrv-toolbar="json"]');
     if (!toolbar) return;
-
     if (toolbar.getAttribute("data-plotsrv-bound") === "1") return;
+
     toolbar.setAttribute("data-plotsrv-bound", "1");
 
     toolbar.addEventListener("click", function (ev) {
       const btn = ev.target && ev.target.closest ? ev.target.closest("button") : null;
       if (!btn) return;
 
-      const action = btn.getAttribute("data-plotsrv-action") || "";
-      const mode = btn.getAttribute("data-json-mode") || "";
-
+      const mode = String(btn.getAttribute("data-json-mode") || "");
       if (mode) {
         setMode(root, mode);
         runFind(root, localState);
         return;
       }
+
+      const action = String(btn.getAttribute("data-plotsrv-action") || "");
 
       if (action === "expand-all") {
         expandAll(root);
@@ -320,6 +348,13 @@
       }
     });
 
+    const select = root.querySelector("[data-json-level-limit='1']");
+    if (select) {
+      select.addEventListener("change", function () {
+        setLevelLimit(root, String(select.value || "2"));
+      });
+    }
+
     const input = root.querySelector("[data-plotsrv-json-find='1']");
     if (input) {
       input.addEventListener("input", function () {
@@ -335,13 +370,6 @@
           if (!localState.hits.length) runFind(root, localState);
           if (localState.hits.length) gotoIndex(root, localState, localState.idx + 1);
         }
-      });
-    }
-
-    const select = root.querySelector("[data-json-level-limit='1']");
-    if (select) {
-      select.addEventListener("change", function () {
-        setLevelLimit(root, String(select.value || "2"));
       });
     }
   }
@@ -365,6 +393,23 @@
     }
   }
 
+  function initArtifactEnhancements(root) {
+    if (!root) return;
+
+    if (typeof renderers.initTextToolbar === "function") {
+      renderers.initTextToolbar(root);
+    }
+
+    if (typeof renderers.initCodeToolbar === "function") {
+      renderers.initCodeToolbar(root);
+    }
+
+    if (root.querySelector('[data-plotsrv-toolbar="json"]')) {
+      initJsonToolbar(root);
+    }
+  }
+
   renderers.clearJsonHits = clearJsonHits;
   renderers.initJsonToolbar = initJsonToolbar;
+  renderers.initArtifactEnhancements = initArtifactEnhancements;
 })();
