@@ -112,8 +112,22 @@
   background: #ece7ea;
 }
 
+/* stop the trunk at the connector into this row, not halfway down the whole li */
 .ps-json-children > li:last-child::before {
-  bottom: 50%;
+  bottom: auto;
+  height: calc(19px + 0.18rem);
+}
+
+/* horizontal connector into the row */
+.ps-json-children > li::after {
+  content: "";
+  position: absolute;
+  left: -0.86rem;
+  top: 19px;
+  width: 0.86rem;
+  height: 2px;
+  border-radius: 2px;
+  background: #ece7ea;
 }
 
 .ps-json-node > summary {
@@ -361,6 +375,12 @@
 
   .ps-json-children > li::before {
     left: -0.66rem;
+  }
+
+  .ps-json-children > li::after {
+    left: -0.66rem;
+    width: 0.66rem;
+    top: 19px;
   }
 
   .ps-json-cell--summary,
