@@ -72,7 +72,7 @@ class JsonTreeRenderer:
         </div>
         """.strip()
 
-        simple_html = _render_simple_document_node(root)
+        simple_html = _render_simple_document_node(root, depth=0)
 
         text_value = raw_text if isinstance(raw_text, str) else pretty_text
         if not isinstance(text_value, str):
@@ -94,7 +94,7 @@ class JsonTreeRenderer:
 
         toolbar = """
         <div class="ps-json-topbar artifact-toolbar" data-plotsrv-toolbar="json">
-          <div class="artifact-toolbar-group ps-json-toolbar-group">
+          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-controls="levels">
             <span class="artifact-toolbar-label">Show levels</span>
             <select class="artifact-input ps-json-select" data-json-level-limit="1">
               <option value="1">1</option>
@@ -111,7 +111,7 @@ class JsonTreeRenderer:
             <button type="button" class="artifact-btn" data-plotsrv-action="collapse-all">Collapse all</button>
           </div>
 
-          <div class="artifact-toolbar-group ps-json-toolbar-group">
+          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-controls="find">
             <span class="artifact-toolbar-label">Find</span>
             <input class="artifact-input" type="text" placeholder="key or value…" data-plotsrv-json-find="1" />
             <button type="button" class="artifact-btn" data-plotsrv-action="find-prev" title="Previous match">Prev</button>
@@ -119,7 +119,7 @@ class JsonTreeRenderer:
             <span class="artifact-counter" data-plotsrv-json-count="1"></span>
           </div>
 
-          <div class="artifact-toolbar-group ps-json-toolbar-group">
+          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-controls="view">
             <span class="artifact-toolbar-label">View</span>
             <div class="ps-json-mode-switch" role="tablist" aria-label="JSON view mode">
               <button type="button" class="artifact-btn ps-json-mode-btn is-active" data-json-mode="json">JSON</button>
@@ -202,7 +202,7 @@ class JsonTreeRenderer:
 
         toolbar = """
         <div class="ps-json-topbar artifact-toolbar" data-plotsrv-toolbar="json">
-          <div class="artifact-toolbar-group ps-json-toolbar-group">
+          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-controls="levels">
             <span class="artifact-toolbar-label">Show levels</span>
             <select class="artifact-input ps-json-select" data-json-level-limit="1">
               <option value="1">1</option>
@@ -219,7 +219,7 @@ class JsonTreeRenderer:
             <button type="button" class="artifact-btn" data-plotsrv-action="collapse-all">Collapse all</button>
           </div>
 
-          <div class="artifact-toolbar-group ps-json-toolbar-group">
+          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-controls="find">
             <span class="artifact-toolbar-label">Find</span>
             <input class="artifact-input" type="text" placeholder="key or value…" data-plotsrv-json-find="1" />
             <button type="button" class="artifact-btn" data-plotsrv-action="find-prev" title="Previous match">Prev</button>
@@ -227,7 +227,7 @@ class JsonTreeRenderer:
             <span class="artifact-counter" data-plotsrv-json-count="1"></span>
           </div>
 
-          <div class="artifact-toolbar-group ps-json-toolbar-group">
+          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-controls="view">
             <span class="artifact-toolbar-label">View</span>
             <div class="ps-json-mode-switch" role="tablist" aria-label="JSON view mode">
               <button type="button" class="artifact-btn ps-json-mode-btn is-active" data-json-mode="json">JSON</button>
@@ -291,7 +291,6 @@ def _render_document_node(node: dict[str, Any]) -> str:
     icon_key = node.get("icon_key")
     node_kind = str(node.get("node_kind") or "scalar")
     value_kind = str(node.get("value_kind") or "value")
-    child_count = int(node.get("child_count") or 0)
     desc_count = int(node.get("descendant_count") or 0)
     desc_layers = int(node.get("descendant_layer_count") or 0)
     expandable = bool(node.get("expandable") or False)
@@ -400,7 +399,7 @@ def _render_document_node(node: dict[str, Any]) -> str:
     """.strip()
 
 
-def _render_simple_document_node(node: dict[str, Any]) -> str:
+def _render_simple_document_node(node: dict[str, Any], *, depth: int) -> str:
     display_key = str(node.get("display_key") or "")
     type_label = str(node.get("type_label") or "")
     summary = node.get("summary")
@@ -429,14 +428,15 @@ def _render_simple_document_node(node: dict[str, Any]) -> str:
     summaryline = " ".join(bits)
 
     if not expandable:
-        return f'<div class="json-scalar">{summaryline}</div>'
+        return f'<div class="json-scalar" data-json-depth="{depth}">{summaryline}</div>'
 
     inner_html = "".join(
-        f"<li>{_render_simple_document_node(ch)}</li>" for ch in children
+        f"<li>{_render_simple_document_node(ch, depth=depth + 1)}</li>"
+        for ch in children
     )
 
     return f"""
-    <details open class="json-node json-node--simple">
+    <details open class="json-node json-node--simple" data-json-depth="{depth}">
       <summary class="json-summaryline">{summaryline}</summary>
       <ul class="json-children">{inner_html}</ul>
     </details>
@@ -499,7 +499,7 @@ def _render_legacy_dict(
     )
 
     return f"""
-    <details open class="json-node json-node--dict">
+    <details open class="json-node json-node--dict" data-json-depth="{depth}">
       <summary class="json-summaryline">{summary}</summary>
       <ul class="json-children">{inner_html}</ul>
     </details>
@@ -536,7 +536,7 @@ def _render_legacy_list(xs: list[Any], *, ctx: _JsonCtx, depth: int, label: str)
     )
 
     return f"""
-    <details open class="json-node json-node--list">
+    <details open class="json-node json-node--list" data-json-depth="{depth}">
       <summary class="json-summaryline">{summary}</summary>
       <ul class="json-children">{inner_html}</ul>
     </details>

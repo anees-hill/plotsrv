@@ -49,12 +49,6 @@
     return Array.from(jsonRoot.querySelectorAll("[data-json-panel]"));
   }
 
-  function getPanelByMode(jsonRoot, mode) {
-    return jsonRoot
-      ? jsonRoot.querySelector('[data-json-panel="' + String(mode) + '"]')
-      : null;
-  }
-
   function getModeButtons(root) {
     return Array.from(root.querySelectorAll("[data-json-mode]"));
   }
@@ -66,6 +60,74 @@
       btn.classList.toggle("is-active", isActive);
       btn.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
+  }
+
+  function getActiveMode(root) {
+    const active = root.querySelector("[data-json-mode].is-active");
+    if (!active) return "json";
+    return String(active.getAttribute("data-json-mode") || "json");
+  }
+
+  function getToolbarLabelByText(root, text) {
+    const labels = Array.from(
+      root.querySelectorAll('[data-plotsrv-toolbar="json"] .artifact-toolbar-label')
+    );
+    return (
+      labels.find((el) => String(el.textContent || "").trim() === text) || null
+    );
+  }
+
+  function syncToolbarForMode(root, mode) {
+    const isText = mode === "text";
+
+    const levelsLabel = getToolbarLabelByText(root, "Show levels");
+    const levelSelect = root.querySelector("[data-json-level-limit='1']");
+    const expandBtn = root.querySelector(
+      '[data-plotsrv-action="expand-all"]'
+    );
+    const collapseBtn = root.querySelector(
+      '[data-plotsrv-action="collapse-all"]'
+    );
+
+    const findLabel = getToolbarLabelByText(root, "Find");
+    const findInput = root.querySelector("[data-plotsrv-json-find='1']");
+    const prevBtn = root.querySelector('[data-plotsrv-action="find-prev"]');
+    const nextBtn = root.querySelector('[data-plotsrv-action="find-next"]');
+    const countEl = root.querySelector("[data-plotsrv-json-count='1']");
+
+    [
+      levelsLabel,
+      levelSelect,
+      expandBtn,
+      collapseBtn,
+      findLabel,
+      findInput,
+      prevBtn,
+      nextBtn,
+      countEl,
+    ].forEach((el) => {
+      if (!el) return;
+      el.hidden = isText;
+    });
+
+    if (findInput) {
+      findInput.disabled = isText;
+    }
+    if (levelSelect) {
+      levelSelect.disabled = isText;
+    }
+    if (prevBtn) {
+      prevBtn.disabled = isText;
+    }
+    if (nextBtn) {
+      nextBtn.disabled = isText;
+    }
+    if (expandBtn) {
+      expandBtn.disabled = isText;
+    }
+    if (collapseBtn) {
+      collapseBtn.disabled = isText;
+    }
   }
 
   function setMode(root, mode) {
@@ -81,6 +143,7 @@
     });
 
     applyModeButtonState(root, nextMode);
+    syncToolbarForMode(root, nextMode);
 
     if (nextMode === "text") {
       applyTextModeContent(root);
@@ -127,24 +190,29 @@
     textPre.textContent = getPreferredTextValue(jsonRoot);
   }
 
-  function getRichDetailsNodes(root) {
+  function getDetailsNodesForMode(root, mode) {
     const jsonRoot = getJsonRoot(root);
     if (!jsonRoot) return [];
+
     return Array.from(
       jsonRoot.querySelectorAll(
-        '[data-json-panel="json"] details[data-json-depth]'
+        '[data-json-panel="' + String(mode) + '"] details[data-json-depth]'
       )
     );
   }
 
   function setLevelLimit(root, rawLevelLimit) {
+    const mode = getActiveMode(root);
+    if (mode === "text") return;
+
     const levelLimit = String(rawLevelLimit || "2");
     const select = root.querySelector("[data-json-level-limit='1']");
     if (select && String(select.value || "") !== levelLimit) {
       select.value = levelLimit;
     }
 
-    const detailsNodes = getRichDetailsNodes(root);
+    const detailsNodes = getDetailsNodesForMode(root, mode);
+
     if (!detailsNodes.length) {
       const prefs = getJsonPrefs();
       prefs.level_limit = levelLimit;
@@ -172,7 +240,10 @@
   }
 
   function expandAll(root) {
-    const detailsNodes = getRichDetailsNodes(root);
+    const mode = getActiveMode(root);
+    if (mode === "text") return;
+
+    const detailsNodes = getDetailsNodesForMode(root, mode);
     detailsNodes.forEach((node) => {
       node.open = true;
     });
@@ -186,7 +257,10 @@
   }
 
   function collapseAll(root) {
-    const detailsNodes = getRichDetailsNodes(root);
+    const mode = getActiveMode(root);
+    if (mode === "text") return;
+
+    const detailsNodes = getDetailsNodesForMode(root, mode);
     detailsNodes.forEach((node) => {
       const depth = Number(node.getAttribute("data-json-depth") || "0");
       node.open = depth < 1;
@@ -388,7 +462,8 @@
     restorePrefs(root);
 
     const input = root.querySelector("[data-plotsrv-json-find='1']");
-    if (input && String(input.value || "").trim()) {
+    const mode = getActiveMode(root);
+    if (mode !== "text" && input && String(input.value || "").trim()) {
       runFind(root, localState);
     }
   }
