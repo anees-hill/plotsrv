@@ -17,7 +17,7 @@
     textWrapEnabled: "plotsrv:v1:text_wrap_enabled",
     jsonFindQuery: "plotsrv:v1:json_find_query",
     tablePrefsPrefix: "plotsrv:v2:table_prefs:",
-    jsonPrefsPrefix: "plotsrv:v1:json_prefs:",
+    jsonPrefsPrefix: "plotsrv:v2:json_prefs:",
   };
 
   core.loadPref = function (key, fallbackValue) {
@@ -133,7 +133,7 @@
       mode: "json",
       level_limit: "2",
       find_query: "",
-      expanded_values: [],
+      pinned_values: [],
     };
 
     try {
@@ -156,8 +156,8 @@
           typeof parsed.find_query === "string"
             ? parsed.find_query
             : fallback.find_query,
-        expanded_values: Array.isArray(parsed.expanded_values)
-          ? parsed.expanded_values.map(String)
+        pinned_values: Array.isArray(parsed.pinned_values)
+          ? parsed.pinned_values.map(String)
           : [],
       };
     } catch (e) {
@@ -179,8 +179,8 @@
         prefs && typeof prefs.find_query === "string"
           ? prefs.find_query
           : "",
-      expanded_values: Array.isArray(prefs && prefs.expanded_values)
-        ? Array.from(new Set(prefs.expanded_values.map(String)))
+      pinned_values: Array.isArray(prefs && prefs.pinned_values)
+        ? Array.from(new Set(prefs.pinned_values.map(String)))
         : [],
     };
 

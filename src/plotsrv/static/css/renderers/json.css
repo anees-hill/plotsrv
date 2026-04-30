@@ -58,7 +58,7 @@
     minmax(120px, 0.9fr)
     minmax(180px, 1.25fr)
     minmax(220px, 1.3fr)
-    minmax(90px, 0.55fr);
+    minmax(72px, 0.42fr);
   align-items: center;
   gap: 0.55rem;
   padding: 0 0.55rem 0.38rem;
@@ -154,7 +154,7 @@
     minmax(120px, 0.9fr)
     minmax(180px, 1.25fr)
     minmax(220px, 1.3fr)
-    minmax(90px, 0.55fr);
+    minmax(72px, 0.42fr);
   align-items: center;
   gap: 0.55rem;
   padding: 0.42rem 0.55rem;
@@ -169,7 +169,7 @@
 }
 
 .ps-json-row:hover,
-.ps-json-entry.is-value-open > .ps-json-row {
+.ps-json-entry.is-pinned > .ps-json-row {
   border-color: #eee6ea;
   background: #fffafc;
 }
@@ -199,7 +199,7 @@
   display: inline-flex;
   justify-content: flex-end;
   align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
 .ps-json-key {
@@ -253,24 +253,102 @@
   font-size: 0.82rem;
 }
 
-.ps-json-valuepanel {
-  margin: 0.25rem 0 0.15rem 2.15rem;
-  padding: 0 0 0 0.9rem;
-  border-left: 2px solid #f0e8ec;
-}
-
-.ps-json-valuepanel[hidden] {
+/* Pinned modal */
+.ps-json-pinnedmodal[hidden] {
   display: none !important;
 }
 
-.ps-json-valuepanel__inner {
-  border: 1px solid #eadfe5;
-  border-radius: 8px;
-  background: #fff;
-  padding: 0.55rem 0.7rem;
+.ps-json-pinnedmodal {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
 }
 
-.ps-json-valuepanel__pre {
+.ps-json-pinnedmodal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(32, 24, 29, 0.28);
+}
+
+.ps-json-pinnedmodal__dialog {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(760px, calc(100vw - 2rem));
+  max-height: min(78vh, 900px);
+  transform: translate(-50%, -50%);
+  border: 1px solid #e5d9df;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 48px rgba(31, 21, 27, 0.16);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.ps-json-pinnedmodal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.95rem;
+  border-bottom: 1px solid #eee4e8;
+}
+
+.ps-json-pinnedmodal__title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ps-json-pinnedmodal__close {
+  border: 1px solid #ddd5da;
+  border-radius: 6px;
+  background: #fff;
+  color: #7b6972;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.ps-json-pinnedmodal__close:hover {
+  background: #faf6f8;
+}
+
+.ps-json-pinnedmodal__body {
+  padding: 0.85rem 0.95rem;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.ps-json-pinneditem {
+  border: 1px solid #eadfe5;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0.7rem 0.8rem;
+}
+
+.ps-json-pinneditem__meta {
+  margin-bottom: 0.45rem;
+}
+
+.ps-json-pinneditem__key {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ps-json-pinneditem__path {
+  font-size: 0.8rem;
+  color: #8f7f87;
+  margin-top: 0.12rem;
+  word-break: break-word;
+}
+
+.ps-json-pinneditem__value {
   margin: 0;
   white-space: pre-wrap;
   word-break: break-word;
@@ -280,16 +358,17 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* Action buttons */
 .ps-json-actionbtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 26px;
-  padding: 0.14rem 0.45rem;
+  padding: 0.14rem 0.4rem;
   border: 1px solid #ddd5da;
   border-radius: 5px;
   background: #fff;
-  color: #8a7680;
+  color: #8a8085;
   cursor: pointer;
   font-size: 0.78rem;
   line-height: 1;
@@ -298,6 +377,32 @@
 .ps-json-actionbtn:hover {
   background: #faf6f8;
   border-color: #cfbec7;
+}
+
+.ps-json-actionbtn--pin {
+  width: 28px;
+  padding: 0;
+  font-size: 0.78rem;
+  filter: grayscale(1);
+  opacity: 0.82;
+  border-color: #d8d0d4;
+}
+
+.ps-json-entry.is-pinned-open > .ps-json-row {
+  border-color: #ead9df;
+  background: #fffafc;
+}
+
+.ps-json-actionbtn--pin.is-pinned {
+  background: #fff5f7;
+  border-color: #cc7f91;
+  color: #8e4e60;
+  opacity: 1;
+  box-shadow: inset 0 0 0 1px rgba(204, 127, 145, 0.14);
+}
+
+.ps-json-entry.is-pinned .ps-json-actionbtn--pin {
+  opacity: 1;
 }
 
 /* Stronger expand / leaf distinction */
@@ -408,7 +513,7 @@
       minmax(110px, 0.85fr)
       minmax(150px, 1fr)
       minmax(160px, 1fr)
-      minmax(80px, 0.5fr);
+      minmax(64px, 0.38fr);
   }
 }
 
@@ -458,8 +563,8 @@
     justify-content: flex-start;
   }
 
-  .ps-json-valuepanel {
-    margin-left: 1rem;
-    padding-left: 0.65rem;
+  .ps-json-pinnedmodal__dialog {
+    width: calc(100vw - 1rem);
+    max-height: 84vh;
   }
 }

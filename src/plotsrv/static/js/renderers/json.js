@@ -35,7 +35,7 @@
       mode: "json",
       level_limit: "2",
       find_query: "",
-      expanded_values: [],
+      pinned_values: [],
     };
   }
 
@@ -63,56 +63,22 @@
     });
   }
 
-  function getActiveMode(root) {
-    const active = root.querySelector("[data-json-mode].is-active");
-    if (!active) return "json";
-    return String(active.getAttribute("data-json-mode") || "json");
-  }
-
-  function getToolbarLabelByText(root, text) {
-    const labels = Array.from(
-      root.querySelectorAll('[data-plotsrv-toolbar="json"] .artifact-toolbar-label')
-    );
-    return (
-      labels.find((el) => String(el.textContent || "").trim() === text) || null
-    );
+  function getToolbarGroup(root, name) {
+    return root.querySelector('[data-json-toolbar-group="' + String(name) + '"]');
   }
 
   function syncToolbarForMode(root, mode) {
+    const levelsGroup = getToolbarGroup(root, "levels");
+    const findGroup = getToolbarGroup(root, "find");
+    const pinsGroup = getToolbarGroup(root, "pins");
+    const viewGroup = getToolbarGroup(root, "view");
+
     const isText = mode === "text";
 
-    const levelsLabel = getToolbarLabelByText(root, "Show levels");
-    const levelSelect = root.querySelector("[data-json-level-limit='1']");
-    const expandBtn = root.querySelector('[data-plotsrv-action="expand-all"]');
-    const collapseBtn = root.querySelector('[data-plotsrv-action="collapse-all"]');
-
-    const findLabel = getToolbarLabelByText(root, "Find");
-    const findInput = root.querySelector("[data-plotsrv-json-find='1']");
-    const prevBtn = root.querySelector('[data-plotsrv-action="find-prev"]');
-    const nextBtn = root.querySelector('[data-plotsrv-action="find-next"]');
-    const countEl = root.querySelector("[data-plotsrv-json-count='1']");
-
-    [
-      levelsLabel,
-      levelSelect,
-      expandBtn,
-      collapseBtn,
-      findLabel,
-      findInput,
-      prevBtn,
-      nextBtn,
-      countEl,
-    ].forEach((el) => {
-      if (!el) return;
-      el.hidden = isText;
-    });
-
-    if (findInput) findInput.disabled = isText;
-    if (levelSelect) levelSelect.disabled = isText;
-    if (prevBtn) prevBtn.disabled = isText;
-    if (nextBtn) nextBtn.disabled = isText;
-    if (expandBtn) expandBtn.disabled = isText;
-    if (collapseBtn) collapseBtn.disabled = isText;
+    if (levelsGroup) levelsGroup.hidden = isText;
+    if (findGroup) findGroup.hidden = isText;
+    if (pinsGroup) pinsGroup.hidden = isText;
+    if (viewGroup) viewGroup.hidden = false;
   }
 
   function setMode(root, mode) {
@@ -139,16 +105,12 @@
         localState.idx = -1;
         setCounter(root, localState);
       }
+      closePinnedModal(root);
     }
 
     const prefs = getJsonPrefs();
     prefs.mode = nextMode;
     saveJsonPrefs(prefs);
-
-    if (nextMode !== "text") {
-      setLevelLimit(root, getJsonPrefs().level_limit || "2");
-      restoreExpandedValues(root);
-    }
   }
 
   function parseStoredJsonText(raw) {
@@ -196,6 +158,12 @@
         '[data-json-panel="' + String(mode) + '"] details[data-json-depth]'
       )
     );
+  }
+
+  function getActiveMode(root) {
+    const active = root.querySelector("[data-json-mode].is-active");
+    if (!active) return "json";
+    return String(active.getAttribute("data-json-mode") || "json");
   }
 
   function setLevelLimit(root, rawLevelLimit) {
@@ -251,6 +219,10 @@
     const prefs = getJsonPrefs();
     prefs.level_limit = "all";
     saveJsonPrefs(prefs);
+    root._plotsrvCollapseState = {
+      lastAction: "expand",
+      preservedPinned: [],
+    };
   }
 
   function collapseAll(root) {
@@ -258,27 +230,47 @@
     if (mode === "text") return;
 
     const detailsNodes = getDetailsNodesForMode(root, mode);
+    const expandedPinned = getExpandedPinnedPaths(root);
+
+    const previousState = root._plotsrvCollapseState || {
+      lastAction: "",
+      preservedPinned: [],
+    };
+
+    const sameAsLast =
+      previousState.lastAction === "collapse-preserve" &&
+      Array.isArray(previousState.preservedPinned) &&
+      previousState.preservedPinned.length > 0;
+
     detailsNodes.forEach((node) => {
       const depth = Number(node.getAttribute("data-json-depth") || "0");
       node.open = depth < 1;
     });
+
+    if (sameAsLast) {
+      previousState.preservedPinned.forEach((path) => {
+        setPinnedValueExpanded(root, path, false);
+      });
+      root._plotsrvCollapseState = {
+        lastAction: "collapse-full",
+        preservedPinned: [],
+      };
+    } else {
+      expandedPinned.forEach((path) => {
+        setPinnedValueExpanded(root, path, true);
+      });
+      root._plotsrvCollapseState = {
+        lastAction: "collapse-preserve",
+        preservedPinned: expandedPinned,
+      };
+    }
 
     const select = root.querySelector("[data-json-level-limit='1']");
     if (select) select.value = "1";
 
     const prefs = getJsonPrefs();
     prefs.level_limit = "1";
-    prefs.expanded_values = [];
     saveJsonPrefs(prefs);
-
-    const jsonRoot = getJsonRoot(root);
-    if (jsonRoot) {
-      const panels = jsonRoot.querySelectorAll("[data-json-value-panel]");
-      panels.forEach((panel) => {
-        const path = String(panel.getAttribute("data-json-value-panel") || "");
-        setValuePanelOpen(root, path, false, { skipPersist: true });
-      });
-    }
   }
 
   function getSearchScope(root) {
@@ -374,65 +366,144 @@
     }
   }
 
-  function setValuePanelOpen(root, path, shouldOpen, options) {
-    const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot || !path) return;
-
-    const panel = jsonRoot.querySelector(
-      '[data-json-value-panel="' + CSS.escape(String(path)) + '"]'
-    );
-    const btn = jsonRoot.querySelector(
-      '[data-json-value-toggle="' + CSS.escape(String(path)) + '"]'
-    );
-    const entry = jsonRoot.querySelector(
-      '.ps-json-entry[data-json-path="' + CSS.escape(String(path)) + '"]'
-    );
-
-    if (panel) {
-      panel.hidden = !shouldOpen;
-    }
-
-    if (btn) {
-      btn.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
-      btn.textContent = shouldOpen ? "Less" : "More";
-    }
-
-    if (entry) {
-      entry.classList.toggle("is-value-open", shouldOpen);
-    }
-
-    if (!(options && options.skipPersist)) {
-      const prefs = getJsonPrefs();
-      const current = new Set(
-        Array.isArray(prefs.expanded_values)
-          ? prefs.expanded_values.map(String)
-          : []
-      );
-
-      if (shouldOpen) current.add(String(path));
-      else current.delete(String(path));
-
-      prefs.expanded_values = Array.from(current);
-      saveJsonPrefs(prefs);
-    }
+  function getPinnedPaths() {
+    const prefs = getJsonPrefs();
+    return Array.isArray(prefs.pinned_values) ? prefs.pinned_values.map(String) : [];
   }
 
-  function restoreExpandedValues(root) {
+  function setPinnedPaths(paths) {
     const prefs = getJsonPrefs();
-    const expanded = new Set(
-      Array.isArray(prefs.expanded_values)
-        ? prefs.expanded_values.map(String)
-        : []
-    );
+    prefs.pinned_values = Array.from(new Set((paths || []).map(String).filter(Boolean)));
+    saveJsonPrefs(prefs);
+  }
 
+  function getExpandedPinnedPaths(root) {
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot) return [];
+
+    const pinned = new Set(getPinnedPaths());
+
+    return Array.from(
+      jsonRoot.querySelectorAll(".ps-json-entry.is-pinned[data-json-path]")
+    )
+      .map((el) => String(el.getAttribute("data-json-path") || ""))
+      .filter((path) => {
+        if (!path || !pinned.has(path)) return false;
+        const entry = jsonRoot.querySelector(
+          '[data-json-path="' + CSS.escape(path) + '"]'
+        );
+        return !!entry;
+      });
+  }
+
+  function setPinnedValueExpanded(root, path, shouldOpen) {
     const jsonRoot = getJsonRoot(root);
     if (!jsonRoot) return;
 
-    const panels = jsonRoot.querySelectorAll("[data-json-value-panel]");
-    panels.forEach((panel) => {
-      const path = String(panel.getAttribute("data-json-value-panel") || "");
-      setValuePanelOpen(root, path, expanded.has(path), { skipPersist: true });
+    const entry = jsonRoot.querySelector(
+      '.ps-json-entry[data-json-path="' + CSS.escape(String(path)) + '"]'
+    );
+    if (!entry) return;
+
+    entry.classList.toggle("is-pinned-open", shouldOpen);
+  }
+
+  function isPinned(path) {
+    return new Set(getPinnedPaths()).has(String(path || ""));
+  }
+
+  function setPinnedState(root, path, shouldPin) {
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot) return;
+
+    const btn = jsonRoot.querySelector(
+      '[data-json-pin-toggle="' + CSS.escape(String(path)) + '"]'
+    );
+    const entry = jsonRoot.querySelector(
+      '[data-json-path="' + CSS.escape(String(path)) + '"]'
+    );
+
+    if (btn) {
+      btn.setAttribute("aria-pressed", shouldPin ? "true" : "false");
+      btn.classList.toggle("is-pinned", shouldPin);
+      btn.title = shouldPin ? "Unpin value" : "Pin value";
+    }
+
+    if (entry) {
+      entry.classList.toggle("is-pinned", shouldPin);
+    }
+  }
+
+  function restorePinnedStates(root) {
+    const pinned = new Set(getPinnedPaths());
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot) return;
+
+    const pinBtns = jsonRoot.querySelectorAll("[data-json-pin-toggle]");
+    pinBtns.forEach((btn) => {
+      const path = String(btn.getAttribute("data-json-pin-toggle") || "");
+      setPinnedState(root, path, pinned.has(path));
     });
+  }
+
+  function buildPinnedModalList(root) {
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot) return "";
+
+    const pinned = getPinnedPaths();
+    if (!pinned.length) {
+      return '<div class="note ps-note">No pinned values yet.</div>';
+    }
+
+    const parts = [];
+
+    pinned.forEach((path) => {
+      const entry = jsonRoot.querySelector(
+        '.ps-json-entry[data-json-path="' + CSS.escape(String(path)) + '"]'
+      );
+      if (!entry) return;
+
+      const key = String(entry.getAttribute("data-json-key") || path);
+      const value = String(entry.getAttribute("data-json-full-value") || "");
+
+      parts.push(
+        '<div class="ps-json-pinneditem">' +
+        '<div class="ps-json-pinneditem__meta">' +
+        '<div class="ps-json-pinneditem__key">' + core.escapeHtml(key) + '</div>' +
+        '<div class="ps-json-pinneditem__path">' + core.escapeHtml(path) + '</div>' +
+        '</div>' +
+        '<pre class="ps-json-pinneditem__value">' + core.escapeHtml(value) + '</pre>' +
+        '</div>'
+      );
+    });
+
+    if (!parts.length) {
+      return '<div class="note ps-note">No pinned values available in this snapshot.</div>';
+    }
+
+    return parts.join("");
+  }
+
+  function openPinnedModal(root) {
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot) return;
+
+    const modal = jsonRoot.querySelector("[data-json-pinned-modal='1']");
+    const list = jsonRoot.querySelector("[data-json-pinned-list='1']");
+    if (!modal || !list) return;
+
+    list.innerHTML = buildPinnedModalList(root);
+    modal.hidden = false;
+  }
+
+  function closePinnedModal(root) {
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot) return;
+
+    const modal = jsonRoot.querySelector("[data-json-pinned-modal='1']");
+    if (!modal) return;
+
+    modal.hidden = true;
   }
 
   function restorePrefs(root) {
@@ -446,7 +517,8 @@
     applyTextModeContent(root);
     setMode(root, prefs.mode || "json");
     setLevelLimit(root, prefs.level_limit || "2");
-    restoreExpandedValues(root);
+    restorePinnedStates(root);
+    syncToolbarForMode(root, getActiveMode(root));
   }
 
   function bindJsonToolbar(root, localState) {
@@ -491,20 +563,46 @@
       if (action === "find-prev") {
         if (!localState.hits.length) runFind(root, localState);
         if (localState.hits.length) gotoIndex(root, localState, localState.idx - 1);
+        return;
+      }
+
+      if (action === "open-pinned") {
+        openPinnedModal(root);
       }
     });
 
     jsonRoot.addEventListener("click", function (ev) {
-      const valueBtn =
+      const pinBtn =
         ev.target && ev.target.closest
-          ? ev.target.closest("[data-json-value-toggle]")
+          ? ev.target.closest("[data-json-pin-toggle]")
           : null;
 
-      if (!valueBtn) return;
+      if (pinBtn) {
+        const path = String(pinBtn.getAttribute("data-json-pin-toggle") || "");
+        if (!path) return;
 
-      const path = String(valueBtn.getAttribute("data-json-value-toggle") || "");
-      const isOpen = valueBtn.getAttribute("aria-expanded") === "true";
-      setValuePanelOpen(root, path, !isOpen);
+        const current = new Set(getPinnedPaths());
+        const shouldPin = !current.has(path);
+
+        if (shouldPin) {
+          current.add(path);
+        } else {
+          current.delete(path);
+        }
+
+        setPinnedPaths(Array.from(current));
+        setPinnedState(root, path, shouldPin);
+        return;
+      }
+
+      const closeEl =
+        ev.target && ev.target.closest
+          ? ev.target.closest("[data-json-pinned-close]")
+          : null;
+
+      if (closeEl) {
+        closePinnedModal(root);
+      }
     });
 
     const select = root.querySelector("[data-json-level-limit='1']");
@@ -547,7 +645,7 @@
 
     bindJsonToolbar(root, localState);
     restorePrefs(root);
-
+    syncToolbarForMode(root, getActiveMode(root));
     const input = root.querySelector("[data-plotsrv-json-find='1']");
     const mode = getActiveMode(root);
     if (mode !== "text" && input && String(input.value || "").trim()) {
