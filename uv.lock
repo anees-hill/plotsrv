@@ -935,9 +935,9 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "polars-lts-cpu", specifier = ">=1.33,<2" },
-    { name = "pyarrow", specifier = ">=20,<21" },
-    { name = "seaborn", specifier = ">=0.13,<1" },
+    { name = "polars-lts-cpu", specifier = ">=1.33" },
+    { name = "pyarrow", specifier = ">=20" },
+    { name = "seaborn", specifier = ">=0.13" },
 ]
 test = [
     { name = "httpx", specifier = ">=0.28,<1" },
