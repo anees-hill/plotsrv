@@ -35,6 +35,7 @@
       mode: "json",
       level_limit: "2",
       find_query: "",
+      expanded_values: [],
     };
   }
 
@@ -82,12 +83,8 @@
 
     const levelsLabel = getToolbarLabelByText(root, "Show levels");
     const levelSelect = root.querySelector("[data-json-level-limit='1']");
-    const expandBtn = root.querySelector(
-      '[data-plotsrv-action="expand-all"]'
-    );
-    const collapseBtn = root.querySelector(
-      '[data-plotsrv-action="collapse-all"]'
-    );
+    const expandBtn = root.querySelector('[data-plotsrv-action="expand-all"]');
+    const collapseBtn = root.querySelector('[data-plotsrv-action="collapse-all"]');
 
     const findLabel = getToolbarLabelByText(root, "Find");
     const findInput = root.querySelector("[data-plotsrv-json-find='1']");
@@ -110,24 +107,12 @@
       el.hidden = isText;
     });
 
-    if (findInput) {
-      findInput.disabled = isText;
-    }
-    if (levelSelect) {
-      levelSelect.disabled = isText;
-    }
-    if (prevBtn) {
-      prevBtn.disabled = isText;
-    }
-    if (nextBtn) {
-      nextBtn.disabled = isText;
-    }
-    if (expandBtn) {
-      expandBtn.disabled = isText;
-    }
-    if (collapseBtn) {
-      collapseBtn.disabled = isText;
-    }
+    if (findInput) findInput.disabled = isText;
+    if (levelSelect) levelSelect.disabled = isText;
+    if (prevBtn) prevBtn.disabled = isText;
+    if (nextBtn) nextBtn.disabled = isText;
+    if (expandBtn) expandBtn.disabled = isText;
+    if (collapseBtn) collapseBtn.disabled = isText;
   }
 
   function setMode(root, mode) {
@@ -147,11 +132,23 @@
 
     if (nextMode === "text") {
       applyTextModeContent(root);
+      clearJsonHits(jsonRoot);
+      const localState = root._plotsrvJsonState;
+      if (localState) {
+        localState.hits = [];
+        localState.idx = -1;
+        setCounter(root, localState);
+      }
     }
 
     const prefs = getJsonPrefs();
     prefs.mode = nextMode;
     saveJsonPrefs(prefs);
+
+    if (nextMode !== "text") {
+      setLevelLimit(root, getJsonPrefs().level_limit || "2");
+      restoreExpandedValues(root);
+    }
   }
 
   function parseStoredJsonText(raw) {
@@ -271,7 +268,17 @@
 
     const prefs = getJsonPrefs();
     prefs.level_limit = "1";
+    prefs.expanded_values = [];
     saveJsonPrefs(prefs);
+
+    const jsonRoot = getJsonRoot(root);
+    if (jsonRoot) {
+      const panels = jsonRoot.querySelectorAll("[data-json-value-panel]");
+      panels.forEach((panel) => {
+        const path = String(panel.getAttribute("data-json-value-panel") || "");
+        setValuePanelOpen(root, path, false, { skipPersist: true });
+      });
+    }
   }
 
   function getSearchScope(root) {
@@ -367,6 +374,67 @@
     }
   }
 
+  function setValuePanelOpen(root, path, shouldOpen, options) {
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot || !path) return;
+
+    const panel = jsonRoot.querySelector(
+      '[data-json-value-panel="' + CSS.escape(String(path)) + '"]'
+    );
+    const btn = jsonRoot.querySelector(
+      '[data-json-value-toggle="' + CSS.escape(String(path)) + '"]'
+    );
+    const entry = jsonRoot.querySelector(
+      '.ps-json-entry[data-json-path="' + CSS.escape(String(path)) + '"]'
+    );
+
+    if (panel) {
+      panel.hidden = !shouldOpen;
+    }
+
+    if (btn) {
+      btn.setAttribute("aria-expanded", shouldOpen ? "true" : "false");
+      btn.textContent = shouldOpen ? "Less" : "More";
+    }
+
+    if (entry) {
+      entry.classList.toggle("is-value-open", shouldOpen);
+    }
+
+    if (!(options && options.skipPersist)) {
+      const prefs = getJsonPrefs();
+      const current = new Set(
+        Array.isArray(prefs.expanded_values)
+          ? prefs.expanded_values.map(String)
+          : []
+      );
+
+      if (shouldOpen) current.add(String(path));
+      else current.delete(String(path));
+
+      prefs.expanded_values = Array.from(current);
+      saveJsonPrefs(prefs);
+    }
+  }
+
+  function restoreExpandedValues(root) {
+    const prefs = getJsonPrefs();
+    const expanded = new Set(
+      Array.isArray(prefs.expanded_values)
+        ? prefs.expanded_values.map(String)
+        : []
+    );
+
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot) return;
+
+    const panels = jsonRoot.querySelectorAll("[data-json-value-panel]");
+    panels.forEach((panel) => {
+      const path = String(panel.getAttribute("data-json-value-panel") || "");
+      setValuePanelOpen(root, path, expanded.has(path), { skipPersist: true });
+    });
+  }
+
   function restorePrefs(root) {
     const prefs = getJsonPrefs();
 
@@ -378,11 +446,13 @@
     applyTextModeContent(root);
     setMode(root, prefs.mode || "json");
     setLevelLimit(root, prefs.level_limit || "2");
+    restoreExpandedValues(root);
   }
 
   function bindJsonToolbar(root, localState) {
     const toolbar = root.querySelector('[data-plotsrv-toolbar="json"]');
-    if (!toolbar) return;
+    const jsonRoot = getJsonRoot(root);
+    if (!toolbar || !jsonRoot) return;
     if (toolbar.getAttribute("data-plotsrv-bound") === "1") return;
 
     toolbar.setAttribute("data-plotsrv-bound", "1");
@@ -394,7 +464,9 @@
       const mode = String(btn.getAttribute("data-json-mode") || "");
       if (mode) {
         setMode(root, mode);
-        runFind(root, localState);
+        if (mode !== "text") {
+          runFind(root, localState);
+        }
         return;
       }
 
@@ -420,6 +492,19 @@
         if (!localState.hits.length) runFind(root, localState);
         if (localState.hits.length) gotoIndex(root, localState, localState.idx - 1);
       }
+    });
+
+    jsonRoot.addEventListener("click", function (ev) {
+      const valueBtn =
+        ev.target && ev.target.closest
+          ? ev.target.closest("[data-json-value-toggle]")
+          : null;
+
+      if (!valueBtn) return;
+
+      const path = String(valueBtn.getAttribute("data-json-value-toggle") || "");
+      const isOpen = valueBtn.getAttribute("aria-expanded") === "true";
+      setValuePanelOpen(root, path, !isOpen);
     });
 
     const select = root.querySelector("[data-json-level-limit='1']");
@@ -457,6 +542,8 @@
       hits: [],
       idx: -1,
     };
+
+    root._plotsrvJsonState = localState;
 
     bindJsonToolbar(root, localState);
     restorePrefs(root);

@@ -57,7 +57,8 @@
     minmax(110px, 0.8fr)
     minmax(120px, 0.9fr)
     minmax(180px, 1.25fr)
-    minmax(220px, 1.3fr);
+    minmax(220px, 1.3fr)
+    minmax(90px, 0.55fr);
   align-items: center;
   gap: 0.55rem;
   padding: 0 0.55rem 0.38rem;
@@ -72,6 +73,10 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #8f7480;
+}
+
+.ps-json-rich-head__cell--actions {
+  text-align: right;
 }
 
 .ps-json-tree--rich {
@@ -112,13 +117,11 @@
   background: #ece7ea;
 }
 
-/* stop the trunk at the connector into this row, not halfway down the whole li */
 .ps-json-children > li:last-child::before {
   bottom: auto;
   height: calc(19px + 0.18rem);
 }
 
-/* horizontal connector into the row */
 .ps-json-children > li::after {
   content: "";
   position: absolute;
@@ -138,6 +141,10 @@
   display: none;
 }
 
+.ps-json-entry {
+  display: block;
+}
+
 .ps-json-row {
   min-height: 38px;
   display: grid;
@@ -146,7 +153,8 @@
     minmax(110px, 0.8fr)
     minmax(120px, 0.9fr)
     minmax(180px, 1.25fr)
-    minmax(220px, 1.3fr);
+    minmax(220px, 1.3fr)
+    minmax(90px, 0.55fr);
   align-items: center;
   gap: 0.55rem;
   padding: 0.42rem 0.55rem;
@@ -160,7 +168,8 @@
   cursor: pointer;
 }
 
-.ps-json-row:hover {
+.ps-json-row:hover,
+.ps-json-entry.is-value-open > .ps-json-row {
   border-color: #eee6ea;
   background: #fffafc;
 }
@@ -184,6 +193,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.ps-json-cell--actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .ps-json-key {
@@ -235,6 +251,53 @@
 .ps-json-cell--hint {
   color: #9a8d95;
   font-size: 0.82rem;
+}
+
+.ps-json-valuepanel {
+  margin: 0.25rem 0 0.15rem 2.15rem;
+  padding: 0 0 0 0.9rem;
+  border-left: 2px solid #f0e8ec;
+}
+
+.ps-json-valuepanel[hidden] {
+  display: none !important;
+}
+
+.ps-json-valuepanel__inner {
+  border: 1px solid #eadfe5;
+  border-radius: 8px;
+  background: #fff;
+  padding: 0.55rem 0.7rem;
+}
+
+.ps-json-valuepanel__pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #333;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.ps-json-actionbtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0.14rem 0.45rem;
+  border: 1px solid #ddd5da;
+  border-radius: 5px;
+  background: #fff;
+  color: #8a7680;
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.ps-json-actionbtn:hover {
+  background: #faf6f8;
+  border-color: #cfbec7;
 }
 
 /* Stronger expand / leaf distinction */
@@ -344,7 +407,8 @@
       minmax(100px, 0.8fr)
       minmax(110px, 0.85fr)
       minmax(150px, 1fr)
-      minmax(160px, 1fr);
+      minmax(160px, 1fr)
+      minmax(80px, 0.5fr);
   }
 }
 
@@ -388,5 +452,14 @@
   .ps-json-cell--value,
   .ps-json-cell--hint {
     white-space: normal;
+  }
+
+  .ps-json-cell--actions {
+    justify-content: flex-start;
+  }
+
+  .ps-json-valuepanel {
+    margin-left: 1rem;
+    padding-left: 0.65rem;
   }
 }

@@ -69,6 +69,7 @@ class JsonTreeRenderer:
           <div class="ps-json-rich-head__cell">Type</div>
           <div class="ps-json-rich-head__cell">Value</div>
           <div class="ps-json-rich-head__cell">Structure</div>
+          <div class="ps-json-rich-head__cell ps-json-rich-head__cell--actions"></div>
         </div>
         """.strip()
 
@@ -284,10 +285,13 @@ class _JsonCtx:
 
 
 def _render_document_node(node: dict[str, Any]) -> str:
+    path = str(node.get("path") or "")
     display_key = str(node.get("display_key") or "")
     type_label = str(node.get("type_label") or "")
     summary = node.get("summary")
     preview = node.get("preview")
+    full_value = node.get("full_value")
+    preview_truncated = bool(node.get("preview_truncated") or False)
     icon_key = node.get("icon_key")
     node_kind = str(node.get("node_kind") or "scalar")
     value_kind = str(node.get("value_kind") or "value")
@@ -322,7 +326,7 @@ def _render_document_node(node: dict[str, Any]) -> str:
 
     summary_html = (
         f'<span class="ps-json-cell ps-json-cell--summary" data-json-text="{_escape_attr(str(summary))}">({_escape_html(str(summary))})</span>'
-        if summary
+        if summary and expandable
         else '<span class="ps-json-cell ps-json-cell--summary"></span>'
     )
 
@@ -347,13 +351,28 @@ def _render_document_node(node: dict[str, Any]) -> str:
         hint_html = f'<span class="ps-json-cell ps-json-cell--hint">{_escape_html(more_text + ", " + entry_text + " total")}</span>'
 
     value_html = '<span class="ps-json-cell ps-json-cell--value"></span>'
-    if preview and node_kind != "container":
-        value_html = f'<span class="ps-json-cell ps-json-cell--value" data-json-text="{_escape_attr(str(preview))}">{_escape_html(str(preview))}</span>'
+    if preview and not expandable:
+        value_html = (
+            f'<span class="ps-json-cell ps-json-cell--value" '
+            f'data-json-text="{_escape_attr(str(preview))}" '
+            f'title="{_escape_attr(str(full_value or preview))}">'
+            f"{_escape_html(str(preview))}</span>"
+        )
 
     trunc_html = ""
     if truncated:
         reason = _escape_html(str(truncation_reason or "truncated"))
         trunc_html = f'<span class="badge json-badge" title="{reason}">…</span>'
+
+    actions_html = '<span class="ps-json-cell ps-json-cell--actions"></span>'
+    if not expandable and preview_truncated and full_value:
+        actions_html = (
+            '<span class="ps-json-cell ps-json-cell--actions">'
+            f'<button type="button" class="ps-json-actionbtn ps-json-actionbtn--more" '
+            f'data-json-value-toggle="{_escape_attr(path)}" '
+            f'aria-expanded="false">More</button>'
+            "</span>"
+        )
 
     lead_html = f"""
     <span class="ps-json-cell ps-json-cell--lead">
@@ -369,14 +388,31 @@ def _render_document_node(node: dict[str, Any]) -> str:
     {type_html}
     {value_html}
     {hint_html}
+    {actions_html}
     """.strip()
 
     if not expandable:
+        value_panel_html = ""
+        if preview_truncated and full_value:
+            value_panel_html = f"""
+            <div class="ps-json-valuepanel" hidden data-json-value-panel="{_escape_attr(path)}">
+              <div class="ps-json-valuepanel__inner">
+                <pre class="ps-json-valuepanel__pre">{_escape_html(str(full_value))}</pre>
+              </div>
+            </div>
+            """.strip()
+
         return f"""
-        <div class="ps-json-row ps-json-row--leaf ps-json-row--{_escape_attr(value_kind)}"
-             data-json-depth="{depth}"
-             data-json-text="{_escape_attr(row_text)}">
-          {row_inner}
+        <div class="ps-json-entry ps-json-entry--scalar"
+             data-json-path="{_escape_attr(path)}"
+             data-json-depth="{depth}">
+          <div class="ps-json-row ps-json-row--leaf ps-json-row--{_escape_attr(value_kind)}"
+               data-json-depth="{depth}"
+               data-json-path="{_escape_attr(path)}"
+               data-json-text="{_escape_attr(row_text)}">
+            {row_inner}
+          </div>
+          {value_panel_html}
         </div>
         """.strip()
 
@@ -570,7 +606,8 @@ def _badge(text: str, *, reason: str) -> str:
 
 def _escape_html(s: str) -> str:
     return (
-        s.replace("&", "&amp;")
+        str(s)
+        .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
         .replace('"', "&quot;")

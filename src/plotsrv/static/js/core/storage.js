@@ -133,6 +133,7 @@
       mode: "json",
       level_limit: "2",
       find_query: "",
+      expanded_values: [],
     };
 
     try {
@@ -155,6 +156,9 @@
           typeof parsed.find_query === "string"
             ? parsed.find_query
             : fallback.find_query,
+        expanded_values: Array.isArray(parsed.expanded_values)
+          ? parsed.expanded_values.map(String)
+          : [],
       };
     } catch (e) {
       return fallback;
@@ -175,6 +179,9 @@
         prefs && typeof prefs.find_query === "string"
           ? prefs.find_query
           : "",
+      expanded_values: Array.isArray(prefs && prefs.expanded_values)
+        ? Array.from(new Set(prefs.expanded_values.map(String)))
+        : [],
     };
 
     try {
