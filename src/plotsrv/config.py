@@ -41,6 +41,7 @@ _DEFAULTS: dict[str, Any] = {
         "openapi_enabled": False,
         "shutdown_enabled": False,
         "control_local_only": True,
+        "internal_read_local_only": False,
         "status_local_only": False,
         "history_local_only": False,
         "views_local_only": True,
@@ -599,19 +600,41 @@ def get_control_local_only() -> bool:
     return _as_bool(sec.get("control_local_only"), True)
 
 
-def get_status_local_only() -> bool:
+def get_internal_read_local_only() -> bool:
+    """
+    Legacy compatibility getter.
+
+    Older code/tests/config used one switch for all internal read routes.
+    """
     sec = _merged_section("security-settings")
-    return _as_bool(sec.get("status_local_only"), False)
+    return _as_bool(sec.get("internal_read_local_only"), False)
+
+
+def get_status_local_only() -> bool:
+    raw = settings.get_section("security-settings")
+    if "status_local_only" in raw:
+        return _as_bool(raw.get("status_local_only"), False)
+    if "internal_read_local_only" in raw:
+        return _as_bool(raw.get("internal_read_local_only"), False)
+    return _as_bool(_DEFAULTS["security-settings"].get("status_local_only"), False)
 
 
 def get_history_local_only() -> bool:
-    sec = _merged_section("security-settings")
-    return _as_bool(sec.get("history_local_only"), False)
+    raw = settings.get_section("security-settings")
+    if "history_local_only" in raw:
+        return _as_bool(raw.get("history_local_only"), False)
+    if "internal_read_local_only" in raw:
+        return _as_bool(raw.get("internal_read_local_only"), False)
+    return _as_bool(_DEFAULTS["security-settings"].get("history_local_only"), False)
 
 
 def get_views_local_only() -> bool:
-    sec = _merged_section("security-settings")
-    return _as_bool(sec.get("views_local_only"), True)
+    raw = settings.get_section("security-settings")
+    if "views_local_only" in raw:
+        return _as_bool(raw.get("views_local_only"), True)
+    if "internal_read_local_only" in raw:
+        return _as_bool(raw.get("internal_read_local_only"), True)
+    return _as_bool(_DEFAULTS["security-settings"].get("views_local_only"), True)
 
 
 # ---- Publish limits -----------------------------------------------------------

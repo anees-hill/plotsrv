@@ -13,7 +13,7 @@
 **Cheap observability for Python processes, with a browser UI and almost no setup.**
 
 > **Live demo:** https://demo.plotsrv.com  
-> See plotsrv rendering live plots, tables, JSON, text, and other artifacts in a real browser UI.
+> See a live instance of plotsrv rendering plots, tables, JSON, and HTML from a daily process visualising home sensor/meteorological data.
 
 `plotsrv` is a lightweight Python server for exposing live Python objects and on-disk files in a single browser UI. It gives you quick visibility into pipelines, experiments, batch jobs, and long-running processes without needing a full observability stack.
 
@@ -30,21 +30,22 @@ Add a decorator to functions you want to expose, or publish artifacts directly f
 -   Configuration via `plotsrv.yaml`, including UI settings
 -   CLI-first workflow, with Python entry points available where needed
 
-**What it can render**
-
--   plots
--   tables
--   JSON and dictionaries
--   markdown and HTML
--   images
--   plain text and code
--   tracebacks
-
 It can also watch files on disk and expose them in the same UI.
 
 # Get going
 
-1.  **Start the server**
+1. **Install plotsrv**
+```bash
+pip install plotsrv
+```
+Or
+```bash
+uv add plotsrv
+```
+
+2.  **Start the server**
+
+Provide a script, module or entire package.
 
 ``` bash
 plotsrv run your_module.py --host 127.0.0.1 --port 8000
@@ -52,7 +53,7 @@ plotsrv run your_module.py --host 127.0.0.1 --port 8000
 
 You can also start the server from Python if needed.
 
-2.  **Expose views from your code**
+3.  **Expose views from your code**
 
 The main pattern is to decorate functions whose output you want to expose:
 
@@ -93,6 +94,6 @@ plotsrv is currently pre-0.1.0 and still evolving, but is already usable for rea
 
 ## License
 
-plotsrv is licensed under the Apache License 2.0.\
+plotsrv is licensed under the Apache License 2.0.
 
 See the LICENSE file for full details.
