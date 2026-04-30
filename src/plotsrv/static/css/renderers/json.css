@@ -48,6 +48,36 @@
   display: none !important;
 }
 
+.ps-json-panel--rich {
+  overflow-x: auto;
+  overflow-y: visible;
+  padding-bottom: 0.35rem;
+}
+
+/* Keep the rich header/tree aligned when horizontal scrolling is needed */
+.ps-json-panel--rich .ps-json-rich-head,
+.ps-json-panel--rich .ps-json-tree--rich {
+  min-width: 1120px;
+}
+
+.ps-json-panel--rich::-webkit-scrollbar {
+  height: 10px;
+}
+
+.ps-json-panel--rich::-webkit-scrollbar-track {
+  background: #f7f2f5;
+  border-radius: 999px;
+}
+
+.ps-json-panel--rich::-webkit-scrollbar-thumb {
+  background: #d8c9d0;
+  border-radius: 999px;
+}
+
+.ps-json-panel--rich::-webkit-scrollbar-thumb:hover {
+  background: #c7b3bd;
+}
+
 /* Rich view */
 .ps-json-rich-head {
   min-height: 34px;
@@ -168,10 +198,14 @@
   cursor: pointer;
 }
 
-.ps-json-row:hover,
-.ps-json-entry.is-pinned > .ps-json-row {
+.ps-json-row:hover {
   border-color: #eee6ea;
   background: #fffafc;
+}
+
+.ps-json-entry.is-pinned > .ps-json-row {
+  border-color: #efd1d9;
+  background: #fff8fa;
 }
 
 .ps-json-cell {
@@ -358,6 +392,15 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.ps-json-pinneditem {
+  overflow: hidden;
+}
+
+.ps-json-pinneditem__value {
+  max-height: 260px;
+  overflow: auto;
+}
+
 /* Action buttons */
 .ps-json-actionbtn {
   display: inline-flex;
@@ -394,11 +437,15 @@
 }
 
 .ps-json-actionbtn--pin.is-pinned {
-  background: #fff5f7;
-  border-color: #cc7f91;
-  color: #8e4e60;
+  background: #fff4f6;
+  border-color: #b9475f;
+  color: #7f3145;
   opacity: 1;
-  box-shadow: inset 0 0 0 1px rgba(204, 127, 145, 0.14);
+  filter: grayscale(0.25);
+  box-shadow:
+    0 0 0 2px rgba(185, 71, 95, 0.16),
+    0 0 10px rgba(185, 71, 95, 0.22),
+    inset 0 0 0 1px rgba(185, 71, 95, 0.12);
 }
 
 .ps-json-entry.is-pinned .ps-json-actionbtn--pin {
