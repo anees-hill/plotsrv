@@ -446,6 +446,17 @@
     });
   }
 
+  function getEntryFullValue(entry) {
+    if (!entry) return "";
+  
+    const hiddenValue = entry.querySelector("[data-json-full-value-text='1']");
+    if (hiddenValue) {
+      return String(hiddenValue.textContent || "");
+    }
+  
+    return String(entry.getAttribute("data-json-full-value") || "");
+  }
+
   function buildPinnedModalList(root) {
     const jsonRoot = getJsonRoot(root);
     if (!jsonRoot) return "";
@@ -464,7 +475,7 @@
       if (!entry) return;
 
       const key = String(entry.getAttribute("data-json-key") || path);
-      const value = String(entry.getAttribute("data-json-full-value") || "");
+      const value = getEntryFullValue(entry);
 
       parts.push(
         '<div class="ps-json-pinneditem">' +

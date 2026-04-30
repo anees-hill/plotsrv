@@ -8,7 +8,6 @@ from .base import RenderResult
 from .limits import DEFAULT_JSON_LIMITS, JsonLimits
 from ..artifacts import Truncation
 
-
 _ICON_SRC = {
     "json": "/static/logo_json.png",
     "table": "/static/logo_table.png",
@@ -522,6 +521,10 @@ def _render_document_node(node: dict[str, Any]) -> str:
     summary = node.get("summary")
     preview = node.get("preview")
     full_value = node.get("full_value")
+
+    if full_value is None and preview is not None:
+        full_value = preview
+
     icon_key = node.get("icon_key")
     node_kind = str(node.get("node_kind") or "scalar")
     value_kind = str(node.get("value_kind") or "value")
@@ -629,18 +632,21 @@ def _render_document_node(node: dict[str, Any]) -> str:
     """.strip()
 
     if not expandable:
+        full_value_text = str(full_value if full_value is not None else "")
+
         return f"""
         <div class="ps-json-entry ps-json-entry--scalar"
              data-json-path="{_escape_attr(path)}"
              data-json-depth="{depth}"
              data-json-key="{_escape_attr(display_key)}"
-             data-json-full-value="{_escape_attr(str(full_value or ''))}">
+             data-json-full-value="{_escape_attr(full_value_text)}">
           <div class="ps-json-row ps-json-row--leaf ps-json-row--{_escape_attr(value_kind)}"
                data-json-depth="{depth}"
                data-json-path="{_escape_attr(path)}"
                data-json-text="{_escape_attr(row_text)}">
             {row_inner}
           </div>
+          <pre hidden data-json-full-value-text="1">{_escape_html(full_value_text)}</pre>
         </div>
         """.strip()
 
