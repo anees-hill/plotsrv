@@ -72,13 +72,19 @@
     const findGroup = getToolbarGroup(root, "find");
     const pinsGroup = getToolbarGroup(root, "pins");
     const viewGroup = getToolbarGroup(root, "view");
-
+  
     const isText = mode === "text";
-
-    if (levelsGroup) levelsGroup.hidden = isText;
-    if (findGroup) findGroup.hidden = isText;
-    if (pinsGroup) pinsGroup.hidden = isText;
-    if (viewGroup) viewGroup.hidden = false;
+  
+    function setGroupVisible(el, shouldShow) {
+      if (!el) return;
+      el.hidden = !shouldShow;
+      el.style.display = shouldShow ? "" : "none";
+    }
+  
+    setGroupVisible(levelsGroup, !isText);
+    setGroupVisible(findGroup, !isText);
+    setGroupVisible(pinsGroup, !isText);
+    setGroupVisible(viewGroup, true);
   }
 
   function setMode(root, mode) {

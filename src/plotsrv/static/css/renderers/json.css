@@ -54,10 +54,10 @@
   padding-bottom: 0.35rem;
 }
 
-/* Keep the rich header/tree aligned when horizontal scrolling is needed */
 .ps-json-panel--rich .ps-json-rich-head,
 .ps-json-panel--rich .ps-json-tree--rich {
-  min-width: 1280px;
+  width: 100%;
+  min-width: 1080px;
 }
 
 .ps-json-panel--rich::-webkit-scrollbar {
@@ -83,12 +83,12 @@
   min-height: 34px;
   display: grid;
   grid-template-columns:
-    minmax(220px, 1.4fr)
-    minmax(110px, 0.8fr)
-    minmax(120px, 0.9fr)
-    minmax(180px, 1.25fr)
-    minmax(220px, 1.3fr)
-    minmax(72px, 0.42fr);
+    minmax(220px, 1.25fr)
+    minmax(100px, 0.65fr)
+    minmax(105px, 0.65fr)
+    minmax(170px, 0.9fr)
+    minmax(210px, 1fr)
+    48px;
   align-items: center;
   gap: 0.55rem;
   padding: 0 0.55rem 0.38rem;
@@ -177,15 +177,16 @@
 
 .ps-json-row {
   min-height: 38px;
-  min-width: 1020px;
+  width: 100%;
+  min-width: 0;
   display: grid;
   grid-template-columns:
-    minmax(220px, 1.4fr)
-    minmax(110px, 0.8fr)
-    minmax(120px, 0.9fr)
-    minmax(180px, 1.25fr)
-    minmax(220px, 1.3fr)
-    minmax(72px, 0.42fr);
+    minmax(220px, 1.25fr)
+    minmax(100px, 0.65fr)
+    minmax(105px, 0.65fr)
+    minmax(170px, 0.9fr)
+    minmax(210px, 1fr)
+    48px;
   align-items: center;
   gap: 0.55rem;
   padding: 0.42rem 0.55rem;
@@ -484,6 +485,13 @@
   content: "−";
 }
 
+.ps-json-node,
+.ps-json-entry,
+.ps-json-children > li {
+  width: 100%;
+  min-width: 0;
+}
+
 .ps-json-toggle--leaf {
   background: transparent;
   color: #e0d7dc;
@@ -552,20 +560,23 @@
 }
 
 /* Responsive */
+/* Responsive */
 @media (max-width: 1200px) {
+  .ps-json-panel--rich .ps-json-rich-head,
+  .ps-json-panel--rich .ps-json-tree--rich {
+    min-width: 980px;
+  }
+
   .ps-json-rich-head,
   .ps-json-row {
     grid-template-columns:
-      minmax(200px, 1.4fr)
-      minmax(100px, 0.8fr)
-      minmax(110px, 0.85fr)
-      minmax(150px, 1fr)
-      minmax(160px, 1fr)
-      minmax(64px, 0.38fr);
-}
-
-.ps-json-row {
-  min-width: 920px;
+      minmax(190px, 1.2fr)
+      minmax(90px, 0.6fr)
+      minmax(100px, 0.6fr)
+      minmax(150px, 0.85fr)
+      minmax(170px, 0.95fr)
+      48px;
+  }
 }
 
 @media (max-width: 900px) {
@@ -584,11 +595,10 @@
 
   .ps-json-panel--rich .ps-json-rich-head,
   .ps-json-panel--rich .ps-json-tree--rich {
-    min-width: 1180px;
+    min-width: 920px;
   }
   
   .ps-json-row {
-    min-width: 920px;
     gap: 0.28rem;
     align-items: center;
   }
