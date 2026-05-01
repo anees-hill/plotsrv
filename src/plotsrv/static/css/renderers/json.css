@@ -57,7 +57,7 @@
 /* Keep the rich header/tree aligned when horizontal scrolling is needed */
 .ps-json-panel--rich .ps-json-rich-head,
 .ps-json-panel--rich .ps-json-tree--rich {
-  min-width: 1120px;
+  min-width: 1280px;
 }
 
 .ps-json-panel--rich::-webkit-scrollbar {
@@ -177,6 +177,7 @@
 
 .ps-json-row {
   min-height: 38px;
+  min-width: 1020px;
   display: grid;
   grid-template-columns:
     minmax(220px, 1.4fr)
@@ -561,7 +562,10 @@
       minmax(150px, 1fr)
       minmax(160px, 1fr)
       minmax(64px, 0.38fr);
-  }
+}
+
+.ps-json-row {
+  min-width: 920px;
 }
 
 @media (max-width: 900px) {
@@ -578,10 +582,15 @@
     display: none;
   }
 
+  .ps-json-panel--rich .ps-json-rich-head,
+  .ps-json-panel--rich .ps-json-tree--rich {
+    min-width: 1180px;
+  }
+  
   .ps-json-row {
-    grid-template-columns: 1fr;
+    min-width: 920px;
     gap: 0.28rem;
-    align-items: start;
+    align-items: center;
   }
 
   .ps-json-children {
