@@ -1,9 +1,61 @@
+/* src/plotsrv/static/css/renderers/text.css */
+
+.ps-text-shell {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.ps-text-toolbar {
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.48rem 0.68rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  margin-bottom: 0;
+}
+
+.ps-text-toolbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.ps-text-toolbar .artifact-btn.is-active {
+  background: #f5eef2;
+  border-color: #d8c5ce;
+  box-shadow: inset 0 0 0 1px rgba(185, 71, 95, 0.08);
+}
+
+.ps-text-reverse-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.2rem 0.48rem;
+  border: 1px solid #ead4dc;
+  border-radius: 999px;
+  background: #fff7f9;
+  color: #8d4253;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: help;
+}
+
+.ps-text-reverse-indicator[hidden] {
+  display: none !important;
+}
+
 .plotsrv-pre {
   width: 100%;
   margin: 0;
   overflow: auto;
-  max-height: 600px;
-  padding: 0.5rem;
+  max-height: 76vh;
+  min-height: 62vh;
+  padding: 0.65rem 0.75rem;
   border: 1px solid #eee;
   border-radius: 6px;
   background: #fff;
@@ -12,7 +64,53 @@
   line-height: 1.35;
 }
 
+.ps-text-pre {
+  tab-size: 2;
+}
+
 .plotsrv-pre--wrap {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/*
+  Text artifacts are often logs, so give them more room.
+  This is scoped by JS adding .ps-has-text-artifact to body, so it should not
+  affect plot/table/json pages.
+*/
+body.ps-has-text-artifact .page {
+  max-width: none;
+  margin: 0.85rem auto;
+  padding: 0 0.75rem 1.5rem;
+}
+
+body.ps-has-text-artifact .plot-card {
+  padding: 0.75rem;
+}
+
+body.ps-has-text-artifact .plot-frame--artifact {
+  min-height: 78vh;
+  padding: 0.45rem;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+body.ps-has-text-artifact .ps-artifact,
+body.ps-has-text-artifact .ps-artifact__content {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .plotsrv-pre {
+    max-height: 72vh;
+    min-height: 56vh;
+  }
+
+  .ps-text-toolbar {
+    align-items: stretch;
+  }
+
+  .ps-text-toolbar__group {
+    width: 100%;
+  }
 }

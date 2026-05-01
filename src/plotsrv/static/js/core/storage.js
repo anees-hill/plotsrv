@@ -12,13 +12,14 @@
   const core = window.PLOTSRV.core;
 
   core.storageKeys = {
-    autoRefreshEnabled: "plotsrv:v2:auto_refresh_enabled",
-    autoRefreshInterval: "plotsrv:v2:auto_refresh_interval",
-    textWrapEnabled: "plotsrv:v1:text_wrap_enabled",
-    jsonFindQuery: "plotsrv:v1:json_find_query",
-    tablePrefsPrefix: "plotsrv:v2:table_prefs:",
-    jsonPrefsPrefix: "plotsrv:v2:json_prefs:",
-  };
+   autoRefreshEnabled: "plotsrv:v2:auto_refresh_enabled",
+   autoRefreshInterval: "plotsrv:v2:auto_refresh_interval",
+   textWrapEnabled: "plotsrv:v1:text_wrap_enabled",
+   jsonFindQuery: "plotsrv:v1:json_find_query",
+   tablePrefsPrefix: "plotsrv:v2:table_prefs:",
+   jsonPrefsPrefix: "plotsrv:v2:json_prefs:",
+   textPrefsPrefix: "plotsrv:v2:text_prefs:",
+ };   
 
   core.loadPref = function (key, fallbackValue) {
     try {
@@ -122,6 +123,75 @@
       // ignore
     }
   };
+
+  core.getTextPrefsKey = function (viewId) {
+    const safeViewId = String(viewId || "default").trim() || "default";
+    return core.storageKeys.textPrefsPrefix + safeViewId;
+  };
+  
+  core.loadTextPrefs = function (viewId) {
+    const fallback = {
+      wrap_enabled: false,
+      reverse_enabled: false,
+    };
+  
+    try {
+      const raw = localStorage.getItem(core.getTextPrefsKey(viewId));
+      if (!raw) {
+        return {
+          wrap_enabled: core.loadPref(core.storageKeys.textWrapEnabled, "0") === "1",
+          reverse_enabled: false,
+        };
+      }
+  
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object") return fallback;
+  
+      return {
+        wrap_enabled:
+          typeof parsed.wrap_enabled === "boolean"
+            ? parsed.wrap_enabled
+            : fallback.wrap_enabled,
+        reverse_enabled:
+          typeof parsed.reverse_enabled === "boolean"
+            ? parsed.reverse_enabled
+            : fallback.reverse_enabled,
+      };
+    } catch (e) {
+      return fallback;
+    }
+  };
+  
+  core.saveTextPrefs = function (viewId, prefs) {
+    const payload = {
+      wrap_enabled: !!(prefs && prefs.wrap_enabled),
+      reverse_enabled: !!(prefs && prefs.reverse_enabled),
+    };
+  
+    try {
+      localStorage.setItem(core.getTextPrefsKey(viewId), JSON.stringify(payload));
+    } catch (e) {
+      // ignore
+    }
+  
+    try {
+      localStorage.setItem(
+        core.storageKeys.textWrapEnabled,
+        payload.wrap_enabled ? "1" : "0"
+      );
+    } catch (e) {
+      // ignore
+    }
+  };
+  
+  core.clearTextPrefs = function (viewId) {
+    try {
+      localStorage.removeItem(core.getTextPrefsKey(viewId));
+    } catch (e) {
+      // ignore
+    }
+  };
+  
 
   core.getJsonPrefsKey = function (viewId) {
     const safeViewId = String(viewId || "default").trim() || "default";

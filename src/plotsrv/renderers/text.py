@@ -40,22 +40,37 @@ class TextRenderer:
             )
 
         toolbar = """
-        <div class="artifact-toolbar" data-plotsrv-toolbar="text">
-          <div class="artifact-toolbar-group">
+        <div class="artifact-toolbar ps-text-toolbar" data-plotsrv-toolbar="text">
+          <div class="artifact-toolbar-group ps-text-toolbar__group">
             <button type="button" class="artifact-btn" data-plotsrv-action="copy" title="Copy to clipboard">Copy</button>
             <button type="button" class="artifact-btn" data-plotsrv-action="wrap" title="Toggle word wrap">Wrap</button>
+            <button type="button" class="artifact-btn" data-plotsrv-action="reverse" title="Reverse line order">Reverse lines</button>
+            <span
+              class="ps-text-reverse-indicator"
+              data-plotsrv-text-reverse-indicator="1"
+              title="Reverse line order is active. The newest lines are shown first."
+              hidden
+              aria-label="Reverse line order active">
+              ↕ Newest first
+            </span>
           </div>
         </div>
         """.strip()
 
-        pre = f'<pre class="plotsrv-pre" data-plotsrv-pre="1">{_escape_html(out)}</pre>'
-        html = f"{toolbar}\n{pre}"
+        pre = (
+            f'<pre class="plotsrv-pre ps-text-pre" '
+            f'data-plotsrv-pre="1" '
+            f'data-plotsrv-text-anchor="{_escape_attr(anchor)}">'
+            f"{_escape_html(out)}"
+            f"</pre>"
+        )
+        html = f'<div class="ps-text-shell" data-plotsrv-text-shell="1">{toolbar}\n{pre}</div>'
 
         return RenderResult(
             kind="text",
             html=html,
             truncation=truncation,
-            meta={"view_id": view_id, "length": len(text)},
+            meta={"view_id": view_id, "length": len(text), "anchor": anchor},
         )
 
 
@@ -97,3 +112,7 @@ def _escape_html(s: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#39;")
     )
+
+
+def _escape_attr(s: str) -> str:
+    return _escape_html(s).replace("\n", " ").replace("\r", " ")
