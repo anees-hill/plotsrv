@@ -100,6 +100,43 @@ body.ps-has-text-artifact .ps-artifact__content {
   width: 100%;
 }
 
+/* Lightweight log colouring */
+.plotsrv-pre--coloured .ps-log-token {
+  font-weight: 700;
+  border-radius: 3px;
+  padding: 0 0.12rem;
+}
+
+.plotsrv-pre--coloured .ps-log-token--critical {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
+
+.plotsrv-pre--coloured .ps-log-token--error {
+  color: #9e2239;
+  background: #fff1f3;
+}
+
+.plotsrv-pre--coloured .ps-log-token--warn {
+  color: #8a5a00;
+  background: #fff7dd;
+}
+
+.plotsrv-pre--coloured .ps-log-token--info {
+  color: #315f8c;
+  background: #eef6ff;
+}
+
+.plotsrv-pre--coloured .ps-log-token--debug {
+  color: #6b5b7a;
+  background: #f5f2f8;
+}
+
+.plotsrv-pre--coloured .ps-log-token--success {
+  color: #286044;
+  background: #edf8f1;
+}
+
 @media (max-width: 900px) {
   .plotsrv-pre {
     max-height: 72vh;

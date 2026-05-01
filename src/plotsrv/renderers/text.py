@@ -40,31 +40,29 @@ class TextRenderer:
             )
 
         toolbar = """
-        <div class="artifact-toolbar ps-text-toolbar" data-plotsrv-toolbar="text">
-          <div class="artifact-toolbar-group ps-text-toolbar__group">
-            <button type="button" class="artifact-btn" data-plotsrv-action="copy" title="Copy to clipboard">Copy</button>
-            <button type="button" class="artifact-btn" data-plotsrv-action="wrap" title="Toggle word wrap">Wrap</button>
-            <button type="button" class="artifact-btn" data-plotsrv-action="reverse" title="Reverse line order">Reverse lines</button>
-            <span
-              class="ps-text-reverse-indicator"
-              data-plotsrv-text-reverse-indicator="1"
-              title="Reverse line order is active. The newest lines are shown first."
-              hidden
-              aria-label="Reverse line order active">
-              ↕ Newest first
-            </span>
+        <div class="ps-text-shell">
+          <div class="artifact-toolbar ps-text-toolbar" data-plotsrv-toolbar="text">
+            <div class="artifact-toolbar-group ps-text-toolbar__group">
+              <button type="button" class="artifact-btn" data-plotsrv-action="copy" title="Copy to clipboard">Copy</button>
+              <button type="button" class="artifact-btn" data-plotsrv-action="wrap" title="Toggle word wrap" aria-pressed="false">Wrap</button>
+              <button type="button" class="artifact-btn" data-plotsrv-action="reverse" title="Reverse line order" aria-pressed="false">Reverse lines</button>
+              <button type="button" class="artifact-btn" data-plotsrv-action="colour" title="Toggle lightweight log colouring" aria-pressed="true">Colour logs</button>
+            </div>
+            <div class="artifact-toolbar-group ps-text-toolbar__group">
+              <span class="ps-text-reverse-indicator"
+                    data-plotsrv-text-reverse-indicator="1"
+                    title="Line order is reversed, so the newest lines are shown first."
+                    hidden>↕ Reversed</span>
+            </div>
           </div>
-        </div>
         """.strip()
 
         pre = (
             f'<pre class="plotsrv-pre ps-text-pre" '
             f'data-plotsrv-pre="1" '
-            f'data-plotsrv-text-anchor="{_escape_attr(anchor)}">'
-            f"{_escape_html(out)}"
-            f"</pre>"
+            f'data-plotsrv-text-anchor="{anchor}">{_escape_html(out)}</pre>'
         )
-        html = f'<div class="ps-text-shell" data-plotsrv-text-shell="1">{toolbar}\n{pre}</div>'
+        html = f"{toolbar}\n{pre}\n</div>"
 
         return RenderResult(
             kind="text",

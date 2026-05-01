@@ -133,6 +133,7 @@
     const fallback = {
       wrap_enabled: false,
       reverse_enabled: false,
+      colour_enabled: true,
     };
   
     try {
@@ -141,6 +142,7 @@
         return {
           wrap_enabled: core.loadPref(core.storageKeys.textWrapEnabled, "0") === "1",
           reverse_enabled: false,
+          colour_enabled: true,
         };
       }
   
@@ -156,6 +158,10 @@
           typeof parsed.reverse_enabled === "boolean"
             ? parsed.reverse_enabled
             : fallback.reverse_enabled,
+        colour_enabled:
+          typeof parsed.colour_enabled === "boolean"
+            ? parsed.colour_enabled
+            : fallback.colour_enabled,
       };
     } catch (e) {
       return fallback;
@@ -163,11 +169,13 @@
   };
   
   core.saveTextPrefs = function (viewId, prefs) {
+  
     const payload = {
       wrap_enabled: !!(prefs && prefs.wrap_enabled),
       reverse_enabled: !!(prefs && prefs.reverse_enabled),
+      colour_enabled: prefs && prefs.colour_enabled !== false,
     };
-  
+
     try {
       localStorage.setItem(core.getTextPrefsKey(viewId), JSON.stringify(payload));
     } catch (e) {
