@@ -1,3 +1,5 @@
+/* src/plotsrv/static/css/renderers/html.css */
+
 .plotsrv-html-iframe-wrap {
   width: 100%;
   border: 1px solid #eee;
@@ -11,6 +13,7 @@
   height: 600px;
   border: 0;
   display: block;
+  background: #fff;
 }
 
 .plotsrv-html {
@@ -19,4 +22,74 @@
 
 .plotsrv-html--escaped {
   width: 100%;
+}
+
+/*
+  HTML artifacts are normally full reports/pages, so let them use almost the
+  whole viewport. This is deliberately scoped to HTML artifacts only so it does
+  not affect table/json/text/plot layouts.
+*/
+body.ps-has-html-artifact .page {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+body.ps-has-html-artifact .plot-card {
+  border-left: 0;
+  border-right: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+
+body.ps-has-html-artifact .plot-frame--artifact {
+  min-height: calc(100vh - 120px);
+  padding: 0;
+  border-left: 0;
+  border-right: 0;
+  border-radius: 0;
+  background: #fff;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+body.ps-has-html-artifact .ps-artifact {
+  width: 100%;
+}
+
+body.ps-has-html-artifact .ps-artifact__content {
+  width: 100%;
+}
+
+body.ps-has-html-artifact .ps-artifact__meta {
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0;
+  border-bottom: 1px solid #eee;
+  background: #fff;
+}
+
+body.ps-has-html-artifact .plotsrv-html-iframe-wrap {
+  border-left: 0;
+  border-right: 0;
+  border-radius: 0;
+}
+
+body.ps-has-html-artifact .plotsrv-html-iframe {
+  height: calc(100vh - 150px);
+  min-height: 720px;
+}
+
+body.ps-has-html-artifact .ps-footer-controls,
+body.ps-has-html-artifact .ps-footer-inline,
+body.ps-has-html-artifact .ps-statusline {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+
+@media (max-width: 900px) {
+  body.ps-has-html-artifact .plotsrv-html-iframe {
+    height: calc(100vh - 170px);
+    min-height: 560px;
+  }
 }

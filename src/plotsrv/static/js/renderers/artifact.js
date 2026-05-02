@@ -84,13 +84,19 @@
       }
 
       const data = await res.json();
-
+      
+      if (document.body) {
+        document.body.classList.toggle("ps-has-html-artifact", data.kind === "html");
+        document.body.classList.toggle("ps-has-text-artifact", data.kind === "text");
+      }
+      
       const kindEl = document.getElementById("artifact-kind");
       if (kindEl) {
         kindEl.textContent = data.kind ? "Kind: " + data.kind : "";
       }
-
+      
       root.innerHTML = data.html || "";
+
       renderTruncationBadge(data.truncation || null);
 
       if (typeof core.setStatusMessage === "function") {
