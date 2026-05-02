@@ -230,6 +230,9 @@ def _to_json_artifact_document(
     source_format: str = "python_object",
     source_filename: str | None = None,
 ) -> dict[str, Any]:
+    if _is_json_artifact_document(obj):
+        return obj
+
     if _try_array_payload(obj) is not None:
         array_payload = _try_array_payload(obj)
         return build_json_document(
@@ -245,6 +248,10 @@ def _to_json_artifact_document(
         raw_text=raw_text,
         source_filename=source_filename,
     )
+
+
+def _is_json_artifact_document(obj: Any) -> bool:
+    return isinstance(obj, dict) and obj.get("type") == "plotsrv_json_document"
 
 
 def _to_publish_payload(
@@ -379,12 +386,17 @@ def publish_artifact(
                         )
 
                     if ak == "json":
-                        doc = _to_json_artifact_document(
-                            coerced.obj,
-                            raw_text=coerced.raw_text,
-                            source_format=coerced.source_format or "python_object",
-                            source_filename=coerced.source_filename,
+                        doc = (
+                            coerced.obj
+                            if _is_json_artifact_document(coerced.obj)
+                            else _to_json_artifact_document(
+                                coerced.obj,
+                                raw_text=coerced.raw_text,
+                                source_format=coerced.source_format or "python_object",
+                                source_filename=coerced.source_filename,
+                            )
                         )
+
                         return publish_artifact(
                             doc,
                             host=host,

@@ -42,6 +42,30 @@ class _BuildCtx:
     nodes_seen: int = 0
     max_depth_seen: int = 0
     truncated: bool = False
+    hit: str | None = None
+
+
+def _coerce_limits(limits: Any | None) -> JsonModelLimits:
+    if limits is None:
+        return JsonModelLimits()
+
+    if isinstance(limits, JsonModelLimits):
+        return limits
+
+    return JsonModelLimits(
+        max_depth=int(getattr(limits, "max_depth", 12)),
+        max_nodes=int(getattr(limits, "max_nodes", 5000)),
+        max_dict_items=int(getattr(limits, "max_dict_items", 200)),
+        max_list_items=int(getattr(limits, "max_list_items", 200)),
+        max_string_chars=int(getattr(limits, "max_string_chars", 1000)),
+        max_preview_chars=int(
+            getattr(
+                limits,
+                "max_preview_chars",
+                min(260, int(getattr(limits, "max_string_chars", 1000))),
+            )
+        ),
+    )
 
 
 def build_json_document(
@@ -57,7 +81,7 @@ def build_json_document(
 
     This is the new canonical payload for artifact_kind="json".
     """
-    lim = limits or JsonModelLimits()
+    lim = _coerce_limits(limits)
     ctx = _BuildCtx(limits=lim)
 
     root = _build_node(
@@ -82,6 +106,7 @@ def build_json_document(
             "node_count": ctx.nodes_seen,
             "max_depth_seen": ctx.max_depth_seen,
             "truncated": ctx.truncated,
+            "hit": ctx.hit,
             "source_filename": source_filename,
         },
     }
@@ -194,6 +219,7 @@ def _build_node(
 
     if ctx.nodes_seen > ctx.limits.max_nodes:
         ctx.truncated = True
+        ctx.hit = ctx.hit or "max_nodes"
         return _make_truncated_node(
             path=path,
             depth=depth,
@@ -215,6 +241,8 @@ def _build_node(
         "icon_key": cls["icon_key"],
         "summary": None,
         "preview": None,
+        "full_value": None,
+        "preview_truncated": False,
         "child_count": 0,
         "descendant_count": 0,
         "descendant_layer_count": 0,
@@ -227,6 +255,7 @@ def _build_node(
     if isinstance(obj, dict):
         if depth >= ctx.limits.max_depth:
             ctx.truncated = True
+            ctx.hit = ctx.hit or "max_depth"
             base["summary"] = _summarise_container(obj)
             base["expandable"] = True
             base["truncated"] = True
@@ -240,6 +269,7 @@ def _build_node(
         shown = items[: ctx.limits.max_dict_items]
         if len(items) > len(shown):
             ctx.truncated = True
+            ctx.hit = ctx.hit or "max_dict_items"
             base["truncated"] = True
             base["truncation_reason"] = "dict item limit"
 
@@ -270,6 +300,7 @@ def _build_node(
         xs = list(obj)
         if depth >= ctx.limits.max_depth:
             ctx.truncated = True
+            ctx.hit = ctx.hit or "max_depth"
             base["summary"] = _summarise_container(xs)
             base["expandable"] = True
             base["truncated"] = True
@@ -282,6 +313,7 @@ def _build_node(
         shown = xs[: ctx.limits.max_list_items]
         if len(xs) > len(shown):
             ctx.truncated = True
+            ctx.hit = ctx.hit or "max_list_items"
             base["truncated"] = True
             base["truncation_reason"] = "list item limit"
 
@@ -309,14 +341,29 @@ def _build_node(
         return base
 
     if cls["node_kind"] == "scalar":
-        preview = _safe_preview(obj, max_chars=ctx.limits.max_preview_chars)
+        full_value = _safe_text(obj)
+        preview, was_truncated = _safe_preview_with_flag(
+            obj,
+            max_chars=ctx.limits.max_preview_chars,
+        )
+
+        if was_truncated:
+            ctx.truncated = True
+            ctx.hit = ctx.hit or "max_string_chars"
+            base["truncated"] = True
+            base["truncation_reason"] = "string preview limit"
+
         base["summary"] = preview
         base["preview"] = preview
+        base["full_value"] = full_value
+        base["preview_truncated"] = was_truncated
         return base
 
     preview = _summarise_leaf_artifact(obj, max_chars=ctx.limits.max_preview_chars)
     base["summary"] = preview
     base["preview"] = preview
+    base["full_value"] = preview
+    base["preview_truncated"] = False
     return base
 
 
@@ -411,6 +458,27 @@ def _summarise_leaf_artifact(obj: Any, *, max_chars: int) -> str:
         return type(obj).__name__
 
     return _safe_preview(repr(obj), max_chars=max_chars)
+
+
+def _safe_text(value: Any) -> str:
+    try:
+        s = str(value)
+    except Exception:
+        try:
+            s = repr(value)
+        except Exception:
+            s = "<unrepresentable>"
+
+    return s.replace("\n", " ").replace("\r", " ").strip()
+
+
+def _safe_preview_with_flag(value: Any, *, max_chars: int) -> tuple[str, bool]:
+    s = _safe_text(value)
+
+    if len(s) <= max_chars:
+        return s, False
+
+    return s[:max_chars] + "…", True
 
 
 def _safe_preview(value: Any, *, max_chars: int) -> str:

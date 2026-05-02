@@ -31,6 +31,9 @@ class FileCoerceResult:
     obj: Any
     file_kind: FileKind
     mime: str | None = None
+    raw_text: str | None = None
+    source_format: str | None = None
+    source_filename: str | None = None
 
 
 def infer_file_kind(path: Path) -> FileKind:
@@ -399,6 +402,9 @@ def coerce_file_to_publishable(
             artifact_kind="json",
             obj=doc,
             file_kind=fk,
+            raw_text=txt,
+            source_format="json_file",
+            source_filename=path.name,
         )
 
     if fk == "ini":
@@ -422,6 +428,9 @@ def coerce_file_to_publishable(
             artifact_kind="json",
             obj=doc,
             file_kind=fk,
+            raw_text=txt,
+            source_format="ini_file",
+            source_filename=path.name,
         )
 
     if fk == "toml":
@@ -448,6 +457,9 @@ def coerce_file_to_publishable(
             artifact_kind="json",
             obj=doc,
             file_kind=fk,
+            raw_text=txt,
+            source_format="toml_file",
+            source_filename=path.name,
         )
 
     if fk == "yaml":
@@ -473,6 +485,9 @@ def coerce_file_to_publishable(
             artifact_kind="json",
             obj=doc,
             file_kind=fk,
+            raw_text=txt,
+            source_format="yaml_file",
+            source_filename=path.name,
         )
 
     if fk == "markdown":
