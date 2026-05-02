@@ -1,24 +1,114 @@
+/* src/plotsrv/static/css/renderers/markdown.css */
+
 .plotsrv-markdown {
   width: 100%;
-  line-height: 1.55;
+  line-height: 1.58;
+  color: var(--text);
+  font-size: 0.95rem;
 }
 
-.plotsrv-markdown pre {
+.plotsrv-markdown--sanitized,
+.plotsrv-markdown--fallback {
+  padding: 1.15rem 1.35rem 1.35rem;
+  border: 1px solid #eeeeee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.plotsrv-markdown > :first-child {
+  margin-top: 0;
+}
+
+.plotsrv-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.plotsrv-markdown h1,
+.plotsrv-markdown h2,
+.plotsrv-markdown h3,
+.plotsrv-markdown h4,
+.plotsrv-markdown h5,
+.plotsrv-markdown h6,
+.plotsrv-markdown p,
+.plotsrv-markdown ul,
+.plotsrv-markdown ol,
+.plotsrv-markdown blockquote {
+  max-width: 920px;
+}
+
+.plotsrv-markdown h1,
+.plotsrv-markdown h2,
+.plotsrv-markdown h3 {
+  line-height: 1.2;
+  margin: 1.25rem 0 0.65rem;
+}
+
+.plotsrv-markdown h1 {
+  font-size: 1.85rem;
+}
+
+.plotsrv-markdown h2 {
+  font-size: 1.45rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid #eee4e8;
+}
+
+.plotsrv-markdown h3 {
+  font-size: 1.18rem;
+}
+
+.plotsrv-markdown p {
+  margin: 0.65rem 0;
+}
+
+.plotsrv-markdown a {
+  color: #8d3148;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.plotsrv-markdown blockquote {
+  margin: 0.85rem 0;
+  padding: 0.55rem 0.85rem;
+  border-left: 4px solid #e3c8d0;
+  background: #fff8fa;
+  color: #56464d;
+}
+
+.plotsrv-markdown pre,
+.plotsrv-markdown__raw {
   overflow: auto;
-  max-height: 600px;
-  padding: 0.75rem;
-  border: 1px solid #eee;
-  border-radius: 6px;
-  background: #fff;
+  max-height: 68vh;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #eeeeee;
+  border-radius: 7px;
+  background: #fafafa;
+  font-size: 0.86rem;
+  line-height: 1.45;
 }
 
 .plotsrv-markdown code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+.plotsrv-markdown :not(pre) > code {
+  padding: 0.08rem 0.28rem;
+  border: 1px solid #eadfe5;
+  border-radius: 4px;
+  background: #fbf7f9;
+  font-size: 0.9em;
+}
+
 .plotsrv-markdown table {
-  border-collapse: collapse;
   width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+  margin: 0.9rem 0;
+}
+
+.plotsrv-markdown table,
+.plotsrv-markdown pre {
+  max-width: none;
 }
 
 .plotsrv-markdown th,
@@ -29,8 +119,113 @@
   vertical-align: top;
 }
 
+.plotsrv-markdown th {
+  background: #faf7f8;
+  font-weight: 700;
+}
+
+.plotsrv-markdown img {
+  max-width: 100%;
+  height: auto;
+}
+
+.plotsrv-markdown-iframe-wrap {
+  width: 100%;
+  min-height: 76vh;
+  border: 1px solid #eeeeee;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.plotsrv-markdown-iframe {
+  width: 100%;
+  height: 76vh;
+  border: 0;
+  display: block;
+  background: #ffffff;
+}
+
+.plotsrv-markdown__sandbox-note {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 0.5rem;
+  padding: 0.22rem 0.55rem;
+  border: 1px solid #ead4dc;
+  border-radius: 999px;
+  background: #fff7f9;
+  color: #8d4253;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: help;
+}
+
 .artifact-warn {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--danger-border);
+  border-radius: 6px;
+  background: var(--danger-bg);
   font-size: 0.85rem;
   color: var(--danger-text);
+}
+
+/*
+  Markdown reports benefit from more horizontal room.
+  This is scoped by artifact.js, so it does not affect table/json/plot views.
+*/
+body.ps-has-markdown-artifact .page {
+  max-width: none;
+  margin: 0.85rem auto;
+  padding: 0 0.75rem 2.5rem;
+}
+
+body.ps-has-markdown-artifact .plot-card {
+  width: min(1800px, calc(100vw - 1.5rem));
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0.75rem;
+}
+
+body.ps-has-markdown-artifact .plot-frame--artifact {
+  min-height: 78vh;
+  padding: 0.45rem;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+body.ps-has-markdown-artifact .ps-artifact,
+body.ps-has-markdown-artifact .ps-artifact__content {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .plotsrv-markdown--sanitized,
+  .plotsrv-markdown--fallback {
+    padding: 0.9rem;
+  }
+
+  .plotsrv-markdown h1 {
+    font-size: 1.55rem;
+  }
+
+  .plotsrv-markdown h2 {
+    font-size: 1.25rem;
+  }
+
+  .plotsrv-markdown-iframe-wrap,
+  .plotsrv-markdown-iframe {
+    min-height: 70vh;
+    height: 70vh;
+  }
+
+  body.ps-has-markdown-artifact .page {
+    padding: 0 0.5rem 2.25rem;
+  }
+
+  body.ps-has-markdown-artifact .plot-card {
+    width: calc(100vw - 1rem);
+    padding: 0.5rem;
+  }
 }

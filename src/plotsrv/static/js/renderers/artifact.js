@@ -88,6 +88,10 @@
       if (document.body) {
         document.body.classList.toggle("ps-has-html-artifact", data.kind === "html");
         document.body.classList.toggle("ps-has-text-artifact", data.kind === "text");
+        document.body.classList.toggle(
+          "ps-has-markdown-artifact",
+          data.kind === "markdown"
+        );
       }
       
       const kindEl = document.getElementById("artifact-kind");
