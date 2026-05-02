@@ -56,6 +56,8 @@ def test_build_traceback_payload_includes_frames_and_context() -> None:
 def test_publish_traceback_remote_posts(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
+    monkeypatch.setattr(tb_mod.config, "get_tracebacks_enabled", lambda: True)
+
     def fake_urlopen(req: urllib.request.Request, timeout: float):
         captured["url"] = req.full_url
         captured["data"] = req.data
@@ -96,6 +98,8 @@ def test_publish_traceback_remote_posts(monkeypatch: pytest.MonkeyPatch) -> None
 def test_publish_traceback_inprocess_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, Any] = {}
 
+    monkeypatch.setattr(tb_mod.config, "get_tracebacks_enabled", lambda: True)
+
     def fake_set_artifact(
         *,
         obj: Any,
@@ -130,3 +134,51 @@ def test_publish_traceback_inprocess_fallback(monkeypatch: pytest.MonkeyPatch) -
     assert calls["set_artifact"]["view_id"] == "S:L"
     assert calls["mark_error"]["view_id"] == "S:L"
     assert "ValueError" in calls["mark_error"]["msg"]
+
+
+def test_publish_traceback_disabled_marks_safe_error_inprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tb_mod.config, "get_tracebacks_enabled", lambda: False)
+
+    calls: dict[str, Any] = {}
+
+    def fake_set_artifact(**kwargs: Any) -> None:
+        calls["set_artifact"] = kwargs
+
+    def fake_mark_error(msg: str, *, view_id: str | None = None) -> None:
+        calls["mark_error"] = {"msg": msg, "view_id": view_id}
+
+    monkeypatch.setattr(tb_mod.store, "set_artifact", fake_set_artifact)
+    monkeypatch.setattr(tb_mod.store, "mark_error", fake_mark_error)
+
+    try:
+        _raise_here()
+    except Exception as e:
+        tb_mod.publish_traceback(e, label="L", section="S", view_id="S:L")
+
+    assert "set_artifact" not in calls
+    assert calls["mark_error"]["view_id"] == "S:L"
+    assert calls["mark_error"]["msg"] == "ValueError: traceback publishing disabled"
+
+
+def test_publish_traceback_disabled_does_not_post(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(tb_mod.config, "get_tracebacks_enabled", lambda: False)
+
+    called = False
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float):
+        nonlocal called
+        called = True
+        return DummyResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    try:
+        _raise_here()
+    except Exception as e:
+        tb_mod.publish_traceback(e, host="127.0.0.1", port=8000)
+
+    assert called is False

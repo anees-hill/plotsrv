@@ -16,7 +16,11 @@ def test_image_renderer_can_render_and_embeds_data_uri() -> None:
     assert out.meta and out.meta["mime"] == "image/png"
 
 
-def test_traceback_renderer_renders_frames() -> None:
+def test_traceback_renderer_renders_frames(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "plotsrv.renderers.traceback.config.get_tracebacks_enabled",
+        lambda: True,
+    )
     r = TracebackRenderer()
     payload = {
         "type": "traceback",
