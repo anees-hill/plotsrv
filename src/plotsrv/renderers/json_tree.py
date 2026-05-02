@@ -7,6 +7,7 @@ from typing import Any
 from .base import RenderResult
 from .limits import DEFAULT_JSON_LIMITS, JsonLimits
 from ..artifacts import Truncation
+from ..json_model import JsonModelLimits, build_json_document
 
 _ICON_SRC = {
     "json": "/static/logo_json.png",
@@ -19,6 +20,17 @@ _ICON_SRC = {
     "html": "/static/logo_html.png",
     "exception": "/static/logo_exception.png",
 }
+
+
+def _to_json_model_limits(limits: JsonLimits) -> JsonModelLimits:
+    return JsonModelLimits(
+        max_depth=limits.max_depth,
+        max_nodes=limits.max_nodes,
+        max_dict_items=limits.max_dict_items,
+        max_list_items=limits.max_list_items,
+        max_string_chars=limits.max_string_chars,
+        max_preview_chars=min(260, limits.max_string_chars),
+    )
 
 
 class JsonTreeRenderer:
@@ -87,6 +99,7 @@ class JsonTreeRenderer:
                 "node_count": meta.get("node_count"),
                 "max_depth_seen": meta.get("max_depth_seen"),
                 "source_format": source_format,
+                "hit": meta.get("hit"),
             },
         )
 
@@ -193,329 +206,18 @@ class JsonTreeRenderer:
         )
 
     def _render_runtime_payload(self, obj: Any, *, view_id: str) -> RenderResult:
-        root, node_count, max_depth_seen = _build_runtime_node(
+        doc = build_json_document(
             obj,
-            display_key="root",
-            depth=0,
-            path="",
+            source_format="python_object",
+            raw_text=None,
+            source_filename=None,
+            limits=_to_json_model_limits(self._limits),
         )
-
-        try:
-            text_value = json.dumps(obj, indent=2, ensure_ascii=False, default=repr)
-        except Exception:
-            text_value = _pretty_json_fallback(obj)
-
-        rich_tree_html = _render_document_node(root)
-        rich_head_html = """
-        <div class="ps-json-rich-head" aria-hidden="true">
-          <div class="ps-json-rich-head__cell">Key</div>
-          <div class="ps-json-rich-head__cell">Summary</div>
-          <div class="ps-json-rich-head__cell">Type</div>
-          <div class="ps-json-rich-head__cell">Value</div>
-          <div class="ps-json-rich-head__cell">Structure</div>
-          <div class="ps-json-rich-head__cell ps-json-rich-head__cell--actions"></div>
-        </div>
-        """.strip()
-
-        simple_html = _render_simple_document_node(root)
-
-        toolbar = """
-        <div class="ps-json-topbar artifact-toolbar" data-plotsrv-toolbar="json">
-          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-toolbar-group="levels">
-            <span class="artifact-toolbar-label">Show levels</span>
-            <select class="artifact-input ps-json-select" data-json-level-limit="1">
-              <option value="1">1</option>
-              <option value="2" selected="selected">2</option>
-              <option value="3">3</option>
-              <option value="4">4</option>
-              <option value="5">5</option>
-              <option value="6">6</option>
-              <option value="7">7</option>
-              <option value="8">8</option>
-              <option value="all">All</option>
-            </select>
-            <button type="button" class="artifact-btn" data-plotsrv-action="expand-all">Expand all</button>
-            <button type="button" class="artifact-btn" data-plotsrv-action="collapse-all">Collapse all</button>
-          </div>
-
-          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-toolbar-group="find">
-            <span class="artifact-toolbar-label">Find</span>
-            <input class="artifact-input" type="text" placeholder="key or value…" data-plotsrv-json-find="1" />
-            <button type="button" class="artifact-btn" data-plotsrv-action="find-prev" title="Previous match">Prev</button>
-            <button type="button" class="artifact-btn" data-plotsrv-action="find-next" title="Next match">Next</button>
-            <span class="artifact-counter" data-plotsrv-json-count="1"></span>
-          </div>
-
-          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-toolbar-group="pins">
-            <button type="button" class="artifact-btn" data-plotsrv-action="open-pinned">Pinned</button>
-          </div>
-
-          <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-toolbar-group="view">
-            <span class="artifact-toolbar-label">View</span>
-            <div class="ps-json-mode-switch" role="tablist" aria-label="JSON view mode">
-              <button type="button" class="artifact-btn ps-json-mode-btn is-active" data-json-mode="json">JSON</button>
-              <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="simple">JSON simple</button>
-              <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="text">Text</button>
-            </div>
-          </div>
-        </div>
-        """.strip()
-
-        html = f"""
-        {toolbar}
-
-        <div class="ps-json-shell"
-             data-plotsrv-json="1"
-             data-plotsrv-json-source-format="python_object"
-             data-plotsrv-json-raw-text="null"
-             data-plotsrv-json-pretty-text="{_escape_attr(json.dumps(text_value))}">
-
-          <div class="ps-json-panel ps-json-panel--rich" data-json-panel="json">
-            {rich_head_html}
-            <div class="ps-json-tree ps-json-tree--rich">
-              {rich_tree_html}
-            </div>
-          </div>
-
-          <div class="ps-json-panel ps-json-panel--simple" data-json-panel="simple" hidden>
-            <div class="json-tree json-tree--simple">
-              {simple_html}
-            </div>
-          </div>
-
-          <div class="ps-json-panel ps-json-panel--text" data-json-panel="text" hidden>
-            <pre class="plotsrv-pre plotsrv-pre--wrap ps-json-textview" data-json-text-view="1">{_escape_html(text_value)}</pre>
-          </div>
-
-          <div class="ps-json-pinnedmodal" data-json-pinned-modal="1" hidden>
-            <div class="ps-json-pinnedmodal__backdrop" data-json-pinned-close="1"></div>
-            <div class="ps-json-pinnedmodal__dialog" role="dialog" aria-modal="true" aria-label="Pinned values">
-              <div class="ps-json-pinnedmodal__header">
-                <div class="ps-json-pinnedmodal__title">Pinned values</div>
-                <button type="button" class="ps-json-pinnedmodal__close" data-json-pinned-close="1" aria-label="Close">×</button>
-              </div>
-              <div class="ps-json-pinnedmodal__body" data-json-pinned-list="1"></div>
-            </div>
-          </div>
-        </div>
-        """.strip()
-
-        return RenderResult(
-            kind="json",
-            html=html,
-            truncation=Truncation(truncated=False),
-            meta={
-                "view_id": view_id,
-                "node_count": node_count,
-                "max_depth_seen": max_depth_seen,
-                "source_format": "python_object",
-            },
-        )
-
-
-def _child_path(parent_path: str, display_key: str) -> str:
-    if not parent_path:
-        return display_key
-    return f"{parent_path}/{display_key}"
-
-
-def _full_runtime_scalar_text(x: Any) -> str:
-    if x is None:
-        return "None"
-    return str(x)
-
-
-def _summarise_runtime_scalar(x: Any, *, max_chars: int = 120) -> tuple[str, bool]:
-    s = _full_runtime_scalar_text(x)
-    if len(s) <= max_chars:
-        return s, False
-    return s[:max_chars] + "…", True
-
-
-def _infer_runtime_node_type_label(value: Any) -> tuple[str, str | None]:
-    if isinstance(value, dict):
-        return "dict", "json"
-    if isinstance(value, list):
-        return "list", "json"
-    if isinstance(value, tuple):
-        return "tuple", "json"
-    if isinstance(value, str):
-        return "str", None
-    if isinstance(value, bool):
-        return "bool", None
-    if isinstance(value, int):
-        return "int", None
-    if isinstance(value, float):
-        return "float", None
-    if value is None:
-        return "None", None
-    return type(value).__name__, "python"
-
-
-def _build_runtime_node(
-    value: Any,
-    *,
-    display_key: str,
-    depth: int,
-    path: str,
-) -> tuple[dict[str, Any], int, int]:
-    type_label, icon_key = _infer_runtime_node_type_label(value)
-    node_path = _child_path(path, display_key) if path or display_key else display_key
-
-    if isinstance(value, dict):
-        children: list[dict[str, Any]] = []
-        node_count = 1
-        max_depth_seen = depth
-        descendant_count = 0
-        descendant_layers = 0
-
-        for k, v in value.items():
-            child, child_nodes, child_max_depth = _build_runtime_node(
-                v,
-                display_key=str(k),
-                depth=depth + 1,
-                path=node_path,
-            )
-            children.append(child)
-            node_count += child_nodes
-            max_depth_seen = max(max_depth_seen, child_max_depth)
-            descendant_count += child_nodes
-            descendant_layers = max(descendant_layers, child_max_depth - depth)
-
-        node = {
-            "path": node_path,
-            "display_key": display_key,
-            "node_kind": "container",
-            "value_kind": "dict",
-            "type_label": type_label,
-            "icon_key": icon_key,
-            "summary": f"{len(value)} keys",
-            "preview": None,
-            "full_value": None,
-            "preview_truncated": False,
-            "expandable": True,
-            "child_count": len(children),
-            "descendant_count": descendant_count,
-            "descendant_layer_count": descendant_layers,
-            "depth": depth,
-            "children": children,
-            "truncated": False,
-            "truncation_reason": None,
-        }
-        return node, node_count, max_depth_seen
-
-    if isinstance(value, list):
-        children: list[dict[str, Any]] = []
-        node_count = 1
-        max_depth_seen = depth
-        descendant_count = 0
-        descendant_layers = 0
-
-        for i, v in enumerate(value):
-            child, child_nodes, child_max_depth = _build_runtime_node(
-                v,
-                display_key=f"[{i}]",
-                depth=depth + 1,
-                path=node_path,
-            )
-            children.append(child)
-            node_count += child_nodes
-            max_depth_seen = max(max_depth_seen, child_max_depth)
-            descendant_count += child_nodes
-            descendant_layers = max(descendant_layers, child_max_depth - depth)
-
-        node = {
-            "path": node_path,
-            "display_key": display_key,
-            "node_kind": "container",
-            "value_kind": "list",
-            "type_label": type_label,
-            "icon_key": icon_key,
-            "summary": f"{len(value)} items",
-            "preview": None,
-            "full_value": None,
-            "preview_truncated": False,
-            "expandable": True,
-            "child_count": len(children),
-            "descendant_count": descendant_count,
-            "descendant_layer_count": descendant_layers,
-            "depth": depth,
-            "children": children,
-            "truncated": False,
-            "truncation_reason": None,
-        }
-        return node, node_count, max_depth_seen
-
-    if isinstance(value, tuple):
-        children: list[dict[str, Any]] = []
-        node_count = 1
-        max_depth_seen = depth
-        descendant_count = 0
-        descendant_layers = 0
-
-        for i, v in enumerate(value):
-            child, child_nodes, child_max_depth = _build_runtime_node(
-                v,
-                display_key=f"[{i}]",
-                depth=depth + 1,
-                path=node_path,
-            )
-            children.append(child)
-            node_count += child_nodes
-            max_depth_seen = max(max_depth_seen, child_max_depth)
-            descendant_count += child_nodes
-            descendant_layers = max(descendant_layers, child_max_depth - depth)
-
-        node = {
-            "path": node_path,
-            "display_key": display_key,
-            "node_kind": "container",
-            "value_kind": "tuple",
-            "type_label": type_label,
-            "icon_key": icon_key,
-            "summary": f"{len(value)} items",
-            "preview": None,
-            "full_value": None,
-            "preview_truncated": False,
-            "expandable": True,
-            "child_count": len(children),
-            "descendant_count": descendant_count,
-            "descendant_layer_count": descendant_layers,
-            "depth": depth,
-            "children": children,
-            "truncated": False,
-            "truncation_reason": None,
-        }
-        return node, node_count, max_depth_seen
-
-    preview, preview_truncated = _summarise_runtime_scalar(value)
-    full_value = _full_runtime_scalar_text(value)
-
-    node = {
-        "path": node_path,
-        "display_key": display_key,
-        "node_kind": "scalar",
-        "value_kind": "scalar",
-        "type_label": type_label,
-        "icon_key": icon_key,
-        "summary": None,
-        "preview": preview,
-        "full_value": full_value,
-        "preview_truncated": preview_truncated,
-        "expandable": False,
-        "child_count": 0,
-        "descendant_count": 0,
-        "descendant_layer_count": 0,
-        "depth": depth,
-        "children": [],
-        "truncated": False,
-        "truncation_reason": None,
-    }
-    return node, 1, depth
+        return self._render_document_payload(doc, view_id=view_id)
 
 
 def _render_document_node(node: dict[str, Any]) -> str:
-    path = str(node.get("path") or "")
+    path = _node_path(node)
     display_key = str(node.get("display_key") or "")
     type_label = str(node.get("type_label") or "")
     summary = node.get("summary")
@@ -611,8 +313,27 @@ def _render_document_node(node: dict[str, Any]) -> str:
 
     trunc_html = ""
     if truncated:
-        reason = _escape_html(str(truncation_reason or "truncated"))
-        trunc_html = f'<span class="badge json-badge" title="{reason}">…</span>'
+        reason_raw = str(truncation_reason or "truncated")
+        reason = _escape_html(reason_raw)
+
+        if reason_raw == "dict item limit":
+            badge_text = "… more keys"
+        elif reason_raw == "list item limit":
+            badge_text = "… more items"
+        elif reason_raw == "node limit":
+            badge_text = "… node limit"
+        elif reason_raw == "depth limit":
+            badge_text = "… depth limit"
+        elif reason_raw == "string preview limit":
+            badge_text = "… truncated"
+        else:
+            badge_text = "…"
+
+        trunc_html = (
+            f'<span class="badge json-badge" title="{reason}">'
+            f"{_escape_html(badge_text)}"
+            f"</span>"
+        )
 
     lead_html = f"""
     <span class="ps-json-cell ps-json-cell--lead">
@@ -672,7 +393,7 @@ def _render_document_node(node: dict[str, Any]) -> str:
 
 
 def _render_simple_document_node(node: dict[str, Any]) -> str:
-    path = str(node.get("path") or "")
+    path = _node_path(node)
     display_key = str(node.get("display_key") or "")
     type_label = str(node.get("type_label") or "")
     summary = node.get("summary")
@@ -719,6 +440,28 @@ def _render_simple_document_node(node: dict[str, Any]) -> str:
       <ul class="json-children">{inner_html}</ul>
     </details>
     """.strip()
+
+
+def _node_path(node: dict[str, Any]) -> str:
+    raw_path = node.get("path")
+
+    if isinstance(raw_path, str) and raw_path:
+        return raw_path
+
+    node_id = node.get("id")
+    if isinstance(node_id, str) and node_id:
+        return node_id
+
+    if isinstance(raw_path, list):
+        parts: list[str] = []
+        for part in raw_path:
+            if isinstance(part, int):
+                parts.append(f"[{part}]")
+            else:
+                parts.append(str(part))
+        return "/".join(parts)
+
+    return ""
 
 
 def _pretty_json_fallback(obj: Any) -> str:
