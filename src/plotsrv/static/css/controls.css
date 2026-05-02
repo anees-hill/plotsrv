@@ -235,6 +235,20 @@
   border-radius: 999px;
 }
 
+.ps-viewselect__item {
+  position: relative;
+}
+
+.ps-viewselect__item--warn::before,
+.ps-viewselect__item--error::before {
+  content: "";
+  position: absolute;
+  left: 0.22rem;
+  top: 0.42rem;
+  bottom: 0.42rem;
+  width: 4px;
+}
+
 .ps-viewselect__item--warn::before {
   background: #f2c200;
 }

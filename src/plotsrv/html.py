@@ -20,6 +20,7 @@ def render_index(
     max_table_rows_rich: int,
     ui_settings: UISettings | None = None,
     views: list[ViewMeta] | None = None,
+    view_freshness: dict[str, dict[str, object]] | None = None,
     active_view_id: str | None = None,
 ) -> str:
     """
@@ -28,6 +29,7 @@ def render_index(
     ui = ui_settings or get_ui_settings()
     views = views or []
     active_view_id = active_view_id or "default"
+    view_freshness = view_freshness or {}
 
     page_title = getattr(ui, "page_title", None) or "plotsrv - live view"
     favicon_url = getattr(ui, "favicon_url", None) or "/static/plotsrv_favicon.png"
@@ -131,6 +133,39 @@ def render_index(
             getattr(v, "icon_key", "unknown"), LOGO_BY_KEY["unknown"]
         )
 
+    def _freshness_class(v: ViewMeta) -> str:
+        freshness = view_freshness.get(v.view_id)
+        if not isinstance(freshness, dict):
+            return ""
+
+        if freshness.get("enabled") is False:
+            return ""
+
+        state = str(freshness.get("state") or "").strip().lower()
+
+        if state in ("warn", "warning", "stale"):
+            return " ps-viewselect__item--warn"
+
+        if state in ("error", "overdue", "old"):
+            return " ps-viewselect__item--error"
+
+        return ""
+
+    def _freshness_title(v: ViewMeta) -> str:
+        freshness = view_freshness.get(v.view_id)
+        if not isinstance(freshness, dict):
+            return ""
+
+        state_class = _freshness_class(v)
+        if not state_class:
+            return ""
+
+        label = str(freshness.get("label") or "Not fresh")
+        age_s = freshness.get("age_s")
+        age = f" ({age_s}s old)" if isinstance(age_s, int | float) else ""
+
+        return f' title="{label}{age}"'
+
     dropdown_html = ""
     if getattr(ui, "show_view_selector", True) and len(views) > 0:
         groups: dict[str, list[ViewMeta]] = {}
@@ -159,12 +194,15 @@ def render_index(
             for v in groups[sec]:
                 is_sel = "true" if v.view_id == active_view_id else "false"
                 icon = _icon_url(v)
+                freshness_class = _freshness_class(v)
+                freshness_title = _freshness_title(v)
+
                 menu_parts.append(f"""
                     <button type="button"
-                            class="ps-viewselect__item"
+                            class="ps-viewselect__item{freshness_class}"
                             role="option"
                             aria-selected="{is_sel}"
-                            data-plotsrv-view="{v.view_id}">
+                            data-plotsrv-view="{v.view_id}"{freshness_title}>
                       <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{v.view_id}" hidden aria-hidden="true"></span>
                       <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
                       <span class="ps-viewselect__itemlabel">{v.label}</span>

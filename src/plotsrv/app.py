@@ -653,6 +653,9 @@ def index(view: str | None = None) -> HTMLResponse:
     ui = get_ui_settings()
     _ensure_assets_mount()
 
+    views = store.list_views()
+    view_freshness = {v.view_id: store.get_freshness(view_id=v.view_id) for v in views}
+
     html_str = html_mod.render_index(
         kind=kind,
         table_view_mode=config.get_table_view_mode(),
@@ -660,7 +663,8 @@ def index(view: str | None = None) -> HTMLResponse:
         max_table_rows_simple=config.get_max_table_rows_simple(),
         max_table_rows_rich=config.get_max_table_rows_rich(),
         ui_settings=ui,
-        views=store.list_views(),
+        views=views,
+        view_freshness=view_freshness,
         active_view_id=active_view,
     )
     return HTMLResponse(content=html_str)
