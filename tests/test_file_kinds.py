@@ -57,6 +57,14 @@ def test_infer_image_mime(name: str, expected: str) -> None:
     assert fk._infer_image_mime(Path(name)) == expected
 
 
+def _doc_value(doc: dict[str, Any], key: str) -> dict[str, Any]:
+    root = doc["root"]
+    for child in root["children"]:
+        if child["display_key"] == key:
+            return child
+    raise AssertionError(f"Missing JSON document child: {key}")
+
+
 def test_coerce_json(tmp_path: Path) -> None:
     p = tmp_path / "x.json"
     p.write_text('{"a": 1, "b": [2, 3]}', encoding="utf-8")
@@ -65,7 +73,19 @@ def test_coerce_json(tmp_path: Path) -> None:
     assert out.publish_kind == "artifact"
     assert out.artifact_kind == "json"
     assert out.file_kind == "json"
-    assert out.obj == {"a": 1, "b": [2, 3]}
+
+    doc = out.obj
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "json_file"
+    assert doc["raw_text"] == '{"a": 1, "b": [2, 3]}'
+    assert '"a": 1' in doc["pretty_text"]
+
+    a = _doc_value(doc, "a")
+    assert a["full_value"] == "1"
+
+    b = _doc_value(doc, "b")
+    assert b["value_kind"] == "list"
+    assert b["child_count"] == 2
 
 
 def test_coerce_ini(tmp_path: Path) -> None:
@@ -83,8 +103,17 @@ b = two
     assert out.publish_kind == "artifact"
     assert out.artifact_kind == "json"
     assert out.file_kind == "ini"
-    assert out.obj["sec"]["a"] == "1"
-    assert out.obj["sec"]["b"] == "two"
+
+    doc = out.obj
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "ini_file"
+
+    sec = _doc_value(doc, "sec")
+    assert sec["value_kind"] == "dict"
+
+    children = {ch["display_key"]: ch for ch in sec["children"]}
+    assert children["a"]["full_value"] == "1"
+    assert children["b"]["full_value"] == "two"
 
 
 def test_coerce_toml(tmp_path: Path) -> None:
@@ -103,9 +132,17 @@ c = 2
     assert out.publish_kind == "artifact"
     assert out.artifact_kind == "json"
     assert out.file_kind == "toml"
-    assert out.obj["a"] == 1
-    assert out.obj["name"] == "sam"
-    assert out.obj["b"]["c"] == 2
+
+    doc = out.obj
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "toml_file"
+
+    assert _doc_value(doc, "a")["full_value"] == "1"
+    assert _doc_value(doc, "name")["full_value"] == "sam"
+
+    b = _doc_value(doc, "b")
+    children = {ch["display_key"]: ch for ch in b["children"]}
+    assert children["c"]["full_value"] == "2"
 
 
 def test_coerce_yaml_missing_pyyaml_falls_back_to_text(
@@ -203,4 +240,5 @@ def test_coerce_uses_raw_bytes_without_reread(tmp_path: Path) -> None:
 
     # pass raw that differs from file contents
     out = fk.coerce_file_to_publishable(p, raw=b'{"a": 2}')
-    assert out.obj == {"a": 2}
+    assert out.obj["raw_text"] == '{"a": 2}'
+    assert _doc_value(out.obj, "a")["full_value"] == "2"
