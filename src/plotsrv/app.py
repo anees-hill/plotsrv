@@ -522,6 +522,18 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
         artifact_obj = payload.get("artifact")
 
+        if artifact_kind == "traceback" and not config.get_tracebacks_enabled():
+            store.mark_error(
+                "Traceback artifact rejected because tracebacks are disabled.",
+                view_id=view_id,
+            )
+            return {
+                "ok": True,
+                "ignored": True,
+                "reason": "tracebacks_disabled",
+                "view_id": view_id,
+            }
+
         _validate_artifact_size(artifact_obj)
 
         store.set_artifact(

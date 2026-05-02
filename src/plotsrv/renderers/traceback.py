@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .base import Renderer, RenderResult
+from .. import config
 
 
 @dataclass(slots=True)
@@ -18,6 +19,26 @@ class TracebackRenderer(Renderer):
         return obj.get("type") == "traceback" and isinstance(obj.get("frames"), list)
 
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
+
+        if not config.get_tracebacks_enabled():
+            html = """
+<div class="ps-traceback ps-traceback--disabled">
+  <div class="ps-traceback__header">
+    <strong>Traceback hidden</strong>
+  </div>
+  <div class="ps-traceback__disabled-note">
+    Traceback display is disabled by server configuration.
+  </div>
+</div>
+""".strip()
+
+            return RenderResult(
+                kind="traceback",
+                html=html,
+                mime="text/html",
+                meta={"view_id": view_id, "hidden": True},
+            )
+
         payload = obj if isinstance(obj, dict) else {}
         exc_type = str(payload.get("exc_type") or "Exception")
         exc_msg = str(payload.get("exc_msg") or "")
@@ -58,8 +79,7 @@ class TracebackRenderer(Renderer):
                     "<pre class='ps-traceback__code'>" + "\n".join(ctx_lines) + "</pre>"
                 )
 
-            items.append(
-                f"""
+            items.append(f"""
 <details class="ps-traceback__frame" {"open" if i == 0 else ""}>
   <summary class="ps-traceback__summary">
     <span class="ps-traceback__func">{_escape_html(func)}</span>
@@ -67,8 +87,7 @@ class TracebackRenderer(Renderer):
   </summary>
   {ctx_html}
 </details>
-""".strip()
-            )
+""".strip())
 
         body = '<div class="ps-traceback__frames">' + "\n".join(items) + "</div>"
 

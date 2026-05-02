@@ -8,7 +8,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from . import store
+from . import config, store
 from .artifacts import Truncation
 
 
@@ -30,6 +30,13 @@ def publish_traceback(
     force: bool = False,
     options: TracebackPublishOptions | None = None,
 ) -> None:
+    if not config.get_tracebacks_enabled():
+        safe_message = f"{type(exc).__name__}: traceback publishing disabled"
+
+        if host is None and port is None:
+            store.mark_error(safe_message, view_id=view_id)
+
+        return
     opts = options or TracebackPublishOptions()
     payload = _build_traceback_payload(exc, options=opts)
 

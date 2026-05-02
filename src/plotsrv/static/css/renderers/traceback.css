@@ -45,3 +45,16 @@
   background: #fafafa;
   line-height: 1.4;
 }
+
+.ps-traceback--disabled {
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--danger-bg);
+  padding: 0.8rem 0.95rem;
+}
+
+.ps-traceback__disabled-note {
+  color: var(--danger-text);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
