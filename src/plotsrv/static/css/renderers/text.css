@@ -151,3 +151,34 @@ body.ps-has-text-artifact .ps-artifact__content {
     width: 100%;
   }
 }
+
+.ps-text-shell {
+  position: relative;
+}
+
+.ps-text-jump-bottom {
+  position: absolute;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  width: 38px;
+  height: 38px;
+  border: 1px solid #d8c5ce;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #8d4253;
+  box-shadow: 0 6px 18px rgba(31, 21, 27, 0.16);
+  cursor: pointer;
+  font-size: 1.15rem;
+  line-height: 1;
+  z-index: 5;
+}
+
+.ps-text-jump-bottom:hover {
+  background: #fff7f9;
+  border-color: #cba7b3;
+}
+
+.ps-text-jump-bottom[hidden] {
+  display: none !important;
+}

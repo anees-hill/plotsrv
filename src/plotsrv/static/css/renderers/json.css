@@ -24,6 +24,17 @@
   flex-wrap: wrap;
 }
 
+.ps-json-toolbar-group[data-json-toolbar-group="pins"] .artifact-btn {
+  background: #fff8d8;
+  border-color: #ead27a;
+  color: #5f4b00;
+}
+
+.ps-json-toolbar-group[data-json-toolbar-group="pins"] .artifact-btn:hover {
+  background: #fff2ad;
+  border-color: #d9bd52;
+}
+
 .ps-json-select {
   min-width: 88px;
 }

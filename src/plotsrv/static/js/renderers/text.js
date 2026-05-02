@@ -214,6 +214,7 @@
     pre.scrollTop = 0;
   }
 
+
   function persistState(state) {
     const nextPrefs = getTextPrefs();
     nextPrefs.wrap_enabled = state.wrapEnabled;
@@ -226,6 +227,45 @@
     const toolbar = root.querySelector('[data-plotsrv-toolbar="text"]');
     const pre = root.querySelector('[data-plotsrv-pre="1"]');
     if (!toolbar || !pre) return;
+
+    let jumpBtn = root.querySelector("[data-plotsrv-text-jump-bottom='1']");
+    
+    if (!jumpBtn) {
+      jumpBtn = document.createElement("button");
+      jumpBtn.type = "button";
+      jumpBtn.className = "ps-text-jump-bottom";
+      jumpBtn.setAttribute("data-plotsrv-text-jump-bottom", "1");
+      jumpBtn.setAttribute("aria-label", "Scroll to bottom");
+      jumpBtn.title = "Scroll to bottom";
+      jumpBtn.textContent = "↓";
+    
+      const shell = pre.closest(".ps-text-shell") || pre.parentElement;
+      if (shell) {
+        shell.appendChild(jumpBtn);
+      }
+    }
+    
+    function syncJumpButton() {
+      if (!jumpBtn) return;
+    
+      const thresholdPx = 32;
+      const distanceFromBottom = pre.scrollHeight - pre.scrollTop - pre.clientHeight;
+      const canScroll = pre.scrollHeight > pre.clientHeight + thresholdPx;
+      const isAwayFromBottom = distanceFromBottom > thresholdPx;
+    
+      jumpBtn.hidden = !(canScroll && isAwayFromBottom);
+    }
+    
+    jumpBtn.addEventListener("click", function () {
+      pre.scrollTo({
+        top: pre.scrollHeight,
+        behavior: "smooth",
+      });
+    });
+    
+    pre.addEventListener("scroll", syncJumpButton);
+    window.addEventListener("resize", syncJumpButton);
+    setTimeout(syncJumpButton, 0);
 
     if (document.body) {
       document.body.classList.add("ps-has-text-artifact");
@@ -246,6 +286,7 @@
     root._plotsrvTextState = state;
 
     applyTextState(root, state);
+    setTimeout(syncJumpButton, 0);
 
     toolbar.addEventListener("click", async function (ev) {
       const btn = ev.target && ev.target.closest ? ev.target.closest("button") : null;
@@ -257,6 +298,7 @@
         state.wrapEnabled = !state.wrapEnabled;
         persistState(state);
         applyTextState(root, state, { scroll: false });
+        setTimeout(syncJumpButton, 0); 
         return;
       }
 
@@ -264,6 +306,7 @@
         state.reverseEnabled = !state.reverseEnabled;
         persistState(state);
         applyTextState(root, state);
+        setTimeout(syncJumpButton, 0);  
         return;
       }
 
@@ -271,6 +314,7 @@
         state.colourEnabled = !state.colourEnabled;
         persistState(state);
         applyTextState(root, state, { scroll: false });
+        setTimeout(syncJumpButton, 0);  
         return;
       }
 

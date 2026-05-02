@@ -46,7 +46,7 @@ class TextRenderer:
               <button type="button" class="artifact-btn" data-plotsrv-action="copy" title="Copy to clipboard">Copy</button>
               <button type="button" class="artifact-btn" data-plotsrv-action="wrap" title="Toggle word wrap" aria-pressed="false">Wrap</button>
               <button type="button" class="artifact-btn" data-plotsrv-action="reverse" title="Reverse line order" aria-pressed="false">Reverse lines</button>
-              <button type="button" class="artifact-btn" data-plotsrv-action="colour" title="Toggle lightweight log colouring" aria-pressed="true">Colour logs</button>
+              <button type="button" class="artifact-btn" data-plotsrv-action="colour" title="Toggle lightweight log colouring" aria-pressed="true">Styling</button>
             </div>
             <div class="artifact-toolbar-group ps-text-toolbar__group">
               <span class="ps-text-reverse-indicator"
