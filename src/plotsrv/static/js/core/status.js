@@ -80,19 +80,41 @@
 
   function applyFreshnessClass(el, freshness) {
     if (!el) return;
-
+  
     el.classList.remove("ps-viewselect__item--warn");
     el.classList.remove("ps-viewselect__item--error");
-
+    el.removeAttribute("data-plotsrv-freshness-state");
+    el.removeAttribute("title");
+  
     if (!freshness || freshness.enabled === false) {
       return;
     }
-
-    const freshnessState = String(freshness.state || "");
-    if (freshnessState === "warn") {
+  
+    const freshnessState = String(freshness.state || "").toLowerCase();
+  
+    if (
+      freshnessState === "warn" ||
+      freshnessState === "warning" ||
+      freshnessState === "stale"
+    ) {
       el.classList.add("ps-viewselect__item--warn");
-    } else if (freshnessState === "error") {
+      el.setAttribute("data-plotsrv-freshness-state", "warn");
+    } else if (
+      freshnessState === "error" ||
+      freshnessState === "overdue" ||
+      freshnessState === "old"
+    ) {
       el.classList.add("ps-viewselect__item--error");
+      el.setAttribute("data-plotsrv-freshness-state", "error");
+    }
+  
+    if (el.hasAttribute("data-plotsrv-freshness-state")) {
+      const label = freshness.label || "Not fresh";
+      const age =
+        typeof freshness.age_s === "number"
+          ? " (" + formatAgeShort(freshness.age_s) + ")"
+          : "";
+      el.title = label + age;
     }
   }
 

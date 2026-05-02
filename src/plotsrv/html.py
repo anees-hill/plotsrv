@@ -154,11 +154,12 @@ def render_index(
         for sec in sections:
             menu_parts.append('<div class="ps-viewselect__group">')
             menu_parts.append(f'<div class="ps-viewselect__group-label">{sec}</div>')
+            menu_parts.append('<div class="ps-viewselect__group-items">')
+
             for v in groups[sec]:
                 is_sel = "true" if v.view_id == active_view_id else "false"
                 icon = _icon_url(v)
-                menu_parts.append(
-                    f"""
+                menu_parts.append(f"""
                     <button type="button"
                             class="ps-viewselect__item"
                             role="option"
@@ -168,8 +169,8 @@ def render_index(
                       <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
                       <span class="ps-viewselect__itemlabel">{v.label}</span>
                     </button>
-                    """
-                )
+                    """)
+
             menu_parts.append("</div>")
 
         dropdown_html = f"""

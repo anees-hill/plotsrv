@@ -20,16 +20,39 @@
       function openMenu() {
         menu.hidden = false;
         btn.setAttribute("aria-expanded", "true");
+      
         try {
           menu.focus();
         } catch (e) {
           // ignore
         }
+      
+        requestAnimationFrame(function () {
+          clampMenuToViewport(menu);
+        });
       }
 
       function closeMenu() {
         menu.hidden = true;
         btn.setAttribute("aria-expanded", "false");
+      }
+
+      function clampMenuToViewport(menuEl) {
+        if (!menuEl) return;
+      
+        menuEl.classList.remove("ps-viewselect__menu--clamped-left");
+        menuEl.classList.remove("ps-viewselect__menu--clamped-right");
+      
+        const rect = menuEl.getBoundingClientRect();
+        const pad = 8;
+      
+        if (rect.left < pad) {
+          menuEl.classList.add("ps-viewselect__menu--clamped-left");
+        }
+      
+        if (rect.right > window.innerWidth - pad) {
+          menuEl.classList.add("ps-viewselect__menu--clamped-right");
+        }
       }
 
       btn.addEventListener("click", function () {
@@ -49,6 +72,12 @@
       document.addEventListener("keydown", function (ev) {
         if (ev.key === "Escape") {
           closeMenu();
+        }
+      });
+
+      window.addEventListener("resize", function () {
+        if (!menu.hidden) {
+          clampMenuToViewport(menu);
         }
       });
 
