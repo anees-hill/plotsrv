@@ -14,6 +14,7 @@ from plotsrv.json_model import (
     classify_json_value,
     looks_like_image_payload,
 )
+import plotsrv.json_model as jm
 
 
 def _child(root: dict[str, Any], key: str) -> dict[str, Any]:
@@ -196,3 +197,84 @@ def test_build_json_document_dataframe_if_pandas_available() -> None:
     assert df_node["node_kind"] == "leaf_artifact"
     assert df_node["value_kind"] == "table"
     assert "DataFrame" in df_node["preview"]
+
+
+def test_json_model_none_limits_returns_defaults() -> None:
+    out = _coerce_limits(None)
+    assert out.max_depth == 12
+    assert out.max_nodes == 5000
+
+
+def test_json_model_existing_limits_returned_unchanged() -> None:
+    lim = JsonModelLimits(max_depth=3)
+    assert _coerce_limits(lim) is lim
+
+
+def test_build_json_document_empty_dict_and_list_layers() -> None:
+    doc = build_json_document(
+        {"empty_dict": {}, "empty_list": []}, source_format="python_object"
+    )
+
+    root = doc["root"]
+    empty_dict = _child(root, "empty_dict")
+    empty_list = _child(root, "empty_list")
+
+    assert empty_dict["descendant_count"] == 0
+    assert empty_dict["descendant_layer_count"] == 0
+    assert empty_list["descendant_count"] == 0
+    assert empty_list["descendant_layer_count"] == 0
+
+
+def test_build_json_document_leaf_custom_object() -> None:
+    class Custom:
+        def __repr__(self) -> str:
+            return "<Custom>"
+
+    doc = build_json_document({"x": Custom()}, source_format="python_object")
+    x = _child(doc["root"], "x")
+
+    assert x["node_kind"] == "leaf_artifact"
+    assert x["value_kind"] == "python"
+    assert x["type_label"] == "Custom"
+    assert "Custom" in x["preview"]
+
+
+def test_build_json_document_image_payload_as_direct_object() -> None:
+    payload = {"mime": "image/png", "data_b64": "abc", "filename": "x.png"}
+
+    # Direct image payload is still classified as dict because dicts are containers.
+    doc = build_json_document(payload, source_format="python_object")
+
+    assert doc["root"]["value_kind"] == "dict"
+    assert _child(doc["root"], "mime")["full_value"] == "image/png"
+
+
+def test_build_json_document_numpy_array_if_available() -> None:
+    np = pytest.importorskip("numpy")
+    arr = np.arange(6).reshape(2, 3)
+
+    doc = build_json_document({"arr": arr}, source_format="python_object")
+    arr_node = _child(doc["root"], "arr")
+
+    assert arr_node["node_kind"] == "leaf_artifact"
+    assert arr_node["value_kind"] == "array"
+    assert "shape" in arr_node["preview"]
+
+
+def test_to_json_compatible_float_special_values() -> None:
+    assert "null" in build_pretty_text({"x": float("nan")})
+    assert "null" in build_pretty_text({"x": float("inf")})
+    assert "null" in build_pretty_text({"x": float("-inf")})
+
+
+def test_to_json_compatible_numpy_scalar_if_available() -> None:
+    np = pytest.importorskip("numpy")
+    text = build_pretty_text({"x": np.int64(5)})
+    assert '"x": 5' in text
+
+
+def test_summarise_container_fallback_type_name() -> None:
+    class Weird:
+        pass
+
+    assert jm._summarise_container(Weird()) == "Weird"

@@ -242,3 +242,80 @@ def test_coerce_uses_raw_bytes_without_reread(tmp_path: Path) -> None:
     out = fk.coerce_file_to_publishable(p, raw=b'{"a": 2}')
     assert out.obj["raw_text"] == '{"a": 2}'
     assert _doc_value(out.obj, "a")["full_value"] == "2"
+
+
+def test_json_safe_scalar_float_nan() -> None:
+    assert fk._json_safe_scalar(float("nan")) is None
+
+
+def test_json_safe_scalar_fallback_str() -> None:
+    class X:
+        def __str__(self) -> str:
+            return "X!"
+
+    assert fk._json_safe_scalar(X()) == "X!"
+
+
+def test_summarise_scalar_truncates() -> None:
+    preview, was = fk._summarise_scalar("abcdef", source_kind="runtime", max_chars=3)
+    assert preview == "abc…"
+    assert was is True
+
+
+def test_infer_runtime_node_type_label_more_cases() -> None:
+    assert fk._infer_runtime_node_type_label({}) == ("dict", "json")
+    assert fk._infer_runtime_node_type_label([]) == ("list", "json")
+    assert fk._infer_runtime_node_type_label(()) == ("tuple", "json")
+    assert fk._infer_runtime_node_type_label(None) == ("None", None)
+
+
+def test_infer_file_node_type_label_more_cases() -> None:
+    assert fk._infer_file_node_type_label({}) == ("object", "json")
+    assert fk._infer_file_node_type_label(()) == ("list", "json")
+    assert fk._infer_file_node_type_label(None) == ("null", None)
+
+
+def test_build_json_node_tuple() -> None:
+    node, count, max_depth = fk._build_json_node(
+        (1, 2),
+        display_key="root",
+        source_kind="runtime",
+    )
+    assert node["value_kind"] == "tuple"
+    assert node["type_label"] == "tuple"
+    assert node["child_count"] == 2
+    assert count == 3
+    assert max_depth == 1
+
+
+def test_build_json_node_file_dict_uses_object_label() -> None:
+    node, _, _ = fk._build_json_node(
+        {"a": 1},
+        display_key="root",
+        source_kind="file",
+    )
+    assert node["type_label"] == "object"
+
+
+def test_markdown_coerce_preserves_raw_metadata(tmp_path: Path) -> None:
+    p = tmp_path / "x.md"
+    p.write_text("# Hello", encoding="utf-8")
+
+    out = fk.coerce_file_to_publishable(p)
+
+    assert out.raw_text is None or out.raw_text == "# Hello"
+    assert out.obj == "# Hello"
+
+
+def test_coerce_markdown_metadata_current_behaviour(tmp_path: Path) -> None:
+    p = tmp_path / "x.md"
+    p.write_text("# Hello", encoding="utf-8")
+
+    out = fk.coerce_file_to_publishable(p)
+
+    assert out.publish_kind == "artifact"
+    assert out.artifact_kind == "markdown"
+    assert out.obj == "# Hello"
+    assert out.raw_text is None
+    assert out.source_format is None
+    assert out.source_filename is None

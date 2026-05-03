@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import Any
 
 import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 import pandas as pd
 import pytest
+from fastapi import BackgroundTasks, HTTPException
 
 from plotsrv import config, store
 import plotsrv.server as srv
@@ -127,3 +130,154 @@ def test_stop_server_unpatches_show(fake_run_server: None) -> None:
 
     assert srv._SHOW_PATCHED is False
     assert plt.show is not patched_show
+
+
+def test_object_is_dataframe_with_pandas() -> None:
+    df = pd.DataFrame({"a": [1]})
+    assert srv._object_is_dataframe(df) is True
+    assert srv._object_is_dataframe({"a": [1]}) is False
+
+
+def test_object_to_dataframe_rejects_non_dataframe() -> None:
+    with pytest.raises(TypeError, match="Expected pandas or polars DataFrame"):
+        srv._object_to_dataframe({"a": [1]})
+
+
+def test_object_to_figure_none_uses_current_figure() -> None:
+    fig = plt.figure()
+    try:
+        out = srv._object_to_figure(None, force_plotnine=False)
+        assert out is fig
+    finally:
+        plt.close(fig)
+
+
+def test_object_to_figure_accepts_matplotlib_figure() -> None:
+    fig = plt.figure()
+    try:
+        out = srv._object_to_figure(fig, force_plotnine=False)
+        assert out is fig
+    finally:
+        plt.close(fig)
+
+
+def test_object_to_figure_force_plotnine_requires_draw() -> None:
+    with pytest.raises(TypeError, match="force_plotnine=True"):
+        srv._object_to_figure(object(), force_plotnine=True)
+
+
+def test_object_to_figure_force_plotnine_draws_object() -> None:
+    fig = plt.figure()
+
+    class FakePlotnine:
+        def draw(self):
+            return fig
+
+    try:
+        out = srv._object_to_figure(FakePlotnine(), force_plotnine=True)
+        assert out is fig
+    finally:
+        plt.close(fig)
+
+
+def test_patch_matplotlib_show_idempotent() -> None:
+    original = plt.show
+
+    try:
+        srv._patch_matplotlib_show()
+        first = plt.show
+        srv._patch_matplotlib_show()
+        second = plt.show
+
+        assert first is second
+        assert srv._SHOW_PATCHED is True
+    finally:
+        srv._unpatch_matplotlib_show()
+
+    assert plt.show is original
+
+
+def test_unpatch_matplotlib_show_idempotent() -> None:
+    original = plt.show
+
+    srv._unpatch_matplotlib_show()
+    srv._unpatch_matplotlib_show()
+
+    assert plt.show is original
+    assert srv._SHOW_PATCHED is False
+
+
+def test_stop_server_sets_should_exit_and_joins(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeServer:
+        should_exit = False
+
+    class FakeThread:
+        def __init__(self) -> None:
+            self.join_called = False
+            self.timeout = None
+
+        def join(self, timeout: float | None = None) -> None:
+            self.join_called = True
+            self.timeout = timeout
+
+    fake_server = FakeServer()
+    fake_thread = FakeThread()
+
+    srv._SERVER = fake_server  # type: ignore[assignment]
+    srv._SERVER_THREAD = fake_thread  # type: ignore[assignment]
+
+    monkeypatch.setattr("plotsrv.server.stop_storage_worker", lambda join=False: None)
+
+    srv.stop_server(join=True, timeout=2.5)
+
+    assert fake_server.should_exit is True
+    assert fake_thread.join_called is True
+    assert fake_thread.timeout == 2.5
+
+
+def test_plot_session_starts_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls.append(("start", kwargs))
+
+    def fake_stop_server(**kwargs: Any) -> None:
+        calls.append(("stop", kwargs))
+
+    monkeypatch.setattr(srv, "start_server", fake_start_server)
+    monkeypatch.setattr(srv, "stop_server", fake_stop_server)
+
+    with srv.plot_session(host="h", port=123, auto_on_show=False, quiet=False):
+        calls.append(("inside", {}))
+
+    assert calls[0] == (
+        "start",
+        {"host": "h", "port": 123, "auto_on_show": False, "quiet": False},
+    )
+    assert calls[1] == ("inside", {})
+    assert calls[2] == ("stop", {"join": False})
+
+
+def test_shutdown_disabled_raises_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(srv.config, "get_shutdown_enabled", lambda: False)
+
+    with pytest.raises(HTTPException) as e:
+        srv.shutdown(BackgroundTasks(), request=object())
+
+    assert e.value.status_code == 404
+
+
+def test_shutdown_schedules_background_task_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(srv.config, "get_shutdown_enabled", lambda: True)
+    monkeypatch.setattr(srv.config, "get_control_local_only", lambda: False)
+
+    tasks = BackgroundTasks()
+
+    out = srv.shutdown(tasks, request=object())
+
+    assert out == {"status": "shutting_down"}
+    assert len(tasks.tasks) == 1
