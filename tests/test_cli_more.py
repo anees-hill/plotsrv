@@ -10,7 +10,6 @@ import pytest
 
 import plotsrv.cli as cli_mod
 
-
 # ----------------------------
 # Project root detection
 # ----------------------------
@@ -290,3 +289,83 @@ def test_callable_loop_runs_once_and_clears_service(
     # Should set service on then off
     assert calls[0][0] is True
     assert calls[-1] == (False, None, None)
+
+
+def test_publish_watch_payload_artifact(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cli_mod,
+        "_post_publish_payload",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    cli_mod._publish_watch_payload(
+        host="h",
+        port=9,
+        label="L",
+        section="S",
+        kind="artifact",
+        artifact="hello",
+        artifact_kind="text",
+        update_limit_s=10,
+        force=True,
+    )
+
+    assert captured["host"] == "h"
+    assert captured["port"] == 9
+    payload = captured["payload"]
+    assert payload["kind"] == "artifact"
+    assert payload["artifact"] == "hello"
+    assert payload["artifact_kind"] == "text"
+    assert payload["publish_source"] == "watch"
+
+
+def test_publish_watch_payload_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    pd = pytest.importorskip("pandas")
+    captured: dict[str, Any] = {}
+
+    monkeypatch.setattr(
+        cli_mod,
+        "_post_publish_payload",
+        lambda **kwargs: captured.update(kwargs),
+    )
+
+    df = pd.DataFrame({"a": [1, 2]})
+
+    cli_mod._publish_watch_payload(
+        host="h",
+        port=9,
+        label="L",
+        section="S",
+        kind="table",
+        table_df=df,
+    )
+
+    payload = captured["payload"]
+    assert payload["kind"] == "table"
+    assert payload["table"]["columns"] == ["a"]
+    assert payload["table"]["total_rows"] == 2
+
+
+def test_publish_watch_payload_table_rejects_non_dataframe() -> None:
+    with pytest.raises(TypeError, match="expected pandas DataFrame"):
+        cli_mod._publish_watch_payload(
+            host="h",
+            port=9,
+            label="L",
+            section="S",
+            kind="table",
+            table_df={"a": [1]},
+        )
+
+
+def test_publish_watch_payload_rejects_bad_kind() -> None:
+    with pytest.raises(ValueError, match="Unsupported watch publish kind"):
+        cli_mod._publish_watch_payload(
+            host="h",
+            port=9,
+            label="L",
+            section="S",
+            kind="plot",
+        )
