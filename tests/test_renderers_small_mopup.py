@@ -21,7 +21,11 @@ def test_traceback_renderer_can_render_false_on_bad_payloads() -> None:
     assert r.can_render({"type": "nope", "frames": []}) is False
 
 
-def test_traceback_renderer_escapes_fields() -> None:
+def test_traceback_renderer_escapes_fields(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "plotsrv.renderers.traceback.config.get_tracebacks_enabled",
+        lambda: True,
+    )
     r = TracebackRenderer()
     payload = {
         "type": "traceback",

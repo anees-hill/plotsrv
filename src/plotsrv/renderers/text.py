@@ -40,22 +40,35 @@ class TextRenderer:
             )
 
         toolbar = """
-        <div class="artifact-toolbar" data-plotsrv-toolbar="text">
-          <div class="artifact-toolbar-group">
-            <button type="button" class="artifact-btn" data-plotsrv-action="copy" title="Copy to clipboard">Copy</button>
-            <button type="button" class="artifact-btn" data-plotsrv-action="wrap" title="Toggle word wrap">Wrap</button>
+        <div class="ps-text-shell">
+          <div class="artifact-toolbar ps-text-toolbar" data-plotsrv-toolbar="text">
+            <div class="artifact-toolbar-group ps-text-toolbar__group">
+              <button type="button" class="artifact-btn" data-plotsrv-action="copy" title="Copy to clipboard">Copy</button>
+              <button type="button" class="artifact-btn" data-plotsrv-action="wrap" title="Toggle word wrap" aria-pressed="false">Wrap</button>
+              <button type="button" class="artifact-btn" data-plotsrv-action="reverse" title="Reverse line order" aria-pressed="false">Reverse lines</button>
+              <button type="button" class="artifact-btn" data-plotsrv-action="colour" title="Toggle lightweight log colouring" aria-pressed="true">Styling</button>
+            </div>
+            <div class="artifact-toolbar-group ps-text-toolbar__group">
+              <span class="ps-text-reverse-indicator"
+                    data-plotsrv-text-reverse-indicator="1"
+                    title="Line order is reversed, so the newest lines are shown first."
+                    hidden>↕ Reversed</span>
+            </div>
           </div>
-        </div>
         """.strip()
 
-        pre = f'<pre class="plotsrv-pre" data-plotsrv-pre="1">{_escape_html(out)}</pre>'
-        html = f"{toolbar}\n{pre}"
+        pre = (
+            f'<pre class="plotsrv-pre ps-text-pre" '
+            f'data-plotsrv-pre="1" '
+            f'data-plotsrv-text-anchor="{anchor}">{_escape_html(out)}</pre>'
+        )
+        html = f"{toolbar}\n{pre}\n</div>"
 
         return RenderResult(
             kind="text",
             html=html,
             truncation=truncation,
-            meta={"view_id": view_id, "length": len(text)},
+            meta={"view_id": view_id, "length": len(text), "anchor": anchor},
         )
 
 
@@ -97,3 +110,7 @@ def _escape_html(s: str) -> str:
         .replace('"', "&quot;")
         .replace("'", "&#39;")
     )
+
+
+def _escape_attr(s: str) -> str:
+    return _escape_html(s).replace("\n", " ").replace("\r", " ")

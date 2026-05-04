@@ -1,19 +1,31 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_icon_logo.png" width="150"><br>
-  <img src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_title_logo.png" width="300">
+  <img
+    src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_icon_logo.png"
+    width="180"
+    align="middle"
+    alt="plotsrv icon"
+  >
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img
+    src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_title_logo.png"
+    width="300"
+    align="middle"
+    style="position: relative; top: -20px;"
+    alt="plotsrv"
+  >
 </p>
 
 ---
 
-![CI](https://github.com/anees-hill/plotsrv/actions/workflows/ci.yml/badge.svg)
+![eCI](https://github.com/anees-hill/plotsrv/actions/workflows/ci.yml/badge.svg)
 [![codecov](https://codecov.io/github/anees-hill/plotsrv/graph/badge.svg?token=B9D8LB8K2H)](https://codecov.io/github/anees-hill/plotsrv)
 [![PyPI - Version](https://img.shields.io/pypi/v/plotsrv.svg?logo=pypi&label=PyPI&logoColor=gold)](https://pypi.org/project/plotsrv/)
 [![PyPI - Python Version](https://img.shields.io/pypi/pyversions/plotsrv.svg?logo=python&label=Python&logoColor=gold)](https://pypi.org/project/plotsrv/)
 
-**Cheap observability for Python processes, with a browser UI and almost no setup.**
+**Lightweight observability for Python processes with instant UI**
 
 > **Live demo:** https://demo.plotsrv.com  
-> See a live instance of plotsrv rendering plots, tables, JSON, and HTML from a daily process visualising home sensor/meteorological data.
+> See plotsrv render plots, tables, JSON, and HTML from real sensor data.
 
 `plotsrv` is a lightweight Python server for exposing live Python objects and on-disk files in a single browser UI. It gives you quick visibility into pipelines, experiments, batch jobs, and long-running processes without needing a full observability stack.
 
@@ -45,7 +57,7 @@ uv add plotsrv
 
 2.  **Start the server**
 
-Provide a script, module or entire package.
+Provide a script, module or entire package: 
 
 ``` bash
 plotsrv run your_module.py --host 127.0.0.1 --port 8000
@@ -87,10 +99,6 @@ publish_artifact({"status": "ok", "rows": 123}, label="summary")
 plotsrv run src.etl --host 127.0.0.1 --port 8000 \
   --watch /var/log/etl_log.txt --watch-label etl-log --watch-section log-files --watch-tail --no-truncate
 ```
-
-## Status
-
-plotsrv is currently pre-0.1.0 and still evolving, but is already usable for real workflows.
 
 ## License
 

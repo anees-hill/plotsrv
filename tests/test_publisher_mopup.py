@@ -135,7 +135,14 @@ def test_to_publish_payload_artifact_json_array_payload_if_numpy_available() -> 
         force=False,
     )
     assert payload["artifact_kind"] == "json"
-    assert payload["artifact"]["type"] == "numpy.ndarray"
+    doc = payload["artifact"]
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "python_object"
+
+    root = doc["root"]
+    children = {ch["display_key"]: ch for ch in root["children"]}
+    assert children["type"]["full_value"] == "numpy.ndarray"
+    assert children["size"]["full_value"] == "5"
 
 
 def test_to_publish_payload_artifact_python_repr() -> None:

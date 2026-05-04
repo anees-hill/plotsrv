@@ -1,0 +1,194 @@
+/* src/plotsrv/static/css/renderers/code.css */
+
+.ps-code-shell {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.ps-code-toolbar {
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.48rem 0.68rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  margin-bottom: 0;
+}
+
+.ps-code-toolbar__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.ps-code-toolbar .artifact-btn.is-active {
+  background: #f5eef2;
+  border-color: #d8c5ce;
+  box-shadow: inset 0 0 0 1px rgba(185, 71, 95, 0.08);
+}
+
+.ps-code-toolbar__meta {
+  padding: 0.2rem 0.48rem;
+  border: 1px solid #ead4dc;
+  border-radius: 999px;
+  background: #fff7f9;
+  color: #8d4253;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: help;
+}
+
+.ps-code {
+  width: 100%;
+  margin: 0;
+  overflow: auto;
+  max-height: 76vh;
+  min-height: 62vh;
+  padding: 0;
+  border: 1px solid #eee;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.85rem;
+  line-height: 1.42;
+}
+
+.ps-code code {
+  display: block;
+  min-width: max-content;
+  padding: 0.55rem 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.ps-code-line {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  min-height: 1.42em;
+}
+
+.ps-code-line__num {
+  padding: 0 0.75rem 0 0.65rem;
+  border-right: 1px solid #f0e8ec;
+  color: #b6a6ae;
+  background: #fcfafb;
+  text-align: right;
+  user-select: none;
+}
+
+.ps-code-line__text {
+  padding: 0 0.85rem;
+  white-space: pre;
+}
+
+.ps-code-pre--wrap code {
+  min-width: 0;
+  white-space: pre-wrap;
+}
+
+.ps-code-pre--wrap .ps-code-line {
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  align-items: start;
+}
+
+.ps-code-pre--wrap .ps-code-line__text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ps-code-pre--no-lines .ps-code-line {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.ps-code-pre--no-lines .ps-code-line__num {
+  display: none;
+}
+
+.ps-code-token--keyword {
+  color: #8f2f4b;
+  font-weight: 650;
+}
+
+.ps-code-token--builtin {
+  color: #6b4aa0;
+}
+
+.ps-code-token--constant {
+  color: #a24b24;
+  font-weight: 600;
+}
+
+.ps-code-token--string {
+  color: #2f6f4e;
+}
+
+.ps-code-token--number {
+  color: #7c5c1d;
+}
+
+.ps-code-token--comment {
+  color: #8b8b8b;
+  font-style: italic;
+}
+
+.ps-code-token--decorator {
+  color: #7a5c00;
+  font-weight: 600;
+}
+
+/*
+  Code artifacts benefit from using the same wide presentation as logs.
+  This is scoped by JS adding .ps-has-code-artifact to body.
+*/
+body.ps-has-code-artifact .page {
+  max-width: none;
+  margin: 0.85rem auto;
+  padding: 0 0.75rem 1.5rem;
+}
+
+body.ps-has-code-artifact .plot-card {
+  padding: 0.75rem;
+}
+
+body.ps-has-code-artifact .plot-frame--artifact {
+  min-height: 78vh;
+  padding: 0.45rem;
+  align-items: stretch;
+  justify-content: stretch;
+}
+
+body.ps-has-code-artifact .ps-artifact,
+body.ps-has-code-artifact .ps-artifact__content {
+  width: 100%;
+}
+
+@media (max-width: 900px) {
+  .ps-code {
+    max-height: 72vh;
+    min-height: 56vh;
+  }
+
+  .ps-code-toolbar {
+    align-items: stretch;
+  }
+
+  .ps-code-toolbar__group {
+    width: 100%;
+  }
+
+  .ps-code-line {
+    grid-template-columns: 3.6rem minmax(0, 1fr);
+  }
+
+  .ps-code-pre--wrap .ps-code-line {
+    grid-template-columns: 3.6rem minmax(0, 1fr);
+  }
+
+  .ps-code-line__num {
+    padding-right: 0.55rem;
+  }
+}

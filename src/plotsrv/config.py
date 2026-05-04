@@ -45,6 +45,7 @@ _DEFAULTS: dict[str, Any] = {
         "status_local_only": False,
         "history_local_only": False,
         "views_local_only": True,
+        "tracebacks_enabled": False,
     },
     "view-order-settings": {},
     "truncation": {
@@ -358,6 +359,11 @@ def get_markdown_sandbox() -> str:
     if isinstance(raw, str):
         return raw.strip()
     return default
+
+
+def get_tracebacks_enabled() -> bool:
+    sec = _merged_section("security-settings")
+    return _as_bool(sec.get("tracebacks_enabled"), False)
 
 
 # ---- Truncation ---------------------------------------------------------------

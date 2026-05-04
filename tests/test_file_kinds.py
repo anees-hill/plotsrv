@@ -57,6 +57,14 @@ def test_infer_image_mime(name: str, expected: str) -> None:
     assert fk._infer_image_mime(Path(name)) == expected
 
 
+def _doc_value(doc: dict[str, Any], key: str) -> dict[str, Any]:
+    root = doc["root"]
+    for child in root["children"]:
+        if child["display_key"] == key:
+            return child
+    raise AssertionError(f"Missing JSON document child: {key}")
+
+
 def test_coerce_json(tmp_path: Path) -> None:
     p = tmp_path / "x.json"
     p.write_text('{"a": 1, "b": [2, 3]}', encoding="utf-8")
@@ -65,7 +73,19 @@ def test_coerce_json(tmp_path: Path) -> None:
     assert out.publish_kind == "artifact"
     assert out.artifact_kind == "json"
     assert out.file_kind == "json"
-    assert out.obj == {"a": 1, "b": [2, 3]}
+
+    doc = out.obj
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "json_file"
+    assert doc["raw_text"] == '{"a": 1, "b": [2, 3]}'
+    assert '"a": 1' in doc["pretty_text"]
+
+    a = _doc_value(doc, "a")
+    assert a["full_value"] == "1"
+
+    b = _doc_value(doc, "b")
+    assert b["value_kind"] == "list"
+    assert b["child_count"] == 2
 
 
 def test_coerce_ini(tmp_path: Path) -> None:
@@ -83,8 +103,17 @@ b = two
     assert out.publish_kind == "artifact"
     assert out.artifact_kind == "json"
     assert out.file_kind == "ini"
-    assert out.obj["sec"]["a"] == "1"
-    assert out.obj["sec"]["b"] == "two"
+
+    doc = out.obj
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "ini_file"
+
+    sec = _doc_value(doc, "sec")
+    assert sec["value_kind"] == "dict"
+
+    children = {ch["display_key"]: ch for ch in sec["children"]}
+    assert children["a"]["full_value"] == "1"
+    assert children["b"]["full_value"] == "two"
 
 
 def test_coerce_toml(tmp_path: Path) -> None:
@@ -103,9 +132,17 @@ c = 2
     assert out.publish_kind == "artifact"
     assert out.artifact_kind == "json"
     assert out.file_kind == "toml"
-    assert out.obj["a"] == 1
-    assert out.obj["name"] == "sam"
-    assert out.obj["b"]["c"] == 2
+
+    doc = out.obj
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "toml_file"
+
+    assert _doc_value(doc, "a")["full_value"] == "1"
+    assert _doc_value(doc, "name")["full_value"] == "sam"
+
+    b = _doc_value(doc, "b")
+    children = {ch["display_key"]: ch for ch in b["children"]}
+    assert children["c"]["full_value"] == "2"
 
 
 def test_coerce_yaml_missing_pyyaml_falls_back_to_text(
@@ -203,4 +240,82 @@ def test_coerce_uses_raw_bytes_without_reread(tmp_path: Path) -> None:
 
     # pass raw that differs from file contents
     out = fk.coerce_file_to_publishable(p, raw=b'{"a": 2}')
-    assert out.obj == {"a": 2}
+    assert out.obj["raw_text"] == '{"a": 2}'
+    assert _doc_value(out.obj, "a")["full_value"] == "2"
+
+
+def test_json_safe_scalar_float_nan() -> None:
+    assert fk._json_safe_scalar(float("nan")) is None
+
+
+def test_json_safe_scalar_fallback_str() -> None:
+    class X:
+        def __str__(self) -> str:
+            return "X!"
+
+    assert fk._json_safe_scalar(X()) == "X!"
+
+
+def test_summarise_scalar_truncates() -> None:
+    preview, was = fk._summarise_scalar("abcdef", source_kind="runtime", max_chars=3)
+    assert preview == "abc…"
+    assert was is True
+
+
+def test_infer_runtime_node_type_label_more_cases() -> None:
+    assert fk._infer_runtime_node_type_label({}) == ("dict", "json")
+    assert fk._infer_runtime_node_type_label([]) == ("list", "json")
+    assert fk._infer_runtime_node_type_label(()) == ("tuple", "json")
+    assert fk._infer_runtime_node_type_label(None) == ("None", None)
+
+
+def test_infer_file_node_type_label_more_cases() -> None:
+    assert fk._infer_file_node_type_label({}) == ("object", "json")
+    assert fk._infer_file_node_type_label(()) == ("list", "json")
+    assert fk._infer_file_node_type_label(None) == ("null", None)
+
+
+def test_build_json_node_tuple() -> None:
+    node, count, max_depth = fk._build_json_node(
+        (1, 2),
+        display_key="root",
+        source_kind="runtime",
+    )
+    assert node["value_kind"] == "tuple"
+    assert node["type_label"] == "tuple"
+    assert node["child_count"] == 2
+    assert count == 3
+    assert max_depth == 1
+
+
+def test_build_json_node_file_dict_uses_object_label() -> None:
+    node, _, _ = fk._build_json_node(
+        {"a": 1},
+        display_key="root",
+        source_kind="file",
+    )
+    assert node["type_label"] == "object"
+
+
+def test_markdown_coerce_preserves_raw_metadata(tmp_path: Path) -> None:
+    p = tmp_path / "x.md"
+    p.write_text("# Hello", encoding="utf-8")
+
+    out = fk.coerce_file_to_publishable(p)
+
+    assert out.raw_text is None or out.raw_text == "# Hello"
+    assert out.obj == "# Hello"
+
+
+def test_coerce_markdown_metadata_current_behaviour(tmp_path: Path) -> None:
+    p = tmp_path / "x.md"
+    p.write_text("# Hello", encoding="utf-8")
+
+    out = fk.coerce_file_to_publishable(p)
+
+    assert out.publish_kind == "artifact"
+    assert out.artifact_kind == "markdown"
+    assert out.obj == "# Hello"
+    assert out.raw_text is None
+    assert out.source_format is None
+    assert out.source_filename is None

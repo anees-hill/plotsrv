@@ -522,6 +522,18 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
         artifact_obj = payload.get("artifact")
 
+        if artifact_kind == "traceback" and not config.get_tracebacks_enabled():
+            store.mark_error(
+                "Traceback artifact rejected because tracebacks are disabled.",
+                view_id=view_id,
+            )
+            return {
+                "ok": True,
+                "ignored": True,
+                "reason": "tracebacks_disabled",
+                "view_id": view_id,
+            }
+
         _validate_artifact_size(artifact_obj)
 
         store.set_artifact(
@@ -653,6 +665,9 @@ def index(view: str | None = None) -> HTMLResponse:
     ui = get_ui_settings()
     _ensure_assets_mount()
 
+    views = store.list_views()
+    view_freshness = {v.view_id: store.get_freshness(view_id=v.view_id) for v in views}
+
     html_str = html_mod.render_index(
         kind=kind,
         table_view_mode=config.get_table_view_mode(),
@@ -660,7 +675,8 @@ def index(view: str | None = None) -> HTMLResponse:
         max_table_rows_simple=config.get_max_table_rows_simple(),
         max_table_rows_rich=config.get_max_table_rows_rich(),
         ui_settings=ui,
-        views=store.list_views(),
+        views=views,
+        view_freshness=view_freshness,
         active_view_id=active_view,
     )
     return HTMLResponse(content=html_str)
@@ -740,13 +756,16 @@ def get_views(request: Request) -> list[dict[str, Any]]:
     if config.get_views_local_only():
         require_local_request(request)
 
-    return [
-        {
-            "view_id": v.view_id,
-            "section": v.section,
-            "label": v.label,
-            "kind": v.kind,
-            "icon_key": v.icon_key,
-        }
-        for v in store.list_views()
-    ]
+    out: list[dict[str, Any]] = []
+    for v in store.list_views():
+        out.append(
+            {
+                "view_id": v.view_id,
+                "section": v.section,
+                "label": v.label,
+                "kind": v.kind,
+                "icon_key": v.icon_key,
+                "freshness": store.get_freshness(view_id=v.view_id),
+            }
+        )
+    return out

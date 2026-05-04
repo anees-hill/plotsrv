@@ -1,0 +1,46 @@
+.note,
+.ps-note {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
+  background: var(--danger-bg);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.ps-statusline {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.ps-statusline__item {
+  white-space: nowrap;
+}
+
+.ps-statusline__error {
+  white-space: nowrap;
+}
+
+.ps-footer-inline .ps-note,
+.ps-footer-inline .note {
+  margin-top: 0;
+}
+
+#status {
+  min-height: 1.1rem;
+}
+
+/* Historical mode disables live auto-refresh control */
+.ps-disabled-control {
+  opacity: 0.6;
+  pointer-events: none;
+}

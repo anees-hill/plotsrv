@@ -1,0 +1,346 @@
+.plot-frame--table {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0.25rem;
+  background: #fcfcfc;
+}
+
+.ps-table-shell {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.ps-table-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.48rem 0.68rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ps-table-topbar__left {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ps-table-topbar__right {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+}
+
+.ps-table-status {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
+.ps-table-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.ps-table-toolbar__search {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.ps-table-toolbar__label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.ps-table-input {
+  min-width: 240px;
+  padding: 0.38rem 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.ps-table-input:focus,
+.ps-table-filter-value:focus,
+.ps-table-filter-select:focus {
+  outline: none;
+  border-color: #c8c8c8;
+  box-shadow: 0 0 0 2px rgba(213, 89, 112, 0.08);
+}
+
+.ps-table-input:disabled,
+.ps-table-filter-value:disabled,
+.ps-table-filter-select:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  background: #f7f7f7;
+}
+
+.ps-table-filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid #ead7df;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #fcf7f9 0%, #f8f1f4 100%);
+}
+
+.ps-table-filter-panel[hidden] {
+  display: none !important;
+}
+
+.ps-table-filter-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ps-table-filter-panel__title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ps-table-filter-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.ps-table-filter-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1fr) minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.ps-table-filter-row--single {
+  grid-template-columns: minmax(180px, 1.2fr) minmax(180px, 1fr) minmax(220px, 1.4fr) auto;
+}
+
+.ps-table-filter-select,
+.ps-table-filter-value {
+  width: 100%;
+  padding: 0.4rem 0.52rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.9rem;
+  color: var(--text);
+}
+
+.ps-table-filter-remove {
+  white-space: nowrap;
+}
+
+.ps-table-columns-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ps-table-columns-panel[hidden] {
+  display: none !important;
+}
+
+.ps-table-columns-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.ps-table-columns-panel__title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ps-table-columns-panel__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ps-table-columns-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.5rem 0.85rem;
+}
+
+.ps-table-column-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.15rem 0;
+}
+
+.ps-table-column-item input {
+  transform: translateY(1px);
+}
+
+.ps-table-column-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-table-active-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  min-height: 0;
+}
+
+.ps-table-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid #e6d4d8;
+  border-radius: 999px;
+  background: #fff7f8;
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.ps-table-filter-chip button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1;
+}
+
+.ps-table-filter-chip button:hover {
+  color: var(--text);
+}
+
+#table-filters-toggle-btn,
+#table-columns-toggle-btn {
+  position: relative;
+}
+
+#table-filters-toggle-btn.is-active::after,
+#table-columns-toggle-btn.is-active::after {
+  content: "";
+  position: absolute;
+  top: 0.22rem;
+  right: 0.22rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #d55970;
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.ps-table--rich {
+  width: 100%;
+  min-height: 72vh;
+}
+
+.ps-table--rich .tabulator {
+  border: 0;
+  background: #fff;
+  font-size: 0.9rem;
+}
+
+.ps-table--rich .tabulator-header {
+  border-bottom: 1px solid #e8e8e8;
+  background: #fafafa;
+}
+
+.ps-table--rich .tabulator-col {
+  background: #fafafa;
+}
+
+.ps-table--rich .tabulator-row {
+  background: #fff;
+}
+
+.ps-table--rich .tabulator-row:nth-child(even) {
+  background: #fcfcfc;
+}
+
+.ps-table--simple {
+  width: 100%;
+}
+
+.ps-table--simple table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #fff;
+}
+
+.ps-table--simple th,
+.ps-table--simple td {
+  border: 1px solid #e8e8e8;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+  font-size: 0.9rem;
+}
+
+.ps-table--simple th {
+  position: sticky;
+  top: 0;
+  background: #fafafa;
+  z-index: 1;
+}
+
+@media (max-width: 1100px) {
+  .ps-table-filter-row,
+  .ps-table-filter-row--single {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .ps-table-topbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ps-table-topbar__right {
+    width: 100%;
+  }
+
+  .ps-table-toolbar {
+    width: 100%;
+  }
+
+  .ps-table-toolbar__search {
+    width: 100%;
+  }
+
+  .ps-table-input {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .ps-table-columns-list {
+    grid-template-columns: 1fr;
+  }
+
+  .ps-table--rich {
+    min-height: 64vh;
+  }
+}

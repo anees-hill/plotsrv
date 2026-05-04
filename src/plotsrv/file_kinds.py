@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 from typing import Any, Literal
 
@@ -18,7 +19,7 @@ FileKind = Literal[
     "unknown",
 ]
 
-PublishKind = Literal["artifact", "table"]  # (plot not needed for file coercion yet)
+PublishKind = Literal["artifact", "table"]
 
 ArtifactKind = Literal["text", "json", "markdown", "image", "html"]
 
@@ -30,6 +31,9 @@ class FileCoerceResult:
     obj: Any
     file_kind: FileKind
     mime: str | None = None
+    raw_text: str | None = None
+    source_format: str | None = None
+    source_filename: str | None = None
 
 
 def infer_file_kind(path: Path) -> FileKind:
@@ -72,6 +76,294 @@ def _infer_image_mime(path: Path) -> str:
     return "application/octet-stream"
 
 
+def _json_safe_scalar(x: Any) -> Any:
+    if x is None:
+        return None
+    if isinstance(x, (str, int, bool)):
+        return x
+    if isinstance(x, float):
+        try:
+            if x != x:
+                return None
+        except Exception:
+            return None
+        return x
+    return str(x)
+
+
+def _full_scalar_text(x: Any, *, source_kind: str) -> str:
+    if x is None:
+        return "null" if source_kind == "file" else "None"
+    val = _json_safe_scalar(x)
+    if val is None:
+        return "null" if source_kind == "file" else "None"
+    return str(val)
+
+
+def _summarise_scalar(
+    x: Any,
+    *,
+    source_kind: str,
+    max_chars: int = 120,
+) -> tuple[str, bool]:
+    s = _full_scalar_text(x, source_kind=source_kind)
+    if len(s) <= max_chars:
+        return s, False
+    return s[:max_chars] + "…", True
+
+
+def _infer_runtime_node_type_label(value: Any) -> tuple[str, str | None]:
+    if isinstance(value, dict):
+        return "dict", "json"
+    if isinstance(value, list):
+        return "list", "json"
+    if isinstance(value, tuple):
+        return "tuple", "json"
+    if isinstance(value, str):
+        return "str", None
+    if isinstance(value, bool):
+        return "bool", None
+    if isinstance(value, int):
+        return "int", None
+    if isinstance(value, float):
+        return "float", None
+    if value is None:
+        return "None", None
+    return type(value).__name__, "python"
+
+
+def _infer_file_node_type_label(value: Any) -> tuple[str, str | None]:
+    if isinstance(value, dict):
+        return "object", "json"
+    if isinstance(value, list):
+        return "list", "json"
+    if isinstance(value, tuple):
+        return "list", "json"
+    if isinstance(value, str):
+        return "str", None
+    if isinstance(value, bool):
+        return "bool", None
+    if isinstance(value, int):
+        return "int", None
+    if isinstance(value, float):
+        return "float", None
+    if value is None:
+        return "null", None
+    return type(value).__name__, "python"
+
+
+def _child_path(parent_path: str, display_key: str) -> str:
+    if not parent_path:
+        return display_key
+    return f"{parent_path}/{display_key}"
+
+
+def _build_json_node(
+    value: Any,
+    *,
+    display_key: str,
+    depth: int = 0,
+    path: str = "",
+    source_kind: str = "runtime",
+) -> tuple[dict[str, Any], int, int]:
+    if source_kind == "file":
+        type_label, icon_key = _infer_file_node_type_label(value)
+    else:
+        type_label, icon_key = _infer_runtime_node_type_label(value)
+
+    node_path = _child_path(path, display_key) if path or display_key else display_key
+
+    if isinstance(value, dict):
+        children: list[dict[str, Any]] = []
+        node_count = 1
+        max_depth_seen = depth
+        descendant_count = 0
+        descendant_layers = 0
+
+        for k, v in value.items():
+            child, child_nodes, child_max_depth = _build_json_node(
+                v,
+                display_key=str(k),
+                depth=depth + 1,
+                path=node_path,
+                source_kind=source_kind,
+            )
+            children.append(child)
+            node_count += child_nodes
+            max_depth_seen = max(max_depth_seen, child_max_depth)
+            descendant_count += child_nodes
+            descendant_layers = max(descendant_layers, child_max_depth - depth)
+
+        node = {
+            "path": node_path,
+            "display_key": display_key,
+            "node_kind": "container",
+            "value_kind": "dict",
+            "type_label": type_label,
+            "icon_key": icon_key,
+            "summary": f"{len(value)} keys",
+            "preview": None,
+            "full_value": None,
+            "preview_truncated": False,
+            "expandable": True,
+            "child_count": len(children),
+            "descendant_count": descendant_count,
+            "descendant_layer_count": descendant_layers,
+            "depth": depth,
+            "children": children,
+            "truncated": False,
+            "truncation_reason": None,
+        }
+        return node, node_count, max_depth_seen
+
+    if isinstance(value, list):
+        children: list[dict[str, Any]] = []
+        node_count = 1
+        max_depth_seen = depth
+        descendant_count = 0
+        descendant_layers = 0
+
+        for i, v in enumerate(value):
+            child, child_nodes, child_max_depth = _build_json_node(
+                v,
+                display_key=f"[{i}]",
+                depth=depth + 1,
+                path=node_path,
+                source_kind=source_kind,
+            )
+            children.append(child)
+            node_count += child_nodes
+            max_depth_seen = max(max_depth_seen, child_max_depth)
+            descendant_count += child_nodes
+            descendant_layers = max(descendant_layers, child_max_depth - depth)
+
+        node = {
+            "path": node_path,
+            "display_key": display_key,
+            "node_kind": "container",
+            "value_kind": "list",
+            "type_label": type_label,
+            "icon_key": icon_key,
+            "summary": f"{len(value)} items",
+            "preview": None,
+            "full_value": None,
+            "preview_truncated": False,
+            "expandable": True,
+            "child_count": len(children),
+            "descendant_count": descendant_count,
+            "descendant_layer_count": descendant_layers,
+            "depth": depth,
+            "children": children,
+            "truncated": False,
+            "truncation_reason": None,
+        }
+        return node, node_count, max_depth_seen
+
+    if isinstance(value, tuple):
+        children: list[dict[str, Any]] = []
+        node_count = 1
+        max_depth_seen = depth
+        descendant_count = 0
+        descendant_layers = 0
+
+        for i, v in enumerate(value):
+            child, child_nodes, child_max_depth = _build_json_node(
+                v,
+                display_key=f"[{i}]",
+                depth=depth + 1,
+                path=node_path,
+                source_kind=source_kind,
+            )
+            children.append(child)
+            node_count += child_nodes
+            max_depth_seen = max(max_depth_seen, child_max_depth)
+            descendant_count += child_nodes
+            descendant_layers = max(descendant_layers, child_max_depth - depth)
+
+        node = {
+            "path": node_path,
+            "display_key": display_key,
+            "node_kind": "container",
+            "value_kind": "tuple",
+            "type_label": type_label,
+            "icon_key": icon_key,
+            "summary": f"{len(value)} items",
+            "preview": None,
+            "full_value": None,
+            "preview_truncated": False,
+            "expandable": True,
+            "child_count": len(children),
+            "descendant_count": descendant_count,
+            "descendant_layer_count": descendant_layers,
+            "depth": depth,
+            "children": children,
+            "truncated": False,
+            "truncation_reason": None,
+        }
+        return node, node_count, max_depth_seen
+
+    preview, preview_truncated = _summarise_scalar(
+        value,
+        source_kind=source_kind,
+    )
+    full_value = _full_scalar_text(value, source_kind=source_kind)
+
+    node = {
+        "path": node_path,
+        "display_key": display_key,
+        "node_kind": "scalar",
+        "value_kind": "scalar",
+        "type_label": type_label,
+        "icon_key": icon_key,
+        "summary": None,
+        "preview": preview,
+        "full_value": full_value,
+        "preview_truncated": preview_truncated,
+        "expandable": False,
+        "child_count": 0,
+        "descendant_count": 0,
+        "descendant_layer_count": 0,
+        "depth": depth,
+        "children": [],
+        "truncated": False,
+        "truncation_reason": None,
+    }
+    return node, 1, depth
+
+
+def _build_structured_document(
+    parsed_obj: Any,
+    *,
+    raw_text: str | None,
+    source_format: str,
+) -> dict[str, Any]:
+    root, node_count, max_depth_seen = _build_json_node(
+        parsed_obj,
+        display_key="root",
+        depth=0,
+        path="",
+        source_kind="file",
+    )
+
+    try:
+        pretty_text = json.dumps(parsed_obj, indent=2, ensure_ascii=False)
+    except Exception:
+        pretty_text = repr(parsed_obj)
+
+    return {
+        "type": "plotsrv_json_document",
+        "source_format": source_format,
+        "raw_text": raw_text,
+        "pretty_text": pretty_text,
+        "root": root,
+        "meta": {
+            "node_count": node_count,
+            "max_depth_seen": max_depth_seen,
+            "truncated": False,
+        },
+    }
+
+
 def coerce_file_to_publishable(
     path: Path,
     *,
@@ -83,39 +375,38 @@ def coerce_file_to_publishable(
     """
     Convert a file to a publishable object.
 
-    - json/ini/toml/yaml -> artifact(json) with dict/list
+    - json/ini/toml/yaml -> artifact(json) with structured document wrapper
     - markdown -> artifact(markdown) with text
     - csv -> publish as table using pandas DataFrame (CAPPED rows)
     - image -> artifact(image) with {mime, data_b64}
     - unknown -> artifact(text) with text
-
-    `raw`:
-      - If provided, use these bytes instead of reading the file again.
-      - Useful for watch-mode where you already tail-read.
     """
     fk = infer_file_kind(path)
 
-    # Load bytes (either from caller or disk)
     if raw is None:
         raw2 = path.read_bytes()
         if max_bytes is not None:
             raw2 = raw2[-max(1, int(max_bytes)) :]
         raw = raw2
 
-    # --- JSON ---
     if fk == "json":
-        import json
-
         txt = raw.decode(encoding, errors="replace")
-        obj = json.loads(txt)
+        parsed = json.loads(txt)
+        doc = _build_structured_document(
+            parsed,
+            raw_text=txt,
+            source_format="json_file",
+        )
         return FileCoerceResult(
             publish_kind="artifact",
             artifact_kind="json",
-            obj=obj,
+            obj=doc,
             file_kind=fk,
+            raw_text=txt,
+            source_format="json_file",
+            source_filename=path.name,
         )
 
-    # --- INI/CFG ---
     if fk == "ini":
         import configparser
 
@@ -127,17 +418,24 @@ def coerce_file_to_publishable(
         for section in cfg.sections():
             out[section] = {k: v for k, v in cfg.items(section)}
 
+        doc = _build_structured_document(
+            out,
+            raw_text=txt,
+            source_format="ini_file",
+        )
         return FileCoerceResult(
             publish_kind="artifact",
             artifact_kind="json",
-            obj=out,
+            obj=doc,
             file_kind=fk,
+            raw_text=txt,
+            source_format="ini_file",
+            source_filename=path.name,
         )
 
-    # --- TOML (stdlib tomllib) ---
     if fk == "toml":
         try:
-            import tomllib  # py3.11+
+            import tomllib
         except Exception:  # pragma: no cover
             txt = raw.decode(encoding, errors="replace")
             return FileCoerceResult(
@@ -147,15 +445,23 @@ def coerce_file_to_publishable(
                 file_kind="unknown",
             )
 
-        obj = tomllib.loads(raw.decode(encoding, errors="replace"))
+        txt = raw.decode(encoding, errors="replace")
+        parsed = tomllib.loads(txt)
+        doc = _build_structured_document(
+            parsed,
+            raw_text=txt,
+            source_format="toml_file",
+        )
         return FileCoerceResult(
             publish_kind="artifact",
             artifact_kind="json",
-            obj=obj,
+            obj=doc,
             file_kind=fk,
+            raw_text=txt,
+            source_format="toml_file",
+            source_filename=path.name,
         )
 
-    # --- YAML (optional dependency) ---
     if fk == "yaml":
         txt = raw.decode(encoding, errors="replace")
         try:
@@ -168,15 +474,22 @@ def coerce_file_to_publishable(
                 file_kind=fk,
             )
 
-        obj = yaml.safe_load(txt)
+        parsed = yaml.safe_load(txt)
+        doc = _build_structured_document(
+            parsed,
+            raw_text=txt,
+            source_format="yaml_file",
+        )
         return FileCoerceResult(
             publish_kind="artifact",
             artifact_kind="json",
-            obj=obj,
+            obj=doc,
             file_kind=fk,
+            raw_text=txt,
+            source_format="yaml_file",
+            source_filename=path.name,
         )
 
-    # --- Markdown ---
     if fk == "markdown":
         txt = raw.decode(encoding, errors="replace")
         return FileCoerceResult(
@@ -186,7 +499,6 @@ def coerce_file_to_publishable(
             file_kind=fk,
         )
 
-    # --- HTML ---
     if fk == "html":
         txt = raw.decode(encoding, errors="replace")
         return FileCoerceResult(
@@ -196,7 +508,6 @@ def coerce_file_to_publishable(
             file_kind=fk,
         )
 
-    # --- CSV -> publish as TABLE (reuse existing table UI) ---
     if fk == "csv":
         import io
         import pandas as pd
@@ -238,7 +549,6 @@ def coerce_file_to_publishable(
             mime=mime,
         )
 
-    # Default -> text
     txt = raw.decode(encoding, errors="replace")
     return FileCoerceResult(
         publish_kind="artifact",

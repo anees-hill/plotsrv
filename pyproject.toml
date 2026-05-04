@@ -34,9 +34,9 @@ test = [
     "httpx>=0.28,<1",
 ]
 dev = [
-    "seaborn>=0.13,<1",
-    "polars-lts-cpu>=1.33,<2",
-    "pyarrow>=20,<21",
+    "seaborn>=0.13",
+    "polars-lts-cpu>=1.33",
+    "pyarrow>=20",
 ]
 
 [project.scripts]

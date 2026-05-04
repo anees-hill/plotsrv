@@ -96,7 +96,14 @@ def test_publish_artifact_pathlike_json_file_posts_json(
     assert payload["kind"] == "artifact"
     # json file should end up as artifact_kind json, artifact a dict
     assert payload["artifact_kind"] == "json"
-    assert payload["artifact"] == {"a": 1}
+    doc = payload["artifact"]
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "json_file"
+    assert doc["raw_text"] == '{"a": 1}'
+
+    root = doc["root"]
+    children = {ch["display_key"]: ch for ch in root["children"]}
+    assert children["a"]["full_value"] == "1"
     assert payload["label"] == "L"
     assert payload["section"] == "S"
 
