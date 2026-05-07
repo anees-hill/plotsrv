@@ -1088,7 +1088,7 @@ def _run_subprocess_call_importpath(
 import sys
 from plotsrv.loader import load_object
 from plotsrv.decorators import get_plotsrv_spec
-from plotsrv.publisher import publish_view, publish_artifact
+from plotsrv.publisher import publish_view
 from plotsrv.tracebacks import publish_traceback
 
 target = sys.argv[1]
@@ -1117,14 +1117,10 @@ except Exception as e:
         pass
     raise
 
-# Decide how to publish the return value
+# Decide how to publish the return value.
+# publish_view is now the general-purpose public publishing API.
 kind = (spec.kind if spec else None)
-
-if kind in ("plot", "table"):
-    publish_view(out, kind=kind, label=label, section=section, host=host, port=port)
-else:
-    # artifact (or unknown): let publisher infer unless user forced kind in spec
-    publish_artifact(out, label=label, section=section, host=host, port=port, artifact_kind=None)
+publish_view(out, kind=kind, label=label, section=section, host=host, port=port)
 """.strip()
 
     cmd = [

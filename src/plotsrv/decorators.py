@@ -85,7 +85,7 @@ def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
         orig_init(self, *args, **kwargs)
 
         try:
-            publish_artifact(
+            publish_view(
                 _inspect_instance(self),
                 label=spec.label or cls.__name__,
                 section=spec.section,
@@ -149,7 +149,7 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
         # success path: publish result
         try:
             if spec.kind == "artifact":
-                publish_artifact(
+                publish_view(
                     out,
                     label=spec.label or func.__name__,
                     section=spec.section,
