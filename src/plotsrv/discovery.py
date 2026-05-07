@@ -37,7 +37,9 @@ def _decorator_name(d: ast.expr) -> str | None:
     Return decorator function name for:
       @plot(...)
       @table(...)
+      @view(...)
       @plotsrv.plot(...)
+      @plotsrv.view(...)
     """
     if isinstance(d, ast.Call):
         fn = d.func
@@ -54,10 +56,10 @@ def _decorator_name(d: ast.expr) -> str | None:
 
 def discover_views(root: str | Path) -> list[DiscoveredView]:
     """
-    Walk a directory and discover @plot/@table decorated functions.
+    Walk a directory and discover plotsrv-decorated functions.
 
     We AST-parse .py files and extract:
-      - decorator type: plot/table
+      - decorator type: plot/table/view
       - label kwarg (fallback: function name)
       - section kwarg (optional)
     """
@@ -86,7 +88,7 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
 
             for dec in node.decorator_list:
                 dec_name = _decorator_name(dec)
-                if dec_name not in ("plot", "table", "plotsrv"):
+                if dec_name not in ("plot", "table", "plotsrv", "view"):
                     continue
 
                 label = None

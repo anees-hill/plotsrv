@@ -6,9 +6,8 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Literal, TypeVar, overload
 
-from .publisher import publish_view, publish_artifact
+from .publisher import publish_artifact, publish_view
 from .tracebacks import publish_traceback
-
 
 PlotsrvKind = Literal["plot", "table", "artifact"]
 OnErrorMode = Literal["raise", "publish", "publish_and_raise"]
@@ -250,7 +249,7 @@ def table(
 
 
 @overload
-def plotsrv(
+def view(
     *,
     label: str | None = None,
     section: str | None = None,
@@ -259,8 +258,10 @@ def plotsrv(
     update_limit_s: int | None = None,
     on_error: OnErrorMode = "raise",
 ) -> Callable[[F], F]: ...
+
+
 @overload
-def plotsrv(
+def view(
     *,
     label: str | None = None,
     section: str | None = None,
@@ -269,7 +270,9 @@ def plotsrv(
     update_limit_s: int | None = None,
     on_error: OnErrorMode = "raise",
 ) -> Callable[[type[Any]], type[Any]]: ...
-def plotsrv(
+
+
+def view(
     *,
     label: str | None = None,
     section: str | None = None,
@@ -279,10 +282,15 @@ def plotsrv(
     on_error: OnErrorMode = "raise",
 ) -> Callable[[Any], Any]:
     """
-    Decorator: marks a function OR class as a plotsrv artifact producer.
+    Decorator: marks a function OR class as a plotsrv view producer.
 
-    - If applied to a function: publishes whatever it returns.
-    - If applied to a class: wraps __init__ so creating an instance publishes an "inspect" artifact.
+    Public meaning:
+      - If applied to a function: the function returns something plotsrv can display.
+      - If applied to a class: wraps __init__ so creating an instance publishes an
+        inspection view.
+
+    Compatibility:
+      - plotsrv is kept as an alias for view.
     """
 
     def decorator(obj: Any) -> Any:
@@ -299,3 +307,7 @@ def plotsrv(
         return _wrap_with_publish(o2, spec)
 
     return decorator
+
+
+# Backwards-compatible alias.
+plotsrv = view
