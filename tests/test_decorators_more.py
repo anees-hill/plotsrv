@@ -90,3 +90,7 @@ def test_plotsrv_class_wrap_publishes_json(monkeypatch: pytest.MonkeyPatch) -> N
     assert calls[0]["artifact_kind"] == "json"
     assert isinstance(calls[0]["obj"], dict)
     assert calls[0]["obj"]["class"] == "MyCls"
+
+
+def test_plotsrv_alias_is_view() -> None:
+    assert dec.plotsrv is dec.view

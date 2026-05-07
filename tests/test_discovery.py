@@ -15,11 +15,11 @@ from plotsrv.discovery import (
 )
 
 
-def test_discover_views_finds_plot_table_and_plotsrv(tmp_path: Path) -> None:
+def test_discover_views_finds_plot_table_plotsrv_and_view(tmp_path: Path) -> None:
     p = tmp_path / "a.py"
     p.write_text(
         """
-from plotsrv.decorators import plot, table, plotsrv
+from plotsrv.decorators import plot, table, plotsrv, view
 
 @plot(label="L1", section="S1", port=8000)
 def f1():
@@ -32,6 +32,10 @@ def f2():
 @plotsrv(label="A1", section="Asec", port=8000)
 def f3():
     pass
+
+@view(label="V1", section="Vsec")
+def f4():
+    pass
 """.strip(),
         encoding="utf-8",
     )
@@ -39,7 +43,7 @@ def f3():
     found = discover_views(tmp_path)
     # stable sort: by section then label (empty section first)
     # f2 has section None, label defaults to function name
-    assert [v.kind for v in found] == ["table", "artifact", "plot"]
+    assert [v.kind for v in found] == ["table", "artifact", "plot", "artifact"]
     assert found[0].label == "f2"
     assert found[0].section is None
 
@@ -50,6 +54,10 @@ def f3():
     assert found[2].kind == "plot"
     assert found[2].label == "L1"
     assert found[2].section == "S1"
+
+    assert found[3].kind == "artifact"
+    assert found[3].label == "V1"
+    assert found[3].section == "Vsec"
 
 
 def test_discover_views_ignores_syntax_errors(tmp_path: Path) -> None:
@@ -143,6 +151,10 @@ def make_plot():
 @plotsrv.table
 def make_table():
     pass
+
+@plotsrv.view(label="Generic View", section="V")
+def make_view():
+    pass
 """.strip(),
         encoding="utf-8",
     )
@@ -152,6 +164,7 @@ def make_table():
     assert [(x.kind, x.label, x.section) for x in found] == [
         ("table", "make_table", None),
         ("plot", "Plot Label", "S"),
+        ("artifact", "Generic View", "V"),
     ]
 
 

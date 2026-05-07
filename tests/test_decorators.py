@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from plotsrv import decorators
-from plotsrv.decorators import plot, table, get_plotsrv_spec
+from plotsrv.decorators import plot, table, view, get_plotsrv_spec
 
 
 def test_plot_decorator_attaches_spec() -> None:
@@ -25,6 +25,18 @@ def test_table_decorator_attaches_spec() -> None:
     assert spec is not None
     assert spec.kind == "table"
     assert spec.label == "readings"
+
+
+def test_view_decorator_attaches_generic_spec() -> None:
+    @view(label="status", section="ops")
+    def f() -> dict[str, str]:
+        return {"status": "ok"}
+
+    spec = get_plotsrv_spec(f)
+    assert spec is not None
+    assert spec.kind == "artifact"
+    assert spec.label == "status"
+    assert spec.section == "ops"
 
 
 def _install_publish_spy(monkeypatch):
@@ -61,6 +73,31 @@ def _install_publish_spy(monkeypatch):
             )
         )
 
+    def fake_publish_artifact(
+        obj,
+        *,
+        host="127.0.0.1",
+        port=8000,
+        label,
+        section=None,
+        artifact_kind=None,
+        update_limit_s=None,
+        force=False,
+    ):
+        calls.append(
+            (
+                "publish_artifact",
+                obj,
+                label,
+                section,
+                host,
+                port,
+                artifact_kind,
+                update_limit_s,
+                force,
+            )
+        )
+
     def fake_plot_launch(
         obj, *, label, section, host, port, update_limit_s, force=False
     ):
@@ -77,6 +114,8 @@ def _install_publish_spy(monkeypatch):
 
     if hasattr(decorators, "publish_view"):
         monkeypatch.setattr(decorators, "publish_view", fake_publish_view)
+    if hasattr(decorators, "publish_artifact"):
+        monkeypatch.setattr(decorators, "publish_artifact", fake_publish_artifact)
     if hasattr(decorators, "plot_launch"):
         monkeypatch.setattr(decorators, "plot_launch", fake_plot_launch)
     if hasattr(decorators, "table_launch"):
@@ -118,6 +157,33 @@ def test_plot_decorator_wraps_and_publishes(monkeypatch) -> None:
         assert port == 8000
         assert update_limit_s == 12
         assert force is False
+
+
+def test_view_decorator_wraps_and_publishes(monkeypatch) -> None:
+    calls = _install_publish_spy(monkeypatch)
+
+    @decorators.view(
+        label="status", section="ops", host="127.0.0.1", port=8000, update_limit_s=12
+    )
+    def f():
+        return {"status": "ok"}
+
+    out = f()
+    assert out == {"status": "ok"}
+    assert len(calls) == 1
+
+    tag = calls[0][0]
+    assert tag == "publish_artifact"
+
+    _, obj, label, section, host, port, artifact_kind, update_limit_s, force = calls[0]
+    assert obj == {"status": "ok"}
+    assert label == "status"
+    assert section == "ops"
+    assert host == "127.0.0.1"
+    assert port == 8000
+    assert artifact_kind is None
+    assert update_limit_s == 12
+    assert force is False
 
 
 def test_plot_decorator_does_not_publish_when_port_none(monkeypatch) -> None:
