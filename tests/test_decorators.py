@@ -173,17 +173,17 @@ def test_view_decorator_wraps_and_publishes(monkeypatch) -> None:
     assert len(calls) == 1
 
     tag = calls[0][0]
-    assert tag == "publish_artifact"
+    assert tag == "publish_view"
 
-    _, obj, label, section, host, port, artifact_kind, update_limit_s, force = calls[0]
+    _, obj, label, section, host, port, update_limit_s, force, kind = calls[0]
     assert obj == {"status": "ok"}
     assert label == "status"
     assert section == "ops"
     assert host == "127.0.0.1"
     assert port == 8000
-    assert artifact_kind is None
     assert update_limit_s == 12
     assert force is False
+    assert kind is None
 
 
 def test_plot_decorator_does_not_publish_when_port_none(monkeypatch) -> None:

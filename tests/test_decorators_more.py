@@ -71,10 +71,10 @@ def test_debug_env_reraises_publish_failures(monkeypatch: pytest.MonkeyPatch) ->
 def test_plotsrv_class_wrap_publishes_json(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, object]] = []
 
-    def fake_publish_artifact(obj: object, **kwargs: object) -> None:
+    def fake_publish_view(obj: object, **kwargs: object) -> None:
         calls.append({"obj": obj, **kwargs})
 
-    monkeypatch.setattr(dec, "publish_artifact", fake_publish_artifact)
+    monkeypatch.setattr(dec, "publish_view", fake_publish_view)
 
     @dec.plotsrv(port=8000, label="MyCls", section="sec")
     class MyCls:
