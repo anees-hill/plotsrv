@@ -25,6 +25,12 @@ from .storage.backend import (
     list_snapshots,
     list_stored_views,
 )
+from .runtime import (
+    WatchConfig,
+    apply_runtime_options,
+    parse_truncate_arg,
+    start_watch_threads,
+)
 
 WatchReadMode = Literal["head", "tail"]
 RunMode = Literal["passive", "callable"]
@@ -660,6 +666,35 @@ def _coerce_watch_specs(
     return specs
 
 
+def _watch_configs_from_cli_specs(
+    specs: list[WatchSpec],
+    *,
+    kind: str,
+    max_bytes: int,
+    encoding: str,
+    update_limit_s: int | None,
+    force: bool,
+) -> list[WatchConfig]:
+    out: list[WatchConfig] = []
+
+    for spec in specs:
+        out.append(
+            WatchConfig(
+                path=spec.path,
+                label=spec.label,
+                section=spec.section,
+                kind=kind,  # type: ignore[arg-type]
+                read_mode=spec.read_mode,
+                max_bytes=max_bytes,
+                encoding=encoding,
+                update_limit_s=update_limit_s,
+                force=force,
+            )
+        )
+
+    return out
+
+
 def _default_watch_read_mode(path: Path) -> WatchReadMode:
     fk = infer_file_kind(path)
     return "head" if fk == "csv" else "tail"
@@ -974,21 +1009,7 @@ def _run_subprocess_as_main(target: str) -> subprocess.Popen[bytes]:
 
 
 def _parse_truncate_arg(raw: str | None, *, no_truncate: bool) -> object:
-    if no_truncate:
-        return settings._TRUNCATE_OFF
-
-    if raw is None:
-        return settings._UNSET
-
-    s = str(raw).strip().lower()
-    if s in ("off", "none", "false", "0"):
-        return settings._TRUNCATE_OFF
-
-    try:
-        n = int(float(s))
-        return max(1, n)
-    except Exception:
-        return settings._UNSET
+    return parse_truncate_arg(raw, no_truncate=no_truncate)
 
 
 def _run_store_stats() -> int:
@@ -1256,17 +1277,15 @@ def _run_passive_server_forever(
     _wait_for_server(host, port, timeout_s=5.0)
 
     if watch_specs:
-        _start_watch_threads(
+        watch_configs = _watch_configs_from_cli_specs(
             watch_specs,
-            host=host,
-            port=port,
-            every=watch_every,
             kind=watch_kind,
             max_bytes=watch_max_bytes,
             encoding=watch_encoding,
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
+        start_watch_threads(watch_configs, host=host, port=port)
 
     _passive_register_views(scan_root, excludes=excludes, includes=includes)
 
@@ -1467,21 +1486,12 @@ def _run_watch_mode(
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    truncate_override = _parse_truncate_arg(
-        getattr(args, "truncate", None),
+    apply_runtime_options(
+        config=getattr(args, "config", None),
+        name=getattr(args, "name", None),
+        truncate=getattr(args, "truncate", None),
         no_truncate=bool(getattr(args, "no_truncate", False)),
     )
-
-    from . import settings as _settings
-
-    if getattr(args, "config", None):
-        _settings.set_runtime_context(config_path=str(args.config))
-
-    if getattr(args, "name", None):
-        _settings.set_runtime_context(name=str(args.name))
-
-    if truncate_override is not settings._UNSET:
-        _settings.set_runtime_context(truncate_override=truncate_override)
 
     if args.cmd == "store":
         if args.store_cmd == "stats":
@@ -1579,17 +1589,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # Watches
     if watch_specs:
-        _start_watch_threads(
+        watch_configs = _watch_configs_from_cli_specs(
             watch_specs,
-            host=args.host,
-            port=args.port,
-            every=watch_every,
             kind=watch_kind,
             max_bytes=watch_max_bytes,
             encoding=watch_encoding,
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
+        start_watch_threads(watch_configs, host=host, port=port)
 
     # Passive register (pre-populate dropdown)
     _passive_register_views(scan_root, excludes=excludes, includes=includes)
