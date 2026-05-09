@@ -429,6 +429,49 @@ def test_get_artifact_snapshot_non_plot_non_table_includes_snapshot_meta(
     assert data["meta"]["snapshot_meta"]["snapshot_id"] == snap.snapshot_id
 
 
+def test_get_artifact_traceback_snapshot_renders_traceback(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(app_mod.config, "get_tracebacks_enabled", lambda: True)
+
+    payload = {
+        "type": "traceback",
+        "exc_type": "ValueError",
+        "exc_msg": "bad",
+        "frames": [
+            {
+                "filename": "a.py",
+                "lineno": 10,
+                "function": "fn",
+                "line": "raise ValueError()",
+                "context_before": ["x = 1"],
+                "context_after": ["y = 2"],
+            }
+        ],
+    }
+
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        kind="traceback",
+        obj=payload,
+        section="ops",
+        label="error",
+    )
+
+    r = client.get(f"/artifact?view=ops:error&snapshot={snap.snapshot_id}")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["kind"] == "traceback"
+    assert data["snapshot_id"] == snap.snapshot_id
+    assert "ValueError" in data["html"]
+    assert "a.py:10" in data["html"]
+    assert data["meta"]["snapshot"] is True
+
+
 def test_get_artifact_live_returns_meta_and_truncation(
     monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:

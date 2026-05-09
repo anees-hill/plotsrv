@@ -22,6 +22,7 @@ def test_traceback_renderer_renders_frames(monkeypatch) -> None:
         lambda: True,
     )
     r = TracebackRenderer()
+    assert r.kind == "traceback"
     payload = {
         "type": "traceback",
         "exc_type": "ValueError",

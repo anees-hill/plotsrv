@@ -88,6 +88,72 @@ def test_write_and_load_json_snapshot_roundtrip(tmp_path: Path) -> None:
     assert loaded.obj == obj
 
 
+def test_write_and_load_traceback_snapshot_roundtrip(tmp_path: Path) -> None:
+    obj = {
+        "type": "traceback",
+        "exc_type": "ValueError",
+        "exc_msg": "bad",
+        "frames": [
+            {
+                "filename": "a.py",
+                "lineno": 10,
+                "function": "fn",
+                "line": "raise ValueError()",
+                "context_before": ["x = 1"],
+                "context_after": ["y = 2"],
+            }
+        ],
+    }
+
+    meta = backend.write_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        kind="traceback",
+        obj=obj,
+        section="ops",
+        label="error",
+    )
+
+    assert meta.kind == "traceback"
+    assert meta.payload_format == "json"
+    assert meta.payload_filename.endswith("__payload.json")
+
+    loaded = backend.load_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        snapshot_id=meta.snapshot_id,
+    )
+
+    assert loaded.obj == obj
+
+
+def test_write_and_load_exception_snapshot_alias_roundtrip(tmp_path: Path) -> None:
+    obj = {
+        "type": "traceback",
+        "exc_type": "RuntimeError",
+        "exc_msg": "legacy",
+        "frames": [],
+    }
+
+    meta = backend.write_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        kind="exception",
+        obj=obj,
+    )
+
+    assert meta.kind == "exception"
+    assert meta.payload_format == "json"
+
+    loaded = backend.load_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        snapshot_id=meta.snapshot_id,
+    )
+
+    assert loaded.obj == obj
+
+
 def test_write_and_load_markdown_python_and_text_fallback_roundtrip(
     tmp_path: Path,
 ) -> None:
