@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 from typing import Any
 
@@ -427,6 +428,222 @@ def test_get_artifact_snapshot_non_plot_non_table_includes_snapshot_meta(
     assert data["snapshot_id"] == snap.snapshot_id
     assert data["meta"]["snapshot"] is True
     assert data["meta"]["snapshot_meta"]["snapshot_id"] == snap.snapshot_id
+
+
+def test_get_artifact_markdown_snapshot_renders_markdown(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_markdown = type(
+        "FakeMarkdown",
+        (),
+        {
+            "markdown": staticmethod(
+                lambda text, extensions=None: f"<h1>{text.lstrip('# ').strip()}</h1>"
+            )
+        },
+    )
+
+    fake_bleach = type(
+        "FakeBleach",
+        (),
+        {
+            "clean": staticmethod(lambda html, **kwargs: html),
+            "linkify": staticmethod(lambda html, callbacks=None: html),
+            "callbacks": type(
+                "Callbacks",
+                (),
+                {"nofollow": staticmethod(lambda attrs, new=False: attrs)},
+            ),
+        },
+    )
+
+    monkeypatch.setitem(__import__("sys").modules, "markdown", fake_markdown)
+    monkeypatch.setitem(__import__("sys").modules, "bleach", fake_bleach)
+
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="docs:readme",
+        kind="markdown",
+        obj="# Hello",
+        section="docs",
+        label="readme",
+    )
+
+    r = client.get(f"/artifact?view=docs:readme&snapshot={snap.snapshot_id}")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["kind"] == "markdown"
+    assert "Hello" in data["html"]
+    assert data["meta"]["snapshot"] is True
+    assert data["meta"]["snapshot_meta"]["kind"] == "markdown"
+
+
+def test_get_artifact_json_snapshot_renders_json_document(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    obj = {
+        "type": "plotsrv_json_document",
+        "version": 1,
+        "source_format": "json_file",
+        "raw_text": '{"a": 1}',
+        "pretty_text": '{\n  "a": 1\n}',
+        "root": {
+            "id": "root",
+            "path": [],
+            "depth": 0,
+            "label": "root",
+            "display_key": "root",
+            "node_kind": "container",
+            "value_kind": "dict",
+            "type_label": "object",
+            "icon_key": "json",
+            "summary": "1 key",
+            "preview": None,
+            "full_value": None,
+            "preview_truncated": False,
+            "child_count": 1,
+            "descendant_count": 1,
+            "descendant_layer_count": 1,
+            "expandable": True,
+            "children": [
+                {
+                    "id": "root/a",
+                    "path": ["a"],
+                    "depth": 1,
+                    "label": "a",
+                    "display_key": "a",
+                    "node_kind": "scalar",
+                    "value_kind": "int",
+                    "type_label": "int",
+                    "icon_key": None,
+                    "summary": None,
+                    "preview": "1",
+                    "full_value": "1",
+                    "preview_truncated": False,
+                    "child_count": 0,
+                    "descendant_count": 0,
+                    "descendant_layer_count": 0,
+                    "expandable": False,
+                    "children": [],
+                    "truncated": False,
+                    "truncation_reason": None,
+                }
+            ],
+            "truncated": False,
+            "truncation_reason": None,
+        },
+        "meta": {
+            "node_count": 2,
+            "max_depth_seen": 1,
+            "truncated": False,
+            "hit": None,
+            "source_filename": "x.json",
+        },
+    }
+
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="data:json",
+        kind="json",
+        obj=obj,
+        section="data",
+        label="json",
+    )
+
+    r = client.get(f"/artifact?view=data:json&snapshot={snap.snapshot_id}")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["kind"] == "json"
+    assert data["snapshot_id"] == snap.snapshot_id
+    assert 'data-plotsrv-json="1"' in data["html"]
+    assert "Pinned values" in data["html"]
+    assert data["meta"]["snapshot"] is True
+    assert data["meta"]["snapshot_meta"]["kind"] == "json"
+
+
+def test_get_artifact_image_snapshot_renders_image(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    raw = b"\x89PNG\r\n\x1a\nfake"
+    obj = {
+        "mime": "image/png",
+        "data_b64": base64.b64encode(raw).decode("ascii"),
+        "filename": "x.png",
+    }
+
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="img:one",
+        kind="image",
+        obj=obj,
+        section="img",
+        label="one",
+    )
+
+    r = client.get(f"/artifact?view=img:one&snapshot={snap.snapshot_id}")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["kind"] == "image"
+    assert "data:image/png;base64" in data["html"]
+    assert data["meta"]["snapshot"] is True
+    assert data["meta"]["snapshot_meta"]["kind"] == "image"
+
+
+def test_get_artifact_python_snapshot_renders_code(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="code:example",
+        kind="python",
+        obj="print('hello')",
+        section="code",
+        label="example",
+    )
+
+    r = client.get(f"/artifact?view=code:example&snapshot={snap.snapshot_id}")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["kind"] == "python"
+    assert "print" in data["html"]
+    assert "data-plotsrv-code-pre" in data["html"]
+    assert data["meta"]["snapshot"] is True
+    assert data["meta"]["snapshot_meta"]["kind"] == "python"
+
+
+def test_get_artifact_html_snapshot_renders_html(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    obj = {"html": "<div>Hello HTML</div>", "unsafe": True}
+
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="html:report",
+        kind="html",
+        obj=obj,
+        section="html",
+        label="report",
+    )
+
+    r = client.get(f"/artifact?view=html:report&snapshot={snap.snapshot_id}")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["kind"] == "html"
+    assert "srcdoc" in data["html"]
+    assert "Hello HTML" in data["html"]
+    assert data["meta"]["snapshot"] is True
+    assert data["meta"]["snapshot_meta"]["kind"] == "html"
 
 
 def test_get_artifact_traceback_snapshot_renders_traceback(

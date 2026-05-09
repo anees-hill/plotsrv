@@ -548,3 +548,48 @@ def test_meta_from_dict_coerces_defaults() -> None:
     assert meta.kind == "artifact"
     assert meta.size_bytes == 0
     assert meta.extra is None
+
+
+def test_snapshot_backend_roundtrips_all_artifact_kinds(tmp_path: Path) -> None:
+    raw = b"\x89PNG\r\n\x1a\nfake"
+
+    cases: list[tuple[str, Any]] = [
+        ("text", "hello"),
+        ("json", {"a": 1}),
+        ("markdown", "# Hello"),
+        ("html", {"html": "<div>Hello</div>", "unsafe": True}),
+        (
+            "image",
+            {"mime": "image/png", "data_b64": base64.b64encode(raw).decode("ascii")},
+        ),
+        ("python", "print('hi')"),
+        (
+            "traceback",
+            {
+                "type": "traceback",
+                "exc_type": "ValueError",
+                "exc_msg": "bad",
+                "frames": [],
+            },
+        ),
+    ]
+
+    for kind, obj in cases:
+        view_id = f"case:{kind}"
+        meta = backend.write_snapshot(
+            root_dir=tmp_path,
+            view_id=view_id,
+            kind=kind,
+            obj=obj,
+        )
+        loaded = backend.load_snapshot(
+            root_dir=tmp_path,
+            view_id=view_id,
+            snapshot_id=meta.snapshot_id,
+        )
+
+        if kind == "image":
+            assert isinstance(loaded.obj, dict)
+            assert loaded.obj["mime"] == "image/png"
+        else:
+            assert loaded.obj == obj
