@@ -93,9 +93,18 @@ def test_refresh_view_with_dataframe_rich(fake_run_server: None) -> None:
         store.get_table_html_simple()
 
 
-def test_refresh_view_invalid_type_raises(fake_run_server: None) -> None:
-    with pytest.raises(TypeError):
-        srv.refresh_view(123)  # type: ignore[arg-type]
+def test_refresh_view_generic_object_becomes_python_artifact(
+    fake_run_server: None,
+) -> None:
+    srv.refresh_view(123, label="number", section="debug")
+
+    vid = "debug:number"
+    assert store.get_kind(vid) == "artifact"
+    art = store.get_artifact(view_id=vid)
+    assert art.kind == "python"
+    assert art.obj == "123"
+    assert art.label == "number"
+    assert art.section == "debug"
 
 
 def test_start_server_sets_defaults_and_patches_show(fake_run_server: None) -> None:
@@ -141,6 +150,39 @@ def test_object_is_dataframe_with_pandas() -> None:
 def test_object_to_dataframe_rejects_non_dataframe() -> None:
     with pytest.raises(TypeError, match="Expected pandas or polars DataFrame"):
         srv._object_to_dataframe({"a": [1]})
+
+
+def test_refresh_view_with_dataframe_named_view(fake_run_server: None) -> None:
+    config.set_table_view_mode("rich")
+    df = pd.DataFrame({"a": [1, 2]})
+
+    srv.refresh_view(df, label="rows", section="analysis")
+
+    vid = "analysis:rows"
+    assert store.get_kind(vid) == "table"
+    assert store.has_table(view_id=vid) is True
+    assert store.get_table_df(view_id=vid).equals(df)
+
+    views = {v.view_id: v for v in store.list_views()}
+    assert views[vid].label == "rows"
+    assert views[vid].section == "analysis"
+
+
+def test_refresh_view_with_plot_named_view(fake_run_server: None) -> None:
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.plot([1, 2], [3, 4])
+
+    srv.refresh_view(fig, label="plot", section="analysis")
+
+    vid = "analysis:plot"
+    assert store.get_kind(vid) == "plot"
+    assert store.has_plot(view_id=vid) is True
+    assert len(store.get_plot(view_id=vid)) > 0
+
+    views = {v.view_id: v for v in store.list_views()}
+    assert views[vid].label == "plot"
+    assert views[vid].section == "analysis"
 
 
 def test_object_to_figure_none_uses_current_figure() -> None:
@@ -254,7 +296,17 @@ def test_plot_session_starts_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert calls[0] == (
         "start",
-        {"host": "h", "port": 123, "auto_on_show": False, "quiet": False},
+        {
+            "host": "h",
+            "port": 123,
+            "auto_on_show": False,
+            "quiet": False,
+            "config": None,
+            "name": None,
+            "truncate": None,
+            "no_truncate": False,
+            "watches": None,
+        },
     )
     assert calls[1] == ("inside", {})
     assert calls[2] == ("stop", {"join": False})
@@ -281,3 +333,155 @@ def test_shutdown_schedules_background_task_when_enabled(
 
     assert out == {"status": "shutting_down"}
     assert len(tasks.tasks) == 1
+
+
+def test_start_server_applies_runtime_options(monkeypatch, tmp_path):
+    import plotsrv.server as srv
+
+    calls = []
+
+    def fake_apply_runtime_options(**kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.apply_runtime_options",
+        fake_apply_runtime_options,
+    )
+    monkeypatch.setattr(srv, "_ensure_server_running", lambda *a, **k: None)
+    monkeypatch.setattr(srv, "_patch_matplotlib_show", lambda: None)
+
+    cfg = tmp_path / "plotsrv.yml"
+    cfg.write_text("{}", encoding="utf-8")
+
+    srv.start_server(
+        host="127.0.0.1",
+        port=8123,
+        auto_on_show=True,
+        quiet=True,
+        config=cfg,
+        name="demo",
+        truncate=60_000,
+        no_truncate=False,
+    )
+
+    assert calls == [
+        {
+            "config": cfg,
+            "name": "demo",
+            "truncate": 60_000,
+            "no_truncate": False,
+        }
+    ]
+
+
+def test_start_server_starts_watch_threads(monkeypatch):
+    import plotsrv.server as srv
+
+    watch_calls = []
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.apply_runtime_options",
+        lambda **kwargs: None,
+    )
+    monkeypatch.setattr(srv, "_ensure_server_running", lambda *a, **k: None)
+    monkeypatch.setattr(srv, "_patch_matplotlib_show", lambda: None)
+
+    def fake_start_watch_threads(watches, *, host, port):
+        watch_calls.append({"watches": watches, "host": host, "port": port})
+        return []
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.start_watch_threads",
+        fake_start_watch_threads,
+    )
+
+    watches = [{"path": "README.md", "label": "readme"}]
+    srv.start_server(host="0.0.0.0", port=8123, watches=watches)
+
+    assert watch_calls == [
+        {
+            "watches": watches,
+            "host": "0.0.0.0",
+            "port": 8123,
+        }
+    ]
+
+
+def test_plot_session_passes_runtime_options(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls.append(("start", kwargs))
+
+    def fake_stop_server(**kwargs: Any) -> None:
+        calls.append(("stop", kwargs))
+
+    monkeypatch.setattr(srv, "start_server", fake_start_server)
+    monkeypatch.setattr(srv, "stop_server", fake_stop_server)
+
+    watches = [{"path": "README.md", "label": "readme"}]
+
+    with srv.plot_session(
+        port=8123,
+        config="plotsrv.yml",
+        name="demo",
+        truncate=60_000,
+        no_truncate=False,
+        watches=watches,
+    ):
+        pass
+
+    assert calls[0] == (
+        "start",
+        {
+            "host": "127.0.0.1",
+            "port": 8123,
+            "auto_on_show": True,
+            "quiet": True,
+            "config": "plotsrv.yml",
+            "name": "demo",
+            "truncate": 60_000,
+            "no_truncate": False,
+            "watches": watches,
+        },
+    )
+
+
+def test_refresh_view_string_becomes_text_artifact(fake_run_server: None) -> None:
+    srv.refresh_view("hello", label="message", section="debug")
+
+    vid = "debug:message"
+    assert store.get_kind(vid) == "artifact"
+    art = store.get_artifact(view_id=vid)
+    assert art.kind == "text"
+    assert art.obj == "hello"
+
+
+def test_refresh_view_dict_becomes_json_artifact(fake_run_server: None) -> None:
+    srv.refresh_view({"status": "ok"}, label="status", section="debug")
+
+    vid = "debug:status"
+    assert store.get_kind(vid) == "artifact"
+    art = store.get_artifact(view_id=vid)
+    assert art.kind == "json"
+    assert isinstance(art.obj, dict)
+    assert art.obj["type"] == "plotsrv_json_document"
+    assert art.obj["source_format"] == "python_object"
+
+
+def test_refresh_view_pathlike_text_file(fake_run_server: None, tmp_path) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("line one\nline two\n", encoding="utf-8")
+
+    srv.refresh_view(p, label="log", section="files")
+
+    vid = "files:log"
+    assert store.get_kind(vid) == "artifact"
+    art = store.get_artifact(view_id=vid)
+    assert art.kind == "text"
+    assert "line one" in art.obj
+
+
+def test_refresh_view_invalid_forced_kind_raises(fake_run_server: None) -> None:
+    with pytest.raises(ValueError):
+        srv.refresh_view({"x": 1}, kind="bad")
