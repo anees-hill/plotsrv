@@ -22,6 +22,7 @@ from .decorators import (
 from .publisher import plot_launch, publish_view, publish_artifact
 from .capture import capture_exceptions
 from .tracebacks import publish_traceback, TracebackPublishOptions
+from .runtime import WatchConfig
 
 __all__ = [
     # Preferred server/session API
@@ -39,6 +40,7 @@ __all__ = [
     # Advanced metadata
     "get_plotsrv_spec",
     "PlotsrvSpec",
+    "WatchConfig",
     # Runtime config
     "set_table_view_mode",
     # Compatibility aliases;
