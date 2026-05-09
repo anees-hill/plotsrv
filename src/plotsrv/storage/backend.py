@@ -447,6 +447,22 @@ def _serialise_payload(*, kind: str, obj: Any) -> dict[str, Any]:
             "format": "json",
         }
 
+    if k == "traceback":
+        raw = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
+        return {
+            "data": raw,
+            "suffix": "json",
+            "format": "json",
+        }
+
+    if k == "exception":  # legacy alias
+        raw = json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8")
+        return {
+            "data": raw,
+            "suffix": "json",
+            "format": "json",
+        }
+
     if k == "markdown":
         return {
             "data": str(obj).encode("utf-8"),
@@ -510,10 +526,7 @@ def _deserialise_payload(*, meta: SnapshotMeta, payload_path: Path) -> Any:
     if kind == "table":
         return pd.read_csv(payload_path)
 
-    if kind == "json" or fmt == "json":
-        return json.loads(payload_path.read_text(encoding="utf-8"))
-
-    if kind == "html" and fmt == "json":
+    if kind in ("json", "traceback", "exception") or fmt == "json":
         return json.loads(payload_path.read_text(encoding="utf-8"))
 
     if kind == "image" and fmt == "binary_image":

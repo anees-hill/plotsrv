@@ -19,7 +19,8 @@ IconKey = Literal[
     "markdown",
     "image",
     "html",
-    "exception",
+    "traceback",
+    "exception",  # legacy alias
 ]
 
 
@@ -79,11 +80,13 @@ def _icon_for_view_kind(
 
     if k == "artifact":
         ak = (artifact_kind or "python").strip().lower()
+
         if ak in ("text", "json", "python", "markdown", "image", "html"):
             return ak  # type: ignore[return-value]
-        if ak == "exception":
-            return "exception"
-        # fall back
+
+        if ak in ("traceback", "exception"):
+            return "traceback"
+
         return "python"
 
     return "unknown"
