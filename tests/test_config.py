@@ -3,6 +3,18 @@ from __future__ import annotations
 import pytest
 
 from plotsrv import config
+import plotsrv.settings as settings
+
+
+@pytest.fixture(autouse=True)
+def reset_config_state() -> None:
+    settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
+    settings._CONFIG_CACHE.clear()  # type: ignore[attr-defined]
+    config._RUNTIME_TABLE_VIEW_MODE = None  # type: ignore[attr-defined]
+    yield
+    settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
+    settings._CONFIG_CACHE.clear()  # type: ignore[attr-defined]
+    config._RUNTIME_TABLE_VIEW_MODE = None  # type: ignore[attr-defined]
 
 
 def test_default_table_view_mode_is_rich() -> None:

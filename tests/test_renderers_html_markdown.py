@@ -111,7 +111,12 @@ def test_html_renderer_safe_mode_with_bleach_sanitizes(
     assert "<script" not in rr.html.lower()
 
 
-def test_html_renderer_default_mode_uses_config_default() -> None:
+def test_html_renderer_default_mode_uses_config_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(html_mod.config, "get_html_sanitize", lambda: False)
+    monkeypatch.setattr(html_mod.config, "get_html_sandbox", lambda: "")
+
     r = html_mod.HtmlRenderer()
     rr = r.render("<div>Hi</div>", view_id="v1")
 
@@ -179,6 +184,9 @@ def test_markdown_bleach_missing_fail_closed(monkeypatch: pytest.MonkeyPatch) ->
         return real_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", deny_bleach)
+
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: True)
+    monkeypatch.setattr(md_mod.config, "get_markdown_sandbox", lambda: "")
 
     r = md_mod.MarkdownRenderer()
     rr = r.render("# Hi", view_id="v1")  # unsafe_html False by default
@@ -280,6 +288,9 @@ def test_markdown_bleach_present_sanitizes(monkeypatch: pytest.MonkeyPatch) -> N
 
     fake_bleach = SimpleNamespace(clean=fake_clean, linkify=fake_linkify)
     monkeypatch.setitem(sys.modules, "bleach", fake_bleach)
+
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: True)
+    monkeypatch.setattr(md_mod.config, "get_markdown_sandbox", lambda: "")
 
     r = md_mod.MarkdownRenderer()
     rr = r.render("hi", view_id="v1")  # unsafe_html False => sanitize
