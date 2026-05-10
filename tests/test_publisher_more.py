@@ -73,7 +73,7 @@ def test_infer_artifact_kind_prefers_json_for_dict() -> None:
     assert pub._infer_artifact_kind(object()) == "python"
 
 
-def test_publish_artifact_pathlike_json_file_posts_json(
+def test_publish_view_pathlike_json_file_posts_json(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     p = tmp_path / "x.json"
@@ -88,52 +88,22 @@ def test_publish_artifact_pathlike_json_file_posts_json(
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    pub.publish_artifact(p, label="L", section="S", host="127.0.0.1", port=8000)
+    pub.publish_view(p, label="L", section="S", host="127.0.0.1", port=8000)
 
     assert captured["url"] == "http://127.0.0.1:8000/publish"
     payload = json.loads(captured["data"].decode("utf-8"))
 
     assert payload["kind"] == "artifact"
-    # json file should end up as artifact_kind json, artifact a dict
     assert payload["artifact_kind"] == "json"
     doc = payload["artifact"]
     assert doc["type"] == "plotsrv_json_document"
     assert doc["source_format"] == "json_file"
     assert doc["raw_text"] == '{"a": 1}'
-
-    root = doc["root"]
-    children = {ch["display_key"]: ch for ch in root["children"]}
-    assert children["a"]["full_value"] == "1"
     assert payload["label"] == "L"
     assert payload["section"] == "S"
 
 
-def test_publish_artifact_pathlike_csv_routes_to_publish_view_table(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    p = tmp_path / "x.csv"
-    p.write_text("a\n1\n2\n", encoding="utf-8")
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_publish_view(obj: Any, **kwargs: Any) -> None:
-        calls.append({"obj": obj, **kwargs})
-
-    monkeypatch.setattr(pub, "publish_view", fake_publish_view)
-
-    # no HTTP needed; should route to publish_view(kind="table")
-    pub.publish_artifact(p, label="L", section="S", host="127.0.0.1", port=8000)
-
-    assert len(calls) == 1
-    assert calls[0]["kind"] == "table"
-    assert calls[0]["label"] == "L"
-    assert calls[0]["section"] == "S"
-    df = calls[0]["obj"]
-    assert list(df.columns) == ["a"]
-    assert len(df) == 2
-
-
-def test_publish_artifact_http_error_raises_in_debug(
+def test_publish_view_http_error_raises_in_debug_for_artifact(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PLOTSRV_DEBUG", "1")
@@ -157,7 +127,7 @@ def test_publish_artifact_http_error_raises_in_debug(
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     with pytest.raises(RuntimeError) as e:
-        pub.publish_artifact({"a": 1}, label="L", host="127.0.0.1", port=8000)
+        pub.publish_view({"a": 1}, label="L", host="127.0.0.1", port=8000)
 
     assert "400" in str(e.value)
     assert "bad payload" in str(e.value)

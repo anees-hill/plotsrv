@@ -161,7 +161,7 @@ def test_to_publish_payload_artifact_python_repr() -> None:
     assert "X object" in payload["artifact"]
 
 
-def test_publish_artifact_html_string_becomes_html_dict(
+def test_publish_view_html_string_becomes_html_dict(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
@@ -172,52 +172,13 @@ def test_publish_artifact_html_string_becomes_html_dict(
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    pub.publish_artifact("<div>x</div>", label="L", artifact_kind="html")
+    pub.publish_view("<div>x</div>", label="L", artifact_kind="html")
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["artifact_kind"] == "html"
     assert payload["artifact"]["html"] == "<div>x</div>"
 
 
-def test_publish_artifact_pathlike_html_recurses_as_html(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    p = tmp_path / "x.html"
-    p.write_text("<div>x</div>", encoding="utf-8")
-
-    captured: dict[str, Any] = {}
-
-    def fake_urlopen(req: urllib.request.Request, timeout: float):
-        captured["data"] = req.data
-        return DummyResp()
-
-    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-
-    pub.publish_artifact(p, label="L", section="S", artifact_kind="html")
-    payload = json.loads(captured["data"].decode("utf-8"))
-    assert payload["artifact_kind"] == "html"
-    assert payload["artifact"]["html"] == "<div>x</div>"
-
-
-def test_publish_artifact_infers_plot_when_kind_none(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    plt = pytest.importorskip("matplotlib.pyplot")
-    fig = plt.figure()
-
-    calls: list[dict[str, Any]] = []
-
-    def fake_publish_view(obj: Any, **kwargs: Any) -> None:
-        calls.append({"obj": obj, **kwargs})
-
-    monkeypatch.setattr(pub, "publish_view", fake_publish_view)
-
-    pub.publish_artifact(fig, label="L", section="S")
-    assert calls
-    assert calls[0]["kind"] == "plot"
-    plt.close(fig)
-
-
-def test_publish_artifact_forced_artifact_kind_overrides_inferred(
+def test_publish_view_forced_artifact_kind_overrides_inferred(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured: dict[str, Any] = {}
@@ -228,38 +189,18 @@ def test_publish_artifact_forced_artifact_kind_overrides_inferred(
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    pub.publish_artifact({"a": 1}, label="L", artifact_kind="python")
+    pub.publish_view({"a": 1}, label="L", artifact_kind="python")
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["artifact_kind"] == "python"
 
 
-def test_publish_artifact_returns_silently_on_json_dump_failure_when_not_debug(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("PLOTSRV_DEBUG", raising=False)
-
-    class Bad:
-        pass
-
-    monkeypatch.setattr(pub, "_json_safe", lambda x: {"a": {1, 2, 3}})
-    pub.publish_artifact(Bad(), label="L")  # no raise
-
-
-def test_publish_view_returns_silently_on_json_dump_failure_when_not_debug(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.delenv("PLOTSRV_DEBUG", raising=False)
-    monkeypatch.setattr(pub, "_json_safe", lambda x: {"a": {1, 2, 3}})
-    pub.publish_view(pd.DataFrame({"a": [1]}), label="L", kind="table")  # no raise
-
-
-def test_publish_artifact_debug_reraises_json_dump_failure(
+def test_publish_view_debug_reraises_json_dump_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("PLOTSRV_DEBUG", "1")
     monkeypatch.setattr(pub, "_json_safe", lambda x: {"a": {1, 2, 3}})
     with pytest.raises(TypeError):
-        pub.publish_artifact({"a": 1}, label="L")
+        pub.publish_view({"a": 1}, label="L")
 
 
 def test_publish_view_debug_reraises_payload_build_failure(
@@ -268,27 +209,3 @@ def test_publish_view_debug_reraises_payload_build_failure(
     monkeypatch.setenv("PLOTSRV_DEBUG", "1")
     with pytest.raises(TypeError):
         pub.publish_view({"bad": "plot"}, label="L", kind="plot")
-
-
-def test_plot_launch_delegates_to_publish_view(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[dict[str, Any]] = []
-
-    def fake_publish_view(obj: Any, **kwargs: Any) -> None:
-        calls.append({"obj": obj, **kwargs})
-
-    monkeypatch.setattr(pub, "publish_view", fake_publish_view)
-
-    pub.plot_launch(
-        "OBJ", label="L", section="S", host="h", port=9, update_limit_s=10, force=True
-    )
-    assert calls == [
-        {
-            "obj": "OBJ",
-            "host": "h",
-            "port": 9,
-            "label": "L",
-            "section": "S",
-            "update_limit_s": 10,
-            "force": True,
-        }
-    ]

@@ -11,22 +11,16 @@ def _write_file(path: Path, content: str) -> None:
 
 
 def _make_project(root: Path, *, n_files: int, views_per_file: int) -> None:
-    dec_import = "from plotsrv.decorators import plot, table\n\n"
+    dec_import = "from plotsrv import view\n\n"
 
     for i in range(n_files):
         parts: list[str] = [dec_import]
         for j in range(views_per_file):
-            parts.append(
-                f"""
-@plot(label="plot_{i}_{j}", section="sec_{i % 5}")
-def plot_fn_{i}_{j}():
-    return None
-
-@table(label="table_{i}_{j}", section="sec_{i % 5}")
-def table_fn_{i}_{j}():
-    return None
-""".strip()
-            )
+            parts.append(f"""
+@view(label="view_{i}_{j}", section="sec_{i % 5}")
+def view_fn_{i}_{j}():
+    return {{"i": {i}, "j": {j}}}
+""".strip())
             parts.append("\n\n")
         _write_file(root / f"pkg/mod_{i}.py", "".join(parts))
 
@@ -37,7 +31,7 @@ def test_benchmark_discover_views_small(benchmark, tmp_path: Path) -> None:
 
     result = benchmark(discover_views, project_root)
 
-    assert len(result) == 60
+    assert len(result) == 30
 
 
 def test_benchmark_discover_views_medium(benchmark, tmp_path: Path) -> None:
@@ -46,4 +40,4 @@ def test_benchmark_discover_views_medium(benchmark, tmp_path: Path) -> None:
 
     result = benchmark(discover_views, project_root)
 
-    assert len(result) == 400
+    assert len(result) == 200

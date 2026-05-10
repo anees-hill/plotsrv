@@ -61,7 +61,9 @@ def test_artifact_404_when_none(client: TestClient) -> None:
     assert r.status_code == 404
 
 
-def test_publish_artifact_then_artifact_endpoint_renders(client: TestClient) -> None:
+def test_publish_artifact_kind_then_artifact_endpoint_renders(
+    client: TestClient,
+) -> None:
     payload = {
         "kind": "artifact",
         "section": "ops",

@@ -483,7 +483,7 @@ import time
 
 import matplotlib.pyplot as plt
 import pandas as pd
-from plotsrv import plot, table, plotsrv
+from plotsrv import view 
 
 HOST = os.getenv("PLOTSRV_HOST", "${HOST}")
 PORT = int(os.getenv("PLOTSRV_PORT", "${PORT}"))
@@ -492,7 +492,7 @@ GENERATE_SLEEP_SECONDS = float(
     os.getenv("PLOTSRV_GENERATE_SLEEP_SECONDS", "${GENERATE_SLEEP_SECONDS}")
 )
 
-@plot(label="demo-plot", section="demo", host=HOST, port=PORT)
+@view(label="demo-plot", section="demo", host=HOST, port=PORT)
 def demo_plot(iteration: int = 0):
     fig, ax = plt.subplots()
     x = [1, 2, 3, 4]
@@ -508,7 +508,7 @@ def demo_plot(iteration: int = 0):
     ax.set_ylabel("y")
     return fig
 
-@table(label="demo-table", section="demo", host=HOST, port=PORT)
+@view(label="demo-table", section="demo", host=HOST, port=PORT)
 def demo_table(iteration: int = 0):
     return pd.DataFrame(
         {
@@ -518,7 +518,7 @@ def demo_table(iteration: int = 0):
         }
     )
 
-@plotsrv(label="demo-html", section="demo", host=HOST, port=PORT)
+@view(label="demo-html", section="demo", host=HOST, port=PORT)
 def demo_html():
     return {"html": "<h2>HTML Smoke</h2><p><b>bold</b> and <i>italic</i></p>", "unsafe": True}
 

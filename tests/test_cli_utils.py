@@ -70,12 +70,12 @@ def test_confirm_yes_no_and_eof(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_view_id_for_defaults() -> None:
-    dv = cli_mod.DiscoveredView(kind="plot", label="", section=None)
+    dv = cli_mod.DiscoveredView(kind="artifact", label="", section=None)
     assert cli_mod._view_id_for(dv) == "default:default"
 
 
 def test_include_exclude_helpers() -> None:
-    dv = cli_mod.DiscoveredView(kind="plot", label="plot-a", section="sec-a")
+    dv = cli_mod.DiscoveredView(kind="artifact", label="plot-a", section="sec-a")
 
     assert cli_mod._is_included(dv, set()) is True
     assert cli_mod._is_included(dv, {"plot-a"}) is True

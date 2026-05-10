@@ -250,7 +250,7 @@ def test_export_table_snapshot_csv_attachment_name(
     assert "plotsrv_table_" in cd
 
 
-def test_publish_artifact_branch_enqueues_snapshot(
+def test_publish_artifact_kind_branch_enqueues_snapshot(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[dict[str, Any]] = []
