@@ -9,7 +9,7 @@ from plotsrv.renderers.base import RenderResult
 
 
 def _reset_registry() -> None:
-    reg._RENDERERS.clear()
+    reg.clear_renderers()
 
 
 @dataclass
@@ -29,11 +29,27 @@ class DummyRenderer:
         )
 
 
-def test_register_renderer_appends() -> None:
+def test_register_renderer_adds_renderer() -> None:
     _reset_registry()
     r = DummyRenderer(kind="text")
     reg.register_renderer(r)
-    assert reg._RENDERERS[-1] is r
+    assert reg._RENDERERS == [r]
+
+
+def test_register_renderer_replaces_existing_kind() -> None:
+    _reset_registry()
+
+    first = DummyRenderer(kind="text")
+    second = DummyRenderer(kind="text")
+    other = DummyRenderer(kind="json")
+
+    reg.register_renderer(first)
+    reg.register_renderer(other)
+    reg.register_renderer(second)
+
+    assert reg._RENDERERS == [other, second]
+    assert not any(r is first for r in reg._RENDERERS)
+    assert any(r is second for r in reg._RENDERERS)
 
 
 def test_choose_renderer_kind_hint_falls_back_when_hint_cannot_render() -> None:
