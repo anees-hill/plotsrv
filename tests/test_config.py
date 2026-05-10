@@ -5,8 +5,8 @@ import pytest
 from plotsrv import config
 
 
-def test_default_table_view_mode_is_simple() -> None:
-    assert config.get_table_view_mode() == "simple"
+def test_default_table_view_mode_is_rich() -> None:
+    assert config.get_table_view_mode() == "rich"
 
 
 @pytest.mark.parametrize("mode", ["simple", "rich"])

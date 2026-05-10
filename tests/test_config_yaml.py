@@ -197,3 +197,27 @@ truncation:
     )
 
     assert cfg.get_truncation_max_chars("text") is None
+
+
+def test_get_artifact_render_settings_from_yaml(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+artifact-render-settings:
+  default:
+    html_sanitize: true
+    html_sandbox: "allow-scripts"
+    markdown_sanitize: false
+    markdown_sandbox: "allow-forms"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_html_sanitize() is True
+    assert cfg.get_html_sandbox() == "allow-scripts"
+    assert cfg.get_markdown_sanitize() is False
+    assert cfg.get_markdown_sandbox() == "allow-forms"
