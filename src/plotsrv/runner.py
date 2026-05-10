@@ -6,14 +6,14 @@ from typing import Any, Literal
 
 from .decorators import PlotsrvSpec, get_plotsrv_spec
 
-RunKind = Literal["plot", "table"]
+RunKind = Literal["table", "artifact"]
 
 
 @dataclass(frozen=True, slots=True)
 class RunResult:
     kind: RunKind
     label: str | None
-    value: Any  # plot object or dataframe object
+    value: Any
 
 
 def _is_pandas_df(obj: Any) -> bool:
@@ -34,22 +34,26 @@ def _is_polars_df(obj: Any) -> bool:
 
 def infer_kind_from_value(value: Any) -> RunKind:
     """
-    Infer whether the function output is a plot or a table.
+    Infer the generic plotsrv view kind for a callable return value.
+
+    DataFrames are table views. Everything else is a generic artifact view.
+    Plot objects are intentionally handled by publish_view()/refresh_view()
+    inference later in the pipeline, not by the runner.
     """
     if _is_pandas_df(value) or _is_polars_df(value):
         return "table"
-    return "plot"
+    return "artifact"
 
 
 def validate_zero_arg_callable(func: Any) -> None:
     """
-    For v0.2.0 (Part 1), we only support calling functions with no required args.
+    For v0.2.0, callable runner supports functions with no required args.
+
+    Optional args with defaults, *args, and **kwargs are allowed.
     """
     sig = inspect.signature(func)
 
     for p in sig.parameters.values():
-        # Allow no params at all OR params that are optional (have defaults),
-        # but do not allow required positional/keyword-only params yet.
         if p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD):
             continue
         if p.default is inspect._empty:
@@ -61,11 +65,11 @@ def validate_zero_arg_callable(func: Any) -> None:
 
 def run_once(func: Any) -> RunResult:
     """
-    Call a decorated (or undecorated) function exactly once.
+    Call a decorated or undecorated function exactly once.
 
-    Returns RunResult(kind, label, value) where:
-      - kind comes from decorator spec if present, else inferred.
-      - label comes from decorator spec if present, else None.
+    Returns RunResult(kind, label, value), where:
+      - kind comes from @view metadata if present, else inferred.
+      - label comes from @view metadata if present, else None.
     """
     if not callable(func):
         raise TypeError(f"run_once expected a callable, got {type(func)!r}")
@@ -77,7 +81,7 @@ def run_once(func: Any) -> RunResult:
     value = func()
 
     if spec is not None:
-        kind: RunKind = spec.kind
+        kind: RunKind = "artifact"
         label = spec.label
     else:
         kind = infer_kind_from_value(value)

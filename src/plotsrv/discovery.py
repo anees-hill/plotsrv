@@ -35,11 +35,8 @@ def _extract_kw_int(call: ast.Call, name: str) -> int | None:
 def _decorator_name(d: ast.expr) -> str | None:
     """
     Return decorator function name for:
-      @plot(...)
-      @table(...)
-      @view(...)
-      @plotsrv.plot(...)
-      @plotsrv.view(...)
+       @view(...)
+       @ps.view(...)
     """
     if isinstance(d, ast.Call):
         fn = d.func
@@ -59,7 +56,7 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
     Walk a directory and discover plotsrv-decorated functions.
 
     We AST-parse .py files and extract:
-      - decorator type: plot/table/view
+      - decorator type: view
       - label kwarg (fallback: function name)
       - section kwarg (optional)
     """
@@ -88,7 +85,7 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
 
             for dec in node.decorator_list:
                 dec_name = _decorator_name(dec)
-                if dec_name not in ("plot", "table", "plotsrv", "view"):
+                if dec_name != "view":
                     continue
 
                 label = None
@@ -100,11 +97,7 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
 
                 found.append(
                     DiscoveredView(
-                        kind=(
-                            "plot"
-                            if dec_name == "plot"
-                            else "table" if dec_name == "table" else "artifact"
-                        ),
+                        kind="artifact",
                         label=(label or node.name),
                         section=section,
                     )

@@ -17,7 +17,6 @@ from typing import Any, Literal
 from . import config, store, settings
 from .discovery import DiscoveredView, discover_views
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
-from .publisher import publish_artifact
 from .storage.backend import (
     delete_all_snapshots,
     delete_all_snapshots_for_view,
