@@ -38,6 +38,9 @@ dev = [
     "polars-lts-cpu>=1.33",
     "pyarrow>=20",
 ]
+docs = [
+    "zensical>=0.0.41",
+]
 
 [project.scripts]
 plotsrv = "plotsrv.cli:main"
