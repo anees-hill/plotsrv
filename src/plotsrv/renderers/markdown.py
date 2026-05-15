@@ -211,7 +211,7 @@ class MarkdownRenderer(Renderer):
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         text, unsafe_html, sandbox_override = _coerce_markdown_obj(obj)
 
-        max_chars = config.get_truncation_max_chars("markdown")
+        max_chars = config.get_truncation_max_chars("markdown", view_id=view_id)
         if max_chars is None:
             text2 = text
             truncation = Truncation(truncated=False)
