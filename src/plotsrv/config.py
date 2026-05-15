@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any, Literal
+from collections.abc import Mapping
 
 from . import settings
 
@@ -49,9 +50,23 @@ _DEFAULTS: dict[str, Any] = {
     },
     "view-order-settings": {},
     "truncation": {
-        "text": 50_000,
+        "text": 1_000_000,
         "html": None,
         "markdown": None,
+    },
+    "limits": {
+        "watched_files": {
+            "max_bytes": 5_000_000,
+        },
+        "render": {
+            "text": 1_000_000,
+            "html": None,
+            "markdown": None,
+        },
+        "tables": {
+            "max_rows": 5000,
+            "max_columns": 200,
+        },
     },
     "storage-settings": {
         "enabled": False,
@@ -225,6 +240,43 @@ def _parse_duration_seconds(x: Any) -> int | None:
     return None
 
 
+def _parse_limit_int_or_none(
+    x: Any,
+    default: int | None,
+    *,
+    min_value: int = 1,
+) -> int | None:
+    """
+    Parse a limit value.
+
+    Returns:
+      - int => apply this limit
+      - None => no limit/off
+    """
+    if x is None:
+        return None
+
+    # YAML parses unquoted "off", "false", "no" as False.
+    if isinstance(x, bool):
+        return default if x else None
+
+    if isinstance(x, str):
+        s = x.strip().lower()
+        if s in ("off", "none", "null", "false", "no", "0", ""):
+            return None
+        try:
+            n = int(float(s))
+            return n if n >= min_value else default
+        except Exception:
+            return default
+
+    try:
+        n2 = int(x)
+        return n2 if n2 >= min_value else default
+    except Exception:
+        return default
+
+
 def _as_keep_last(x: Any, default: int | None) -> int | None:
     """
     Returns:
@@ -256,6 +308,25 @@ def _merged_section(section: str) -> dict[str, Any]:
     sec = settings.get_section(section)
     base.update(sec)
     return base
+
+
+def _deep_merge_dicts(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    out = dict(base)
+    for k, v in overlay.items():
+        cur = out.get(k)
+        if isinstance(cur, Mapping) and isinstance(v, Mapping):
+            out[k] = _deep_merge_dicts(dict(cur), dict(v))
+        else:
+            out[k] = v
+    return out
+
+
+def _merged_limits_section() -> dict[str, Any]:
+    base = dict(_DEFAULTS.get("limits", {}) or {})
+    raw = settings.get_section("limits")
+    if not isinstance(raw, dict):
+        return base
+    return _deep_merge_dicts(base, raw)
 
 
 # ---- View ordering ------------------------------------------------------------
@@ -371,9 +442,13 @@ def get_tracebacks_enabled() -> bool:
 
 def get_truncation_max_chars(kind: Literal["text", "html", "markdown"]) -> int | None:
     """
-    Returns:
-      - int => truncate to this max chars
-      - None => truncation disabled for this kind
+    Renderer display limit for text/html/markdown views.
+
+    Preferred config path:
+      limits.render.<kind>
+
+    Legacy config path:
+      truncation.<kind>
     """
     override = settings.get_truncate_override()
 
@@ -382,6 +457,18 @@ def get_truncation_max_chars(kind: Literal["text", "html", "markdown"]) -> int |
             return None
         return int(max(1, int(override)))
 
+    # Preferred new config section.
+    raw_limits = settings.get_section("limits")
+    raw_render = raw_limits.get("render") if isinstance(raw_limits, dict) else None
+    if isinstance(raw_render, dict) and kind in raw_render:
+        default_val = _DEFAULTS["limits"]["render"].get(kind)
+        return _parse_limit_int_or_none(
+            raw_render.get(kind),
+            default_val,
+            min_value=1,
+        )
+
+    # Legacy config section.
     sec = _merged_section("truncation")
     val = sec.get(kind)
 
@@ -402,6 +489,30 @@ def get_truncation_max_chars(kind: Literal["text", "html", "markdown"]) -> int |
         return None
 
     return _as_int_or_inf(val, int(default_val), min_value=1)
+
+
+def get_watch_max_bytes() -> int | None:
+    """
+    Maximum bytes read from each watched file.
+
+    Preferred config path:
+      limits.watched_files.max_bytes
+
+    Returns:
+      - int => read at most this many bytes
+      - None => read the whole file
+    """
+    limits = _merged_limits_section()
+    watched = limits.get("watched_files")
+    if not isinstance(watched, dict):
+        watched = {}
+
+    default_val = _DEFAULTS["limits"]["watched_files"]["max_bytes"]
+    return _parse_limit_int_or_none(
+        watched.get("max_bytes", default_val),
+        default_val,
+        min_value=1,
+    )
 
 
 # ---- Storage settings ---------------------------------------------------------
@@ -652,11 +763,21 @@ def get_publish_max_plot_bytes() -> int:
 
 
 def get_publish_max_table_rows() -> int:
+    raw_limits = settings.get_section("limits")
+    tables = raw_limits.get("tables") if isinstance(raw_limits, dict) else None
+    if isinstance(tables, dict) and "max_rows" in tables:
+        return _as_int_or_inf(tables.get("max_rows"), 5000, min_value=1)
+
     sec = _merged_section("publish-limits")
     return _as_int_or_inf(sec.get("max_table_rows"), 5000, min_value=1)
 
 
 def get_publish_max_table_columns() -> int:
+    raw_limits = settings.get_section("limits")
+    tables = raw_limits.get("tables") if isinstance(raw_limits, dict) else None
+    if isinstance(tables, dict) and "max_columns" in tables:
+        return _as_int_or_inf(tables.get("max_columns"), 200, min_value=1)
+
     sec = _merged_section("publish-limits")
     return _as_int_or_inf(sec.get("max_table_columns"), 200, min_value=1)
 

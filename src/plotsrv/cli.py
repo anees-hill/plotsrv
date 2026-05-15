@@ -28,6 +28,7 @@ from .runtime import (
     WatchConfig,
     apply_runtime_options,
     parse_truncate_arg,
+    parse_watch_max_bytes,
     start_watch_threads,
 )
 
@@ -150,12 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--truncate",
         default=None,
-        help="Override truncation max chars for text/html/markdown. Examples: 50000 or 'off'.",
+        help="Override render limit for text/html/markdown views. Examples: 1000000 or 'off'.",
     )
     run_p.add_argument(
         "--no-truncate",
         action="store_true",
-        help="Disable truncation for text/html/markdown (overrides config).",
+        help="Disable render truncation for text/html/markdown views.",
     )
 
     # New mode flag
@@ -228,9 +229,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--watch-max-bytes",
-        type=int,
-        default=200_000,
-        help="Read at most N bytes (default: 200000).",
+        default=None,
+        help="Read at most N bytes from each watched file. Use 'off' to read whole files. Default comes from limits.watched_files.max_bytes.",
     )
     run_p.add_argument(
         "--watch-encoding",
@@ -297,9 +297,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watch_p.add_argument(
         "--max-bytes",
-        type=int,
-        default=200_000,
-        help="Read at most N bytes (default: 200000)",
+        default=None,
+        help="Read at most N bytes from the watched file. Use 'off' to read the whole file. Default comes from limits.watched_files.max_bytes.",
     )
     watch_p.add_argument(
         "--encoding", default="utf-8", help="Text encoding (default: utf-8)"
@@ -669,7 +668,7 @@ def _watch_configs_from_cli_specs(
     specs: list[WatchSpec],
     *,
     kind: str,
-    max_bytes: int,
+    max_bytes: int | None,
     encoding: str,
     update_limit_s: int | None,
     force: bool,
@@ -1257,7 +1256,7 @@ def _run_passive_server_forever(
     watch_specs: list[WatchSpec] | None = None,
     watch_kind: str = "auto",
     watch_every: float = 1.0,
-    watch_max_bytes: int = 200_000,
+    watch_max_bytes: int | None = None,
     watch_encoding: str = "utf-8",
     watch_update_limit_s: int | None = None,
     watch_force: bool = False,
@@ -1311,7 +1310,7 @@ def _run_watch_mode(
     section: str,
     label: str | None,
     view_id: str | None,
-    max_bytes: int,
+    max_bytes: int | None,
     encoding: str,
     update_limit_s: int | None,
     force: bool,
@@ -1507,6 +1506,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "watch":
         read_mode = "head" if args.head else ("tail" if args.tail else None)
+
+        try:
+            max_bytes = parse_watch_max_bytes(args.max_bytes)
+        except ValueError as e:
+            return _die(str(e))
+
         return _run_watch_mode(
             args.path,
             host=args.host,
@@ -1516,7 +1521,7 @@ def main(argv: list[str] | None = None) -> int:
             section=args.section,
             label=args.label,
             view_id=args.view_id,
-            max_bytes=args.max_bytes,
+            max_bytes=max_bytes,
             encoding=args.encoding,
             update_limit_s=args.update_limit_s,
             force=args.force,
@@ -1533,7 +1538,10 @@ def main(argv: list[str] | None = None) -> int:
     watch_paths = [w for w in (getattr(args, "watch", []) or []) if str(w).strip()]
     watch_kind = getattr(args, "watch_kind", "auto")
     watch_every = float(getattr(args, "watch_every", 1.0))
-    watch_max_bytes = int(getattr(args, "watch_max_bytes", 200_000))
+    try:
+        watch_max_bytes = parse_watch_max_bytes(getattr(args, "watch_max_bytes", None))
+    except ValueError as e:
+        return _die(str(e))
     watch_encoding = str(getattr(args, "watch_encoding", "utf-8"))
     watch_update_limit_s = getattr(args, "watch_update_limit_s", None)
     watch_force = bool(getattr(args, "watch_force", False))
@@ -1596,7 +1604,7 @@ def main(argv: list[str] | None = None) -> int:
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
-        start_watch_threads(watch_configs, host=host, port=port)
+        start_watch_threads(watch_configs, host=args.host, port=args.port)
 
     # Passive register (pre-populate dropdown)
     _passive_register_views(scan_root, excludes=excludes, includes=includes)

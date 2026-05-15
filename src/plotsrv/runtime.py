@@ -25,7 +25,7 @@ class WatchConfig:
     section: str | None = None
     kind: WatchKind = "auto"
     read_mode: WatchReadMode | None = None
-    max_bytes: int = 200_000
+    max_bytes: int | None = 5_000_000
     encoding: str = "utf-8"
     update_limit_s: int | None = None
     force: bool = False
@@ -55,6 +55,43 @@ def parse_truncate_arg(raw: int | str | None, *, no_truncate: bool) -> object:
         return max(1, n)
     except Exception:
         return settings._UNSET
+
+
+def parse_watch_max_bytes(raw: int | str | bool | None) -> int | None:
+    """
+    Parse watched-file read limit.
+
+    Returns:
+      - int => read at most this many bytes
+      - None => read whole file
+    """
+    if raw is None:
+        return config.get_watch_max_bytes()
+
+    if isinstance(raw, bool):
+        return config.get_watch_max_bytes() if raw else None
+
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("off", "none", "null", "false", "no", "0", ""):
+            return None
+        try:
+            n = int(float(s))
+            if n < 1:
+                return config.get_watch_max_bytes()
+            return n
+        except Exception:
+            raise ValueError(
+                f"watch max bytes must be an integer or 'off', got {raw!r}"
+            )
+
+    try:
+        n2 = int(raw)
+        if n2 < 1:
+            return config.get_watch_max_bytes()
+        return n2
+    except Exception:
+        raise ValueError(f"watch max bytes must be an integer or 'off', got {raw!r}")
 
 
 def apply_runtime_options(
@@ -118,7 +155,7 @@ def coerce_watch_config(value: WatchConfig | Mapping[str, Any]) -> WatchConfig:
         section=(None if value.get("section") is None else str(value.get("section"))),
         kind=raw_kind,  # type: ignore[arg-type]
         read_mode=read_mode,
-        max_bytes=int(value.get("max_bytes", 200_000)),
+        max_bytes=parse_watch_max_bytes(value.get("max_bytes", None)),
         encoding=str(value.get("encoding", "utf-8")),
         update_limit_s=(
             None
@@ -148,7 +185,10 @@ def with_text_anchor_header(text: str, anchor: WatchReadMode) -> str:
     return "\ufeffPLOTSRV_ANCHOR=tail\n" + text
 
 
-def read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
+def read_tail_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    if max_bytes is None:
+        return p.read_bytes()
+
     max_bytes = max(1, int(max_bytes))
     with p.open("rb") as f:
         try:
@@ -161,13 +201,19 @@ def read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
         return f.read(max_bytes)
 
 
-def read_head_bytes(p: Path, *, max_bytes: int) -> bytes:
+def read_head_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    if max_bytes is None:
+        return p.read_bytes()
+
     max_bytes = max(1, int(max_bytes))
     with p.open("rb") as f:
         return f.read(max_bytes)
 
 
-def read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int) -> bytes:
+def read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    if max_bytes is None:
+        return p.read_bytes()
+
     max_bytes = max(1, int(max_bytes))
 
     header = b""
