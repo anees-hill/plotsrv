@@ -72,11 +72,11 @@ The main pattern is to decorate functions whose output you want to expose:
 ``` python
 from plotsrv import plotsrv
 
-@plotsrv(label="sales", section="insights")
+@ps.view(label="sales", section="insights")
 def sales_plot():
     return fig
 
-@plotsrv(label="latest", section="insights")
+@ps.view(label="latest", section="insights")
 def latest_results():
     return df
 ```
@@ -86,9 +86,9 @@ def latest_results():
 You can also publish artifacts directly instead of using decorators:
 
 ``` python
-from plotsrv import publish_artifact
+import plotsrv as ps
 
-publish_artifact({"status": "ok", "rows": 123}, label="summary")
+ps.publish_view({"status": "ok", "rows": 123}, label="summary")
 ```
 
 ## Watching files on disk
