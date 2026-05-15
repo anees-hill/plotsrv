@@ -36,3 +36,10 @@ def test_max_table_rows_constants_positive() -> None:
     assert config.get_max_table_rows_simple() > 0
     assert config.get_max_table_rows_rich() > 0
     assert config.get_max_table_rows_rich() >= config.get_max_table_rows_simple()
+
+
+def test_default_limits_are_generous() -> None:
+    assert config.get_watch_max_bytes() == 5_000_000
+    assert config.get_truncation_max_chars("text") == 1_000_000
+    assert config.get_truncation_max_chars("html") is None
+    assert config.get_truncation_max_chars("markdown") is None

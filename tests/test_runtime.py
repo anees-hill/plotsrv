@@ -11,6 +11,7 @@ from plotsrv.runtime import (
     coerce_watch_config,
     coerce_watch_configs,
     parse_truncate_arg,
+    parse_watch_max_bytes,
 )
 
 
@@ -55,6 +56,11 @@ def test_coerce_watch_config_from_mapping() -> None:
     assert cfg.force is True
 
 
+def test_coerce_watch_config_accepts_max_bytes_off() -> None:
+    cfg = coerce_watch_config({"path": "README.md", "max_bytes": "off"})
+    assert cfg.max_bytes is None
+
+
 def test_coerce_watch_config_rejects_bad_kind() -> None:
     with pytest.raises(ValueError):
         coerce_watch_config({"path": "x.txt", "kind": "bad"})
@@ -82,3 +88,18 @@ def test_coerce_watch_configs() -> None:
     assert out[0].path == "a.txt"
     assert out[1].path == "b.txt"
     assert out[1].label == "B"
+
+
+def test_parse_watch_max_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("plotsrv.runtime.config.get_watch_max_bytes", lambda: 5_000_000)
+
+    assert parse_watch_max_bytes(None) == 5_000_000
+    assert parse_watch_max_bytes("off") is None
+    assert parse_watch_max_bytes("none") is None
+    assert parse_watch_max_bytes("0") is None
+    assert parse_watch_max_bytes(123) == 123
+    assert parse_watch_max_bytes("123") == 123
+    assert parse_watch_max_bytes(False) is None
+
+    with pytest.raises(ValueError):
+        parse_watch_max_bytes("bad")

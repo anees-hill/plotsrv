@@ -221,3 +221,33 @@ artifact-render-settings:
     assert cfg.get_html_sandbox() == "allow-scripts"
     assert cfg.get_markdown_sanitize() is False
     assert cfg.get_markdown_sandbox() == "allow-forms"
+
+
+def test_limits_from_yaml(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+limits:
+  watched_files:
+    max_bytes: off
+  render:
+    text: 123456
+    html: off
+    markdown: off
+  tables:
+    max_rows: 123
+    max_columns: 45
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_watch_max_bytes() is None
+    assert cfg.get_truncation_max_chars("text") == 123456
+    assert cfg.get_truncation_max_chars("html") is None
+    assert cfg.get_truncation_max_chars("markdown") is None
+    assert cfg.get_publish_max_table_rows() == 123
+    assert cfg.get_publish_max_table_columns() == 45
