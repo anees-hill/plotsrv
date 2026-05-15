@@ -10,8 +10,12 @@ from plotsrv.runtime import (
     apply_runtime_options,
     coerce_watch_config,
     coerce_watch_configs,
+    default_watch_read_mode,
     parse_truncate_arg,
     parse_watch_max_bytes,
+    read_csv_tail_with_header_bytes,
+    read_head_bytes,
+    read_tail_bytes,
 )
 
 
@@ -103,3 +107,93 @@ def test_parse_watch_max_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValueError):
         parse_watch_max_bytes("bad")
+
+
+def test_default_watch_read_mode_by_file_kind(tmp_path: Path) -> None:
+    cases = {
+        "x.csv": "head",
+        "x.json": "head",
+        "x.yaml": "head",
+        "x.yml": "head",
+        "x.toml": "head",
+        "x.ini": "head",
+        "x.cfg": "head",
+        "x.md": "head",
+        "x.html": "head",
+        "x.png": "head",
+        "x.log": "tail",
+        "x.txt": "tail",
+        "x": "tail",
+    }
+
+    for name, expected in cases.items():
+        p = tmp_path / name
+        p.write_text("hello\n", encoding="utf-8")
+        assert default_watch_read_mode(p) == expected
+
+
+def test_read_tail_bytes_drops_first_partial_line(tmp_path: Path) -> None:
+    p = tmp_path / "x.log"
+    p.write_text("line-1\nline-2\nline-3\n", encoding="utf-8")
+
+    out = read_tail_bytes(p, max_bytes=12)
+
+    assert out == b"line-3\n"
+
+
+def test_read_head_bytes_drops_last_partial_line(tmp_path: Path) -> None:
+    p = tmp_path / "x.log"
+    p.write_text("line-1\nline-2\nline-3\n", encoding="utf-8")
+
+    out = read_head_bytes(p, max_bytes=12)
+
+    assert out == b"line-1\n"
+
+
+def test_read_bytes_small_file_unchanged(tmp_path: Path) -> None:
+    p = tmp_path / "x.log"
+    p.write_text("line-1\nline-2\n", encoding="utf-8")
+
+    assert read_head_bytes(p, max_bytes=1000) == b"line-1\nline-2\n"
+    assert read_tail_bytes(p, max_bytes=1000) == b"line-1\nline-2\n"
+
+
+def test_read_bytes_single_line_not_emptied(tmp_path: Path) -> None:
+    p = tmp_path / "x.log"
+    p.write_text("abcdef", encoding="utf-8")
+
+    assert read_head_bytes(p, max_bytes=3) == b"abc"
+    assert read_tail_bytes(p, max_bytes=3) == b"def"
+
+
+def test_read_bytes_none_reads_full_file(tmp_path: Path) -> None:
+    p = tmp_path / "x.log"
+    p.write_text("line-1\nline-2\n", encoding="utf-8")
+
+    assert read_head_bytes(p, max_bytes=None) == b"line-1\nline-2\n"
+    assert read_tail_bytes(p, max_bytes=None) == b"line-1\nline-2\n"
+
+
+def test_read_csv_tail_with_header_drops_partial_row(tmp_path: Path) -> None:
+    p = tmp_path / "x.csv"
+    p.write_text(
+        "a,b\n" "1,one\n" "2,two\n" "3,three\n" "4,four\n",
+        encoding="utf-8",
+    )
+
+    out = read_csv_tail_with_header_bytes(p, max_bytes=15)
+    text = out.decode("utf-8")
+
+    assert text.startswith("a,b\n")
+    assert "4,four\n" in text
+    assert "three\n" not in text  # partial row should not survive
+
+
+def test_read_csv_tail_with_header_none_reads_full_file(tmp_path: Path) -> None:
+    p = tmp_path / "x.csv"
+    content = "a,b\n1,one\n2,two\n"
+    p.write_text(content, encoding="utf-8")
+
+    out = read_csv_tail_with_header_bytes(p, max_bytes=None)
+
+    assert out == content.encode("utf-8")
