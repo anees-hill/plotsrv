@@ -27,8 +27,12 @@ from .storage.backend import (
 from .runtime import (
     WatchConfig,
     apply_runtime_options,
+    default_watch_read_mode,
     parse_truncate_arg,
     parse_watch_max_bytes,
+    read_csv_tail_with_header_bytes,
+    read_head_bytes,
+    read_tail_bytes,
     start_watch_threads,
 )
 
@@ -694,47 +698,19 @@ def _watch_configs_from_cli_specs(
 
 
 def _default_watch_read_mode(path: Path) -> WatchReadMode:
-    fk = infer_file_kind(path)
-    return "head" if fk == "csv" else "tail"
+    return default_watch_read_mode(path)
 
 
-def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-    with p.open("rb") as f:
-        try:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            start = max(0, size - max_bytes)
-            f.seek(start, os.SEEK_SET)
-        except Exception:
-            f.seek(0)
-        return f.read(max_bytes)
+def _read_tail_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    return read_tail_bytes(p, max_bytes=max_bytes)
 
 
-def _read_head_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-    with p.open("rb") as f:
-        return f.read(max_bytes)
+def _read_head_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    return read_head_bytes(p, max_bytes=max_bytes)
 
 
-def _read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-
-    header = b""
-    with p.open("rb") as f:
-        chunk = f.read(min(64_000, max_bytes))
-        nl = chunk.find(b"\n")
-        header = chunk if nl == -1 else chunk[: nl + 1]
-
-    tail = _read_tail_bytes(p, max_bytes=max_bytes)
-
-    if tail.startswith(header) or tail == header:
-        return tail
-
-    if header and not header.endswith(b"\n"):
-        header = header + b"\n"
-
-    return header + tail
+def _read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    return read_csv_tail_with_header_bytes(p, max_bytes=max_bytes)
 
 
 def _start_watch_threads(

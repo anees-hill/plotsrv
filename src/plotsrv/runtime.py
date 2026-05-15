@@ -176,7 +176,20 @@ def coerce_watch_configs(
 
 def default_watch_read_mode(path: Path) -> WatchReadMode:
     fk = infer_file_kind(path)
-    return "head" if fk == "csv" else "tail"
+
+    if fk in {
+        "csv",
+        "json",
+        "yaml",
+        "toml",
+        "ini",
+        "markdown",
+        "html",
+        "image",
+    }:
+        return "head"
+
+    return "tail"
 
 
 def with_text_anchor_header(text: str, anchor: WatchReadMode) -> str:
@@ -185,20 +198,65 @@ def with_text_anchor_header(text: str, anchor: WatchReadMode) -> str:
     return "\ufeffPLOTSRV_ANCHOR=tail\n" + text
 
 
+def _drop_first_partial_line(raw: bytes) -> bytes:
+    """
+    Drop the first line from a tail chunk when it may be partial.
+
+    If doing so would remove everything useful, keep the original chunk.
+    """
+    if not raw:
+        return raw
+
+    nl = raw.find(b"\n")
+    if nl == -1:
+        return raw
+
+    out = raw[nl + 1 :]
+    return out or raw
+
+
+def _drop_last_partial_line(raw: bytes) -> bytes:
+    """
+    Drop the final line from a head chunk when it may be partial.
+
+    If doing so would remove everything useful, keep the original chunk.
+    """
+    if not raw:
+        return raw
+
+    if raw.endswith((b"\n", b"\r\n")):
+        return raw
+
+    nl = raw.rfind(b"\n")
+    if nl == -1:
+        return raw
+
+    out = raw[: nl + 1]
+    return out or raw
+
+
 def read_tail_bytes(p: Path, *, max_bytes: int | None) -> bytes:
     if max_bytes is None:
         return p.read_bytes()
 
     max_bytes = max(1, int(max_bytes))
+
     with p.open("rb") as f:
         try:
             f.seek(0, os.SEEK_END)
             size = f.tell()
             start = max(0, size - max_bytes)
             f.seek(start, os.SEEK_SET)
+            raw = f.read(max_bytes)
         except Exception:
             f.seek(0)
-        return f.read(max_bytes)
+            start = 0
+            raw = f.read(max_bytes)
+
+    if start > 0:
+        return _drop_first_partial_line(raw)
+
+    return raw
 
 
 def read_head_bytes(p: Path, *, max_bytes: int | None) -> bytes:
@@ -206,8 +264,18 @@ def read_head_bytes(p: Path, *, max_bytes: int | None) -> bytes:
         return p.read_bytes()
 
     max_bytes = max(1, int(max_bytes))
+
     with p.open("rb") as f:
-        return f.read(max_bytes)
+        raw = f.read(max_bytes)
+        try:
+            more = bool(f.read(1))
+        except Exception:
+            more = False
+
+    if more:
+        return _drop_last_partial_line(raw)
+
+    return raw
 
 
 def read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int | None) -> bytes:
