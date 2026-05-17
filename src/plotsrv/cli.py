@@ -35,6 +35,7 @@ from .runtime import (
     read_tail_bytes,
     start_watch_threads,
 )
+from .config_writer import create_config_file
 
 WatchReadMode = Literal["head", "tail"]
 RunMode = Literal["passive", "callable"]
@@ -366,6 +367,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--yes",
         action="store_true",
         help="Skip confirmation prompt.",
+    )
+    config_p = sub.add_parser("config", help="Create or update plotsrv config files")
+    config_sub = config_p.add_subparsers(dest="config_cmd", required=True)
+
+    config_create_p = config_sub.add_parser(
+        "create",
+        help="Create a starter plotsrv.yml config file",
+    )
+    config_create_p.add_argument(
+        "--config",
+        default="plotsrv.yml",
+        help="Path to config file to create (default: plotsrv.yml)",
+    )
+    config_create_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite the config file if it already exists",
     )
 
     return p
@@ -1466,6 +1484,26 @@ def main(argv: list[str] | None = None) -> int:
         truncate=getattr(args, "truncate", None),
         no_truncate=bool(getattr(args, "no_truncate", False)),
     )
+
+    if args.cmd == "config":
+        if args.config_cmd == "create":
+            try:
+                result = create_config_file(
+                    getattr(args, "config", "plotsrv.yml"),
+                    force=bool(getattr(args, "force", False)),
+                )
+            except FileExistsError as e:
+                print(f"plotsrv: error: {e}", file=sys.stderr)
+                print("Use --force to overwrite.", file=sys.stderr)
+                return 2
+
+            if result.overwritten:
+                print(f"Overwrote config file: {result.path}")
+            else:
+                print(f"Created config file: {result.path}")
+            return 0
+
+        return _die("config: unknown subcommand")
 
     if args.cmd == "store":
         if args.store_cmd == "stats":
