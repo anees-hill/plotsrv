@@ -301,3 +301,50 @@ def test_markdown_bleach_present_sanitizes(monkeypatch: pytest.MonkeyPatch) -> N
     assert rr.meta["sanitized"] is True
     assert "<script" not in rr.html.lower()
     assert "<p>Hi</p>" in rr.html
+
+
+def test_html_renderer_passes_view_id_to_truncation_config(monkeypatch) -> None:
+    calls = []
+
+    def fake_get_truncation_max_chars(kind, view_id=None):
+        calls.append((kind, view_id))
+        return None
+
+    monkeypatch.setattr(
+        html_mod.config,
+        "get_truncation_max_chars",
+        fake_get_truncation_max_chars,
+    )
+
+    r = html_mod.HtmlRenderer()
+    r.render("<div>Hi</div>", view_id="reports:html")
+
+    assert calls == [("html", "reports:html")]
+
+
+def test_markdown_renderer_passes_view_id_to_truncation_config(monkeypatch) -> None:
+    calls = []
+
+    fake_markdown = SimpleNamespace(markdown=lambda text, extensions=None: "<p>Hi</p>")
+    fake_bleach = SimpleNamespace(
+        clean=lambda html, **kwargs: html, linkify=lambda html, callbacks=None: html
+    )
+
+    monkeypatch.setitem(sys.modules, "markdown", fake_markdown)
+    monkeypatch.setitem(sys.modules, "bleach", fake_bleach)
+
+    def fake_get_truncation_max_chars(kind, view_id=None):
+        calls.append((kind, view_id))
+        return None
+
+    monkeypatch.setattr(
+        md_mod.config,
+        "get_truncation_max_chars",
+        fake_get_truncation_max_chars,
+    )
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: True)
+
+    r = md_mod.MarkdownRenderer()
+    r.render("hi", view_id="docs:md")
+
+    assert calls == [("markdown", "docs:md")]

@@ -197,3 +197,15 @@ def test_read_csv_tail_with_header_none_reads_full_file(tmp_path: Path) -> None:
     out = read_csv_tail_with_header_bytes(p, max_bytes=None)
 
     assert out == content.encode("utf-8")
+
+
+def test_coerce_watch_config_omitted_max_bytes_uses_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_max_bytes", lambda view_id=None: 12345
+    )
+
+    cfg = coerce_watch_config({"path": "README.md"})
+
+    assert cfg.max_bytes == 12345

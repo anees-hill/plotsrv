@@ -251,3 +251,48 @@ limits:
     assert cfg.get_truncation_max_chars("markdown") is None
     assert cfg.get_publish_max_table_rows() == 123
     assert cfg.get_publish_max_table_columns() == 45
+
+
+def test_limits_view_overrides_from_yaml(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+limits:
+  watched_files:
+    max_bytes: 5000000
+  render:
+    text: 1000000
+    html: off
+    markdown: off
+  views:
+    live-logs:api:
+      watched_files:
+        max_bytes: off
+      render:
+        text: off
+    live-logs:jobs:
+      watched_files:
+        max_bytes: 12345
+      render:
+        text: 30000
+    reports:rr2c-check:
+      render:
+        html: 90000
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_watch_max_bytes() == 5_000_000
+    assert cfg.get_watch_max_bytes("live-logs:api") is None
+    assert cfg.get_watch_max_bytes("live-logs:jobs") == 12345
+    assert cfg.get_watch_max_bytes("missing:view") == 5_000_000
+
+    assert cfg.get_truncation_max_chars("text") == 1_000_000
+    assert cfg.get_truncation_max_chars("text", view_id="live-logs:api") is None
+    assert cfg.get_truncation_max_chars("text", view_id="live-logs:jobs") == 30000
+    assert cfg.get_truncation_max_chars("html", view_id="reports:rr2c-check") == 90000
+    assert cfg.get_truncation_max_chars("markdown", view_id="missing:view") is None
