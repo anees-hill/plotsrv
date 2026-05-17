@@ -7,6 +7,7 @@ import pytest
 from plotsrv import settings
 from plotsrv.runtime import (
     WatchConfig,
+    _WATCH_MAX_BYTES_UNSET,
     apply_runtime_options,
     coerce_watch_config,
     coerce_watch_configs,
@@ -16,6 +17,7 @@ from plotsrv.runtime import (
     read_csv_tail_with_header_bytes,
     read_head_bytes,
     read_tail_bytes,
+    resolve_watch_max_bytes,
 )
 
 
@@ -29,9 +31,32 @@ def test_parse_truncate_arg() -> None:
     assert parse_truncate_arg(60_000, no_truncate=True) is settings._TRUNCATE_OFF
 
 
+def test_parse_watch_max_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_max_bytes", lambda view_id=None: 5_000_000
+    )
+
+    assert parse_watch_max_bytes(None) == 5_000_000
+    assert parse_watch_max_bytes("off") is None
+    assert parse_watch_max_bytes("none") is None
+    assert parse_watch_max_bytes("0") is None
+    assert parse_watch_max_bytes(123) == 123
+    assert parse_watch_max_bytes("123") == 123
+    assert parse_watch_max_bytes(False) is None
+
+    with pytest.raises(ValueError):
+        parse_watch_max_bytes("bad")
+
+
+def test_watch_config_default_max_bytes_is_unset() -> None:
+    cfg = WatchConfig(path="README.md")
+    assert cfg.max_bytes is _WATCH_MAX_BYTES_UNSET
+
+
 def test_coerce_watch_config_from_dataclass() -> None:
     cfg = WatchConfig(path="README.md", label="readme")
     assert coerce_watch_config(cfg) is cfg
+    assert cfg.max_bytes is _WATCH_MAX_BYTES_UNSET
 
 
 def test_coerce_watch_config_from_mapping() -> None:
@@ -58,6 +83,11 @@ def test_coerce_watch_config_from_mapping() -> None:
     assert cfg.encoding == "utf-8"
     assert cfg.update_limit_s == 10
     assert cfg.force is True
+
+
+def test_coerce_watch_config_omitted_max_bytes_is_unset() -> None:
+    cfg = coerce_watch_config({"path": "README.md"})
+    assert cfg.max_bytes is _WATCH_MAX_BYTES_UNSET
 
 
 def test_coerce_watch_config_accepts_max_bytes_off() -> None:
@@ -90,23 +120,32 @@ def test_coerce_watch_configs() -> None:
 
     assert len(out) == 2
     assert out[0].path == "a.txt"
+    assert out[0].max_bytes is _WATCH_MAX_BYTES_UNSET
     assert out[1].path == "b.txt"
     assert out[1].label == "B"
+    assert out[1].max_bytes is _WATCH_MAX_BYTES_UNSET
 
 
-def test_parse_watch_max_bytes(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("plotsrv.runtime.config.get_watch_max_bytes", lambda: 5_000_000)
+def test_resolve_watch_max_bytes_uses_view_config_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_max_bytes",
+        lambda view_id=None: 123 if view_id == "logs:api" else 999,
+    )
 
-    assert parse_watch_max_bytes(None) == 5_000_000
-    assert parse_watch_max_bytes("off") is None
-    assert parse_watch_max_bytes("none") is None
-    assert parse_watch_max_bytes("0") is None
-    assert parse_watch_max_bytes(123) == 123
-    assert parse_watch_max_bytes("123") == 123
-    assert parse_watch_max_bytes(False) is None
+    spec = WatchConfig(path="app.log")
+    assert resolve_watch_max_bytes(spec, view_id="logs:api") == 123
 
-    with pytest.raises(ValueError):
-        parse_watch_max_bytes("bad")
+
+def test_resolve_watch_max_bytes_respects_explicit_off() -> None:
+    spec = WatchConfig(path="app.log", max_bytes=None)
+    assert resolve_watch_max_bytes(spec, view_id="logs:api") is None
+
+
+def test_resolve_watch_max_bytes_respects_explicit_number() -> None:
+    spec = WatchConfig(path="app.log", max_bytes=456)
+    assert resolve_watch_max_bytes(spec, view_id="logs:api") == 456
 
 
 def test_default_watch_read_mode_by_file_kind(tmp_path: Path) -> None:
@@ -197,15 +236,3 @@ def test_read_csv_tail_with_header_none_reads_full_file(tmp_path: Path) -> None:
     out = read_csv_tail_with_header_bytes(p, max_bytes=None)
 
     assert out == content.encode("utf-8")
-
-
-def test_coerce_watch_config_omitted_max_bytes_uses_config(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "plotsrv.runtime.config.get_watch_max_bytes", lambda view_id=None: 12345
-    )
-
-    cfg = coerce_watch_config({"path": "README.md"})
-
-    assert cfg.max_bytes == 12345

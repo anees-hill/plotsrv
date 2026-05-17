@@ -42,7 +42,7 @@ def test_safe_scalar_text_truncates() -> None:
 def test_text_renderer_renders_toolbar_and_pre(monkeypatch) -> None:
     monkeypatch.setattr(
         "plotsrv.config.get_truncation_max_chars",
-        lambda kind: 100,
+        lambda kind, view_id=None: 100,
     )
     r = TextRenderer()
     out = r.render("hello <b>world</b>", view_id="v1")
@@ -56,7 +56,7 @@ def test_text_renderer_renders_toolbar_and_pre(monkeypatch) -> None:
 def test_text_renderer_bytes_decode(monkeypatch) -> None:
     monkeypatch.setattr(
         "plotsrv.config.get_truncation_max_chars",
-        lambda kind: 100,
+        lambda kind, view_id=None: 100,
     )
     r = TextRenderer()
     out = r.render(b"\xff", view_id="v1")
