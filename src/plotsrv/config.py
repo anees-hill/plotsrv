@@ -440,15 +440,21 @@ def get_tracebacks_enabled() -> bool:
 # ---- Truncation ---------------------------------------------------------------
 
 
-def get_truncation_max_chars(kind: Literal["text", "html", "markdown"]) -> int | None:
+def get_truncation_max_chars(
+    kind: Literal["text", "html", "markdown"],
+    view_id: str | None = None,
+) -> int | None:
     """
     Renderer display limit for text/html/markdown views.
 
     Preferred config path:
       limits.render.<kind>
+      limits.views.<view_id>.render.<kind>
 
     Legacy config path:
       truncation.<kind>
+
+    Runtime/CLI truncate override remains global and wins.
     """
     override = settings.get_truncate_override()
 
@@ -457,13 +463,27 @@ def get_truncation_max_chars(kind: Literal["text", "html", "markdown"]) -> int |
             return None
         return int(max(1, int(override)))
 
-    # Preferred new config section.
-    raw_limits = settings.get_section("limits")
-    raw_render = raw_limits.get("render") if isinstance(raw_limits, dict) else None
-    if isinstance(raw_render, dict) and kind in raw_render:
+    limits = _merged_limits_section()
+
+    if view_id:
+        views = limits.get("views")
+        view_limits = views.get(view_id) if isinstance(views, dict) else None
+        view_render = (
+            view_limits.get("render") if isinstance(view_limits, dict) else None
+        )
+        if isinstance(view_render, dict) and kind in view_render:
+            default_val = _DEFAULTS["limits"]["render"].get(kind)
+            return _parse_limit_int_or_none(
+                view_render.get(kind),
+                default_val,
+                min_value=1,
+            )
+
+    render = limits.get("render")
+    if isinstance(render, dict) and kind in render:
         default_val = _DEFAULTS["limits"]["render"].get(kind)
         return _parse_limit_int_or_none(
-            raw_render.get(kind),
+            render.get(kind),
             default_val,
             min_value=1,
         )
@@ -491,23 +511,39 @@ def get_truncation_max_chars(kind: Literal["text", "html", "markdown"]) -> int |
     return _as_int_or_inf(val, int(default_val), min_value=1)
 
 
-def get_watch_max_bytes() -> int | None:
+def get_watch_max_bytes(view_id: str | None = None) -> int | None:
     """
-    Maximum bytes read from each watched file.
+    Maximum bytes read from watched files.
 
     Preferred config path:
       limits.watched_files.max_bytes
+      limits.views.<view_id>.watched_files.max_bytes
 
     Returns:
       - int => read at most this many bytes
       - None => read the whole file
     """
     limits = _merged_limits_section()
+
+    default_val = _DEFAULTS["limits"]["watched_files"]["max_bytes"]
+
+    if view_id:
+        views = limits.get("views")
+        view_limits = views.get(view_id) if isinstance(views, dict) else None
+        view_watched = (
+            view_limits.get("watched_files") if isinstance(view_limits, dict) else None
+        )
+        if isinstance(view_watched, dict) and "max_bytes" in view_watched:
+            return _parse_limit_int_or_none(
+                view_watched.get("max_bytes"),
+                default_val,
+                min_value=1,
+            )
+
     watched = limits.get("watched_files")
     if not isinstance(watched, dict):
         watched = {}
 
-    default_val = _DEFAULTS["limits"]["watched_files"]["max_bytes"]
     return _parse_limit_int_or_none(
         watched.get("max_bytes", default_val),
         default_val,
