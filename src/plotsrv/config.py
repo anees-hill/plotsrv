@@ -463,52 +463,64 @@ def get_truncation_max_chars(
             return None
         return int(max(1, int(override)))
 
-    limits = _merged_limits_section()
+    # Use the raw user-supplied limits section first.
+    # Do NOT use _merged_limits_section() here for render defaults, because that
+    # would make built-in limits.render defaults override legacy truncation config.
+    raw_limits = settings.get_section("limits")
 
-    if view_id:
-        views = limits.get("views")
-        view_limits = views.get(view_id) if isinstance(views, dict) else None
-        view_render = (
-            view_limits.get("render") if isinstance(view_limits, dict) else None
+    if view_id and isinstance(raw_limits, dict):
+        raw_views = raw_limits.get("views")
+        raw_view_limits = (
+            raw_views.get(view_id) if isinstance(raw_views, dict) else None
         )
-        if isinstance(view_render, dict) and kind in view_render:
+        raw_view_render = (
+            raw_view_limits.get("render") if isinstance(raw_view_limits, dict) else None
+        )
+
+        if isinstance(raw_view_render, dict) and kind in raw_view_render:
             default_val = _DEFAULTS["limits"]["render"].get(kind)
             return _parse_limit_int_or_none(
-                view_render.get(kind),
+                raw_view_render.get(kind),
                 default_val,
                 min_value=1,
             )
 
-    render = limits.get("render")
-    if isinstance(render, dict) and kind in render:
+    raw_render = raw_limits.get("render") if isinstance(raw_limits, dict) else None
+    if isinstance(raw_render, dict) and kind in raw_render:
         default_val = _DEFAULTS["limits"]["render"].get(kind)
         return _parse_limit_int_or_none(
-            render.get(kind),
+            raw_render.get(kind),
             default_val,
             min_value=1,
         )
 
     # Legacy config section.
-    sec = _merged_section("truncation")
-    val = sec.get(kind)
+    raw_truncation = settings.get_section("truncation")
+    if isinstance(raw_truncation, dict) and kind in raw_truncation:
+        val = raw_truncation.get(kind)
+        default_val = _DEFAULTS["truncation"].get(kind)
 
-    if val is None:
-        return None
+        if val is None:
+            return None
 
-    if isinstance(val, str) and val.strip().lower() in (
-        "off",
-        "none",
-        "false",
-        "0",
-        "",
-    ):
-        return None
+        if isinstance(val, str) and val.strip().lower() in (
+            "off",
+            "none",
+            "false",
+            "no",
+            "0",
+            "",
+        ):
+            return None
 
-    default_val = _DEFAULTS["truncation"].get(kind)
-    if default_val is None:
-        return None
+        if default_val is None:
+            return _parse_limit_int_or_none(val, None, min_value=1)
 
-    return _as_int_or_inf(val, int(default_val), min_value=1)
+        return _as_int_or_inf(val, int(default_val), min_value=1)
+
+    # Built-in defaults.
+    default_val = _DEFAULTS["limits"]["render"].get(kind)
+    return _parse_limit_int_or_none(default_val, default_val, min_value=1)
 
 
 def get_watch_max_bytes(view_id: str | None = None) -> int | None:

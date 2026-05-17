@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import threading
 import time
 import urllib.request
@@ -16,7 +15,8 @@ from .file_kinds import coerce_file_to_publishable, infer_file_kind
 
 WatchReadMode = Literal["head", "tail"]
 WatchKind = Literal["auto", "text", "json"]
-WATCH_MAX_BYTES_UNSET = object()
+
+_WATCH_MAX_BYTES_UNSET = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,7 +26,7 @@ class WatchConfig:
     section: str | None = None
     kind: WatchKind = "auto"
     read_mode: WatchReadMode | None = None
-    max_bytes: int | None = None
+    max_bytes: int | None | object = _WATCH_MAX_BYTES_UNSET
     encoding: str = "utf-8"
     update_limit_s: int | None = None
     force: bool = False
@@ -34,7 +34,7 @@ class WatchConfig:
 
 def parse_truncate_arg(raw: int | str | None, *, no_truncate: bool) -> object:
     """
-    Parse CLI/Python truncation override.
+    Parse CLI/Python render truncation override.
 
     Returns one of:
       - settings._UNSET
@@ -48,7 +48,7 @@ def parse_truncate_arg(raw: int | str | None, *, no_truncate: bool) -> object:
         return settings._UNSET
 
     s = str(raw).strip().lower()
-    if s in ("off", "none", "false", "0"):
+    if s in ("off", "none", "false", "no", "0"):
         return settings._TRUNCATE_OFF
 
     try:
@@ -150,17 +150,19 @@ def coerce_watch_config(value: WatchConfig | Mapping[str, Any]) -> WatchConfig:
             raise ValueError(f"watch read_mode must be 'head' or 'tail', got {rm!r}")
         read_mode = rm  # type: ignore[assignment]
 
+    max_bytes: int | None | object
+    if "max_bytes" in value:
+        max_bytes = parse_watch_max_bytes(value.get("max_bytes"))
+    else:
+        max_bytes = _WATCH_MAX_BYTES_UNSET
+
     return WatchConfig(
         path=value["path"],  # type: ignore[arg-type]
         label=(None if value.get("label") is None else str(value.get("label"))),
         section=(None if value.get("section") is None else str(value.get("section"))),
         kind=raw_kind,  # type: ignore[arg-type]
         read_mode=read_mode,
-        max_bytes=(
-            config.get_watch_max_bytes()
-            if "max_bytes" not in value
-            else parse_watch_max_bytes(value.get("max_bytes"))
-        ),
+        max_bytes=max_bytes,
         encoding=str(value.get("encoding", "utf-8")),
         update_limit_s=(
             None
@@ -177,6 +179,25 @@ def coerce_watch_configs(
     if not watches:
         return []
     return [coerce_watch_config(w) for w in watches]
+
+
+def resolve_watch_max_bytes(
+    spec: WatchConfig,
+    *,
+    view_id: str,
+) -> int | None:
+    """
+    Resolve the effective watched-file read limit.
+
+    Resolution:
+      - WatchConfig(max_bytes=<int>) => explicit byte cap
+      - WatchConfig(max_bytes=None) => explicit full-file read
+      - WatchConfig(max_bytes unset) => config/default for the view
+    """
+    if spec.max_bytes is _WATCH_MAX_BYTES_UNSET:
+        return config.get_watch_max_bytes(view_id=view_id)
+
+    return spec.max_bytes  # type: ignore[return-value]
 
 
 def default_watch_read_mode(path: Path) -> WatchReadMode:
@@ -248,10 +269,10 @@ def read_tail_bytes(p: Path, *, max_bytes: int | None) -> bytes:
 
     with p.open("rb") as f:
         try:
-            f.seek(0, os.SEEK_END)
+            f.seek(0, 2)  # os.SEEK_END without importing os
             size = f.tell()
             start = max(0, size - max_bytes)
-            f.seek(start, os.SEEK_SET)
+            f.seek(start, 0)
             raw = f.read(max_bytes)
         except Exception:
             f.seek(0)
@@ -379,20 +400,15 @@ def start_watch_threads(
         section = (spec.section or "watch").strip() or "watch"
         label = (spec.label or p.name).strip() or p.name
 
-        vid = store.normalize_view_id(None, section=section, label=label)
-
-        max_bytes = (
-            spec.max_bytes
-            if spec.max_bytes is not None
-            else config.get_watch_max_bytes(view_id=vid)
-        )
+        view_id = store.normalize_view_id(None, section=section, label=label)
 
         fk = infer_file_kind(p)
         read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)
         preregister_kind = "table" if fk == "csv" else "artifact"
+        resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=view_id)
 
         store.register_view(
-            view_id=vid,
+            view_id=view_id,
             section=section,
             label=label,
             kind=preregister_kind,
@@ -405,7 +421,7 @@ def start_watch_threads(
             view_section: str = section,
             watch_config: WatchConfig = spec,
             watch_read_mode: WatchReadMode = read_mode,
-            watch_max_bytes: int | None = max_bytes,
+            watch_max_bytes: int | None = resolved_max_bytes,
         ) -> None:
             last_sig: tuple[int, int] | None = None
 
@@ -420,7 +436,7 @@ def start_watch_threads(
                     sig = None
 
                 if sig is not None and sig == last_sig:
-                    time.sleep(max(0.05, 1.0))
+                    time.sleep(1.0)
                     continue
 
                 try:
@@ -445,7 +461,7 @@ def start_watch_threads(
                         update_limit_s=watch_config.update_limit_s,
                         force=watch_config.force,
                     )
-                    time.sleep(max(0.05, 1.0))
+                    time.sleep(1.0)
                     continue
 
                 last_sig = sig
@@ -464,7 +480,7 @@ def start_watch_threads(
                         update_limit_s=watch_config.update_limit_s,
                         force=watch_config.force,
                     )
-                    time.sleep(max(0.05, 1.0))
+                    time.sleep(1.0)
                     continue
 
                 if watch_config.kind == "json":
@@ -495,7 +511,7 @@ def start_watch_threads(
                             update_limit_s=watch_config.update_limit_s,
                             force=watch_config.force,
                         )
-                    time.sleep(max(0.05, 1.0))
+                    time.sleep(1.0)
                     continue
 
                 try:
@@ -552,7 +568,7 @@ def start_watch_threads(
                         force=watch_config.force,
                     )
 
-                time.sleep(max(0.05, 1.0))
+                time.sleep(1.0)
 
         t = threading.Thread(
             target=_worker,
