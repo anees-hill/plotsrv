@@ -192,10 +192,14 @@ def resolve_watch_max_bytes(
     Resolution:
       - WatchConfig(max_bytes=<int>) => explicit byte cap
       - WatchConfig(max_bytes=None) => explicit full-file read
-      - WatchConfig(max_bytes unset) => config/default for the view
+      - WatchConfig(max_bytes unset) => global config/default
+
+    Note:
+      view_id is accepted for future extension, but watched-file input limits are
+      currently global only.
     """
     if spec.max_bytes is _WATCH_MAX_BYTES_UNSET:
-        return config.get_watch_max_bytes(view_id=view_id)
+        return config.get_watch_max_bytes()
 
     return spec.max_bytes  # type: ignore[return-value]
 

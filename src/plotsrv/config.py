@@ -529,33 +529,21 @@ def get_watch_max_bytes(view_id: str | None = None) -> int | None:
 
     Preferred config path:
       limits.watched_files.max_bytes
-      limits.views.<view_id>.watched_files.max_bytes
 
     Returns:
       - int => read at most this many bytes
       - None => read the whole file
+
+    Note:
+      view_id is accepted for API stability, but watched-file input limits are
+      currently global only. Use per-view render limits for display behaviour.
     """
     limits = _merged_limits_section()
-
-    default_val = _DEFAULTS["limits"]["watched_files"]["max_bytes"]
-
-    if view_id:
-        views = limits.get("views")
-        view_limits = views.get(view_id) if isinstance(views, dict) else None
-        view_watched = (
-            view_limits.get("watched_files") if isinstance(view_limits, dict) else None
-        )
-        if isinstance(view_watched, dict) and "max_bytes" in view_watched:
-            return _parse_limit_int_or_none(
-                view_watched.get("max_bytes"),
-                default_val,
-                min_value=1,
-            )
-
     watched = limits.get("watched_files")
     if not isinstance(watched, dict):
         watched = {}
 
+    default_val = _DEFAULTS["limits"]["watched_files"]["max_bytes"]
     return _parse_limit_int_or_none(
         watched.get("max_bytes", default_val),
         default_val,
