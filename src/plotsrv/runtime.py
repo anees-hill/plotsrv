@@ -16,6 +16,7 @@ from .file_kinds import coerce_file_to_publishable, infer_file_kind
 
 WatchReadMode = Literal["head", "tail"]
 WatchKind = Literal["auto", "text", "json"]
+WATCH_MAX_BYTES_UNSET = object()
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,7 +26,7 @@ class WatchConfig:
     section: str | None = None
     kind: WatchKind = "auto"
     read_mode: WatchReadMode | None = None
-    max_bytes: int | None = 5_000_000
+    max_bytes: int | None = None
     encoding: str = "utf-8"
     update_limit_s: int | None = None
     force: bool = False
@@ -155,7 +156,11 @@ def coerce_watch_config(value: WatchConfig | Mapping[str, Any]) -> WatchConfig:
         section=(None if value.get("section") is None else str(value.get("section"))),
         kind=raw_kind,  # type: ignore[arg-type]
         read_mode=read_mode,
-        max_bytes=parse_watch_max_bytes(value.get("max_bytes", None)),
+        max_bytes=(
+            config.get_watch_max_bytes()
+            if "max_bytes" not in value
+            else parse_watch_max_bytes(value.get("max_bytes"))
+        ),
         encoding=str(value.get("encoding", "utf-8")),
         update_limit_s=(
             None
@@ -376,6 +381,12 @@ def start_watch_threads(
 
         vid = store.normalize_view_id(None, section=section, label=label)
 
+        max_bytes = (
+            spec.max_bytes
+            if spec.max_bytes is not None
+            else config.get_watch_max_bytes(view_id=vid)
+        )
+
         fk = infer_file_kind(p)
         read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)
         preregister_kind = "table" if fk == "csv" else "artifact"
@@ -394,6 +405,7 @@ def start_watch_threads(
             view_section: str = section,
             watch_config: WatchConfig = spec,
             watch_read_mode: WatchReadMode = read_mode,
+            watch_max_bytes: int | None = max_bytes,
         ) -> None:
             last_sig: tuple[int, int] | None = None
 
@@ -415,12 +427,12 @@ def start_watch_threads(
                     fk2 = infer_file_kind(pth)
                     if fk2 == "csv" and watch_read_mode == "tail":
                         raw = read_csv_tail_with_header_bytes(
-                            pth, max_bytes=watch_config.max_bytes
+                            pth, max_bytes=watch_max_bytes
                         )
                     elif watch_read_mode == "head":
-                        raw = read_head_bytes(pth, max_bytes=watch_config.max_bytes)
+                        raw = read_head_bytes(pth, max_bytes=watch_max_bytes)
                     else:
-                        raw = read_tail_bytes(pth, max_bytes=watch_config.max_bytes)
+                        raw = read_tail_bytes(pth, max_bytes=watch_max_bytes)
                 except Exception as e:
                     publish_watch_payload(
                         host=host,
@@ -490,7 +502,7 @@ def start_watch_threads(
                     coerced = coerce_file_to_publishable(
                         pth,
                         encoding=watch_config.encoding,
-                        max_bytes=watch_config.max_bytes,
+                        max_bytes=watch_max_bytes,
                         max_rows=config.get_max_table_rows_rich(),
                         raw=raw,
                     )
