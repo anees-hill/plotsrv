@@ -331,7 +331,7 @@ def read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int | None) -> bytes:
     return header + tail
 
 
-def post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> None:
+def post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> bool:
     url = f"http://{host}:{port}/publish"
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
@@ -340,8 +340,13 @@ def post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> No
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=2.0) as resp:
-        _ = resp.read()
+
+    try:
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            _ = resp.read()
+        return True
+    except Exception:
+        return False
 
 
 def publish_watch_payload(
@@ -356,7 +361,7 @@ def publish_watch_payload(
     table_df: Any = None,
     update_limit_s: int | None = None,
     force: bool = False,
-) -> None:
+) -> bool:
     payload: dict[str, Any] = {
         "kind": kind,
         "label": label,
@@ -387,7 +392,7 @@ def publish_watch_payload(
     else:
         raise ValueError(f"Unsupported watch publish kind: {kind!r}")
 
-    post_publish_payload(host=host, port=port, payload=payload)
+    return post_publish_payload(host=host, port=port, payload=payload)
 
 
 def start_watch_threads(

@@ -615,12 +615,6 @@ def plot_session(
         stop_server(join=False)
 
 
-# Backwards-compatible aliases
-start_plot_server = start_server
-stop_plot_server = stop_server
-refresh_plot_server = refresh_view
-
-
 # ---- /shutdown route
 
 
