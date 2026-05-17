@@ -126,12 +126,12 @@ def test_coerce_watch_configs() -> None:
     assert out[1].max_bytes is _WATCH_MAX_BYTES_UNSET
 
 
-def test_resolve_watch_max_bytes_uses_view_config_when_unset(
+def test_resolve_watch_max_bytes_uses_global_config_when_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
         "plotsrv.runtime.config.get_watch_max_bytes",
-        lambda view_id=None: 123 if view_id == "logs:api" else 999,
+        lambda view_id=None: 123,
     )
 
     spec = WatchConfig(path="app.log")

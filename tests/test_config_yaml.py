@@ -268,13 +268,9 @@ limits:
     markdown: off
   views:
     live-logs:api:
-      watched_files:
-        max_bytes: off
       render:
         text: off
     live-logs:jobs:
-      watched_files:
-        max_bytes: 12345
       render:
         text: 30000
     reports:rr2c-check:
@@ -286,11 +282,12 @@ limits:
 
     settings.set_runtime_context(config_path=yml)
 
+    # watched file input limit is global only
     assert cfg.get_watch_max_bytes() == 5_000_000
-    assert cfg.get_watch_max_bytes("live-logs:api") is None
-    assert cfg.get_watch_max_bytes("live-logs:jobs") == 12345
+    assert cfg.get_watch_max_bytes("live-logs:api") == 5_000_000
     assert cfg.get_watch_max_bytes("missing:view") == 5_000_000
 
+    # renderer limits support per-view overrides
     assert cfg.get_truncation_max_chars("text") == 1_000_000
     assert cfg.get_truncation_max_chars("text", view_id="live-logs:api") is None
     assert cfg.get_truncation_max_chars("text", view_id="live-logs:jobs") == 30000
