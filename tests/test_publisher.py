@@ -53,7 +53,7 @@ def test_publish_view_plot_sends_b64_png(monkeypatch) -> None:
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     fig = plt.figure()
-    publish_view(fig, label="metrics")
+    publish_view(fig, label="metrics", host="127.0.0.1", port=8000)
 
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["kind"] == "plot"
@@ -70,7 +70,9 @@ def test_publish_view_dict_sends_json_artifact(monkeypatch) -> None:
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    publish_view({"status": "ok"}, label="Status", section="ops")
+    publish_view(
+        {"status": "ok"}, label="Status", section="ops", host="127.0.0.1", port=8000
+    )
 
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["kind"] == "artifact"
@@ -92,7 +94,7 @@ def test_publish_view_string_sends_text_artifact(monkeypatch) -> None:
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    publish_view("hello", label="Message")
+    publish_view("hello", label="Message", host="127.0.0.1", port=8000)
 
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["kind"] == "artifact"
@@ -115,7 +117,7 @@ def test_publish_view_pathlike_file_publishes_file_content(
     p = tmp_path / "app.log"
     p.write_text("line one\nline two\n", encoding="utf-8")
 
-    publish_view(p, label="Log")
+    publish_view(p, label="Log", host="127.0.0.1", port=8000)
 
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["kind"] == "artifact"
@@ -130,4 +132,4 @@ def test_publish_view_swallows_errors(monkeypatch) -> None:
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     # should not raise
-    publish_view(pd.DataFrame({"a": [1]}), label="x")
+    publish_view(pd.DataFrame({"a": [1]}), label="x", host="127.0.0.1", port=8000)
