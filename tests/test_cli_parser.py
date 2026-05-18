@@ -170,3 +170,86 @@ def test_cli_parses_config_create() -> None:
     assert args.config_cmd == "create"
     assert args.config == "config/plotsrv.yml"
     assert args.force is True
+
+
+def test_cli_parses_config_populate_freshness() -> None:
+    p = build_parser()
+
+    args = p.parse_args(
+        [
+            "config",
+            "populate",
+            "freshness",
+            "src",
+            "--config",
+            "plotsrv.yml",
+            "--mode",
+            "replace",
+            "--expected-every",
+            "10s",
+            "--warn-after",
+            "20s",
+            "--overdue-after",
+            "30s",
+            "--yes",
+        ]
+    )
+
+    assert args.cmd == "config"
+    assert args.config_cmd == "populate"
+    assert args.populate_cmd == "freshness"
+    assert args.target == "src"
+    assert args.config == "plotsrv.yml"
+    assert args.mode == "replace"
+    assert args.expected_every == "10s"
+    assert args.warn_after == "20s"
+    assert args.overdue_after == "30s"
+    assert args.yes is True
+
+
+def test_cli_parses_config_populate_storage() -> None:
+    p = build_parser()
+
+    args = p.parse_args(
+        [
+            "config",
+            "populate",
+            "storage",
+            "src",
+            "--keep-last",
+            "5",
+            "--min-store-interval",
+            "30s",
+            "--max-snapshot-size-mb",
+            "12.5",
+        ]
+    )
+
+    assert args.populate_cmd == "storage"
+    assert args.keep_last == 5
+    assert args.min_store_interval == "30s"
+    assert args.max_snapshot_size_mb == 12.5
+
+
+def test_cli_parses_config_populate_limits() -> None:
+    p = build_parser()
+
+    args = p.parse_args(
+        [
+            "config",
+            "populate",
+            "limits",
+            "src",
+            "--text",
+            "off",
+            "--html",
+            "off",
+            "--markdown",
+            "50000",
+        ]
+    )
+
+    assert args.populate_cmd == "limits"
+    assert args.text == "off"
+    assert args.html == "off"
+    assert args.markdown == "50000"
