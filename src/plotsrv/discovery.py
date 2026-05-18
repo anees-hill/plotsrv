@@ -51,14 +51,63 @@ def _decorator_name(d: ast.expr) -> str | None:
     return None
 
 
+def _call_name(call: ast.Call) -> str | None:
+    """
+    Return call function name for:
+       publish_view(...)
+       ps.publish_view(...)
+       plotsrv.publish_view(...)
+    """
+    fn = call.func
+    if isinstance(fn, ast.Name):
+        return fn.id
+    if isinstance(fn, ast.Attribute):
+        return fn.attr
+    return None
+
+
+def _extract_publish_view_discovery(call: ast.Call) -> DiscoveredView | None:
+    """
+    Extract a discoverable view from a publish_view(...) call.
+
+    Only literal string label/section/view_id values are supported. Dynamic
+    labels are intentionally ignored because discovery is static and does not
+    execute user code.
+    """
+    if _call_name(call) != "publish_view":
+        return None
+
+    view_id = _extract_kw_str(call, "view_id")
+    label = _extract_kw_str(call, "label")
+    section = _extract_kw_str(call, "section")
+
+    if view_id:
+        if ":" in view_id:
+            sec, lab = view_id.split(":", 1)
+            section = section or (sec.strip() or None)
+            label = label or (lab.strip() or view_id)
+        else:
+            label = label or view_id
+
+    if not label:
+        return None
+
+    return DiscoveredView(
+        kind="artifact",
+        label=label,
+        section=section,
+    )
+
+
 def discover_views(root: str | Path) -> list[DiscoveredView]:
     """
-    Walk a directory and discover plotsrv-decorated functions.
+    Walk a directory or Python file and discover plotsrv views.
 
     We AST-parse .py files and extract:
-      - decorator type: view
-      - label kwarg (fallback: function name)
-      - section kwarg (optional)
+      - @view decorators on functions
+      - simple publish_view(...) calls with literal label/section/view_id
+
+    Dynamic labels/sections are ignored because discovery does not execute code.
     """
     rootp = Path(root).resolve()
     if rootp.is_file() and rootp.suffix == ".py":
@@ -80,28 +129,31 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
             continue
 
         for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef):
-                continue
+            if isinstance(node, ast.FunctionDef):
+                for dec in node.decorator_list:
+                    dec_name = _decorator_name(dec)
+                    if dec_name != "view":
+                        continue
 
-            for dec in node.decorator_list:
-                dec_name = _decorator_name(dec)
-                if dec_name != "view":
-                    continue
+                    label = None
+                    section = None
 
-                label = None
-                section = None
+                    if isinstance(dec, ast.Call):
+                        label = _extract_kw_str(dec, "label")
+                        section = _extract_kw_str(dec, "section")
 
-                if isinstance(dec, ast.Call):
-                    label = _extract_kw_str(dec, "label")
-                    section = _extract_kw_str(dec, "section")
-
-                found.append(
-                    DiscoveredView(
-                        kind="artifact",
-                        label=(label or node.name),
-                        section=section,
+                    found.append(
+                        DiscoveredView(
+                            kind="artifact",
+                            label=(label or node.name),
+                            section=section,
+                        )
                     )
-                )
+
+            if isinstance(node, ast.Call):
+                discovered = _extract_publish_view_discovery(node)
+                if discovered is not None:
+                    found.append(discovered)
 
     # stable ordering: section then label
     found.sort(key=lambda x: ((x.section or ""), x.label))

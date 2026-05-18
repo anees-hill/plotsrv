@@ -202,11 +202,12 @@ def view(
     """
     Decorator: marks a function OR class as a plotsrv view producer.
 
-    Public meaning:
-      - If applied to a function: the function returns something plotsrv can display.
-      - If applied to a class: wraps __init__ so creating an instance publishes an
-        inspection view.
+    By default, @view is passive metadata used by discovery, CLI registration,
+    and config population.
 
+    If port is supplied, the decorated function publishes its return value when
+    called. If applied to a class with port supplied, creating an instance
+    publishes a lightweight inspection artifact.
     """
 
     def decorator(obj: Any) -> Any:
