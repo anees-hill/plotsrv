@@ -331,7 +331,8 @@ def refresh_view(
     """
     Update an in-process plotsrv view directly.
 
-    This is the in-process counterpart to publish_view(...).
+    This is the lower-level in-process publishing helper used by publish_view()
+    when no remote host/port is supplied.
 
     - DataFrame (pandas or polars) -> table view
     - Figure / plotnine / None -> plot view

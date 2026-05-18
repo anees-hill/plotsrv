@@ -306,7 +306,7 @@ def _to_publish_payload(
     obj: Any,
     *,
     kind: str,
-    label: str,
+    label: str | None,
     section: str | None,
     view_id: str | None = None,
     update_limit_s: int | None,
@@ -399,9 +399,9 @@ def _to_publish_payload(
 def _try_publish_pathlike_view(
     obj: Any,
     *,
-    host: str,
-    port: int,
-    label: str,
+    host: str | None,
+    port: int | None,
+    label: str | None,
     section: str | None,
     view_id: str | None,
     artifact_kind: str | None,
@@ -525,12 +525,61 @@ def _try_publish_pathlike_view(
         return True
 
 
+def _is_remote_publish(*, host: str | None, port: int | None) -> bool:
+    """
+    Decide whether publish_view() should publish over HTTP.
+
+    Rule:
+      - no host and no port => local/in-process publish
+      - host and/or port supplied => remote HTTP publish
+    """
+    return host is not None or port is not None
+
+
+def _normalise_remote_target(
+    *,
+    host: str | None,
+    port: int | None,
+) -> tuple[str, int]:
+    return (
+        str(host or "127.0.0.1"),
+        int(port if port is not None else 8000),
+    )
+
+
+def _publish_view_local(
+    obj: Any,
+    *,
+    label: str | None,
+    section: str | None,
+    view_id: str | None,
+    kind: str | None,
+    artifact_kind: str | None,
+) -> None:
+    """
+    Publish directly into the in-process plotsrv server/store.
+
+    This is the new interactive/default path for publish_view().
+    The import is deliberately lazy to avoid import cycles.
+    """
+    from .server import refresh_view
+
+    refresh_view(
+        obj,
+        label=label,
+        section=section,
+        view_id=view_id,
+        kind=kind,
+        artifact_kind=artifact_kind,
+    )
+
+
 def publish_view(
     obj: Any,
     *,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    label: str,
+    host: str | None = None,
+    port: int | None = None,
+    label: str | None = None,
     section: str | None = None,
     view_id: str | None = None,
     update_limit_s: int | None = None,
@@ -541,16 +590,27 @@ def publish_view(
     """
     Publish an object as a plotsrv browser view.
 
-    This is the preferred public publishing API. It accepts anything plotsrv
-    knows how to display: plots, tables, text, JSON-like objects, markdown,
-    HTML payloads, images, path-like files, and generic Python objects.
+    Preferred public publishing API.
+
+    Behaviour:
+      - If host/port are omitted, publish in-process and auto-start the local
+        plotsrv server if needed.
+      - If host and/or port are supplied, publish over HTTP to an existing
+        plotsrv server.
+
+    This accepts anything plotsrv knows how to display: plots, tables, text,
+    JSON-like objects, markdown, HTML payloads, images, path-like files, and
+    generic Python objects.
     """
     debug = _debug_enabled()
 
+    remote = _is_remote_publish(host=host, port=port)
+    remote_host, remote_port = _normalise_remote_target(host=host, port=port)
+
     if _try_publish_pathlike_view(
         obj,
-        host=host,
-        port=port,
+        host=remote_host if remote else None,
+        port=remote_port if remote else None,
         label=label,
         section=section,
         view_id=view_id,
@@ -559,6 +619,21 @@ def publish_view(
         force=force,
         debug=debug,
     ):
+        return
+
+    if not remote:
+        try:
+            _publish_view_local(
+                obj,
+                label=label,
+                section=section,
+                view_id=view_id,
+                kind=kind,
+                artifact_kind=artifact_kind,
+            )
+        except Exception:
+            if debug:
+                raise
         return
 
     if kind is None:
@@ -587,4 +662,6 @@ def publish_view(
             raise
         return
 
-    _post_publish_payload(payload=payload, host=host, port=port, debug=debug)
+    _post_publish_payload(
+        payload=payload, host=remote_host, port=remote_port, debug=debug
+    )
