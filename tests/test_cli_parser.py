@@ -151,3 +151,22 @@ def test_cli_parses_watch_max_bytes_off() -> None:
 
     watch_args = p.parse_args(["watch", "a.log", "--max-bytes", "off"])
     assert watch_args.max_bytes == "off"
+
+
+def test_cli_parses_config_create() -> None:
+    p = build_parser()
+
+    args = p.parse_args(
+        [
+            "config",
+            "create",
+            "--config",
+            "config/plotsrv.yml",
+            "--force",
+        ]
+    )
+
+    assert args.cmd == "config"
+    assert args.config_cmd == "create"
+    assert args.config == "config/plotsrv.yml"
+    assert args.force is True
