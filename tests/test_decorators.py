@@ -23,10 +23,11 @@ def _install_publish_spy(monkeypatch):
     def fake_publish_view(
         obj,
         *,
-        host="127.0.0.1",
-        port=8000,
-        label,
+        host=None,
+        port=None,
+        label=None,
         section=None,
+        view_id=None,
         update_limit_s=None,
         force=False,
         kind=None,
@@ -40,6 +41,7 @@ def _install_publish_spy(monkeypatch):
                 "host": host,
                 "port": port,
                 "update_limit_s": update_limit_s,
+                "view_id": view_id,
                 "force": force,
                 "kind": kind,
                 "artifact_kind": artifact_kind,
@@ -72,6 +74,7 @@ def test_view_decorator_wraps_and_publishes(monkeypatch) -> None:
             "section": "ops",
             "host": "127.0.0.1",
             "port": 8000,
+            "view_id": None,
             "update_limit_s": 12,
             "force": False,
             "kind": None,
@@ -89,3 +92,20 @@ def test_view_decorator_does_not_publish_when_port_none(monkeypatch) -> None:
 
     _ = f()
     assert calls == []
+
+
+def test_view_without_port_is_passive_but_keeps_metadata(monkeypatch) -> None:
+    calls = _install_publish_spy(monkeypatch)
+
+    @decorators.view(label="Data", section="EDA")
+    def get_data():
+        return {"a": 1}
+
+    out = get_data()
+    spec = decorators.get_plotsrv_spec(get_data)
+
+    assert out == {"a": 1}
+    assert calls == []
+    assert spec is not None
+    assert spec.label == "Data"
+    assert spec.section == "EDA"

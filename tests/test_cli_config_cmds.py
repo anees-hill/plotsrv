@@ -270,3 +270,35 @@ def test_cli_config_populate_limits(tmp_path: Path, capsys) -> None:
 
     data = _load_yaml(cfg)
     assert data["limits"]["views"]["etl:orders"]["render"]["text"] == "off"
+
+
+def test_populate_freshness_discovers_publish_view_calls(tmp_path: Path) -> None:
+    target = tmp_path / "publish_views.py"
+    target.write_text(
+        """
+import plotsrv as ps
+
+def main():
+    ps.publish_view(object(), label="orders", section="etl")
+    ps.publish_view(object(), view_id="ops:health")
+""".strip(),
+        encoding="utf-8",
+    )
+
+    cfg = tmp_path / "plotsrv.yml"
+
+    result = populate_freshness(
+        path=cfg,
+        target=target,
+        expected_every="10s",
+        warn_after="20s",
+        overdue_after="30s",
+    )
+
+    assert result.created is True
+    assert result.discovered_count == 2
+    assert result.added_count == 2
+
+    data = _load_yaml(cfg)
+    views = data["freshness-settings"]["views"]
+    assert set(views) == {"etl:orders", "ops:health"}
