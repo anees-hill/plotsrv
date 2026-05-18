@@ -460,9 +460,8 @@ def render_index(
         content_html = """
           <div class="plot-frame empty ps-frame ps-frame--empty plot-frame--empty">
             <div class="empty-state ps-empty">
-              No view has been published yet.<br />
-              Use <code>publish_view(obj, label=&quot;...&quot;)</code> from a script,
-              or <code>refresh_view(obj)</code> in an in-process session.
+              Waiting for views.<br />
+              plotsrv is running and ready to receive plots, tables, and artifacts from Python. 
             </div>
           </div>
         """
