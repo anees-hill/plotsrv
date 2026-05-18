@@ -35,7 +35,12 @@ from .runtime import (
     read_tail_bytes,
     start_watch_threads,
 )
-from .config_writer import create_config_file
+from .config_writer import (
+    create_config_file,
+    populate_freshness,
+    populate_limits,
+    populate_storage,
+)
 
 WatchReadMode = Literal["head", "tail"]
 RunMode = Literal["passive", "callable"]
@@ -385,6 +390,50 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite the config file if it already exists",
     )
+    config_populate_p = config_sub.add_parser(
+        "populate",
+        help="Populate config sections from discovered @view functions",
+    )
+    populate_sub = config_populate_p.add_subparsers(
+        dest="populate_cmd",
+        required=True,
+    )
+
+    freshness_p = populate_sub.add_parser(
+        "freshness",
+        help="Populate freshness-settings.views",
+    )
+    freshness_p.add_argument("target", help="Path/module target to discover")
+    freshness_p.add_argument("--config", default="plotsrv.yml")
+    freshness_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    freshness_p.add_argument("--yes", action="store_true", help="Do not prompt")
+    freshness_p.add_argument("--expected-every", default="60s")
+    freshness_p.add_argument("--warn-after", default="90s")
+    freshness_p.add_argument("--overdue-after", default="180s")
+
+    storage_p = populate_sub.add_parser(
+        "storage",
+        help="Populate storage-settings.views",
+    )
+    storage_p.add_argument("target", help="Path/module target to discover")
+    storage_p.add_argument("--config", default="plotsrv.yml")
+    storage_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    storage_p.add_argument("--yes", action="store_true", help="Do not prompt")
+    storage_p.add_argument("--keep-last", type=int, default=2)
+    storage_p.add_argument("--min-store-interval", default=None)
+    storage_p.add_argument("--max-snapshot-size-mb", type=float, default=None)
+
+    limits_p = populate_sub.add_parser(
+        "limits",
+        help="Populate limits.views render settings",
+    )
+    limits_p.add_argument("target", help="Path/module target to discover")
+    limits_p.add_argument("--config", default="plotsrv.yml")
+    limits_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    limits_p.add_argument("--yes", action="store_true", help="Do not prompt")
+    limits_p.add_argument("--text", default="1000000")
+    limits_p.add_argument("--html", default="off")
+    limits_p.add_argument("--markdown", default="off")
 
     return p
 
@@ -1501,6 +1550,54 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Overwrote config file: {result.path}")
             else:
                 print(f"Created config file: {result.path}")
+            return 0
+
+        if args.config_cmd == "populate":
+            target = _resolve_scan_root_for_passive(str(args.target))
+            mode = getattr(args, "mode", "merge")
+
+            if args.populate_cmd == "freshness":
+                result = populate_freshness(
+                    path=getattr(args, "config", "plotsrv.yml"),
+                    target=target,
+                    mode=mode,
+                    expected_every=args.expected_every,
+                    warn_after=args.warn_after,
+                    overdue_after=args.overdue_after,
+                )
+            elif args.populate_cmd == "storage":
+                result = populate_storage(
+                    path=getattr(args, "config", "plotsrv.yml"),
+                    target=target,
+                    mode=mode,
+                    keep_last=args.keep_last,
+                    min_store_interval=args.min_store_interval,
+                    max_snapshot_size_mb=args.max_snapshot_size_mb,
+                )
+            elif args.populate_cmd == "limits":
+                result = populate_limits(
+                    path=getattr(args, "config", "plotsrv.yml"),
+                    target=target,
+                    mode=mode,
+                    text=args.text,
+                    html=args.html,
+                    markdown=args.markdown,
+                )
+            else:
+                return _die("config populate: unknown subcommand")
+
+            action = "Created" if result.created else "Updated"
+            print(f"{action} config file: {result.path}")
+            print(f"Discovered {result.discovered_count} view(s).")
+            if result.mode == "replace":
+                print(
+                    f"Replaced {result.section}.views with {result.added_count} view(s)."
+                )
+            else:
+                print(
+                    f"Added {result.added_count} missing view(s); "
+                    f"preserved {result.preserved_count} existing view(s)."
+                )
             return 0
 
         return _die("config: unknown subcommand")
