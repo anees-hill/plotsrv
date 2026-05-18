@@ -10,7 +10,6 @@ import pytest
 import plotsrv.renderers.html as html_mod
 import plotsrv.renderers.markdown as md_mod
 
-
 # ----------------------------
 # HTML renderer tests
 # ----------------------------
@@ -112,7 +111,12 @@ def test_html_renderer_safe_mode_with_bleach_sanitizes(
     assert "<script" not in rr.html.lower()
 
 
-def test_html_renderer_default_mode_uses_config_default() -> None:
+def test_html_renderer_default_mode_uses_config_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(html_mod.config, "get_html_sanitize", lambda: False)
+    monkeypatch.setattr(html_mod.config, "get_html_sandbox", lambda: "")
+
     r = html_mod.HtmlRenderer()
     rr = r.render("<div>Hi</div>", view_id="v1")
 
@@ -181,6 +185,9 @@ def test_markdown_bleach_missing_fail_closed(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(builtins, "__import__", deny_bleach)
 
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: True)
+    monkeypatch.setattr(md_mod.config, "get_markdown_sandbox", lambda: "")
+
     r = md_mod.MarkdownRenderer()
     rr = r.render("# Hi", view_id="v1")  # unsafe_html False by default
 
@@ -199,6 +206,9 @@ def test_markdown_unsafe_html_true_allows_raw_html(
     )
     monkeypatch.setitem(sys.modules, "markdown", fake_markdown)
 
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: True)
+    monkeypatch.setattr(md_mod.config, "get_markdown_sandbox", lambda: "")
+
     # bleach irrelevant here; unsafe_html bypasses sanitization
     monkeypatch.delitem(sys.modules, "bleach", raising=False)
 
@@ -210,6 +220,57 @@ def test_markdown_unsafe_html_true_allows_raw_html(
     assert rr.meta["unsafe_html"] is True
     assert rr.meta["sanitized"] is False
     assert "<script" in rr.html.lower()
+
+
+def test_markdown_config_sanitize_false_uses_iframe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_markdown = SimpleNamespace(
+        markdown=lambda text, extensions=None: "<p>Hi</p><script>alert(1)</script>"
+    )
+    monkeypatch.setitem(sys.modules, "markdown", fake_markdown)
+
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: False)
+    monkeypatch.setattr(md_mod.config, "get_markdown_sandbox", lambda: "allow-forms")
+
+    r = md_mod.MarkdownRenderer()
+    rr = r.render("hi", view_id="v1")
+
+    assert rr.kind == "markdown"
+    assert rr.meta
+    assert rr.meta["rendered"] is True
+    assert rr.meta["sanitized"] is False
+    assert rr.meta["mode"] == "unsafe_iframe"
+    assert rr.meta["sandbox"] == "allow-forms"
+    assert rr.meta["markdown_sanitize"] is False
+    assert "srcdoc=" in rr.html
+    assert "allow-forms" in rr.html
+    assert "<script" in rr.html.lower()
+
+
+def test_markdown_payload_sandbox_overrides_config_sandbox(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_markdown = SimpleNamespace(markdown=lambda text, extensions=None: "<p>Hi</p>")
+    monkeypatch.setitem(sys.modules, "markdown", fake_markdown)
+
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: False)
+    monkeypatch.setattr(md_mod.config, "get_markdown_sandbox", lambda: "allow-forms")
+
+    r = md_mod.MarkdownRenderer()
+    rr = r.render(
+        {
+            "text": "hi",
+            "unsafe_html": True,
+            "sandbox": "allow-popups",
+        },
+        view_id="v1",
+    )
+
+    assert rr.meta
+    assert rr.meta["mode"] == "unsafe_iframe"
+    assert rr.meta["sandbox"] == "allow-popups"
+    assert "allow-popups" in rr.html
 
 
 def test_markdown_bleach_present_sanitizes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,6 +289,9 @@ def test_markdown_bleach_present_sanitizes(monkeypatch: pytest.MonkeyPatch) -> N
     fake_bleach = SimpleNamespace(clean=fake_clean, linkify=fake_linkify)
     monkeypatch.setitem(sys.modules, "bleach", fake_bleach)
 
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: True)
+    monkeypatch.setattr(md_mod.config, "get_markdown_sandbox", lambda: "")
+
     r = md_mod.MarkdownRenderer()
     rr = r.render("hi", view_id="v1")  # unsafe_html False => sanitize
 
@@ -237,3 +301,50 @@ def test_markdown_bleach_present_sanitizes(monkeypatch: pytest.MonkeyPatch) -> N
     assert rr.meta["sanitized"] is True
     assert "<script" not in rr.html.lower()
     assert "<p>Hi</p>" in rr.html
+
+
+def test_html_renderer_passes_view_id_to_truncation_config(monkeypatch) -> None:
+    calls = []
+
+    def fake_get_truncation_max_chars(kind, view_id=None):
+        calls.append((kind, view_id))
+        return None
+
+    monkeypatch.setattr(
+        html_mod.config,
+        "get_truncation_max_chars",
+        fake_get_truncation_max_chars,
+    )
+
+    r = html_mod.HtmlRenderer()
+    r.render("<div>Hi</div>", view_id="reports:html")
+
+    assert calls == [("html", "reports:html")]
+
+
+def test_markdown_renderer_passes_view_id_to_truncation_config(monkeypatch) -> None:
+    calls = []
+
+    fake_markdown = SimpleNamespace(markdown=lambda text, extensions=None: "<p>Hi</p>")
+    fake_bleach = SimpleNamespace(
+        clean=lambda html, **kwargs: html, linkify=lambda html, callbacks=None: html
+    )
+
+    monkeypatch.setitem(sys.modules, "markdown", fake_markdown)
+    monkeypatch.setitem(sys.modules, "bleach", fake_bleach)
+
+    def fake_get_truncation_max_chars(kind, view_id=None):
+        calls.append((kind, view_id))
+        return None
+
+    monkeypatch.setattr(
+        md_mod.config,
+        "get_truncation_max_chars",
+        fake_get_truncation_max_chars,
+    )
+    monkeypatch.setattr(md_mod.config, "get_markdown_sanitize", lambda: True)
+
+    r = md_mod.MarkdownRenderer()
+    r.render("hi", view_id="docs:md")
+
+    assert calls == [("markdown", "docs:md")]

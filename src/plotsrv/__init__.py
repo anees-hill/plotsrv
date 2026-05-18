@@ -6,30 +6,35 @@ from .server import (
     stop_server,
     refresh_view,
     plot_session,
-    start_plot_server,
-    stop_plot_server,
-    refresh_plot_server,
 )
 from .config import set_table_view_mode
-from .decorators import plotsrv, plot, table, get_plotsrv_spec, PlotsrvSpec
-from .publisher import plot_launch, publish_view, publish_artifact
-from .artifacts import Artifact, ArtifactKind
+from .decorators import (
+    view,
+    get_plotsrv_spec,
+    PlotsrvSpec,
+)
+from .publisher import publish_view
+from .capture import capture_exceptions
+from .tracebacks import publish_traceback, TracebackPublishOptions
+from .runtime import WatchConfig
 
 __all__ = [
+    # Server/session API
     "start_server",
     "stop_server",
     "refresh_view",
     "plot_session",
-    "start_plot_server",
-    "stop_plot_server",
-    "refresh_plot_server",
-    "set_table_view_mode",
-    "plotsrv",
-    "plot",
-    "table",
+    # Core public API
+    "view",
+    "publish_view",
+    # Exception helpers
+    "capture_exceptions",
+    "publish_traceback",
+    "TracebackPublishOptions",
+    # Advanced metadata
     "get_plotsrv_spec",
     "PlotsrvSpec",
-    "plot_launch",
-    "publish_view",
-    "publish_artifact",
+    "WatchConfig",
+    # Runtime config
+    "set_table_view_mode",
 ]

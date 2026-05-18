@@ -211,7 +211,7 @@ class MarkdownRenderer(Renderer):
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         text, unsafe_html, sandbox_override = _coerce_markdown_obj(obj)
 
-        max_chars = config.get_truncation_max_chars("markdown")
+        max_chars = config.get_truncation_max_chars("markdown", view_id=view_id)
         if max_chars is None:
             text2 = text
             truncation = Truncation(truncated=False)
@@ -244,8 +244,17 @@ class MarkdownRenderer(Renderer):
                 },
             )
 
-        if unsafe_html:
-            sandbox = sandbox_override if sandbox_override is not None else ""
+        configured_sanitize = config.get_markdown_sanitize()
+        configured_sandbox = config.get_markdown_sandbox()
+
+        # Explicit payload unsafe_html=True wins over config.
+        # Otherwise markdown_sanitize=False means "render raw markdown HTML in a sandbox".
+        should_use_iframe = unsafe_html or not configured_sanitize
+
+        if should_use_iframe:
+            sandbox = (
+                sandbox_override if sandbox_override is not None else configured_sandbox
+            )
             html = _iframe_html(html_body, sandbox=sandbox)
 
             return RenderResult(
@@ -256,10 +265,11 @@ class MarkdownRenderer(Renderer):
                 meta={
                     "view_id": view_id,
                     "rendered": True,
-                    "unsafe_html": True,
+                    "unsafe_html": bool(unsafe_html),
                     "sanitized": False,
                     "mode": "unsafe_iframe",
                     "sandbox": sandbox,
+                    "markdown_sanitize": configured_sanitize,
                 },
             )
 
@@ -285,6 +295,8 @@ class MarkdownRenderer(Renderer):
                     "view_id": view_id,
                     "rendered": False,
                     "unsafe_html": False,
+                    "sanitized": False,
+                    "markdown_sanitize": configured_sanitize,
                     "note": meta_note,
                 },
             )
@@ -296,6 +308,7 @@ class MarkdownRenderer(Renderer):
             "unsafe_html": False,
             "sanitized": True,
             "mode": "sanitized_inline",
+            "markdown_sanitize": configured_sanitize,
         }
         if meta_note:
             meta["note"] = meta_note

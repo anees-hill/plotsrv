@@ -26,7 +26,7 @@ class TextRenderer:
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         text, anchor = _to_text_and_anchor(obj)
 
-        max_chars = config.get_truncation_max_chars("text")
+        max_chars = config.get_truncation_max_chars("text", view_id=view_id)
         if max_chars is None:
             out = text
             from ..artifacts import Truncation

@@ -17,13 +17,29 @@ from typing import Any, Literal
 from . import config, store, settings
 from .discovery import DiscoveredView, discover_views
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
-from .publisher import publish_artifact
 from .storage.backend import (
     delete_all_snapshots,
     delete_all_snapshots_for_view,
     get_storage_stats,
     list_snapshots,
     list_stored_views,
+)
+from .runtime import (
+    WatchConfig,
+    apply_runtime_options,
+    default_watch_read_mode,
+    parse_truncate_arg,
+    parse_watch_max_bytes,
+    read_csv_tail_with_header_bytes,
+    read_head_bytes,
+    read_tail_bytes,
+    start_watch_threads,
+)
+from .config_writer import (
+    create_config_file,
+    populate_freshness,
+    populate_limits,
+    populate_storage,
 )
 
 WatchReadMode = Literal["head", "tail"]
@@ -145,12 +161,12 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--truncate",
         default=None,
-        help="Override truncation max chars for text/html/markdown. Examples: 50000 or 'off'.",
+        help="Override render limit for text/html/markdown views. Examples: 1000000 or 'off'.",
     )
     run_p.add_argument(
         "--no-truncate",
         action="store_true",
-        help="Disable truncation for text/html/markdown (overrides config).",
+        help="Disable render truncation for text/html/markdown views.",
     )
 
     # New mode flag
@@ -223,9 +239,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument(
         "--watch-max-bytes",
-        type=int,
-        default=200_000,
-        help="Read at most N bytes (default: 200000).",
+        default=None,
+        help="Read at most N bytes from each watched file. Use 'off' to read whole files. Default comes from limits.watched_files.max_bytes.",
     )
     run_p.add_argument(
         "--watch-encoding",
@@ -292,9 +307,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watch_p.add_argument(
         "--max-bytes",
-        type=int,
-        default=200_000,
-        help="Read at most N bytes (default: 200000)",
+        default=None,
+        help="Read at most N bytes from the watched file. Use 'off' to read the whole file. Default comes from limits.watched_files.max_bytes.",
     )
     watch_p.add_argument(
         "--encoding", default="utf-8", help="Text encoding (default: utf-8)"
@@ -359,6 +373,67 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip confirmation prompt.",
     )
+    config_p = sub.add_parser("config", help="Create or update plotsrv config files")
+    config_sub = config_p.add_subparsers(dest="config_cmd", required=True)
+
+    config_create_p = config_sub.add_parser(
+        "create",
+        help="Create a starter plotsrv.yml config file",
+    )
+    config_create_p.add_argument(
+        "--config",
+        default="plotsrv.yml",
+        help="Path to config file to create (default: plotsrv.yml)",
+    )
+    config_create_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite the config file if it already exists",
+    )
+    config_populate_p = config_sub.add_parser(
+        "populate",
+        help="Populate config sections from discovered @view functions",
+    )
+    populate_sub = config_populate_p.add_subparsers(
+        dest="populate_cmd",
+        required=True,
+    )
+
+    freshness_p = populate_sub.add_parser(
+        "freshness",
+        help="Populate freshness-settings.views",
+    )
+    freshness_p.add_argument("target", help="Path/module target to discover")
+    freshness_p.add_argument("--config", default="plotsrv.yml")
+    freshness_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    freshness_p.add_argument("--yes", action="store_true", help="Do not prompt")
+    freshness_p.add_argument("--expected-every", default="60s")
+    freshness_p.add_argument("--warn-after", default="90s")
+    freshness_p.add_argument("--overdue-after", default="180s")
+
+    storage_p = populate_sub.add_parser(
+        "storage",
+        help="Populate storage-settings.views",
+    )
+    storage_p.add_argument("target", help="Path/module target to discover")
+    storage_p.add_argument("--config", default="plotsrv.yml")
+    storage_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    storage_p.add_argument("--yes", action="store_true", help="Do not prompt")
+    storage_p.add_argument("--keep-last", type=int, default=2)
+    storage_p.add_argument("--min-store-interval", default=None)
+    storage_p.add_argument("--max-snapshot-size-mb", type=float, default=None)
+
+    limits_p = populate_sub.add_parser(
+        "limits",
+        help="Populate limits.views render settings",
+    )
+    limits_p.add_argument("target", help="Path/module target to discover")
+    limits_p.add_argument("--config", default="plotsrv.yml")
+    limits_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    limits_p.add_argument("--yes", action="store_true", help="Do not prompt")
+    limits_p.add_argument("--text", default="1000000")
+    limits_p.add_argument("--html", default="off")
+    limits_p.add_argument("--markdown", default="off")
 
     return p
 
@@ -660,48 +735,49 @@ def _coerce_watch_specs(
     return specs
 
 
+def _watch_configs_from_cli_specs(
+    specs: list[WatchSpec],
+    *,
+    kind: str,
+    max_bytes: int | None,
+    encoding: str,
+    update_limit_s: int | None,
+    force: bool,
+) -> list[WatchConfig]:
+    out: list[WatchConfig] = []
+
+    for spec in specs:
+        out.append(
+            WatchConfig(
+                path=spec.path,
+                label=spec.label,
+                section=spec.section,
+                kind=kind,  # type: ignore[arg-type]
+                read_mode=spec.read_mode,
+                max_bytes=max_bytes,
+                encoding=encoding,
+                update_limit_s=update_limit_s,
+                force=force,
+            )
+        )
+
+    return out
+
+
 def _default_watch_read_mode(path: Path) -> WatchReadMode:
-    fk = infer_file_kind(path)
-    return "head" if fk == "csv" else "tail"
+    return default_watch_read_mode(path)
 
 
-def _read_tail_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-    with p.open("rb") as f:
-        try:
-            f.seek(0, os.SEEK_END)
-            size = f.tell()
-            start = max(0, size - max_bytes)
-            f.seek(start, os.SEEK_SET)
-        except Exception:
-            f.seek(0)
-        return f.read(max_bytes)
+def _read_tail_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    return read_tail_bytes(p, max_bytes=max_bytes)
 
 
-def _read_head_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-    with p.open("rb") as f:
-        return f.read(max_bytes)
+def _read_head_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    return read_head_bytes(p, max_bytes=max_bytes)
 
 
-def _read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int) -> bytes:
-    max_bytes = max(1, int(max_bytes))
-
-    header = b""
-    with p.open("rb") as f:
-        chunk = f.read(min(64_000, max_bytes))
-        nl = chunk.find(b"\n")
-        header = chunk if nl == -1 else chunk[: nl + 1]
-
-    tail = _read_tail_bytes(p, max_bytes=max_bytes)
-
-    if tail.startswith(header) or tail == header:
-        return tail
-
-    if header and not header.endswith(b"\n"):
-        header = header + b"\n"
-
-    return header + tail
+def _read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int | None) -> bytes:
+    return read_csv_tail_with_header_bytes(p, max_bytes=max_bytes)
 
 
 def _start_watch_threads(
@@ -974,21 +1050,7 @@ def _run_subprocess_as_main(target: str) -> subprocess.Popen[bytes]:
 
 
 def _parse_truncate_arg(raw: str | None, *, no_truncate: bool) -> object:
-    if no_truncate:
-        return settings._TRUNCATE_OFF
-
-    if raw is None:
-        return settings._UNSET
-
-    s = str(raw).strip().lower()
-    if s in ("off", "none", "false", "0"):
-        return settings._TRUNCATE_OFF
-
-    try:
-        n = int(float(s))
-        return max(1, n)
-    except Exception:
-        return settings._UNSET
+    return parse_truncate_arg(raw, no_truncate=no_truncate)
 
 
 def _run_store_stats() -> int:
@@ -1088,7 +1150,7 @@ def _run_subprocess_call_importpath(
 import sys
 from plotsrv.loader import load_object
 from plotsrv.decorators import get_plotsrv_spec
-from plotsrv.publisher import publish_view, publish_artifact
+from plotsrv.publisher import publish_view
 from plotsrv.tracebacks import publish_traceback
 
 target = sys.argv[1]
@@ -1117,14 +1179,10 @@ except Exception as e:
         pass
     raise
 
-# Decide how to publish the return value
+# Decide how to publish the return value.
+# publish_view is now the general-purpose public publishing API.
 kind = (spec.kind if spec else None)
-
-if kind in ("plot", "table"):
-    publish_view(out, kind=kind, label=label, section=section, host=host, port=port)
-else:
-    # artifact (or unknown): let publisher infer unless user forced kind in spec
-    publish_artifact(out, label=label, section=section, host=host, port=port, artifact_kind=None)
+publish_view(out, kind=kind, label=label, section=section, host=host, port=port)
 """.strip()
 
     cmd = [
@@ -1241,7 +1299,7 @@ def _run_passive_server_forever(
     watch_specs: list[WatchSpec] | None = None,
     watch_kind: str = "auto",
     watch_every: float = 1.0,
-    watch_max_bytes: int = 200_000,
+    watch_max_bytes: int | None = None,
     watch_encoding: str = "utf-8",
     watch_update_limit_s: int | None = None,
     watch_force: bool = False,
@@ -1260,17 +1318,15 @@ def _run_passive_server_forever(
     _wait_for_server(host, port, timeout_s=5.0)
 
     if watch_specs:
-        _start_watch_threads(
+        watch_configs = _watch_configs_from_cli_specs(
             watch_specs,
-            host=host,
-            port=port,
-            every=watch_every,
             kind=watch_kind,
             max_bytes=watch_max_bytes,
             encoding=watch_encoding,
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
+        start_watch_threads(watch_configs, host=host, port=port)
 
     _passive_register_views(scan_root, excludes=excludes, includes=includes)
 
@@ -1297,7 +1353,7 @@ def _run_watch_mode(
     section: str,
     label: str | None,
     view_id: str | None,
-    max_bytes: int,
+    max_bytes: int | None,
     encoding: str,
     update_limit_s: int | None,
     force: bool,
@@ -1471,21 +1527,80 @@ def _run_watch_mode(
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
 
-    truncate_override = _parse_truncate_arg(
-        getattr(args, "truncate", None),
+    apply_runtime_options(
+        config=getattr(args, "config", None),
+        name=getattr(args, "name", None),
+        truncate=getattr(args, "truncate", None),
         no_truncate=bool(getattr(args, "no_truncate", False)),
     )
 
-    from . import settings as _settings
+    if args.cmd == "config":
+        if args.config_cmd == "create":
+            try:
+                result = create_config_file(
+                    getattr(args, "config", "plotsrv.yml"),
+                    force=bool(getattr(args, "force", False)),
+                )
+            except FileExistsError as e:
+                print(f"plotsrv: error: {e}", file=sys.stderr)
+                print("Use --force to overwrite.", file=sys.stderr)
+                return 2
 
-    if getattr(args, "config", None):
-        _settings.set_runtime_context(config_path=str(args.config))
+            if result.overwritten:
+                print(f"Overwrote config file: {result.path}")
+            else:
+                print(f"Created config file: {result.path}")
+            return 0
 
-    if getattr(args, "name", None):
-        _settings.set_runtime_context(name=str(args.name))
+        if args.config_cmd == "populate":
+            target = _resolve_scan_root_for_passive(str(args.target))
+            mode = getattr(args, "mode", "merge")
 
-    if truncate_override is not settings._UNSET:
-        _settings.set_runtime_context(truncate_override=truncate_override)
+            if args.populate_cmd == "freshness":
+                result = populate_freshness(
+                    path=getattr(args, "config", "plotsrv.yml"),
+                    target=target,
+                    mode=mode,
+                    expected_every=args.expected_every,
+                    warn_after=args.warn_after,
+                    overdue_after=args.overdue_after,
+                )
+            elif args.populate_cmd == "storage":
+                result = populate_storage(
+                    path=getattr(args, "config", "plotsrv.yml"),
+                    target=target,
+                    mode=mode,
+                    keep_last=args.keep_last,
+                    min_store_interval=args.min_store_interval,
+                    max_snapshot_size_mb=args.max_snapshot_size_mb,
+                )
+            elif args.populate_cmd == "limits":
+                result = populate_limits(
+                    path=getattr(args, "config", "plotsrv.yml"),
+                    target=target,
+                    mode=mode,
+                    text=args.text,
+                    html=args.html,
+                    markdown=args.markdown,
+                )
+            else:
+                return _die("config populate: unknown subcommand")
+
+            action = "Created" if result.created else "Updated"
+            print(f"{action} config file: {result.path}")
+            print(f"Discovered {result.discovered_count} view(s).")
+            if result.mode == "replace":
+                print(
+                    f"Replaced {result.section}.views with {result.added_count} view(s)."
+                )
+            else:
+                print(
+                    f"Added {result.added_count} missing view(s); "
+                    f"preserved {result.preserved_count} existing view(s)."
+                )
+            return 0
+
+        return _die("config: unknown subcommand")
 
     if args.cmd == "store":
         if args.store_cmd == "stats":
@@ -1502,6 +1617,12 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "watch":
         read_mode = "head" if args.head else ("tail" if args.tail else None)
+
+        try:
+            max_bytes = parse_watch_max_bytes(args.max_bytes)
+        except ValueError as e:
+            return _die(str(e))
+
         return _run_watch_mode(
             args.path,
             host=args.host,
@@ -1511,7 +1632,7 @@ def main(argv: list[str] | None = None) -> int:
             section=args.section,
             label=args.label,
             view_id=args.view_id,
-            max_bytes=args.max_bytes,
+            max_bytes=max_bytes,
             encoding=args.encoding,
             update_limit_s=args.update_limit_s,
             force=args.force,
@@ -1528,7 +1649,10 @@ def main(argv: list[str] | None = None) -> int:
     watch_paths = [w for w in (getattr(args, "watch", []) or []) if str(w).strip()]
     watch_kind = getattr(args, "watch_kind", "auto")
     watch_every = float(getattr(args, "watch_every", 1.0))
-    watch_max_bytes = int(getattr(args, "watch_max_bytes", 200_000))
+    try:
+        watch_max_bytes = parse_watch_max_bytes(getattr(args, "watch_max_bytes", None))
+    except ValueError as e:
+        return _die(str(e))
     watch_encoding = str(getattr(args, "watch_encoding", "utf-8"))
     watch_update_limit_s = getattr(args, "watch_update_limit_s", None)
     watch_force = bool(getattr(args, "watch_force", False))
@@ -1583,17 +1707,15 @@ def main(argv: list[str] | None = None) -> int:
 
     # Watches
     if watch_specs:
-        _start_watch_threads(
+        watch_configs = _watch_configs_from_cli_specs(
             watch_specs,
-            host=args.host,
-            port=args.port,
-            every=watch_every,
             kind=watch_kind,
             max_bytes=watch_max_bytes,
             encoding=watch_encoding,
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
+        start_watch_threads(watch_configs, host=args.host, port=args.port)
 
     # Passive register (pre-populate dropdown)
     _passive_register_views(scan_root, excludes=excludes, includes=includes)

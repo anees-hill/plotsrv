@@ -1156,18 +1156,6 @@
     return true;
   }
 
-  function buildColumnDefs(columnNames) {
-    const hidden = new Set(getHiddenColumns());
-
-    return (columnNames || []).map(function (col) {
-      return {
-        title: col,
-        field: col,
-        visible: !hidden.has(col),
-      };
-    });
-  }
-
   async function loadTable() {
     const grid = document.getElementById("table-grid");
     if (!grid) return;

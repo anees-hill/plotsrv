@@ -62,7 +62,7 @@ def test_publish_view_forced_plot_with_non_plot_obj_swallowed_when_not_debug(
     pub.publish_view({"not": "a figure"}, label="L", kind="plot")
 
 
-def test_publish_artifact_pathlike_parse_error_publishes_text_error(
+def test_publish_view_pathlike_parse_error_publishes_text_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.delenv("PLOTSRV_DEBUG", raising=False)
@@ -79,27 +79,10 @@ def test_publish_artifact_pathlike_parse_error_publishes_text_error(
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    pub.publish_artifact(p, label="L", section="S", host="127.0.0.1", port=8000)
+    pub.publish_view(p, label="L", section="S", host="127.0.0.1", port=8000)
 
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["kind"] == "artifact"
     # This is the "file read/parse error" fallback branch
     assert payload["artifact_kind"] == "text"
     assert "[plotsrv] file read/parse error" in payload["artifact"]
-
-
-def test_publish_artifact_infers_table_when_dataframe_and_kind_none(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    calls: list[dict[str, Any]] = []
-
-    def fake_publish_view(obj: Any, **kwargs: Any) -> None:
-        calls.append({"obj": obj, **kwargs})
-
-    monkeypatch.setattr(pub, "publish_view", fake_publish_view)
-
-    df = pd.DataFrame({"a": [1]})
-    pub.publish_artifact(df, label="L", section="S", host="127.0.0.1", port=8000)
-
-    assert len(calls) == 1
-    assert calls[0]["kind"] == "table"

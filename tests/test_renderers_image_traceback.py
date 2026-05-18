@@ -16,12 +16,30 @@ def test_image_renderer_can_render_and_embeds_data_uri() -> None:
     assert out.meta and out.meta["mime"] == "image/png"
 
 
+def test_image_renderer_escapes_filename_and_rejects_unsafe_mime() -> None:
+    r = ImageRenderer()
+    obj = {
+        "mime": "image/png' onerror='alert(1)",
+        "data_b64": "abcd' onerror='alert(1)",
+        "filename": "<script>alert(1)</script>.png",
+    }
+
+    out = r.render(obj, view_id="v1")
+
+    assert out.kind == "image"
+    assert out.meta and out.meta["mime"] == "application/octet-stream"
+    assert "<script>" not in out.html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;.png" in out.html
+    assert "onerror" not in out.html
+
+
 def test_traceback_renderer_renders_frames(monkeypatch) -> None:
     monkeypatch.setattr(
         "plotsrv.renderers.traceback.config.get_tracebacks_enabled",
         lambda: True,
     )
     r = TracebackRenderer()
+    assert r.kind == "traceback"
     payload = {
         "type": "traceback",
         "exc_type": "ValueError",

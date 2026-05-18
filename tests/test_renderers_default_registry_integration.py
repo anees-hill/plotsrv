@@ -56,3 +56,16 @@ def test_render_any_with_kind_hint_can_force_html() -> None:
     rr = reg.render_any("<div>hello</div>", view_id="v1", kind_hint="html")
     assert rr.kind == "html"
     assert "plotsrv-html" in rr.html or "iframe" in rr.html
+
+
+def test_register_default_renderers_is_idempotent() -> None:
+    _reset_registry()
+
+    register_default_renderers()
+    first_kinds = [getattr(r, "kind", None) for r in reg._RENDERERS]
+
+    register_default_renderers()
+    second_kinds = [getattr(r, "kind", None) for r in reg._RENDERERS]
+
+    assert second_kinds == first_kinds
+    assert len(second_kinds) == len(set(second_kinds))

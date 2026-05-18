@@ -88,6 +88,72 @@ def test_write_and_load_json_snapshot_roundtrip(tmp_path: Path) -> None:
     assert loaded.obj == obj
 
 
+def test_write_and_load_traceback_snapshot_roundtrip(tmp_path: Path) -> None:
+    obj = {
+        "type": "traceback",
+        "exc_type": "ValueError",
+        "exc_msg": "bad",
+        "frames": [
+            {
+                "filename": "a.py",
+                "lineno": 10,
+                "function": "fn",
+                "line": "raise ValueError()",
+                "context_before": ["x = 1"],
+                "context_after": ["y = 2"],
+            }
+        ],
+    }
+
+    meta = backend.write_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        kind="traceback",
+        obj=obj,
+        section="ops",
+        label="error",
+    )
+
+    assert meta.kind == "traceback"
+    assert meta.payload_format == "json"
+    assert meta.payload_filename.endswith("__payload.json")
+
+    loaded = backend.load_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        snapshot_id=meta.snapshot_id,
+    )
+
+    assert loaded.obj == obj
+
+
+def test_write_and_load_exception_snapshot_alias_roundtrip(tmp_path: Path) -> None:
+    obj = {
+        "type": "traceback",
+        "exc_type": "RuntimeError",
+        "exc_msg": "legacy",
+        "frames": [],
+    }
+
+    meta = backend.write_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        kind="exception",
+        obj=obj,
+    )
+
+    assert meta.kind == "exception"
+    assert meta.payload_format == "json"
+
+    loaded = backend.load_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:error",
+        snapshot_id=meta.snapshot_id,
+    )
+
+    assert loaded.obj == obj
+
+
 def test_write_and_load_markdown_python_and_text_fallback_roundtrip(
     tmp_path: Path,
 ) -> None:
@@ -482,3 +548,48 @@ def test_meta_from_dict_coerces_defaults() -> None:
     assert meta.kind == "artifact"
     assert meta.size_bytes == 0
     assert meta.extra is None
+
+
+def test_snapshot_backend_roundtrips_all_artifact_kinds(tmp_path: Path) -> None:
+    raw = b"\x89PNG\r\n\x1a\nfake"
+
+    cases: list[tuple[str, Any]] = [
+        ("text", "hello"),
+        ("json", {"a": 1}),
+        ("markdown", "# Hello"),
+        ("html", {"html": "<div>Hello</div>", "unsafe": True}),
+        (
+            "image",
+            {"mime": "image/png", "data_b64": base64.b64encode(raw).decode("ascii")},
+        ),
+        ("python", "print('hi')"),
+        (
+            "traceback",
+            {
+                "type": "traceback",
+                "exc_type": "ValueError",
+                "exc_msg": "bad",
+                "frames": [],
+            },
+        ),
+    ]
+
+    for kind, obj in cases:
+        view_id = f"case:{kind}"
+        meta = backend.write_snapshot(
+            root_dir=tmp_path,
+            view_id=view_id,
+            kind=kind,
+            obj=obj,
+        )
+        loaded = backend.load_snapshot(
+            root_dir=tmp_path,
+            view_id=view_id,
+            snapshot_id=meta.snapshot_id,
+        )
+
+        if kind == "image":
+            assert isinstance(loaded.obj, dict)
+            assert loaded.obj["mime"] == "image/png"
+        else:
+            assert loaded.obj == obj

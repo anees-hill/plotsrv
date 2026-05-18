@@ -8,10 +8,17 @@ import matplotlib.pyplot as plt
 
 from plotsrv.publisher import publish_view
 
+
 class DummyResp:
-    def __enter__(self): return self
-    def __exit__(self, *args): return False
-    def read(self): return b"ok"
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def read(self):
+        return b"ok"
+
 
 def test_publish_view_table_sends_json(monkeypatch) -> None:
     captured = {}
@@ -52,6 +59,68 @@ def test_publish_view_plot_sends_b64_png(monkeypatch) -> None:
     assert payload["kind"] == "plot"
     assert payload["label"] == "metrics"
     assert "plot_png_b64" in payload
+
+
+def test_publish_view_dict_sends_json_artifact(monkeypatch) -> None:
+    captured = {}
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float):
+        captured["data"] = req.data
+        return DummyResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    publish_view({"status": "ok"}, label="Status", section="ops")
+
+    payload = json.loads(captured["data"].decode("utf-8"))
+    assert payload["kind"] == "artifact"
+    assert payload["artifact_kind"] == "json"
+    assert payload["label"] == "Status"
+    assert payload["section"] == "ops"
+
+    doc = payload["artifact"]
+    assert doc["type"] == "plotsrv_json_document"
+    assert doc["source_format"] == "python_object"
+
+
+def test_publish_view_string_sends_text_artifact(monkeypatch) -> None:
+    captured = {}
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float):
+        captured["data"] = req.data
+        return DummyResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    publish_view("hello", label="Message")
+
+    payload = json.loads(captured["data"].decode("utf-8"))
+    assert payload["kind"] == "artifact"
+    assert payload["artifact_kind"] == "text"
+    assert payload["artifact"] == "hello"
+    assert payload["label"] == "Message"
+
+
+def test_publish_view_pathlike_file_publishes_file_content(
+    monkeypatch, tmp_path
+) -> None:
+    captured = {}
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float):
+        captured["data"] = req.data
+        return DummyResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    p = tmp_path / "app.log"
+    p.write_text("line one\nline two\n", encoding="utf-8")
+
+    publish_view(p, label="Log")
+
+    payload = json.loads(captured["data"].decode("utf-8"))
+    assert payload["kind"] == "artifact"
+    assert payload["artifact_kind"] == "text"
+    assert "line one" in payload["artifact"]
 
 
 def test_publish_view_swallows_errors(monkeypatch) -> None:

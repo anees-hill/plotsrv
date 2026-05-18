@@ -85,14 +85,22 @@
 
       const data = await res.json();
       
-      if (document.body) {
-        document.body.classList.toggle("ps-has-html-artifact", data.kind === "html");
-        document.body.classList.toggle("ps-has-text-artifact", data.kind === "text");
-        document.body.classList.toggle(
-          "ps-has-markdown-artifact",
-          data.kind === "markdown"
-        );
-      }
+        if (document.body) {
+          document.body.classList.remove(
+            "ps-has-html-artifact",
+            "ps-has-text-artifact",
+            "ps-has-markdown-artifact",
+            "ps-has-code-artifact"
+          );
+        
+          document.body.classList.toggle("ps-has-html-artifact", data.kind === "html");
+          document.body.classList.toggle("ps-has-text-artifact", data.kind === "text");
+          document.body.classList.toggle(
+            "ps-has-markdown-artifact",
+            data.kind === "markdown"
+          );
+          document.body.classList.toggle("ps-has-code-artifact", data.kind === "python");
+        }
       
       const kindEl = document.getElementById("artifact-kind");
       if (kindEl) {

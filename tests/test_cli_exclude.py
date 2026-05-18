@@ -61,7 +61,7 @@ def _dv(section: str, label: str) -> DiscoveredView:
     if "view_kind" in present:
         payload["view_kind"] = "none"
     if "decorator" in present:
-        payload["decorator"] = "plotsrv"
+        payload["decorator"] = "view"
 
     # Some versions store where it was found; set a safe placeholder if supported.
     if "path" in present:

@@ -70,12 +70,12 @@ def test_confirm_yes_no_and_eof(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_view_id_for_defaults() -> None:
-    dv = cli_mod.DiscoveredView(kind="plot", label="", section=None)
+    dv = cli_mod.DiscoveredView(kind="artifact", label="", section=None)
     assert cli_mod._view_id_for(dv) == "default:default"
 
 
 def test_include_exclude_helpers() -> None:
-    dv = cli_mod.DiscoveredView(kind="plot", label="plot-a", section="sec-a")
+    dv = cli_mod.DiscoveredView(kind="artifact", label="plot-a", section="sec-a")
 
     assert cli_mod._is_included(dv, set()) is True
     assert cli_mod._is_included(dv, {"plot-a"}) is True
@@ -109,10 +109,10 @@ def test_default_watch_read_mode_csv_head_else_tail(tmp_path: Path) -> None:
 
 def test_read_head_and_tail_bytes(tmp_path: Path) -> None:
     p = tmp_path / "x.txt"
-    p.write_text("abcdef", encoding="utf-8")
+    p.write_text("abc\ndef\nghi\n", encoding="utf-8")
 
-    assert cli_mod._read_head_bytes(p, max_bytes=3) == b"abc"
-    assert cli_mod._read_tail_bytes(p, max_bytes=3) == b"def"
+    assert cli_mod._read_head_bytes(p, max_bytes=6) == b"abc\n"
+    assert cli_mod._read_tail_bytes(p, max_bytes=6) == b"ghi\n"
 
 
 def test_read_csv_tail_with_header_returns_tail_when_header_already_present(
@@ -123,3 +123,17 @@ def test_read_csv_tail_with_header_returns_tail_when_header_already_present(
 
     out = cli_mod._read_csv_tail_with_header_bytes(p, max_bytes=1000)
     assert out == b"a,b\n1,2\n"
+
+
+def test_default_watch_read_mode_by_kind(tmp_path: Path) -> None:
+    csv = tmp_path / "x.csv"
+    html = tmp_path / "x.html"
+    txt = tmp_path / "x.log"
+
+    csv.write_text("a,b\n1,2\n", encoding="utf-8")
+    html.write_text("<html></html>", encoding="utf-8")
+    txt.write_text("hello\n", encoding="utf-8")
+
+    assert cli_mod._default_watch_read_mode(csv) == "head"
+    assert cli_mod._default_watch_read_mode(html) == "head"
+    assert cli_mod._default_watch_read_mode(txt) == "tail"

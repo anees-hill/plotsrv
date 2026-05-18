@@ -5,12 +5,36 @@ from typing import Any
 
 from .base import Renderer, RenderResult
 
-
 _RENDERERS: list[Renderer] = []
 
 
 def register_renderer(r: Renderer) -> None:
+    """
+    Register a renderer.
+
+    Registration is idempotent by renderer kind: registering another renderer
+    with the same kind replaces the previous one while preserving the new
+    registration position.
+    """
+    kind = getattr(r, "kind", None)
+
+    if kind is not None:
+        _RENDERERS[:] = [
+            existing
+            for existing in _RENDERERS
+            if getattr(existing, "kind", None) != kind
+        ]
+
     _RENDERERS.append(r)
+
+
+def clear_renderers() -> None:
+    """
+    Clear the renderer registry.
+
+    Mainly useful for tests.
+    """
+    _RENDERERS.clear()
 
 
 def choose_renderer(obj: Any, *, kind_hint: str | None = None) -> Renderer | None:

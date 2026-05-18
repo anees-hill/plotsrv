@@ -254,14 +254,64 @@ def _is_json_artifact_document(obj: Any) -> bool:
     return isinstance(obj, dict) and obj.get("type") == "plotsrv_json_document"
 
 
+def _debug_enabled() -> bool:
+    return os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
+
+
+def _post_publish_payload(
+    *,
+    payload: dict[str, Any],
+    host: str,
+    port: int,
+    debug: bool,
+) -> None:
+    payload = _json_safe(payload)
+
+    url = f"http://{host}:{port}/publish"
+    try:
+        data = json.dumps(payload).encode("utf-8")
+    except Exception:
+        if debug:
+            raise
+        return
+
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            _ = resp.read()
+    except urllib.error.HTTPError as e:
+        if debug:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"plotsrv publish failed: {e.code} {e.reason}\n{body}"
+            ) from e
+        return
+    except Exception:
+        if debug:
+            raise
+        return
+
+
 def _to_publish_payload(
     obj: Any,
     *,
     kind: str,
     label: str,
     section: str | None,
+    view_id: str | None = None,
     update_limit_s: int | None,
     force: bool,
+    artifact_kind: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "kind": kind,
@@ -270,6 +320,9 @@ def _to_publish_payload(
         "update_limit_s": update_limit_s,
         "force": force,
     }
+
+    if view_id is not None:
+        payload["view_id"] = view_id
 
     if kind == "plot":
         fig = _to_figure(obj)
@@ -293,21 +346,26 @@ def _to_publish_payload(
         return payload
 
     if kind == "artifact":
-        if isinstance(obj, dict) and "html" in obj:
+        requested_kind = (artifact_kind or "").strip().lower() or None
+
+        if requested_kind == "html" and isinstance(obj, str):
+            obj = {"html": obj, "unsafe": True}
+
+        if isinstance(obj, dict) and "html" in obj and requested_kind in (None, "html"):
             payload["artifact_kind"] = "html"
             payload["artifact"] = _json_safe(obj)
             return payload
 
-        artifact_kind = _infer_artifact_kind(obj)
-        payload["artifact_kind"] = artifact_kind
+        kind2 = requested_kind or _infer_artifact_kind(obj)
+        payload["artifact_kind"] = kind2
 
-        if artifact_kind == "text":
+        if kind2 == "text":
             if isinstance(obj, (bytes, bytearray)):
                 payload["artifact"] = bytes(obj).decode("utf-8", errors="replace")
             else:
                 payload["artifact"] = str(obj)
 
-        elif artifact_kind == "json":
+        elif kind2 == "json":
             payload["artifact"] = _json_safe(
                 _to_json_artifact_document(
                     obj,
@@ -317,7 +375,20 @@ def _to_publish_payload(
                 )
             )
 
+        elif kind2 == "html":
+            if isinstance(obj, dict):
+                payload["artifact"] = _json_safe(obj)
+            else:
+                payload["artifact"] = {"html": str(obj), "unsafe": True}
+
+        elif kind2 == "markdown":
+            payload["artifact"] = obj if isinstance(obj, dict) else str(obj)
+
+        elif kind2 == "image":
+            payload["artifact"] = _json_safe(obj)
+
         else:
+            # "python" and any unknown explicit artifact kind use repr fallback.
             payload["artifact"] = repr(obj)
 
         return payload
@@ -325,194 +396,133 @@ def _to_publish_payload(
     raise ValueError(f"Unknown publish kind: {kind!r}")
 
 
-def publish_artifact(
+def _try_publish_pathlike_view(
     obj: Any,
     *,
-    host: str = "127.0.0.1",
-    port: int = 8000,
+    host: str,
+    port: int,
     label: str,
-    section: str | None = None,
-    artifact_kind: str | None = None,
-    update_limit_s: int | None = None,
-    force: bool = False,
-) -> None:
-    debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
+    section: str | None,
+    view_id: str | None,
+    artifact_kind: str | None,
+    update_limit_s: int | None,
+    force: bool,
+    debug: bool,
+) -> bool:
+    """
+    Publish a Path-like object if obj is a real filesystem path.
 
-    if artifact_kind == "html" and isinstance(obj, str):
-        obj = {"html": obj, "unsafe": True}
+    Strings are deliberately not treated as paths:
+      publish_view("app.log", label="x") publishes the literal text "app.log"
+      publish_view(Path("app.log"), label="x") publishes the file content
+    """
+    if isinstance(obj, (str, bytes, bytearray)):
+        return False
 
-    # Path-like publishing
-    if not isinstance(obj, (str, bytes, bytearray)):
-        p: Path | None
-        try:
-            p = Path(obj)  # type: ignore[arg-type]
-        except Exception:
-            p = None
+    try:
+        p = Path(obj)  # type: ignore[arg-type]
+    except Exception:
+        return False
 
-        is_pathlike = p is not None and (
-            isinstance(obj, Path) or getattr(obj, "__fspath__", None) is not None
-        )
+    is_pathlike = isinstance(obj, Path) or getattr(obj, "__fspath__", None) is not None
+    if not is_pathlike:
+        return False
 
-        if is_pathlike:
-            try:
-                path = p.expanduser().resolve()
-                if path.exists() and path.is_file():
-                    coerced = coerce_file_to_publishable(path)
+    try:
+        path = p.expanduser().resolve()
+        if not path.exists() or not path.is_file():
+            return False
 
-                    if coerced.publish_kind == "table":
-                        return publish_view(
-                            coerced.obj,
-                            host=host,
-                            port=port,
-                            label=label,
-                            section=section,
-                            update_limit_s=update_limit_s,
-                            force=force,
-                            kind="table",
-                        )
+        coerced = coerce_file_to_publishable(path)
 
-                    ak = artifact_kind or coerced.artifact_kind or "text"
-
-                    if ak == "html":
-                        return publish_artifact(
-                            {"html": str(coerced.obj), "unsafe": True},
-                            host=host,
-                            port=port,
-                            label=label,
-                            section=section,
-                            artifact_kind="html",
-                            update_limit_s=update_limit_s,
-                            force=force,
-                        )
-
-                    if ak == "json":
-                        doc = (
-                            coerced.obj
-                            if _is_json_artifact_document(coerced.obj)
-                            else _to_json_artifact_document(
-                                coerced.obj,
-                                raw_text=coerced.raw_text,
-                                source_format=coerced.source_format or "python_object",
-                                source_filename=coerced.source_filename,
-                            )
-                        )
-
-                        return publish_artifact(
-                            doc,
-                            host=host,
-                            port=port,
-                            label=label,
-                            section=section,
-                            artifact_kind="json",
-                            update_limit_s=update_limit_s,
-                            force=force,
-                        )
-
-                    return publish_artifact(
-                        coerced.obj,
-                        host=host,
-                        port=port,
-                        label=label,
-                        section=section,
-                        artifact_kind=ak,
-                        update_limit_s=update_limit_s,
-                        force=force,
-                    )
-            except Exception as e:
-                if debug:
-                    raise
-                return publish_artifact(
-                    f"[plotsrv] file read/parse error: {type(e).__name__}: {e}",
-                    host=host,
-                    port=port,
-                    label=label,
-                    section=section,
-                    artifact_kind="text",
-                    update_limit_s=update_limit_s,
-                    force=force,
-                )
-
-    if artifact_kind is None:
-        if _is_dataframe(obj):
-            return publish_view(
-                obj,
+        if coerced.publish_kind == "table":
+            publish_view(
+                coerced.obj,
                 host=host,
                 port=port,
                 label=label,
                 section=section,
+                view_id=view_id,
                 update_limit_s=update_limit_s,
                 force=force,
                 kind="table",
             )
+            return True
 
-        if _looks_like_plot(obj):
-            return publish_view(
-                obj,
+        ak = artifact_kind or coerced.artifact_kind or "text"
+
+        if ak == "html":
+            publish_view(
+                {"html": str(coerced.obj), "unsafe": True},
                 host=host,
                 port=port,
                 label=label,
                 section=section,
+                view_id=view_id,
+                artifact_kind="html",
                 update_limit_s=update_limit_s,
                 force=force,
-                kind="plot",
+                kind="artifact",
+            )
+            return True
+
+        if ak == "json":
+            doc = (
+                coerced.obj
+                if _is_json_artifact_document(coerced.obj)
+                else _to_json_artifact_document(
+                    coerced.obj,
+                    raw_text=coerced.raw_text,
+                    source_format=coerced.source_format or "python_object",
+                    source_filename=coerced.source_filename,
+                )
             )
 
-    kind2 = (artifact_kind or "").strip().lower() or None
-    if kind2 is None:
-        if isinstance(obj, (dict, list, tuple)):
-            kind2 = "json"
-        elif isinstance(obj, (str, bytes, bytearray)):
-            kind2 = "text"
-        else:
-            kind2 = "python"
+            publish_view(
+                doc,
+                host=host,
+                port=port,
+                label=label,
+                section=section,
+                view_id=view_id,
+                artifact_kind="json",
+                update_limit_s=update_limit_s,
+                force=force,
+                kind="artifact",
+            )
+            return True
 
-    payload = _to_publish_payload(
-        obj,
-        kind="artifact",
-        label=label,
-        section=section,
-        update_limit_s=update_limit_s,
-        force=force,
-    )
+        publish_view(
+            coerced.obj,
+            host=host,
+            port=port,
+            label=label,
+            section=section,
+            view_id=view_id,
+            artifact_kind=ak,
+            update_limit_s=update_limit_s,
+            force=force,
+            kind="artifact",
+        )
+        return True
 
-    if artifact_kind is not None:
-        payload["artifact_kind"] = artifact_kind
-
-    payload = _json_safe(payload)
-
-    url = f"http://{host}:{port}/publish"
-    try:
-        data = json.dumps(payload).encode("utf-8")
-    except Exception:
+    except Exception as e:
         if debug:
             raise
-        return
 
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
-            _ = resp.read()
-    except urllib.error.HTTPError as e:
-        if debug:
-            body = ""
-            try:
-                body = e.read().decode("utf-8", errors="replace")
-            except Exception:
-                pass
-            raise RuntimeError(
-                f"plotsrv publish failed: {e.code} {e.reason}\n{body}"
-            ) from e
-        return
-    except Exception:
-        if debug:
-            raise
-        return
+        publish_view(
+            f"[plotsrv] file read/parse error: {type(e).__name__}: {e}",
+            host=host,
+            port=port,
+            label=label,
+            section=section,
+            view_id=view_id,
+            artifact_kind="text",
+            update_limit_s=update_limit_s,
+            force=force,
+            kind="artifact",
+        )
+        return True
 
 
 def publish_view(
@@ -522,16 +532,44 @@ def publish_view(
     port: int = 8000,
     label: str,
     section: str | None = None,
+    view_id: str | None = None,
     update_limit_s: int | None = None,
     force: bool = False,
     kind: str | None = None,
+    artifact_kind: str | None = None,
 ) -> None:
-    debug = os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
+    """
+    Publish an object as a plotsrv browser view.
+
+    This is the preferred public publishing API. It accepts anything plotsrv
+    knows how to display: plots, tables, text, JSON-like objects, markdown,
+    HTML payloads, images, path-like files, and generic Python objects.
+    """
+    debug = _debug_enabled()
+
+    if _try_publish_pathlike_view(
+        obj,
+        host=host,
+        port=port,
+        label=label,
+        section=section,
+        view_id=view_id,
+        artifact_kind=artifact_kind,
+        update_limit_s=update_limit_s,
+        force=force,
+        debug=debug,
+    ):
+        return
 
     if kind is None:
-        kind2 = "table" if _is_dataframe(obj) else "plot"
+        if _is_dataframe(obj):
+            kind2 = "table"
+        elif _looks_like_plot(obj):
+            kind2 = "plot"
+        else:
+            kind2 = "artifact"
     else:
-        kind2 = kind
+        kind2 = str(kind).strip().lower()
 
     try:
         payload = _to_publish_payload(
@@ -539,67 +577,14 @@ def publish_view(
             kind=kind2,
             label=label,
             section=section,
+            view_id=view_id,
             update_limit_s=update_limit_s,
             force=force,
+            artifact_kind=artifact_kind,
         )
     except Exception:
         if debug:
             raise
         return
 
-    payload = _json_safe(payload)
-
-    url = f"http://{host}:{port}/publish"
-    try:
-        data = json.dumps(payload).encode("utf-8")
-    except Exception:
-        if debug:
-            raise
-        return
-
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
-            _ = resp.read()
-    except urllib.error.HTTPError as e:
-        if debug:
-            body = ""
-            try:
-                body = e.read().decode("utf-8", errors="replace")
-            except Exception:
-                pass
-            raise RuntimeError(
-                f"plotsrv publish failed: {e.code} {e.reason}\n{body}"
-            ) from e
-        return
-    except Exception:
-        if debug:
-            raise
-        return
-
-
-def plot_launch(
-    obj: Any,
-    *,
-    label: str,
-    section: str | None = None,
-    host: str = "127.0.0.1",
-    port: int = 8000,
-    update_limit_s: int | None = None,
-    force: bool = False,
-) -> None:
-    publish_view(
-        obj,
-        host=host,
-        port=port,
-        label=label,
-        section=section,
-        update_limit_s=update_limit_s,
-        force=force,
-    )
+    _post_publish_payload(payload=payload, host=host, port=port, debug=debug)

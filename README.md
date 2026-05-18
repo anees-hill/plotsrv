@@ -69,36 +69,40 @@ You can also start the server from Python if needed.
 
 The main pattern is to decorate functions whose output you want to expose:
 
-``` python
-from plotsrv import plotsrv
+```python
+import plotsrv as ps
 
-@plotsrv(label="sales", section="insights")
+@ps.view(label="sales", section="insights")
 def sales_plot():
     return fig
 
-@plotsrv(label="latest", section="insights")
+@ps.view(label="latest", section="insights")
 def latest_results():
     return df
 ```
 
 `plotsrv` inspects the returned object and chooses an appropriate renderer automatically.
 
-You can also publish artifacts directly instead of using decorators:
+You can also publish views directly instead of using decorators:
 
 ``` python
-from plotsrv import publish_artifact
+import plotsrv as ps
 
-publish_artifact({"status": "ok", "rows": 123}, label="summary")
+ps.publish_view({"status": "ok", "rows": 123}, label="summary")
 ```
 
 ## Watching files on disk
 
-`plotsrv` can also expose files directly from disk, which is useful for logs, reports, HTML files, JSON outputs, CSVs, and generated artifacts.
+`plotsrv` can expose files directly from disk, which is useful for logs, reports, HTML files, JSON outputs, CSVs, and generated artifacts.
 
-``` bash
-plotsrv run src.etl --host 127.0.0.1 --port 8000 \
-  --watch /var/log/etl_log.txt --watch-label etl-log --watch-section log-files --watch-tail --no-truncate
+For quick use:
+
+```bash
+plotsrv run --host 127.0.0.1 --port 8000 \
+  --watch /var/log/etl_log.txt --watch-label etl-log --watch-section log-files --watch-tail
 ```
+
+
 
 ## License
 

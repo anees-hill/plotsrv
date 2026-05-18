@@ -18,7 +18,8 @@ _ICON_SRC = {
     "text": "/static/logo_txt.png",
     "markdown": "/static/logo_markdown.png",
     "html": "/static/logo_html.png",
-    "exception": "/static/logo_exception.png",
+    "traceback": "/static/logo_exception.png",
+    "exception": "/static/logo_exception.png",  # legacy alias
 }
 
 

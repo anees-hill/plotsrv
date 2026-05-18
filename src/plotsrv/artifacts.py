@@ -6,7 +6,16 @@ from datetime import datetime
 from typing import Any, Literal
 
 ArtifactKind = Literal[
-    "plot", "table", "text", "json", "python", "markdown", "image", "html", "exception"
+    "plot",
+    "table",
+    "text",
+    "json",
+    "python",
+    "markdown",
+    "image",
+    "html",
+    "traceback",
+    "exception",  # legacy alias
 ]
 
 

@@ -15,41 +15,29 @@ from plotsrv.discovery import (
 )
 
 
-def test_discover_views_finds_plot_table_and_plotsrv(tmp_path: Path) -> None:
+def test_discover_views_finds_view(tmp_path: Path) -> None:
     p = tmp_path / "a.py"
     p.write_text(
         """
-from plotsrv.decorators import plot, table, plotsrv
+from plotsrv import view
 
-@plot(label="L1", section="S1", port=8000)
+@view(label="V1", section="Vsec")
 def f1():
     pass
 
-@table()
+@view()
 def f2():
-    pass
-
-@plotsrv(label="A1", section="Asec", port=8000)
-def f3():
     pass
 """.strip(),
         encoding="utf-8",
     )
 
     found = discover_views(tmp_path)
-    # stable sort: by section then label (empty section first)
-    # f2 has section None, label defaults to function name
-    assert [v.kind for v in found] == ["table", "artifact", "plot"]
-    assert found[0].label == "f2"
-    assert found[0].section is None
 
-    assert found[1].kind == "artifact"
-    assert found[1].label == "A1"
-    assert found[1].section == "Asec"
-
-    assert found[2].kind == "plot"
-    assert found[2].label == "L1"
-    assert found[2].section == "S1"
+    assert [(v.kind, v.label, v.section) for v in found] == [
+        ("artifact", "f2", None),
+        ("artifact", "V1", "Vsec"),
+    ]
 
 
 def test_discover_views_ignores_syntax_errors(tmp_path: Path) -> None:
@@ -64,9 +52,9 @@ def test_discover_views_single_file_path(tmp_path: Path) -> None:
     p = tmp_path / "one.py"
     p.write_text(
         """
-from plotsrv.decorators import plot
+from plotsrv import view
 
-@plot()
+@view()
 def f():
     pass
 """.strip(),
@@ -75,7 +63,7 @@ def f():
 
     found = discover_views(p)
     assert len(found) == 1
-    assert found[0].kind == "plot"
+    assert found[0].kind == "artifact"
     assert found[0].label == "f"
 
 
@@ -98,34 +86,29 @@ def test_extract_kw_helpers_handle_constants_and_wrong_types() -> None:
 
 def test_decorator_name_handles_name_attribute_call_and_unknown() -> None:
     src = """
-@plot
+@view
 def a():
     pass
 
-@plotsrv.plot()
+@ps.view()
 def b():
     pass
 
-@module.table
+@unknown()
 def c():
     pass
 
-@unknown()
-def d():
-    pass
-
 @factory("x")
-def e():
+def d():
     pass
 """
     tree = ast.parse(src)
     funcs = [node for node in tree.body if isinstance(node, ast.FunctionDef)]
 
-    assert _decorator_name(funcs[0].decorator_list[0]) == "plot"
-    assert _decorator_name(funcs[1].decorator_list[0]) == "plot"
-    assert _decorator_name(funcs[2].decorator_list[0]) == "table"
-    assert _decorator_name(funcs[3].decorator_list[0]) == "unknown"
-    assert _decorator_name(funcs[4].decorator_list[0]) == "factory"
+    assert _decorator_name(funcs[0].decorator_list[0]) == "view"
+    assert _decorator_name(funcs[1].decorator_list[0]) == "view"
+    assert _decorator_name(funcs[2].decorator_list[0]) == "unknown"
+    assert _decorator_name(funcs[3].decorator_list[0]) == "factory"
 
     assert _decorator_name(ast.Constant(value=1)) is None
 
@@ -134,14 +117,10 @@ def test_discover_views_handles_attribute_decorators(tmp_path: Path) -> None:
     p = tmp_path / "attr.py"
     p.write_text(
         """
-import plotsrv
+import plotsrv as ps
 
-@plotsrv.plot(label="Plot Label", section="S")
-def make_plot():
-    pass
-
-@plotsrv.table
-def make_table():
+@ps.view(label="Generic View", section="V")
+def make_view():
     pass
 """.strip(),
         encoding="utf-8",
@@ -150,8 +129,7 @@ def make_table():
     found = discover_views(tmp_path)
 
     assert [(x.kind, x.label, x.section) for x in found] == [
-        ("table", "make_table", None),
-        ("plot", "Plot Label", "S"),
+        ("artifact", "Generic View", "V"),
     ]
 
 
@@ -161,9 +139,9 @@ def test_discover_views_falls_back_when_label_or_section_not_string(
     p = tmp_path / "fallback.py"
     p.write_text(
         """
-from plotsrv import plot
+from plotsrv import view
 
-@plot(label=123, section=456)
+@view(label=123, section=456)
 def fallback_name():
     pass
 """.strip(),
@@ -173,7 +151,7 @@ def fallback_name():
     found = discover_views(tmp_path)
 
     assert len(found) == 1
-    assert found[0].kind == "plot"
+    assert found[0].kind == "artifact"
     assert found[0].label == "fallback_name"
     assert found[0].section is None
 
@@ -204,9 +182,9 @@ def test_discover_views_ignores_files_that_cannot_be_read(
     p = tmp_path / "x.py"
     p.write_text(
         """
-from plotsrv import plot
-
-@plot()
+from plotsrv import view
+ 
+@view()
 def f():
     pass
 """.strip(),
@@ -226,9 +204,9 @@ def test_discover_views_ignores_non_python_single_file(tmp_path: Path) -> None:
     p = tmp_path / "not_python.txt"
     p.write_text(
         """
-from plotsrv import plot
+from plotsrv import view 
 
-@plot()
+@view()
 def f():
     pass
 """.strip(),

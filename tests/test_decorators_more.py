@@ -1,8 +1,6 @@
 # tests/test_decorators_more.py
 from __future__ import annotations
 
-import os
-
 import pytest
 
 import plotsrv.decorators as dec
@@ -24,7 +22,7 @@ def test_on_error_publish_swallows(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(dec, "publish_traceback", fake_publish_traceback)
 
-    @dec.plot(port=8000, on_error="publish")
+    @dec.view(port=8000, on_error="publish")
     def boom() -> int:
         raise ValueError("x")
 
@@ -41,7 +39,7 @@ def test_on_error_publish_and_raise(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(dec, "publish_traceback", fake_publish_traceback)
 
-    @dec.table(port=8000, on_error="publish_and_raise")
+    @dec.view(port=8000, on_error="publish_and_raise")
     def boom() -> int:
         raise RuntimeError("x")
 
@@ -52,7 +50,6 @@ def test_on_error_publish_and_raise(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_debug_env_reraises_publish_failures(monkeypatch: pytest.MonkeyPatch) -> None:
-    # If publish_view fails and PLOTSRV_DEBUG=1, wrapper should raise.
     monkeypatch.setenv("PLOTSRV_DEBUG", "1")
 
     def fake_publish_view(*args: object, **kwargs: object) -> None:
@@ -60,7 +57,7 @@ def test_debug_env_reraises_publish_failures(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(dec, "publish_view", fake_publish_view)
 
-    @dec.plot(port=8000)
+    @dec.view(port=8000)
     def ok() -> int:
         return 1
 
@@ -68,15 +65,15 @@ def test_debug_env_reraises_publish_failures(monkeypatch: pytest.MonkeyPatch) ->
         ok()
 
 
-def test_plotsrv_class_wrap_publishes_json(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_view_class_wrap_publishes_json(monkeypatch: pytest.MonkeyPatch) -> None:
     calls: list[dict[str, object]] = []
 
-    def fake_publish_artifact(obj: object, **kwargs: object) -> None:
+    def fake_publish_view(obj: object, **kwargs: object) -> None:
         calls.append({"obj": obj, **kwargs})
 
-    monkeypatch.setattr(dec, "publish_artifact", fake_publish_artifact)
+    monkeypatch.setattr(dec, "publish_view", fake_publish_view)
 
-    @dec.plotsrv(port=8000, label="MyCls", section="sec")
+    @dec.view(port=8000, label="MyCls", section="sec")
     class MyCls:
         def __init__(self, x: int) -> None:
             self.x = x

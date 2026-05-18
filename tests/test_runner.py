@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import pandas as pd
 
-from plotsrv.decorators import plot, table
+from plotsrv.decorators import view
 from plotsrv.runner import (
     infer_kind_from_value,
     run_once,
@@ -11,25 +11,26 @@ from plotsrv.runner import (
 )
 
 
-def test_run_once_uses_decorator_kind_and_label_plot() -> None:
-    @plot(label="p1")
+def test_run_once_uses_view_decorator_kind_and_label() -> None:
+    @view(label="p1")
     def f() -> int:
         return 123
 
     res = run_once(f)
-    assert res.kind == "plot"
+    assert res.kind == "artifact"
     assert res.label == "p1"
     assert res.value == 123
 
 
-def test_run_once_uses_decorator_kind_and_label_table() -> None:
-    @table(label="t1")
+def test_run_once_uses_view_decorator_section_is_not_returned() -> None:
+    @view(label="t1", section="s1")
     def f() -> list[int]:
         return [1, 2, 3]
 
     res = run_once(f)
-    assert res.kind == "table"
+    assert res.kind == "artifact"
     assert res.label == "t1"
+    assert res.value == [1, 2, 3]
 
 
 def test_run_once_rejects_required_args() -> None:
@@ -53,8 +54,8 @@ def test_infer_kind_from_pandas_dataframe() -> None:
     assert infer_kind_from_value(df) == "table"
 
 
-def test_infer_kind_from_non_dataframe_defaults_plot() -> None:
-    assert infer_kind_from_value({"not": "a dataframe"}) == "plot"
+def test_infer_kind_from_non_dataframe_defaults_artifact() -> None:
+    assert infer_kind_from_value({"not": "a dataframe"}) == "artifact"
 
 
 def test_validate_zero_arg_callable_allows_args_and_kwargs() -> None:
@@ -80,12 +81,12 @@ def test_run_once_infers_table_for_undecorated_dataframe() -> None:
     assert list(res.value.columns) == ["a"]
 
 
-def test_run_once_infers_plot_for_undecorated_non_dataframe() -> None:
+def test_run_once_infers_artifact_for_undecorated_non_dataframe() -> None:
     def f() -> dict[str, int]:
         return {"a": 1}
 
     res = run_once(f)
 
-    assert res.kind == "plot"
+    assert res.kind == "artifact"
     assert res.label is None
     assert res.value == {"a": 1}

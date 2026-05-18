@@ -11,6 +11,35 @@ from .ui_config import UISettings, get_ui_settings
 ViewKind = Literal["none", "plot", "table", "artifact"]
 
 
+def _escape_html(s: object) -> str:
+    return (
+        str(s)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
+def _escape_attr(s: object) -> str:
+    return _escape_html(s).replace("\n", " ").replace("\r", " ")
+
+
+def _safe_url_attr(s: object, *, default: str = "") -> str:
+    raw = str(s or "").strip()
+    if not raw:
+        return default
+
+    # Allow ordinary static/app paths, relative paths, and http(s) assets.
+    # Block javascript: and other active schemes.
+    low = raw.lower()
+    if low.startswith(("javascript:", "data:text/html")):
+        return default
+
+    return _escape_attr(raw)
+
+
 def render_index(
     *,
     kind: ViewKind,
@@ -29,10 +58,14 @@ def render_index(
     ui = ui_settings or get_ui_settings()
     views = views or []
     active_view_id = active_view_id or "default"
+    active_view_id_attr = _escape_attr(active_view_id)
     view_freshness = view_freshness or {}
 
-    page_title = getattr(ui, "page_title", None) or "plotsrv - live view"
-    favicon_url = getattr(ui, "favicon_url", None) or "/static/plotsrv_favicon.png"
+    page_title = _escape_html(getattr(ui, "page_title", None) or "plotsrv - live view")
+    favicon_url = _safe_url_attr(
+        getattr(ui, "favicon_url", None) or "/static/plotsrv_favicon.png",
+        default="/static/plotsrv_favicon.png",
+    )
 
     tabulator_head = ""
     include_tabulator = kind in ("table", "artifact") and table_view_mode != "simple"
@@ -121,7 +154,8 @@ def render_index(
         "markdown": "/static/logo_markdown.png",
         "json": "/static/logo_json.png",
         "python": "/static/logo_python.png",
-        "exception": "/static/logo_exception.png",
+        "traceback": "/static/logo_exception.png",
+        "exception": "/static/logo_exception.png",  # legacy alias
         "text": "/static/logo_txt.png",
         "html": "/static/logo_html.png",
     }
@@ -164,7 +198,7 @@ def render_index(
         age_s = freshness.get("age_s")
         age = f" ({age_s}s old)" if isinstance(age_s, int | float) else ""
 
-        return f' title="{label}{age}"'
+        return f' title="{_escape_attr(label + age)}"'
 
     dropdown_html = ""
     if getattr(ui, "show_view_selector", True) and len(views) > 0:
@@ -182,18 +216,25 @@ def render_index(
             if v.view_id == active_view_id:
                 active_meta = v
                 break
-        active_label = active_meta.label if active_meta else active_view_id
-        active_icon = _icon_url(active_meta)
+        active_label = _escape_html(
+            active_meta.label if active_meta else active_view_id
+        )
+        active_icon = _safe_url_attr(_icon_url(active_meta))
 
         menu_parts: list[str] = []
         for sec in sections:
             menu_parts.append('<div class="ps-viewselect__group">')
-            menu_parts.append(f'<div class="ps-viewselect__group-label">{sec}</div>')
+            menu_parts.append(
+                f'<div class="ps-viewselect__group-label">{_escape_html(sec)}</div>'
+            )
             menu_parts.append('<div class="ps-viewselect__group-items">')
 
             for v in groups[sec]:
+                view_id_attr = _escape_attr(v.view_id)
+                icon = _safe_url_attr(_icon_url(v))
+                label_html = _escape_html(v.label)
+
                 is_sel = "true" if v.view_id == active_view_id else "false"
-                icon = _icon_url(v)
                 freshness_class = _freshness_class(v)
                 freshness_title = _freshness_title(v)
 
@@ -202,10 +243,10 @@ def render_index(
                             class="ps-viewselect__item{freshness_class}"
                             role="option"
                             aria-selected="{is_sel}"
-                            data-plotsrv-view="{v.view_id}"{freshness_title}>
-                      <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{v.view_id}" hidden aria-hidden="true"></span>
+                            data-plotsrv-view="{view_id_attr}"{freshness_title}>
+                      <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{view_id_attr}" hidden aria-hidden="true"></span>
                       <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
-                      <span class="ps-viewselect__itemlabel">{v.label}</span>
+                      <span class="ps-viewselect__itemlabel">{label_html}</span>
                     </button>
                     """)
 
@@ -379,7 +420,7 @@ def render_index(
 
         content_html = f"""
           <div class="plot-frame ps-frame ps-frame--plot plot-frame--plot">
-            <img id="plot" class="ps-plot" src="/plot?view={active_view_id}" alt="Current plot (or none yet)" />
+            <img id="plot" class="ps-plot" src="/plot?view={active_view_id_attr}" alt="Current plot (or none yet)" />
           </div>
         """
         footer_html = _footer_html(controls_html=controls_html)
@@ -419,16 +460,16 @@ def render_index(
         content_html = """
           <div class="plot-frame empty ps-frame ps-frame--empty plot-frame--empty">
             <div class="empty-state ps-empty">
-              No plot or table has been published yet.<br />
-              Call <code>refresh_view(fig)</code> or <code>refresh_view(df)</code> in Python.
+              Waiting for views.<br />
+              plotsrv is running and ready to receive plots, tables, and artifacts from Python. 
             </div>
           </div>
         """
         footer_html = _footer_html(controls_html=controls_html)
 
-    header_fill = ui.header_fill_colour or "#ffffff"
-    header_text = ui.header_text or ""
-    logo_url = ui.logo_url or "/static/plotsrv_title_logo.png"
+    header_fill = _escape_attr(ui.header_fill_colour or "#ffffff")
+    header_text = _escape_html(ui.header_text or "")
+    logo_url = _safe_url_attr(ui.logo_url or "/static/plotsrv_title_logo.png")
 
     cfg_json = json.dumps(
         {
@@ -471,7 +512,7 @@ def render_index(
     </head>
     <body class="ps-body"
           data-kind="{kind}"
-          data-view="{active_view_id}"
+          data-view="{active_view_id_attr}"
           data-table-mode="{table_view_mode}">
       <header class="header ps-header" style="background:{header_fill};">
         <div class="header-left ps-header__left">

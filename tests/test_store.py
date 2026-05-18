@@ -104,14 +104,57 @@ def test_set_active_view_affects_backcompat_calls() -> None:
 
 def test_should_accept_publish_throttles_when_limit_set() -> None:
     vid = store.register_view(section="s", label="x")
-    assert store.should_accept_publish(view_id=vid, update_limit_s=10, now_s=100.0) is True
+    assert (
+        store.should_accept_publish(view_id=vid, update_limit_s=10, now_s=100.0) is True
+    )
     # immediately again -> reject
-    assert store.should_accept_publish(view_id=vid, update_limit_s=10, now_s=105.0) is False
+    assert (
+        store.should_accept_publish(view_id=vid, update_limit_s=10, now_s=105.0)
+        is False
+    )
     # after window -> accept
-    assert store.should_accept_publish(view_id=vid, update_limit_s=10, now_s=110.0) is True
+    assert (
+        store.should_accept_publish(view_id=vid, update_limit_s=10, now_s=110.0) is True
+    )
 
 
 def test_should_accept_publish_accepts_when_no_limit() -> None:
     vid = store.register_view(section="s", label="x")
-    assert store.should_accept_publish(view_id=vid, update_limit_s=None, now_s=0.0) is True
-    assert store.should_accept_publish(view_id=vid, update_limit_s=None, now_s=0.1) is True
+    assert (
+        store.should_accept_publish(view_id=vid, update_limit_s=None, now_s=0.0) is True
+    )
+    assert (
+        store.should_accept_publish(view_id=vid, update_limit_s=None, now_s=0.1) is True
+    )
+
+
+def test_traceback_artifact_uses_traceback_icon_key() -> None:
+    store.set_artifact(
+        obj={"type": "traceback", "frames": []},
+        kind="traceback",
+        label="err",
+        section="ops",
+        view_id="ops:err",
+    )
+
+    art = store.get_artifact(view_id="ops:err")
+    assert art.kind == "traceback"
+
+    views = {v.view_id: v for v in store.list_views()}
+    assert views["ops:err"].icon_key == "traceback"
+
+
+def test_exception_artifact_alias_uses_traceback_icon_key() -> None:
+    store.set_artifact(
+        obj={"type": "traceback", "frames": []},
+        kind="exception",
+        label="err",
+        section="ops",
+        view_id="ops:err",
+    )
+
+    art = store.get_artifact(view_id="ops:err")
+    assert art.kind == "exception"
+
+    views = {v.view_id: v for v in store.list_views()}
+    assert views["ops:err"].icon_key == "traceback"

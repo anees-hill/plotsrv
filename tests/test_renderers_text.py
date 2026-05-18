@@ -53,8 +53,7 @@ def test_to_text_and_anchor_repr_fallback() -> None:
 
 def test_text_renderer_includes_new_toolbar_controls(monkeypatch) -> None:
     monkeypatch.setattr(
-        "plotsrv.config.get_truncation_max_chars",
-        lambda kind: 100,
+        "plotsrv.config.get_truncation_max_chars", lambda kind, view_id=None: 100
     )
 
     out = TextRenderer().render("INFO hello", view_id="v1")
@@ -69,11 +68,29 @@ def test_text_renderer_includes_new_toolbar_controls(monkeypatch) -> None:
 
 def test_text_renderer_tail_anchor_metadata(monkeypatch) -> None:
     monkeypatch.setattr(
-        "plotsrv.config.get_truncation_max_chars",
-        lambda kind: 100,
+        "plotsrv.config.get_truncation_max_chars", lambda kind, view_id=None: 100
     )
 
     out = TextRenderer().render(TextPayload("hello", anchor="tail"), view_id="v1")
 
     assert out.meta["anchor"] == "tail"
     assert 'data-plotsrv-text-anchor="tail"' in out.html
+
+
+def test_text_renderer_passes_view_id_to_truncation_config(monkeypatch) -> None:
+    calls = []
+
+    def fake_get_truncation_max_chars(kind, view_id=None):
+        calls.append((kind, view_id))
+        return 5
+
+    monkeypatch.setattr(
+        "plotsrv.config.get_truncation_max_chars",
+        fake_get_truncation_max_chars,
+    )
+
+    out = TextRenderer().render("abcdefghijk", view_id="logs:api")
+
+    assert calls == [("text", "logs:api")]
+    assert out.truncation is not None
+    assert out.truncation.truncated is True
