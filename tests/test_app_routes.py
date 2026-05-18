@@ -72,9 +72,9 @@ def test_index_none_shows_empty_state(client: TestClient) -> None:
     store.reset()
     resp = client.get("/")
     text = resp.text
-    assert "No view has been published yet" in text
-    assert "publish_view" in text
-    assert "refresh_view" in text
+    assert "Waiting for views" in text
+    assert "plotsrv is running" in text
+    assert "from Python" in text
 
 
 def test_index_plot_embeds_image(client: TestClient) -> None:

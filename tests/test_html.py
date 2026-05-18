@@ -187,6 +187,6 @@ def test_render_index_empty_state_mentions_publish_view_and_refresh_view() -> No
         active_view_id="default",
     )
 
-    assert "No view has been published yet" in html
-    assert "publish_view" in html
-    assert "refresh_view" in html
+    assert "Waiting for views" in html
+    assert "plotsrv is running" in html
+    assert "from Python" in html
