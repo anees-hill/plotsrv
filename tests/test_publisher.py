@@ -133,3 +133,96 @@ def test_publish_view_swallows_errors(monkeypatch) -> None:
 
     # should not raise
     publish_view(pd.DataFrame({"a": [1]}), label="x", host="127.0.0.1", port=8000)
+
+
+def test_publish_view_without_host_port_uses_local_refresh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_refresh_view(obj: Any, **kwargs: Any) -> None:
+        captured["obj"] = obj
+        captured["kwargs"] = kwargs
+
+    import plotsrv.server as srv
+
+    monkeypatch.setattr(srv, "refresh_view", fake_refresh_view)
+
+    df = pd.DataFrame({"a": [1, 2]})
+    publish_view(df, label="Data", section="EDA")
+
+    assert captured["obj"] is df
+    assert captured["kwargs"] == {
+        "label": "Data",
+        "section": "EDA",
+        "view_id": None,
+        "kind": None,
+        "artifact_kind": None,
+    }
+
+
+def test_publish_view_without_label_allowed_in_local_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_refresh_view(obj: Any, **kwargs: Any) -> None:
+        captured["obj"] = obj
+        captured["kwargs"] = kwargs
+
+    import plotsrv.server as srv
+
+    monkeypatch.setattr(srv, "refresh_view", fake_refresh_view)
+
+    df = pd.DataFrame({"a": [1]})
+    publish_view(df)
+
+    assert captured["obj"] is df
+    assert captured["kwargs"]["label"] is None
+    assert captured["kwargs"]["section"] is None
+    assert captured["kwargs"]["view_id"] is None
+
+
+def test_publish_view_with_host_uses_remote_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float):
+        captured["url"] = req.full_url
+        captured["data"] = req.data
+        return DummyResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    publish_view(
+        pd.DataFrame({"a": [1]}),
+        label="Remote",
+        host="127.0.0.1",
+    )
+
+    assert captured["url"] == "http://127.0.0.1:8000/publish"
+    payload = json.loads(captured["data"].decode("utf-8"))
+    assert payload["label"] == "Remote"
+    assert payload["kind"] == "table"
+
+
+def test_publish_view_with_port_uses_remote_http_default_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float):
+        captured["url"] = req.full_url
+        captured["data"] = req.data
+        return DummyResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    publish_view(
+        pd.DataFrame({"a": [1]}),
+        label="Remote",
+        port=9999,
+    )
+
+    assert captured["url"] == "http://127.0.0.1:9999/publish"
