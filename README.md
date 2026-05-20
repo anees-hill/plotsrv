@@ -25,7 +25,7 @@
 **Lightweight observability for Python processes with instant UI**
 
 > **Live demo:** https://demo.plotsrv.com  
-> See plotsrv render plots, tables, JSON, and HTML from real sensor data.
+> See plotsrv render live plots, tables, JSON, and HTML from real sensor data.
 
 `plotsrv` is a lightweight Python server for exposing live Python objects and on-disk files in a single browser UI. It gives you quick visibility into pipelines, experiments, batch jobs, and long-running processes without needing a full observability stack.
 
@@ -46,50 +46,127 @@ It can also watch files on disk and expose them in the same UI.
 
 # Get going
 
-1. **Install plotsrv**
+Install plotsrv:
+
 ```bash
 pip install plotsrv
 ```
-Or
+
+Or:
+
 ```bash
 uv add plotsrv
 ```
 
-2.  **Start the server**
-
-Provide a script, module or entire package: 
-
-``` bash
-plotsrv run your_module.py --host 127.0.0.1 --port 8000
-```
-
-You can also start the server from Python if needed.
-
-3.  **Expose views from your code**
-
-The main pattern is to decorate functions whose output you want to expose:
+plotsrv can be used in an interactive session. Open a Python session and publish an object:
 
 ```python
 import plotsrv as ps
 
-@ps.view(label="sales", section="insights")
-def sales_plot():
-    return fig
+summary = {
+    "status": "ok",
+    "rows_processed": 123,
+    "checks": {
+        "schema_valid": True,
+        "missing_values": 0,
+        "duplicates": 2,
+    },
+}
 
-@ps.view(label="latest", section="insights")
-def latest_results():
-    return df
+ps.publish_view(summary, label="summary", section="demo")
 ```
 
-`plotsrv` inspects the returned object and chooses an appropriate renderer automatically.
+Open the viewer at:
 
-You can also publish views directly instead of using decorators:
+```text
+http://127.0.0.1:8000
+```
 
-``` python
+`publish_view()` starts a local plotsrv server automatically when needed (attached to the process).
+
+To serve the viewer on a custom host or port, use explicit local mode:
+
+## Passive server workflow
+
+For process **observability** (longer-running scripts, batch jobs, pipelines, etc.), you can run a separate plotsrv server and publish updates to it from your normal Python code.
+
+### 1. Adjust your code to publish views
+
+The most natural pattern is to add `@view` to a function that already produces something useful:
+
+```python
+# demo_view.py
 import plotsrv as ps
 
-ps.publish_view({"status": "ok", "rows": 123}, label="summary")
+@ps.view(
+    label="daily import",
+    section="pipelines",
+    host="127.0.0.1",
+    port=8000,
+)
+def daily_import_status():
+    return {
+        "job": "daily-import",
+        "status": "ok",
+        "rows_processed": 123,
+        "warnings": ["2 duplicate rows found"],
+    }
+
+# Your code can still run as normal.
+status = daily_import_status()
+print(status)
 ```
+
+When `daily_import_status()` is called, it returns the same object as usual and also publishes that object to the plotsrv server.
+
+You can also publish directly with `publish_view()` when you already have an object:
+
+```python
+# demo_pipeline.py
+import plotsrv as ps
+
+result = {
+    "job": "daily-import",
+    "status": "ok",
+    "rows_processed": 123,
+    "warnings": ["2 duplicate rows found"],
+}
+
+ps.publish_view(
+    result,
+    mode="remote",
+    host="127.0.0.1",
+    port=8000,
+    label="daily import",
+    section="pipelines",
+)
+```
+
+### 2. Start the server
+
+In a terminal, start plotsrv against the script, module, or package you want it to inspect:
+
+```bash
+plotsrv run demo_pipeline.py --host 127.0.0.1 --port 8000
+```
+
+The server uses static discovery to pre-populate views where possible.
+
+### 3. Run your script as normal
+
+Run your python script/process as usual. i.e:
+
+```bash
+python demo_pipeline.py
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8000
+```
+
+The published view should appear in the browser UI.
 
 ## Watching files on disk
 
