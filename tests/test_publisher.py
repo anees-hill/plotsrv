@@ -5,6 +5,7 @@ import urllib.request
 import pandas as pd
 import pytest
 import matplotlib.pyplot as plt
+from typing import Any
 
 from plotsrv.publisher import publish_view
 
@@ -140,17 +141,27 @@ def test_publish_view_without_host_port_uses_local_refresh(
 ) -> None:
     captured: dict[str, Any] = {}
 
+    def fake_start_server(**kwargs: Any) -> None:
+        captured["start_server"] = kwargs
+
     def fake_refresh_view(obj: Any, **kwargs: Any) -> None:
         captured["obj"] = obj
         captured["kwargs"] = kwargs
 
     import plotsrv.server as srv
 
+    monkeypatch.setattr(srv, "start_server", fake_start_server)
     monkeypatch.setattr(srv, "refresh_view", fake_refresh_view)
 
     df = pd.DataFrame({"a": [1, 2]})
     publish_view(df, label="Data", section="EDA")
 
+    assert captured["start_server"] == {
+        "host": "127.0.0.1",
+        "port": 8000,
+        "auto_on_show": True,
+        "quiet": True,
+    }
     assert captured["obj"] is df
     assert captured["kwargs"] == {
         "label": "Data",
@@ -166,17 +177,27 @@ def test_publish_view_without_label_allowed_in_local_mode(
 ) -> None:
     captured: dict[str, Any] = {}
 
+    def fake_start_server(**kwargs: Any) -> None:
+        captured["start_server"] = kwargs
+
     def fake_refresh_view(obj: Any, **kwargs: Any) -> None:
         captured["obj"] = obj
         captured["kwargs"] = kwargs
 
     import plotsrv.server as srv
 
+    monkeypatch.setattr(srv, "start_server", fake_start_server)
     monkeypatch.setattr(srv, "refresh_view", fake_refresh_view)
 
     df = pd.DataFrame({"a": [1]})
     publish_view(df)
 
+    assert captured["start_server"] == {
+        "host": "127.0.0.1",
+        "port": 8000,
+        "auto_on_show": True,
+        "quiet": True,
+    }
     assert captured["obj"] is df
     assert captured["kwargs"]["label"] is None
     assert captured["kwargs"]["section"] is None
@@ -226,3 +247,83 @@ def test_publish_view_with_port_uses_remote_http_default_host(
     )
 
     assert captured["url"] == "http://127.0.0.1:9999/publish"
+
+
+def test_publish_view_mode_local_uses_host_port_as_server_bind(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls["start_server"] = kwargs
+
+    def fake_refresh_view(obj: Any, **kwargs: Any) -> None:
+        calls["refresh_view"] = {"obj": obj, **kwargs}
+
+    import plotsrv.server as srv
+
+    monkeypatch.setattr(srv, "start_server", fake_start_server)
+    monkeypatch.setattr(srv, "refresh_view", fake_refresh_view)
+
+    df = pd.DataFrame({"a": [1]})
+
+    publish_view(
+        df,
+        mode="local",
+        host="0.0.0.0",
+        port=8998,
+        label="Data",
+        section="EDA",
+    )
+
+    assert calls["start_server"] == {
+        "host": "0.0.0.0",
+        "port": 8998,
+        "auto_on_show": True,
+        "quiet": True,
+    }
+    assert calls["refresh_view"]["obj"] is df
+    assert calls["refresh_view"]["label"] == "Data"
+    assert calls["refresh_view"]["section"] == "EDA"
+
+
+def test_publish_view_mode_remote_without_host_port_uses_default_remote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float):
+        captured["url"] = req.full_url
+        captured["data"] = req.data
+        return DummyResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    publish_view(
+        pd.DataFrame({"a": [1]}),
+        mode="remote",
+        label="Remote",
+    )
+
+    assert captured["url"] == "http://127.0.0.1:8000/publish"
+    payload = json.loads(captured["data"].decode("utf-8"))
+    assert payload["kind"] == "table"
+    assert payload["label"] == "Remote"
+
+
+def test_publish_view_invalid_mode_swallowed_when_not_debug(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("PLOTSRV_DEBUG", raising=False)
+
+    # Should not raise.
+    publish_view(pd.DataFrame({"a": [1]}), mode="bad")
+
+
+def test_publish_view_invalid_mode_raises_in_debug(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("PLOTSRV_DEBUG", "1")
+
+    with pytest.raises(ValueError, match="mode must be one of"):
+        publish_view(pd.DataFrame({"a": [1]}), mode="bad")
