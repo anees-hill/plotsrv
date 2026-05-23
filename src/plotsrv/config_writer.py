@@ -55,6 +55,14 @@ render-settings:
 storage-settings:
   enabled: false
   root_dir: .plotsrv/store
+
+  # Latest live-state persistence.
+  # When enabled, plotsrv can restore the most recent live view after restart.
+  latest:
+    enabled: false
+    restore_on_startup: true
+
+  # Historical snapshots.
   default_keep_last: 2
   max_snapshot_size_mb: 20
 
@@ -226,6 +234,7 @@ def populate_freshness(
     warn_after: str = "90s",
     overdue_after: str = "180s",
 ) -> ConfigPopulateResult:
+
     def ensure(data: dict[str, Any]) -> dict[str, Any]:
         sec = _ensure_mapping(data, "freshness-settings")
         sec["enabled"] = True
@@ -260,10 +269,16 @@ def populate_storage(
     min_store_interval: str | None = None,
     max_snapshot_size_mb: float | None = None,
 ) -> ConfigPopulateResult:
+
     def ensure(data: dict[str, Any]) -> dict[str, Any]:
         sec = _ensure_mapping(data, "storage-settings")
         sec["enabled"] = True
         sec.setdefault("root_dir", ".plotsrv/store")
+
+        latest = _ensure_mapping(sec, "latest")
+        latest.setdefault("enabled", False)
+        latest.setdefault("restore_on_startup", True)
+
         sec.setdefault("default_keep_last", keep_last)
         return sec
 
