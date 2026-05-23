@@ -7,6 +7,7 @@ import ipaddress
 import time
 from pathlib import Path
 from typing import Any
+from datetime import datetime, timezone
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -148,7 +149,12 @@ def _storage_root() -> Path:
     return config.get_storage_root_dir()
 
 
-def _snapshot_summary_dict(snap: Any) -> dict[str, Any]:
+def _snapshot_summary_dict(
+    snap: Any,
+    *,
+    is_latest: bool = False,
+    is_live_equivalent: bool = False,
+) -> dict[str, Any]:
     return {
         "snapshot_id": snap.snapshot_id,
         "view_id": snap.view_id,
@@ -160,8 +166,56 @@ def _snapshot_summary_dict(snap: Any) -> dict[str, Any]:
         "payload_format": snap.payload_format,
         "size_bytes": snap.size_bytes,
         "payload_exists": snap.payload_exists,
+        "is_latest": is_latest,
+        "is_live_equivalent": is_live_equivalent,
         "extra": snap.extra or {},
     }
+
+
+def _parse_iso_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+
+    try:
+        dt = datetime.fromisoformat(value)
+    except Exception:
+        return None
+
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+
+    return dt.astimezone(timezone.utc)
+
+
+def _latest_snapshot_is_live_equivalent(*, view_id: str, snap: Any) -> bool:
+    """
+    Best-effort check that the newest snapshot represents current live state.
+
+    A snapshot written as part of the current publish is normally created at or
+    just after the store last_updated timestamp. If the live view has updated
+    since the latest snapshot, last_updated will be later and this returns false.
+    """
+    status = store.get_status(view_id=view_id)
+    last_updated = _parse_iso_datetime(status.get("last_updated"))
+    snap_created = _parse_iso_datetime(getattr(snap, "created_at", None))
+
+    if last_updated is None or snap_created is None:
+        return False
+
+    if snap_created < last_updated:
+        return False
+
+    live_kind = store.get_kind(view_id)
+    snap_kind = str(getattr(snap, "kind", "") or "").strip().lower()
+
+    if live_kind == "artifact":
+        try:
+            art = store.get_artifact(view_id=view_id)
+            return str(art.kind).strip().lower() == snap_kind
+        except LookupError:
+            return False
+
+    return live_kind == snap_kind
 
 
 def _load_snapshot_or_404(*, view_id: str, snapshot_id: str):
@@ -240,10 +294,24 @@ def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
     vid = view or store.get_active_view_id()
     snaps = list_snapshots(root_dir=_storage_root(), view_id=vid)
 
+    snapshots_out: list[dict[str, Any]] = []
+    for i, snap in enumerate(snaps):
+        is_latest = i == 0
+        snapshots_out.append(
+            _snapshot_summary_dict(
+                snap,
+                is_latest=is_latest,
+                is_live_equivalent=(
+                    is_latest
+                    and _latest_snapshot_is_live_equivalent(view_id=vid, snap=snap)
+                ),
+            )
+        )
+
     return {
         "view_id": vid,
         "count": len(snaps),
-        "snapshots": [_snapshot_summary_dict(s) for s in snaps],
+        "snapshots": snapshots_out,
     }
 
 
