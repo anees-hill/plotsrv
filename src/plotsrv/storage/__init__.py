@@ -1,7 +1,8 @@
 # src/plotsrv/storage/__init__.py
 from __future__ import annotations
 
-from .models import SnapshotMeta, LoadedSnapshot
+from .models import SnapshotMeta, LoadedSnapshot, LatestMeta, LoadedLatest
+from .latest import LatestStateBackend
 from .backend import (
     ensure_storage_root,
     write_snapshot,
@@ -23,6 +24,9 @@ from .policy import (
 __all__ = [
     "SnapshotMeta",
     "LoadedSnapshot",
+    "LatestMeta",
+    "LoadedLatest",
+    "LatestStateBackend",
     "AdmissionDecision",
     "ensure_storage_root",
     "write_snapshot",

@@ -26,3 +26,33 @@ class SnapshotMeta:
 class LoadedSnapshot:
     meta: SnapshotMeta
     obj: Any
+
+
+@dataclass(frozen=True, slots=True)
+class LatestMeta:
+    """
+    Metadata for the latest persisted live state for a view.
+
+    Latest state is separate from snapshots:
+      - latest answers: what should live mode show after restart?
+      - snapshots answer: what historical versions can the user browse?
+    """
+
+    view_id: str
+    section: str | None
+    label: str | None
+    kind: str
+    updated_at: str
+    payload_filename: str
+    payload_format: str
+    size_bytes: int
+    path_payload: str
+    path_meta: str
+    payload_exists: bool = True
+    extra: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LoadedLatest:
+    meta: LatestMeta
+    obj: Any
