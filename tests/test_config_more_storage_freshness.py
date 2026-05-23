@@ -352,3 +352,88 @@ storage-settings:
 
     assert cfg.get_storage_latest_enabled() is True
     assert cfg.get_storage_restore_latest_on_startup() is False
+
+
+def test_storage_latest_restore_scope_defaults_discovered_when_latest_enabled(
+    tmp_path: Path,
+) -> None:
+    _reset_runtime()
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+storage-settings:
+  enabled: true
+  latest:
+    enabled: true
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_storage_latest_enabled() is True
+    assert cfg.get_storage_restore_latest_on_startup() is True
+    assert cfg.get_storage_latest_restore_scope() == "discovered"
+
+
+@pytest.mark.parametrize("scope", ["discovered", "all", "none"])
+def test_storage_latest_restore_scope_valid_values(
+    tmp_path: Path,
+    scope: str,
+) -> None:
+    _reset_runtime()
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        f"""
+storage-settings:
+  enabled: true
+  latest:
+    enabled: true
+    restore_scope: {scope}
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_storage_latest_restore_scope() == scope
+
+
+def test_storage_latest_restore_scope_invalid_falls_back_to_discovered(
+    tmp_path: Path,
+) -> None:
+    _reset_runtime()
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+storage-settings:
+  enabled: true
+  latest:
+    enabled: true
+    restore_scope: banana
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_storage_latest_restore_scope() == "discovered"
+
+
+def test_storage_latest_restore_scope_none_when_restore_disabled(
+    tmp_path: Path,
+) -> None:
+    _reset_runtime()
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+storage-settings:
+  enabled: true
+  latest:
+    enabled: true
+    restore_on_startup: false
+    restore_scope: all
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_storage_restore_latest_on_startup() is False
+    assert cfg.get_storage_latest_restore_scope() == "none"

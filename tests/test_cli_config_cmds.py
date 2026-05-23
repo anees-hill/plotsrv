@@ -29,6 +29,7 @@ def test_default_config_text_contains_expected_sections() -> None:
     assert "security-settings:" in text
     assert "latest:" in text
     assert "restore_on_startup:" in text
+    assert "restore_scope:" in text
 
 
 def test_create_config_file_creates_file(tmp_path: Path) -> None:
@@ -199,6 +200,7 @@ def test_populate_storage_adds_storage_entries(tmp_path: Path) -> None:
     assert sec["views"]["etl:orders"]["max_snapshot_size_mb"] == 12.5
     assert sec["latest"]["enabled"] is False
     assert sec["latest"]["restore_on_startup"] is True
+    assert sec["latest"]["restore_scope"] == "discovered"
 
 
 def test_populate_merge_preserves_existing_view(tmp_path: Path) -> None:

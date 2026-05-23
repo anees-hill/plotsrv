@@ -1751,9 +1751,6 @@ def main(argv: list[str] | None = None) -> int:
         )
         start_watch_threads(watch_configs, host=args.host, port=args.port)
 
-    # Passive register (pre-populate dropdown)
-    _passive_register_views(scan_root, excludes=excludes, includes=includes)
-
     stop_event = threading.Event()
     call_every = getattr(args, "call_every", None)
     keep_alive = bool(getattr(args, "keep_alive", False))
