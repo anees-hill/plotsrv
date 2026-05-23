@@ -27,6 +27,7 @@ from .app import app, require_local_request
 from .backends import fig_to_png_bytes, df_to_html_simple
 from . import store, config
 from .storage.worker import stop_storage_worker, enqueue_snapshot
+from .storage.latest import FileLatestStateBackend
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
 
@@ -250,6 +251,113 @@ def _register_refresh_view_if_named(
         activate_if_first=False,
     )
     store.set_active_view(resolved_view_id)
+
+
+def _set_restored_status(*, view_id: str, updated_at: str | None) -> None:
+    """
+    Preserve the original latest-state timestamp after restoring into memory.
+    """
+    st = store.get_view_state(view_id)
+
+    if updated_at:
+        st.status["last_updated"] = updated_at
+
+    st.status["last_error"] = None
+
+
+def _restore_latest_loaded_view(loaded: Any) -> None:
+    """
+    Restore one LoadedLatest record into the in-memory store.
+
+    This deliberately updates store directly rather than going through
+    refresh_view(), so restore does not enqueue a new snapshot/latest write.
+    """
+    meta = loaded.meta
+    view_id = meta.view_id
+    kind = str(meta.kind or "artifact").strip().lower()
+
+    store.register_view(
+        view_id=view_id,
+        section=meta.section,
+        label=meta.label,
+        kind="none",
+        icon_key="unknown",
+        activate_if_first=True,
+    )
+
+    if kind == "plot":
+        obj = loaded.obj
+        if not isinstance(obj, (bytes, bytearray)):
+            return
+
+        store.set_plot(bytes(obj), view_id=view_id)
+        _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
+        return
+
+    if kind == "table":
+        obj = loaded.obj
+        if not isinstance(obj, pd.DataFrame):
+            return
+
+        html_simple = (
+            df_to_html_simple(obj, config.get_max_table_rows_simple())
+            if config.get_table_view_mode() == "simple"
+            else None
+        )
+
+        total_rows = None
+        returned_rows = None
+        if isinstance(meta.extra, dict):
+            raw_total = meta.extra.get("total_rows")
+            raw_returned = meta.extra.get("returned_rows")
+            total_rows = raw_total if isinstance(raw_total, int) else None
+            returned_rows = raw_returned if isinstance(raw_returned, int) else None
+
+        store.set_table(
+            obj,
+            html_simple=html_simple,
+            view_id=view_id,
+            total_rows=total_rows,
+            returned_rows=returned_rows,
+        )
+        _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
+        return
+
+    store.set_artifact(
+        obj=loaded.obj,
+        kind=kind,  # type: ignore[arg-type]
+        label=meta.label,
+        section=meta.section,
+        view_id=view_id,
+    )
+    _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
+
+
+def restore_latest_views_from_storage() -> int:
+    """
+    Restore latest persisted live-state records into the in-memory store.
+
+    Returns the number of views successfully restored.
+    """
+    if not config.get_storage_restore_latest_on_startup():
+        return 0
+
+    # Avoid overwriting live state already created in this process.
+    if store.list_views():
+        return 0
+
+    latest_backend = FileLatestStateBackend(root_dir=config.get_storage_root_dir())
+
+    restored = 0
+    for meta in latest_backend.list_latest():
+        try:
+            loaded = latest_backend.load_latest(view_id=meta.view_id)
+            _restore_latest_loaded_view(loaded)
+            restored += 1
+        except Exception:
+            continue
+
+    return restored
 
 
 def _enqueue_refresh_persistence(
@@ -625,6 +733,8 @@ def start_server(
     global _DEFAULT_HOST, _DEFAULT_PORT
     _DEFAULT_HOST = host
     _DEFAULT_PORT = port
+
+    restore_latest_views_from_storage()
 
     _ensure_server_running(host, port, quiet=quiet)
 
