@@ -58,6 +58,127 @@ def test_snapshot_summary_dict_maps_fields() -> None:
     assert d["kind"] == "text"
     assert d["payload_exists"] is True
     assert d["extra"] == {"x": 1}
+    assert d["is_latest"] is False
+    assert d["is_live_equivalent"] is False
+
+
+def test_snapshot_summary_dict_can_mark_latest_and_live_equivalent() -> None:
+    snap = write_snapshot(
+        root_dir=Path.cwd() / ".pytest_tmp_dontcare",
+        view_id="ops:log",
+        kind="text",
+        obj="hello",
+        section="ops",
+        label="log",
+    )
+
+    d = app_mod._snapshot_summary_dict(
+        snap,
+        is_latest=True,
+        is_live_equivalent=True,
+    )
+
+    assert d["is_latest"] is True
+    assert d["is_live_equivalent"] is True
+
+
+def test_history_marks_latest_snapshot(client: TestClient, tmp_path: Path) -> None:
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:log",
+        kind="text",
+        obj="hello",
+        section="ops",
+        label="log",
+    )
+
+    r = client.get("/history?view=ops:log")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["snapshots"][0]["snapshot_id"] == snap.snapshot_id
+    assert data["snapshots"][0]["is_latest"] is True
+
+
+def test_history_marks_latest_snapshot_live_equivalent_when_current(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:log",
+        kind="text",
+        obj="hello",
+        section="ops",
+        label="log",
+    )
+
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="ops",
+        label="log",
+        view_id="ops:log",
+    )
+
+    # Ensure snapshot appears at/after live update for this cheap equivalence check.
+    monkeypatch.setattr(
+        app_mod.store,
+        "get_status",
+        lambda **kwargs: {
+            "last_updated": "2000-01-01T00:00:00+00:00",
+            "last_duration_s": None,
+            "last_error": None,
+        },
+    )
+
+    r = client.get("/history?view=ops:log")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["snapshots"][0]["is_latest"] is True
+    assert data["snapshots"][0]["is_live_equivalent"] is True
+
+
+def test_history_does_not_mark_old_snapshot_live_equivalent(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    snap = write_snapshot(
+        root_dir=tmp_path,
+        view_id="ops:log",
+        kind="text",
+        obj="hello",
+        section="ops",
+        label="log",
+    )
+
+    store.set_artifact(
+        obj="newer live value",
+        kind="text",
+        section="ops",
+        label="log",
+        view_id="ops:log",
+    )
+
+    monkeypatch.setattr(
+        app_mod.store,
+        "get_status",
+        lambda **kwargs: {
+            "last_updated": "2999-01-01T00:00:00+00:00",
+            "last_duration_s": None,
+            "last_error": None,
+        },
+    )
+
+    r = client.get("/history?view=ops:log")
+    assert r.status_code == 200
+
+    data = r.json()
+    assert data["snapshots"][0]["is_latest"] is True
+    assert data["snapshots"][0]["is_live_equivalent"] is False
 
 
 def test_load_snapshot_or_404_raises_http_404(
