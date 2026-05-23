@@ -257,12 +257,11 @@ def _set_restored_status(*, view_id: str, updated_at: str | None) -> None:
     """
     Preserve the original latest-state timestamp after restoring into memory.
     """
-    st = store.get_view_state(view_id)
-
-    if updated_at:
-        st.status["last_updated"] = updated_at
-
-    st.status["last_error"] = None
+    store.mark_restored(
+        view_id=view_id,
+        last_updated=updated_at,
+        source="latest",
+    )
 
 
 def _restore_latest_loaded_view(loaded: Any) -> None:
