@@ -158,3 +158,59 @@ def test_exception_artifact_alias_uses_traceback_icon_key() -> None:
 
     views = {v.view_id: v for v in store.list_views()}
     assert views["ops:err"].icon_key == "traceback"
+
+
+def test_mark_restored_sets_restored_status() -> None:
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="demo",
+        label="message",
+        view_id="demo:message",
+    )
+
+    store.mark_restored(
+        view_id="demo:message",
+        last_updated="2026-01-01T00:00:00+00:00",
+        restored_at="2026-01-02T00:00:00+00:00",
+        source="latest",
+    )
+
+    status = store.get_status(view_id="demo:message")
+
+    assert status["last_updated"] == "2026-01-01T00:00:00+00:00"
+    assert status["last_error"] is None
+    assert status["restored_from_storage"] is True
+    assert status["restored_at"] == "2026-01-02T00:00:00+00:00"
+    assert status["restore_source"] == "latest"
+
+
+def test_fresh_publish_clears_restored_status() -> None:
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="demo",
+        label="message",
+        view_id="demo:message",
+    )
+
+    store.mark_restored(
+        view_id="demo:message",
+        last_updated="2026-01-01T00:00:00+00:00",
+        restored_at="2026-01-02T00:00:00+00:00",
+        source="latest",
+    )
+
+    store.set_artifact(
+        obj="fresh",
+        kind="text",
+        section="demo",
+        label="message",
+        view_id="demo:message",
+    )
+
+    status = store.get_status(view_id="demo:message")
+
+    assert status["restored_from_storage"] is False
+    assert status["restored_at"] is None
+    assert status["restore_source"] is None

@@ -590,6 +590,9 @@ def test_restore_latest_views_from_storage_restores_text_artifact(
 
     status = store.get_status(view_id="demo:message")
     assert status["last_updated"] == "2026-01-01T00:00:00+00:00"
+    assert status["restored_from_storage"] is True
+    assert status["restore_source"] == "latest"
+    assert status["restored_at"] is not None
 
 
 def test_restore_latest_views_from_storage_restores_table(
