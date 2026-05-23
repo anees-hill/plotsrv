@@ -7,7 +7,6 @@ from typing import Any
 from pathlib import Path
 from collections.abc import Sequence
 
-
 import matplotlib
 
 matplotlib.use("Agg")  # headless backend
@@ -27,7 +26,7 @@ from fastapi import BackgroundTasks, HTTPException
 from .app import app, require_local_request
 from .backends import fig_to_png_bytes, df_to_html_simple
 from . import store, config
-from .storage.worker import stop_storage_worker
+from .storage.worker import stop_storage_worker, enqueue_snapshot
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
 
@@ -253,6 +252,35 @@ def _register_refresh_view_if_named(
     store.set_active_view(resolved_view_id)
 
 
+def _enqueue_refresh_persistence(
+    *,
+    resolved_view_id: str | None,
+    kind: str,
+    obj: Any,
+    section: str | None,
+    label: str | None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """
+    Enqueue optional disk persistence for refresh_view() updates.
+
+    This covers latest live-state persistence and snapshot history when enabled.
+    If resolved_view_id is None, use the active/default view for backwards
+    compatibility.
+    """
+    view_id = resolved_view_id or store.get_active_view_id()
+
+    enqueue_snapshot(
+        view_id=view_id,
+        kind=kind,
+        obj=obj,
+        section=section if isinstance(section, str) else None,
+        label=label if isinstance(label, str) else None,
+        extra=extra,
+        source=None,
+    )
+
+
 def _infer_artifact_kind_for_refresh(obj: Any) -> str:
     if isinstance(obj, str):
         return "text"
@@ -282,7 +310,7 @@ def _set_artifact_for_refresh(
     label: str | None,
     section: str | None,
     view_id: str | None,
-) -> None:
+) -> tuple[str, Any]:
     kind = (artifact_kind or "").strip().lower() or _infer_artifact_kind_for_refresh(
         obj
     )
@@ -312,6 +340,8 @@ def _set_artifact_for_refresh(
         section=section,
         view_id=view_id,
     )
+
+    return kind, obj
 
 
 # ---- Core refresh logic
@@ -384,6 +414,14 @@ def refresh_view(
             if update_status:
                 store.mark_success(duration_s=None, view_id=resolved_view_id)
 
+            _enqueue_refresh_persistence(
+                resolved_view_id=resolved_view_id,
+                kind="table",
+                obj=df,
+                section=section,
+                label=label,
+            )
+
             _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
             return
 
@@ -397,7 +435,7 @@ def refresh_view(
             kind="artifact",
             icon_key=ak,
         )
-        _set_artifact_for_refresh(
+        stored_kind, stored_obj = _set_artifact_for_refresh(
             obj_to_store,
             artifact_kind=ak,
             label=label,
@@ -407,6 +445,14 @@ def refresh_view(
 
         if update_status:
             store.mark_success(duration_s=None, view_id=resolved_view_id)
+
+        _enqueue_refresh_persistence(
+            resolved_view_id=resolved_view_id,
+            kind=stored_kind,
+            obj=stored_obj,
+            section=section,
+            label=label,
+        )
 
         _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
@@ -433,6 +479,14 @@ def refresh_view(
         if update_status:
             store.mark_success(duration_s=None, view_id=resolved_view_id)
 
+        _enqueue_refresh_persistence(
+            resolved_view_id=resolved_view_id,
+            kind="table",
+            obj=df,
+            section=section,
+            label=label,
+        )
+
         _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
@@ -453,6 +507,14 @@ def refresh_view(
         if update_status:
             store.mark_success(duration_s=None, view_id=resolved_view_id)
 
+        _enqueue_refresh_persistence(
+            resolved_view_id=resolved_view_id,
+            kind="plot",
+            obj=png_bytes,
+            section=section,
+            label=label,
+        )
+
         _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
@@ -467,7 +529,7 @@ def refresh_view(
             kind="artifact",
             icon_key=ak,
         )
-        _set_artifact_for_refresh(
+        stored_kind, stored_obj = _set_artifact_for_refresh(
             obj,
             artifact_kind=ak,
             label=label,
@@ -477,6 +539,14 @@ def refresh_view(
 
         if update_status:
             store.mark_success(duration_s=None, view_id=resolved_view_id)
+
+        _enqueue_refresh_persistence(
+            resolved_view_id=resolved_view_id,
+            kind=stored_kind,
+            obj=stored_obj,
+            section=section,
+            label=label,
+        )
 
         _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return

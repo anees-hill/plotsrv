@@ -14,7 +14,7 @@ import plotsrv.server as srv
 
 
 @pytest.fixture(autouse=True)
-def reset_state() -> None:
+def reset_state(monkeypatch: pytest.MonkeyPatch) -> None:
     # Reset store and server globals around each test.
     store.reset()
 
@@ -23,6 +23,8 @@ def reset_state() -> None:
     srv._SERVER = None
     srv._CURRENT_HOST = "0.0.0.0"
     srv._CURRENT_PORT = 8000
+
+    monkeypatch.setattr(srv, "enqueue_snapshot", lambda **kwargs: False)
 
     # ensure matplotlib show is unpatched
     if getattr(srv, "_SHOW_PATCHED", False):
@@ -485,3 +487,23 @@ def test_refresh_view_pathlike_text_file(fake_run_server: None, tmp_path) -> Non
 def test_refresh_view_invalid_forced_kind_raises(fake_run_server: None) -> None:
     with pytest.raises(ValueError):
         srv.refresh_view({"x": 1}, kind="bad")
+
+
+def test_refresh_view_enqueues_persistence_for_named_table(
+    fake_run_server: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        srv, "enqueue_snapshot", lambda **kwargs: calls.append(kwargs) or True
+    )
+
+    df = pd.DataFrame({"a": [1, 2]})
+    srv.refresh_view(df, label="rows", section="analysis")
+
+    assert calls
+    assert calls[0]["view_id"] == "analysis:rows"
+    assert calls[0]["kind"] == "table"
+    assert calls[0]["section"] == "analysis"
+    assert calls[0]["label"] == "rows"
