@@ -61,6 +61,7 @@ storage-settings:
   latest:
     enabled: false
     restore_on_startup: true
+    restore_scope: discovered
 
   # Historical snapshots.
   default_keep_last: 2
@@ -278,6 +279,7 @@ def populate_storage(
         latest = _ensure_mapping(sec, "latest")
         latest.setdefault("enabled", False)
         latest.setdefault("restore_on_startup", True)
+        latest.setdefault("restore_scope", "discovered")
 
         sec.setdefault("default_keep_last", keep_last)
         return sec

@@ -78,6 +78,7 @@ _DEFAULTS: dict[str, Any] = {
         "latest": {
             "enabled": False,
             "restore_on_startup": True,
+            "restore_scope": "discovered",
         },
         "views": {},
     },
@@ -617,6 +618,28 @@ def get_storage_restore_latest_on_startup() -> bool:
 
     latest = _storage_latest_settings()
     return _as_bool(latest.get("restore_on_startup"), True)
+
+
+def get_storage_latest_restore_scope() -> str:
+    """
+    Scope used when restoring latest live-state records.
+
+    Values:
+      - "discovered": restore only views already registered/discovered.
+        If no views are registered, restore all latest records.
+      - "all": restore all latest records.
+      - "none": restore nothing.
+    """
+    if not get_storage_restore_latest_on_startup():
+        return "none"
+
+    latest = _storage_latest_settings()
+    raw = str(latest.get("restore_scope") or "discovered").strip().lower()
+
+    if raw not in ("discovered", "all", "none"):
+        return "discovered"
+
+    return raw
 
 
 def _storage_view_overrides() -> dict[str, Any]:

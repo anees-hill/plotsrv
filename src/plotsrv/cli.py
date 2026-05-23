@@ -617,6 +617,19 @@ def _get_server_hooks() -> tuple[Any, Any]:
     return _start_server, _stop_server
 
 
+def _get_restore_latest_hook():
+    """
+    Resolve latest-restore hook in a monkeypatch-friendly way.
+    """
+    restore = globals().get("restore_latest_views_from_storage")
+    if callable(restore):
+        return restore
+
+    from .server import restore_latest_views_from_storage as _restore_latest
+
+    return _restore_latest
+
+
 def _find_project_root(start: Path) -> Path | None:
     """
     Walk upwards looking for something that indicates a Python project.
@@ -1313,7 +1326,19 @@ def _run_passive_server_forever(
     """
 
     start_server, stop_server = _get_server_hooks()
-    start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+    restore_latest = _get_restore_latest_hook()
+
+    start_server(
+        host=host,
+        port=port,
+        auto_on_show=False,
+        quiet=quiet,
+        restore_latest=False,
+    )
+
+    _passive_register_views(scan_root, excludes=excludes, includes=includes)
+
+    restore_latest()
 
     _wait_for_server(host, port, timeout_s=5.0)
 
@@ -1327,8 +1352,6 @@ def _run_passive_server_forever(
             force=watch_force,
         )
         start_watch_threads(watch_configs, host=host, port=port)
-
-    _passive_register_views(scan_root, excludes=excludes, includes=includes)
 
     store.set_service_info(
         service_mode=True, target=f"passive:{scan_root}", refresh_rate_s=None
@@ -1701,7 +1724,18 @@ def main(argv: list[str] | None = None) -> int:
     start_server, stop_server = _get_server_hooks()
 
     # Start server first
-    start_server(host=args.host, port=args.port, auto_on_show=False, quiet=args.quiet)
+    start_server(
+        host=args.host,
+        port=args.port,
+        auto_on_show=False,
+        quiet=args.quiet,
+        restore_latest=False,
+    )
+
+    _passive_register_views(scan_root, excludes=excludes, includes=includes)
+
+    restore_latest = _get_restore_latest_hook()
+    restore_latest()
 
     _wait_for_server(args.host, args.port, timeout_s=5.0)
 

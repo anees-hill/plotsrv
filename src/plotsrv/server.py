@@ -333,23 +333,47 @@ def _restore_latest_loaded_view(loaded: Any) -> None:
     _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
 
 
-def restore_latest_views_from_storage() -> int:
+def restore_latest_views_from_storage(
+    *,
+    restore_scope: str | None = None,
+) -> int:
     """
     Restore latest persisted live-state records into the in-memory store.
 
+    restore_scope:
+      - "discovered": restore only latest records whose view_id is already
+        registered. If no views are registered, restore all latest records.
+      - "all": restore all latest records.
+      - "none": restore nothing.
+      - None: read from config.
+
     Returns the number of views successfully restored.
     """
+    scope = (
+        str(restore_scope).strip().lower()
+        if restore_scope is not None
+        else config.get_storage_latest_restore_scope()
+    )
+
+    if scope not in ("discovered", "all", "none"):
+        scope = "discovered"
+
+    if scope == "none":
+        return 0
+
     if not config.get_storage_restore_latest_on_startup():
         return 0
 
-    # Avoid overwriting live state already created in this process.
-    if store.list_views():
-        return 0
+    registered_view_ids = {v.view_id for v in store.list_views()}
 
     latest_backend = FileLatestStateBackend(root_dir=config.get_storage_root_dir())
 
     restored = 0
     for meta in latest_backend.list_latest():
+        if scope == "discovered" and registered_view_ids:
+            if meta.view_id not in registered_view_ids:
+                continue
+
         try:
             loaded = latest_backend.load_latest(view_id=meta.view_id)
             _restore_latest_loaded_view(loaded)
@@ -707,6 +731,7 @@ def start_server(
     truncate: int | str | None = None,
     no_truncate: bool = False,
     watches: Sequence[Any] | None = None,
+    restore_latest: bool = True,
 ) -> None:
     """
     Start the viewer server in a background thread.
@@ -720,6 +745,7 @@ def start_server(
     - truncate: runtime truncation override, equivalent to CLI --truncate.
     - no_truncate: disable text/html/markdown truncation.
     - watches: optional WatchConfig/dict values for files to publish live.
+    - restore_latest: restore latest persisted views on startup if configured.
     """
     from .runtime import apply_runtime_options, start_watch_threads
 
@@ -734,7 +760,8 @@ def start_server(
     _DEFAULT_HOST = host
     _DEFAULT_PORT = port
 
-    restore_latest_views_from_storage()
+    if restore_latest:
+        restore_latest_views_from_storage()
 
     _ensure_server_running(host, port, quiet=quiet)
 
@@ -775,6 +802,7 @@ def plot_session(
     truncate: int | str | None = None,
     no_truncate: bool = False,
     watches: Sequence[Any] | None = None,
+    restore_latest: bool = True,
 ):
     """
     Context manager: start server on entry, stop on exit.
@@ -789,6 +817,7 @@ def plot_session(
         truncate=truncate,
         no_truncate=no_truncate,
         watches=watches,
+        restore_latest=restore_latest,
     )
     try:
         yield
