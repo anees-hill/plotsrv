@@ -87,6 +87,15 @@ def _run_server(host: str, port: int, quiet: bool) -> None:
             _SERVER = None
 
 
+def _announce_server_running(*, host: str, port: int) -> None:
+    display_host = "127.0.0.1" if host == "0.0.0.0" else host
+
+    print(f"plotsrv server running at http://{display_host}:{port}")
+
+    if host == "0.0.0.0":
+        print(f"Bound to 0.0.0.0:{port} for network access.")
+
+
 def _wait_for_server_ready(host: str, port: int, *, timeout_s: float = 5.0) -> bool:
     import time
     import urllib.request
@@ -105,11 +114,13 @@ def _wait_for_server_ready(host: str, port: int, *, timeout_s: float = 5.0) -> b
     return False
 
 
-def _ensure_server_running(host: str, port: int, quiet: bool) -> None:
+def _ensure_server_running(host: str, port: int, quiet: bool) -> bool:
     """
     Start server in a background thread if not already running or starting.
 
     If already running/starting on a different host/port, raise an error.
+
+    Returns True if a new server thread was started, otherwise False.
     """
     global _SERVER_THREAD, _SERVER_RUNNING, _SERVER_STARTING
     global _CURRENT_HOST, _CURRENT_PORT
@@ -122,9 +133,9 @@ def _ensure_server_running(host: str, port: int, quiet: bool) -> None:
             if host != _CURRENT_HOST or port != _CURRENT_PORT:
                 raise RuntimeError(
                     f"plotsrv server already running on {_CURRENT_HOST}:{_CURRENT_PORT}; "
-                    f"stop it before starting a new one."
+                    "call plotsrv.stop_server() before starting a new one on a different host/port."
                 )
-            return
+            return False
 
         _CURRENT_HOST = host
         _CURRENT_PORT = port
@@ -137,6 +148,8 @@ def _ensure_server_running(host: str, port: int, quiet: bool) -> None:
         )
         _SERVER_THREAD = thread
         thread.start()
+
+    return True
 
 
 # ---- Helpers to normalize objects
@@ -751,6 +764,7 @@ def start_server(
     no_truncate: bool = False,
     watches: Sequence[Any] | None = None,
     restore_latest: bool = True,
+    announce: bool = False,
 ) -> None:
     """
     Start the viewer server in a background thread.
@@ -765,6 +779,7 @@ def start_server(
     - no_truncate: disable text/html/markdown truncation.
     - watches: optional WatchConfig/dict values for files to publish live.
     - restore_latest: restore latest persisted views on startup if configured.
+    - announce: print a short server URL message when a new server starts.
     """
     from .runtime import apply_runtime_options, start_watch_threads
 
@@ -782,7 +797,10 @@ def start_server(
     if restore_latest:
         restore_latest_views_from_storage()
 
-    _ensure_server_running(host, port, quiet=quiet)
+    started = _ensure_server_running(host, port, quiet=quiet)
+
+    if announce and started:
+        _announce_server_running(host=host, port=port)
 
     if auto_on_show:
         _patch_matplotlib_show()
@@ -834,6 +852,7 @@ def plot_session(
     no_truncate: bool = False,
     watches: Sequence[Any] | None = None,
     restore_latest: bool = True,
+    announce: bool = False,
 ):
     """
     Context manager: start server on entry, stop on exit.
@@ -849,6 +868,7 @@ def plot_session(
         no_truncate=no_truncate,
         watches=watches,
         restore_latest=restore_latest,
+        announce=announce,
     )
     try:
         yield

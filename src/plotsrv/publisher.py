@@ -626,6 +626,7 @@ def _publish_view_local(
         port=local_port,
         auto_on_show=True,
         quiet=True,
+        announce=True,
     )
 
     refresh_view(
@@ -716,6 +717,11 @@ def publish_view(
                 kind=kind,
                 artifact_kind=artifact_kind,
             )
+        except RuntimeError as e:
+            if "plotsrv server already running" in str(e):
+                raise
+            if debug:
+                raise
         except Exception:
             if debug:
                 raise
