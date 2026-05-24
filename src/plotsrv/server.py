@@ -368,7 +368,7 @@ def restore_latest_views_from_storage(
 
     restore_scope:
       - "discovered": restore only latest records whose view_id is already
-        registered. If no views are registered, restore all latest records.
+        registered/discovered. If no views are registered, restore nothing.
       - "all": restore all latest records.
       - "none": restore nothing.
       - None: read from config.
@@ -396,9 +396,8 @@ def restore_latest_views_from_storage(
 
     restored = 0
     for meta in latest_backend.list_latest():
-        if scope == "discovered" and registered_view_ids:
-            if meta.view_id not in registered_view_ids:
-                continue
+        if scope == "discovered" and meta.view_id not in registered_view_ids:
+            continue
 
         try:
             loaded = latest_backend.load_latest(view_id=meta.view_id)

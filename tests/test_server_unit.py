@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
@@ -618,7 +619,7 @@ def test_restore_latest_views_from_storage_restores_text_artifact(
     monkeypatch.setattr(
         srv.config,
         "get_storage_latest_restore_scope",
-        lambda: "discovered",
+        lambda: "all",
     )
     monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
     monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
@@ -686,7 +687,7 @@ def test_restore_latest_views_from_storage_restores_table(
     monkeypatch.setattr(
         srv.config,
         "get_storage_latest_restore_scope",
-        lambda: "discovered",
+        lambda: "all",
     )
     monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
     monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
@@ -730,7 +731,7 @@ def test_restore_latest_views_from_storage_restores_plot(
     monkeypatch.setattr(
         srv.config,
         "get_storage_latest_restore_scope",
-        lambda: "discovered",
+        lambda: "all",
     )
     monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
     monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
@@ -770,7 +771,7 @@ def test_restore_latest_views_from_storage_skips_bad_records(
     monkeypatch.setattr(
         srv.config,
         "get_storage_latest_restore_scope",
-        lambda: "discovered",
+        lambda: "all",
     )
     monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
     monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
@@ -952,7 +953,7 @@ def test_restore_latest_views_from_real_file_backend(
     monkeypatch.setattr(
         srv.config,
         "get_storage_latest_restore_scope",
-        lambda: "discovered",
+        lambda: "all",
     )
     monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
 
@@ -960,3 +961,119 @@ def test_restore_latest_views_from_real_file_backend(
 
     assert restored == 1
     assert store.get_artifact(view_id="demo:message").obj == "hello from disk"
+
+
+def test_restore_latest_discovered_scope_restores_nothing_when_no_views_registered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import pandas as pd
+    import plotsrv.server as srv
+    from plotsrv import store
+    from plotsrv.storage.latest import FileLatestStateBackend
+
+    store.reset()
+
+    monkeypatch.setattr(
+        srv.config, "get_storage_restore_latest_on_startup", lambda: True
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+    backend.write_latest(
+        view_id="etl:orders",
+        kind="table",
+        obj=pd.DataFrame({"a": [1]}),
+        section="etl",
+        label="orders",
+    )
+
+    restored = srv.restore_latest_views_from_storage(restore_scope="discovered")
+
+    assert restored == 0
+    assert store.list_views() == []
+
+
+def test_restore_latest_all_scope_restores_when_no_views_registered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import pandas as pd
+    import plotsrv.server as srv
+    from plotsrv import store
+    from plotsrv.storage.latest import FileLatestStateBackend
+
+    store.reset()
+
+    monkeypatch.setattr(
+        srv.config, "get_storage_restore_latest_on_startup", lambda: True
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+    backend.write_latest(
+        view_id="etl:orders",
+        kind="table",
+        obj=pd.DataFrame({"a": [1]}),
+        section="etl",
+        label="orders",
+    )
+
+    restored = srv.restore_latest_views_from_storage(restore_scope="all")
+
+    assert restored == 1
+
+    views = {v.view_id for v in store.list_views()}
+    assert "etl:orders" in views
+    assert store.get_kind("etl:orders") == "table"
+
+
+def test_restore_latest_discovered_scope_restores_registered_view_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import pandas as pd
+    import plotsrv.server as srv
+    from plotsrv import store
+    from plotsrv.storage.latest import FileLatestStateBackend
+
+    store.reset()
+
+    monkeypatch.setattr(
+        srv.config, "get_storage_restore_latest_on_startup", lambda: True
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+
+    backend.write_latest(
+        view_id="etl:orders",
+        kind="table",
+        obj=pd.DataFrame({"a": [1]}),
+        section="etl",
+        label="orders",
+    )
+    backend.write_latest(
+        view_id="ops:health",
+        kind="json",
+        obj={"status": "ok"},
+        section="ops",
+        label="health",
+    )
+
+    store.register_view(
+        view_id="etl:orders",
+        section="etl",
+        label="orders",
+        kind="none",
+        activate_if_first=False,
+    )
+
+    restored = srv.restore_latest_views_from_storage(restore_scope="discovered")
+
+    assert restored == 1
+
+    views = {v.view_id for v in store.list_views()}
+    assert "etl:orders" in views
+    assert "ops:health" not in views
+    assert store.get_kind("etl:orders") == "table"
