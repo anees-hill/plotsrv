@@ -18,6 +18,7 @@ def reset_state(monkeypatch: pytest.MonkeyPatch) -> None:
     store.reset()
 
     srv._SERVER_RUNNING = False
+    srv._SERVER_STARTING = False
     srv._SERVER_THREAD = None
     srv._SERVER = None
     srv._CURRENT_HOST = "0.0.0.0"
@@ -42,7 +43,7 @@ def reset_state(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def fake_run_server(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_run_server(host: str, port: int, quiet: bool) -> None:
-        # pretend server is running then immediately stop
+        srv._SERVER_STARTING = False
         srv._SERVER_RUNNING = True
 
     monkeypatch.setattr(srv, "_run_server", _fake_run_server)
