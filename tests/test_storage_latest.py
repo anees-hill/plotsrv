@@ -13,6 +13,10 @@ from plotsrv.storage.latest import (
     LatestStateBackend,
     FileLatestStateBackend,
     latest_meta_from_dict,
+    list_latest_views,
+    get_latest_stats,
+    delete_latest_for_view,
+    delete_all_latest,
 )
 
 
@@ -334,3 +338,44 @@ def test_latest_meta_from_dict_coerces_defaults() -> None:
     assert meta.kind == "artifact"
     assert meta.size_bytes == 0
     assert meta.extra is None
+
+
+def test_latest_stats_and_list_latest_views(tmp_path: Path) -> None:
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+    backend.write_latest(
+        view_id="demo:one",
+        kind="text",
+        obj="hello",
+        section="demo",
+        label="one",
+    )
+
+    stats = get_latest_stats(root_dir=tmp_path)
+    assert stats["latest_count"] == 1
+    assert stats["total_bytes"] > 0
+
+    views = list_latest_views(root_dir=tmp_path)
+    assert views[0]["view_id"] == "demo:one"
+    assert views[0]["kind"] == "text"
+    assert views[0]["payload_exists"] is True
+
+
+def test_delete_latest_for_view_removes_latest_files(tmp_path: Path) -> None:
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+    backend.write_latest(view_id="demo:one", kind="text", obj="hello")
+
+    removed = delete_latest_for_view(root_dir=tmp_path, view_id="demo:one")
+
+    assert removed == 2
+    assert list_latest_views(root_dir=tmp_path) == []
+
+
+def test_delete_all_latest_removes_all_latest_files(tmp_path: Path) -> None:
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+    backend.write_latest(view_id="demo:one", kind="text", obj="hello")
+    backend.write_latest(view_id="demo:two", kind="json", obj={"ok": True})
+
+    removed = delete_all_latest(root_dir=tmp_path)
+
+    assert removed == 4
+    assert list_latest_views(root_dir=tmp_path) == []

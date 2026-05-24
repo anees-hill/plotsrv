@@ -1,310 +1,360 @@
 from __future__ import annotations
 
-from pathlib import Path
+from typing import Any
 
 import pytest
-import yaml  # type: ignore
 
-from plotsrv.config_writer import (
-    create_config_file,
-    default_config_text,
-    populate_freshness,
-    populate_limits,
-    populate_storage,
-)
 import plotsrv.cli as cli_mod
-from plotsrv.config_writer import create_config_file, default_config_text
 
 
-def test_default_config_text_contains_expected_sections() -> None:
-    text = default_config_text()
+def test_run_store_stats_prints(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(
+        cli_mod,
+        "get_storage_stats",
+        lambda root_dir: {
+            "root_dir": str(root_dir),
+            "view_count": 2,
+            "snapshot_count": 3,
+            "total_bytes": 2048,
+        },
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "get_latest_stats",
+        lambda root_dir: {
+            "root_dir": str(root_dir),
+            "latest_count": 4,
+            "total_bytes": 1024,
+        },
+    )
 
-    assert "limits:" in text
-    assert "watched_files:" in text
-    assert "render:" in text
-    assert "tables:" in text
-    assert "table-settings:" in text
-    assert "storage-settings:" in text
-    assert "freshness-settings:" in text
-    assert "security-settings:" in text
-    assert "latest:" in text
-    assert "restore_on_startup:" in text
-    assert "restore_scope:" in text
+    rc = cli_mod._run_store_stats()
 
-
-def test_create_config_file_creates_file(tmp_path: Path) -> None:
-    p = tmp_path / "plotsrv.yml"
-
-    result = create_config_file(p)
-
-    assert result.path == p.resolve()
-    assert result.created is True
-    assert result.overwritten is False
-    assert p.exists()
-    assert "limits:" in p.read_text(encoding="utf-8")
-
-
-def test_create_config_file_refuses_existing_without_force(tmp_path: Path) -> None:
-    p = tmp_path / "plotsrv.yml"
-    p.write_text("existing: true\n", encoding="utf-8")
-
-    with pytest.raises(FileExistsError):
-        create_config_file(p)
-
-    assert p.read_text(encoding="utf-8") == "existing: true\n"
-
-
-def test_create_config_file_overwrites_existing_with_force(tmp_path: Path) -> None:
-    p = tmp_path / "plotsrv.yml"
-    p.write_text("existing: true\n", encoding="utf-8")
-
-    result = create_config_file(p, force=True)
-
-    assert result.created is False
-    assert result.overwritten is True
-    assert "limits:" in p.read_text(encoding="utf-8")
-
-
-def test_cli_config_create_creates_file(tmp_path: Path, capsys) -> None:
-    p = tmp_path / "plotsrv.yml"
-
-    rc = cli_mod.main(["config", "create", "--config", str(p)])
-
-    assert rc == 0
-    assert p.exists()
     out = capsys.readouterr().out
-    assert "Created config file:" in out
+    assert rc == 0
+    assert "root_dir: /tmp/store" in out
+    assert "snapshot_view_count: 2" in out
+    assert "snapshot_count: 3" in out
+    assert "snapshot_bytes: 2048 (2.0 KB)" in out
+    assert "latest_count: 4" in out
+    assert "latest_bytes: 1024 (1.0 KB)" in out
+    assert "total_bytes: 3072 (3.0 KB)" in out
 
 
-def test_cli_config_create_refuses_existing_without_force(
-    tmp_path: Path,
+def test_run_store_list_views_empty(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(cli_mod, "list_latest_views", lambda root_dir: [])
+    monkeypatch.setattr(cli_mod, "list_stored_views", lambda root_dir: [])
+
+    rc = cli_mod._run_store_list(view_id=None)
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "(no stored views)" in out
+
+
+def test_run_store_list_snapshot_views_with_data(
+    monkeypatch: pytest.MonkeyPatch,
     capsys,
 ) -> None:
-    p = tmp_path / "plotsrv.yml"
-    p.write_text("existing: true\n", encoding="utf-8")
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(cli_mod, "list_latest_views", lambda root_dir: [])
+    monkeypatch.setattr(
+        cli_mod,
+        "list_stored_views",
+        lambda root_dir: [
+            {
+                "view_id": "a:b",
+                "snapshot_count": 2,
+                "total_bytes": 1024,
+                "last_created_at": "now",
+            }
+        ],
+    )
 
-    rc = cli_mod.main(["config", "create", "--config", str(p)])
-
-    assert rc == 2
-    assert p.read_text(encoding="utf-8") == "existing: true\n"
-
-    err = capsys.readouterr().err
-    assert "already exists" in err
-    assert "--force" in err
-
-
-def test_cli_config_create_overwrites_with_force(tmp_path: Path, capsys) -> None:
-    p = tmp_path / "plotsrv.yml"
-    p.write_text("existing: true\n", encoding="utf-8")
-
-    rc = cli_mod.main(["config", "create", "--config", str(p), "--force"])
-
-    assert rc == 0
-    assert "limits:" in p.read_text(encoding="utf-8")
+    rc = cli_mod._run_store_list(view_id=None)
 
     out = capsys.readouterr().out
-    assert "Overwrote config file:" in out
-
-
-def _write_views_file(root: Path) -> Path:
-    p = root / "views.py"
-    p.write_text(
-        """
-import plotsrv as ps
-
-@ps.view(label="orders", section="etl")
-def orders():
-    return {"ok": True}
-
-@ps.view(label="health", section="ops")
-def health():
-    return {"ok": True}
-""".strip(),
-        encoding="utf-8",
-    )
-    return p
-
-
-def _load_yaml(path: Path) -> dict:
-    data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    assert isinstance(data, dict)
-    return data
-
-
-def test_populate_freshness_creates_file_and_views(tmp_path: Path) -> None:
-    target = _write_views_file(tmp_path)
-    cfg = tmp_path / "plotsrv.yml"
-
-    result = populate_freshness(
-        path=cfg,
-        target=target,
-        expected_every="10s",
-        warn_after="20s",
-        overdue_after="30s",
-    )
-
-    assert result.created is True
-    assert result.discovered_count == 2
-    assert result.added_count == 2
-
-    data = _load_yaml(cfg)
-    sec = data["freshness-settings"]
-    assert sec["enabled"] is True
-    assert set(sec["views"]) == {"etl:orders", "ops:health"}
-    assert sec["views"]["etl:orders"]["expected_every"] == "10s"
-
-
-def test_populate_limits_adds_render_entries(tmp_path: Path) -> None:
-    target = _write_views_file(tmp_path)
-    cfg = tmp_path / "plotsrv.yml"
-
-    result = populate_limits(
-        path=cfg,
-        target=target,
-        text="off",
-        html="off",
-        markdown="50000",
-    )
-
-    assert result.added_count == 2
-
-    data = _load_yaml(cfg)
-    views = data["limits"]["views"]
-    assert views["etl:orders"]["render"] == {
-        "text": "off",
-        "html": "off",
-        "markdown": "50000",
-    }
-
-
-def test_populate_storage_adds_storage_entries(tmp_path: Path) -> None:
-    target = _write_views_file(tmp_path)
-    cfg = tmp_path / "plotsrv.yml"
-
-    result = populate_storage(
-        path=cfg,
-        target=target,
-        keep_last=5,
-        min_store_interval="30s",
-        max_snapshot_size_mb=12.5,
-    )
-
-    assert result.added_count == 2
-
-    data = _load_yaml(cfg)
-    sec = data["storage-settings"]
-    assert sec["enabled"] is True
-    assert sec["views"]["etl:orders"]["enabled"] is True
-    assert sec["views"]["etl:orders"]["keep_last"] == 5
-    assert sec["views"]["etl:orders"]["min_store_interval"] == "30s"
-    assert sec["views"]["etl:orders"]["max_snapshot_size_mb"] == 12.5
-    assert sec["latest"]["enabled"] is False
-    assert sec["latest"]["restore_on_startup"] is True
-    assert sec["latest"]["restore_scope"] == "discovered"
-
-
-def test_populate_merge_preserves_existing_view(tmp_path: Path) -> None:
-    target = _write_views_file(tmp_path)
-    cfg = tmp_path / "plotsrv.yml"
-    cfg.write_text(
-        """
-freshness-settings:
-  enabled: true
-  views:
-    etl:orders:
-      expected_every: 5m
-""".strip(),
-        encoding="utf-8",
-    )
-
-    result = populate_freshness(path=cfg, target=target, mode="merge")
-
-    assert result.added_count == 1
-    assert result.preserved_count == 1
-
-    data = _load_yaml(cfg)
-    views = data["freshness-settings"]["views"]
-    assert views["etl:orders"]["expected_every"] == "5m"
-    assert "ops:health" in views
-
-
-def test_populate_replace_replaces_existing_views(tmp_path: Path) -> None:
-    target = _write_views_file(tmp_path)
-    cfg = tmp_path / "plotsrv.yml"
-    cfg.write_text(
-        """
-freshness-settings:
-  enabled: true
-  views:
-    old:view:
-      expected_every: 5m
-""".strip(),
-        encoding="utf-8",
-    )
-
-    result = populate_freshness(path=cfg, target=target, mode="replace")
-
-    assert result.replaced is True
-    assert result.added_count == 2
-
-    data = _load_yaml(cfg)
-    views = data["freshness-settings"]["views"]
-    assert set(views) == {"etl:orders", "ops:health"}
-
-
-def test_cli_config_populate_limits(tmp_path: Path, capsys) -> None:
-    target = _write_views_file(tmp_path)
-    cfg = tmp_path / "plotsrv.yml"
-
-    rc = cli_mod.main(
-        [
-            "config",
-            "populate",
-            "limits",
-            str(target),
-            "--config",
-            str(cfg),
-            "--text",
-            "off",
-        ]
-    )
-
     assert rc == 0
+    assert "snapshots:" in out
+    assert "a:b" in out
+    assert "snapshots=2" in out
+    assert "1.0 KB" in out
+
+
+def test_run_store_list_latest_views_with_data(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(
+        cli_mod,
+        "list_latest_views",
+        lambda root_dir: [
+            {
+                "view_id": "a:b",
+                "kind": "text",
+                "updated_at": "now",
+                "size_bytes": 1024,
+                "payload_exists": True,
+                "payload_filename": "latest__payload.txt",
+            }
+        ],
+    )
+    monkeypatch.setattr(cli_mod, "list_stored_views", lambda root_dir: [])
+
+    rc = cli_mod._run_store_list(view_id=None)
+
     out = capsys.readouterr().out
-    assert "Discovered 2 view(s)." in out
-    assert cfg.exists()
+    assert rc == 0
+    assert "latest:" in out
+    assert "a:b" in out
+    assert "kind=text" in out
+    assert "1.0 KB" in out
+    assert "ok" in out
 
-    data = _load_yaml(cfg)
-    assert data["limits"]["views"]["etl:orders"]["render"]["text"] == "off"
 
-
-def test_populate_freshness_discovers_publish_view_calls(tmp_path: Path) -> None:
-    target = tmp_path / "publish_views.py"
-    target.write_text(
-        """
-import plotsrv as ps
-
-def main():
-    ps.publish_view(object(), label="orders", section="etl")
-    ps.publish_view(object(), view_id="ops:health")
-""".strip(),
-        encoding="utf-8",
+def test_run_store_list_views_with_latest_and_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(
+        cli_mod,
+        "list_latest_views",
+        lambda root_dir: [
+            {
+                "view_id": "latest:view",
+                "kind": "json",
+                "updated_at": "latest-now",
+                "size_bytes": 2048,
+                "payload_exists": True,
+                "payload_filename": "latest__payload.json",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "list_stored_views",
+        lambda root_dir: [
+            {
+                "view_id": "snap:view",
+                "snapshot_count": 3,
+                "total_bytes": 4096,
+                "last_created_at": "snap-now",
+            }
+        ],
     )
 
-    cfg = tmp_path / "plotsrv.yml"
+    rc = cli_mod._run_store_list(view_id=None)
 
-    result = populate_freshness(
-        path=cfg,
-        target=target,
-        expected_every="10s",
-        warn_after="20s",
-        overdue_after="30s",
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "latest:" in out
+    assert "latest:view" in out
+    assert "snapshots:" in out
+    assert "snap:view" in out
+
+
+class Snap:
+    snapshot_id = "snap1"
+    created_at = "created"
+    kind = "json"
+    size_bytes = 123
+    payload_exists = True
+    payload_filename = "payload.json"
+
+
+def test_run_store_list_view_empty(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(cli_mod, "list_latest_views", lambda root_dir: [])
+    monkeypatch.setattr(cli_mod, "list_snapshots", lambda root_dir, view_id: [])
+
+    rc = cli_mod._run_store_list(view_id="a:b")
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "view_id: a:b" in out
+    assert "(no snapshots)" in out
+
+
+def test_run_store_list_view_with_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(cli_mod, "list_latest_views", lambda root_dir: [])
+    monkeypatch.setattr(cli_mod, "list_snapshots", lambda root_dir, view_id: [Snap()])
+
+    rc = cli_mod._run_store_list(view_id="a:b")
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "view_id: a:b" in out
+    assert "snapshot_count: 1" in out
+    assert "snap1" in out
+    assert "json" in out
+    assert "payload.json" in out
+
+
+def test_run_store_list_view_with_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(
+        cli_mod,
+        "list_latest_views",
+        lambda root_dir: [
+            {
+                "view_id": "a:b",
+                "kind": "text",
+                "updated_at": "now",
+                "size_bytes": 123,
+                "payload_exists": True,
+                "payload_filename": "latest__payload.txt",
+            }
+        ],
+    )
+    monkeypatch.setattr(cli_mod, "list_snapshots", lambda root_dir, view_id: [])
+
+    rc = cli_mod._run_store_list(view_id="a:b")
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "view_id: a:b" in out
+    assert "latest:" in out
+    assert "latest__payload.txt" in out
+    assert "text" in out
+    assert "(no snapshots)" in out
+
+
+def test_run_store_list_view_with_latest_and_snapshots(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys,
+) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(
+        cli_mod,
+        "list_latest_views",
+        lambda root_dir: [
+            {
+                "view_id": "a:b",
+                "kind": "table",
+                "updated_at": "latest-now",
+                "size_bytes": 1000,
+                "payload_exists": True,
+                "payload_filename": "latest__payload.csv",
+            }
+        ],
+    )
+    monkeypatch.setattr(cli_mod, "list_snapshots", lambda root_dir, view_id: [Snap()])
+
+    rc = cli_mod._run_store_list(view_id="a:b")
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "latest:" in out
+    assert "latest__payload.csv" in out
+    assert "snapshot_count: 1" in out
+    assert "snap1" in out
+
+
+def test_run_store_clear_requires_target() -> None:
+    assert (
+        cli_mod._run_store_clear(
+            view_id=None,
+            clear_all=False,
+            assume_yes=True,
+        )
+        == 2
     )
 
-    assert result.created is True
-    assert result.discovered_count == 2
-    assert result.added_count == 2
 
-    data = _load_yaml(cfg)
-    views = data["freshness-settings"]["views"]
-    assert set(views) == {"etl:orders", "ops:health"}
+def test_run_store_clear_rejects_all_and_view() -> None:
+    assert (
+        cli_mod._run_store_clear(
+            view_id="a:b",
+            clear_all=True,
+            assume_yes=True,
+        )
+        == 2
+    )
+
+
+def test_run_store_clear_all_aborted(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(cli_mod, "_confirm", lambda prompt: False)
+
+    rc = cli_mod._run_store_clear(
+        view_id=None,
+        clear_all=True,
+        assume_yes=False,
+    )
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Aborted." in out
+
+
+def test_run_store_clear_all_yes(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(cli_mod, "delete_all_snapshots", lambda root_dir: 5)
+    monkeypatch.setattr(cli_mod, "delete_all_latest", lambda root_dir: 3)
+
+    rc = cli_mod._run_store_clear(
+        view_id=None,
+        clear_all=True,
+        assume_yes=True,
+    )
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Removed 8" in out
+    assert "3 latest" in out
+    assert "5 snapshots" in out
+
+
+def test_run_store_clear_view_aborted(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(cli_mod, "_confirm", lambda prompt: False)
+
+    rc = cli_mod._run_store_clear(
+        view_id="a:b",
+        clear_all=False,
+        assume_yes=False,
+    )
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Aborted." in out
+
+
+def test_run_store_clear_view_yes(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: "/tmp/store")
+    monkeypatch.setattr(
+        cli_mod,
+        "delete_latest_for_view",
+        lambda root_dir, view_id: 1,
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "delete_all_snapshots_for_view",
+        lambda root_dir, view_id: 2,
+    )
+
+    rc = cli_mod._run_store_clear(
+        view_id="a:b",
+        clear_all=False,
+        assume_yes=True,
+    )
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "Removed 3" in out
+    assert "1 latest" in out
+    assert "2 snapshots" in out
