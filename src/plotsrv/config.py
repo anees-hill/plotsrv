@@ -76,7 +76,7 @@ _DEFAULTS: dict[str, Any] = {
         "default_keep_last": 2,
         "default_min_store_interval": None,
         "latest": {
-            "enabled": True,
+            "enabled": False,
             "restore_on_startup": True,
             "restore_scope": "discovered",
         },

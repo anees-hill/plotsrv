@@ -59,7 +59,7 @@ storage-settings:
   # Latest live-state persistence.
   # When enabled, plotsrv can restore the most recent live view after restart.
   latest:
-    enabled: false
+    enabled: true
     restore_on_startup: true
     restore_scope: discovered
 
