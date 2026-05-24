@@ -129,8 +129,51 @@ def test_start_server_twice_same_host_port_ok(fake_run_server: None) -> None:
 
 def test_start_server_different_port_raises(fake_run_server: None) -> None:
     srv.start_server(host="127.0.0.1", port=9123, auto_on_show=False, quiet=True)
-    with pytest.raises(RuntimeError):
+
+    with pytest.raises(RuntimeError, match="stop_server"):
         srv.start_server(host="127.0.0.1", port=9999, auto_on_show=False, quiet=True)
+
+
+def test_start_server_announces_local_url_when_requested(
+    fake_run_server: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    srv.start_server(
+        host="127.0.0.1",
+        port=8123,
+        auto_on_show=False,
+        quiet=True,
+        announce=True,
+    )
+
+    out = capsys.readouterr().out
+    assert "plotsrv server running at http://127.0.0.1:8123" in out
+
+
+def test_start_server_announces_local_url_for_zero_host(
+    fake_run_server: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    srv.start_server(
+        host="0.0.0.0",
+        port=8123,
+        auto_on_show=False,
+        quiet=True,
+        announce=True,
+    )
+
+    out = capsys.readouterr().out
+    assert "plotsrv server running at http://127.0.0.1:8123" in out
+    assert "Bound to 0.0.0.0:8123 for network access." in out
+
+
+def test_start_server_different_port_error_mentions_stop_server(
+    fake_run_server: None,
+) -> None:
+    srv.start_server(host="127.0.0.1", port=8123, auto_on_show=False, quiet=True)
+
+    with pytest.raises(RuntimeError, match="stop_server"):
+        srv.start_server(host="127.0.0.1", port=8999, auto_on_show=False, quiet=True)
 
 
 def test_stop_server_unpatches_show(fake_run_server: None) -> None:
@@ -309,6 +352,7 @@ def test_plot_session_starts_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:
             "no_truncate": False,
             "watches": None,
             "restore_latest": True,
+            "announce": False,
         },
     )
     assert calls[1] == ("inside", {})
@@ -449,6 +493,7 @@ def test_plot_session_passes_runtime_options(monkeypatch: pytest.MonkeyPatch) ->
             "no_truncate": False,
             "watches": watches,
             "restore_latest": True,
+            "announce": False,
         },
     )
 

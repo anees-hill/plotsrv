@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import urllib.request
+from typing import Any
+
+import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
-import matplotlib.pyplot as plt
-from typing import Any
 
 from plotsrv.publisher import publish_view
 
@@ -72,7 +73,11 @@ def test_publish_view_dict_sends_json_artifact(monkeypatch) -> None:
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     publish_view(
-        {"status": "ok"}, label="Status", section="ops", host="127.0.0.1", port=8000
+        {"status": "ok"},
+        label="Status",
+        section="ops",
+        host="127.0.0.1",
+        port=8000,
     )
 
     payload = json.loads(captured["data"].decode("utf-8"))
@@ -105,7 +110,8 @@ def test_publish_view_string_sends_text_artifact(monkeypatch) -> None:
 
 
 def test_publish_view_pathlike_file_publishes_file_content(
-    monkeypatch, tmp_path
+    monkeypatch,
+    tmp_path,
 ) -> None:
     captured = {}
 
@@ -161,6 +167,7 @@ def test_publish_view_without_host_port_uses_local_refresh(
         "port": 8000,
         "auto_on_show": True,
         "quiet": True,
+        "announce": True,
     }
     assert captured["obj"] is df
     assert captured["kwargs"] == {
@@ -197,6 +204,7 @@ def test_publish_view_without_label_allowed_in_local_mode(
         "port": 8000,
         "auto_on_show": True,
         "quiet": True,
+        "announce": True,
     }
     assert captured["obj"] is df
     assert captured["kwargs"]["label"] is None
@@ -281,6 +289,7 @@ def test_publish_view_mode_local_uses_host_port_as_server_bind(
         "port": 8998,
         "auto_on_show": True,
         "quiet": True,
+        "announce": True,
     }
     assert calls["refresh_view"]["obj"] is df
     assert calls["refresh_view"]["label"] == "Data"
@@ -327,3 +336,25 @@ def test_publish_view_invalid_mode_raises_in_debug(
 
     with pytest.raises(ValueError, match="mode must be one of"):
         publish_view(pd.DataFrame({"a": [1]}), mode="bad")
+
+
+def test_publish_view_launch_server_conflicting_port_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plotsrv.server as srv
+
+    def fake_start_server(**kwargs: Any) -> None:
+        raise RuntimeError(
+            "plotsrv server already running on 127.0.0.1:8000; "
+            "call plotsrv.stop_server() before starting a new one on a different host/port."
+        )
+
+    monkeypatch.setattr(srv, "start_server", fake_start_server)
+
+    with pytest.raises(RuntimeError, match="stop_server"):
+        publish_view(
+            pd.DataFrame({"a": [1]}),
+            launch_server=True,
+            port=8999,
+            label="Data",
+        )
