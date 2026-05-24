@@ -43,6 +43,8 @@ except Exception:  # pragma: no cover
 _SERVER_THREAD: threading.Thread | None = None
 _SERVER: uvicorn.Server | None = None
 _SERVER_RUNNING: bool = False
+_SERVER_STARTING: bool = False
+_SERVER_LOCK = threading.Lock()
 
 _DEFAULT_HOST: str = "127.0.0.1"
 _DEFAULT_PORT: int = 8000
@@ -57,7 +59,7 @@ _SHOW_PATCHED: bool = False
 
 
 def _run_server(host: str, port: int, quiet: bool) -> None:
-    global _SERVER, _SERVER_RUNNING
+    global _SERVER, _SERVER_RUNNING, _SERVER_STARTING
 
     log_level = "error" if quiet else "info"
     access_log = not quiet
@@ -70,13 +72,19 @@ def _run_server(host: str, port: int, quiet: bool) -> None:
         access_log=access_log,
     )
     server = uvicorn.Server(config_uv)
-    _SERVER = server
-    _SERVER_RUNNING = True
+
+    with _SERVER_LOCK:
+        _SERVER = server
+        _SERVER_RUNNING = True
+        _SERVER_STARTING = False
+
     try:
         server.run()
     finally:
-        _SERVER_RUNNING = False
-        _SERVER = None
+        with _SERVER_LOCK:
+            _SERVER_RUNNING = False
+            _SERVER_STARTING = False
+            _SERVER = None
 
 
 def _wait_for_server_ready(host: str, port: int, *, timeout_s: float = 5.0) -> bool:
@@ -99,30 +107,36 @@ def _wait_for_server_ready(host: str, port: int, *, timeout_s: float = 5.0) -> b
 
 def _ensure_server_running(host: str, port: int, quiet: bool) -> None:
     """
-    Start server in a background thread if not already running.
+    Start server in a background thread if not already running or starting.
 
-    If already running on a different host/port, raise an error.
+    If already running/starting on a different host/port, raise an error.
     """
-    global _SERVER_THREAD, _SERVER_RUNNING, _CURRENT_HOST, _CURRENT_PORT
+    global _SERVER_THREAD, _SERVER_RUNNING, _SERVER_STARTING
+    global _CURRENT_HOST, _CURRENT_PORT
 
-    if _SERVER_RUNNING:
-        if host != _CURRENT_HOST or port != _CURRENT_PORT:
-            raise RuntimeError(
-                f"plotsrv server already running on {_CURRENT_HOST}:{_CURRENT_PORT}; "
-                f"stop it before starting a new one."
-            )
-        return
+    with _SERVER_LOCK:
+        thread_alive = _SERVER_THREAD is not None and _SERVER_THREAD.is_alive()
+        active = _SERVER_RUNNING or _SERVER_STARTING or thread_alive
 
-    _CURRENT_HOST = host
-    _CURRENT_PORT = port
+        if active:
+            if host != _CURRENT_HOST or port != _CURRENT_PORT:
+                raise RuntimeError(
+                    f"plotsrv server already running on {_CURRENT_HOST}:{_CURRENT_PORT}; "
+                    f"stop it before starting a new one."
+                )
+            return
 
-    thread = threading.Thread(
-        target=_run_server,
-        args=(host, port, quiet),
-        daemon=True,
-    )
-    _SERVER_THREAD = thread
-    thread.start()
+        _CURRENT_HOST = host
+        _CURRENT_PORT = port
+        _SERVER_STARTING = True
+
+        thread = threading.Thread(
+            target=_run_server,
+            args=(host, port, quiet),
+            daemon=True,
+        )
+        _SERVER_THREAD = thread
+        thread.start()
 
 
 # ---- Helpers to normalize objects
@@ -488,6 +502,7 @@ def refresh_view(
     artifact_kind: str | None = None,
     force_plotnine: bool = False,
     update_status: bool = True,
+    launch_server: bool = True,
 ) -> None:
     """
     Update an in-process plotsrv view directly.
@@ -553,7 +568,8 @@ def refresh_view(
                 label=label,
             )
 
-            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+            if launch_server:
+                _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
             return
 
         ak = artifact_kind or coerced.artifact_kind or "text"
@@ -585,7 +601,8 @@ def refresh_view(
             label=label,
         )
 
-        _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+        if launch_server:
+            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
     # Table mode
@@ -618,7 +635,8 @@ def refresh_view(
             label=label,
         )
 
-        _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+        if launch_server:
+            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
     # Plot mode
@@ -646,7 +664,8 @@ def refresh_view(
             label=label,
         )
 
-        _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+        if launch_server:
+            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
     # Generic artifact mode
@@ -679,7 +698,8 @@ def refresh_view(
             label=label,
         )
 
-        _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+        if launch_server:
+            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
     raise ValueError(
@@ -778,12 +798,24 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
 
     If join=True, wait (up to `timeout` seconds) for the thread to exit.
     """
-    global _SERVER, _SERVER_THREAD
-    if _SERVER is not None:
-        _SERVER.should_exit = True
+    global _SERVER, _SERVER_THREAD, _SERVER_RUNNING, _SERVER_STARTING
 
-    if join and _SERVER_THREAD is not None:
-        _SERVER_THREAD.join(timeout=timeout)
+    with _SERVER_LOCK:
+        server = _SERVER
+        thread = _SERVER_THREAD
+
+    if server is not None:
+        server.should_exit = True
+
+    if join and thread is not None:
+        thread.join(timeout=timeout)
+
+    with _SERVER_LOCK:
+        if join:
+            _SERVER_THREAD = None
+        _SERVER_STARTING = False
+        if _SERVER is None:
+            _SERVER_RUNNING = False
 
     stop_storage_worker(join=False)
     _unpatch_matplotlib_show()

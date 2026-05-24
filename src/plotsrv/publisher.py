@@ -3,11 +3,11 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 import urllib.error
 import urllib.request
 from datetime import date, datetime
-import math
 from pathlib import Path
 from typing import Any, Literal
 
@@ -401,7 +401,7 @@ def _to_publish_payload(
 def _try_publish_pathlike_view(
     obj: Any,
     *,
-    mode: PublishMode,
+    launch_server: bool,
     host: str | None,
     port: int | None,
     label: str | None,
@@ -441,9 +441,9 @@ def _try_publish_pathlike_view(
         if coerced.publish_kind == "table":
             publish_view(
                 coerced.obj,
+                launch_server=launch_server,
                 host=host,
                 port=port,
-                mode=mode,
                 label=label,
                 section=section,
                 view_id=view_id,
@@ -458,9 +458,9 @@ def _try_publish_pathlike_view(
         if ak == "html":
             publish_view(
                 {"html": str(coerced.obj), "unsafe": True},
+                launch_server=launch_server,
                 host=host,
                 port=port,
-                mode=mode,
                 label=label,
                 section=section,
                 view_id=view_id,
@@ -485,10 +485,10 @@ def _try_publish_pathlike_view(
 
             publish_view(
                 doc,
+                launch_server=launch_server,
                 host=host,
                 port=port,
                 label=label,
-                mode=mode,
                 section=section,
                 view_id=view_id,
                 artifact_kind="json",
@@ -500,10 +500,10 @@ def _try_publish_pathlike_view(
 
         publish_view(
             coerced.obj,
+            launch_server=launch_server,
             host=host,
             port=port,
             label=label,
-            mode=mode,
             section=section,
             view_id=view_id,
             artifact_kind=ak,
@@ -519,10 +519,10 @@ def _try_publish_pathlike_view(
 
         publish_view(
             f"[plotsrv] file read/parse error: {type(e).__name__}: {e}",
+            launch_server=launch_server,
             host=host,
             port=port,
             label=label,
-            mode=mode,
             section=section,
             view_id=view_id,
             artifact_kind="text",
@@ -540,25 +540,43 @@ def _normalise_publish_mode(mode: PublishMode | str | None) -> PublishMode:
     return raw  # type: ignore[return-value]
 
 
-def _is_remote_publish(
+def _resolve_launch_server(
     *,
-    mode: PublishMode,
+    launch_server: bool | None,
+    mode: PublishMode | str | None,
     host: str | None,
     port: int | None,
 ) -> bool:
     """
-    Decide whether publish_view() should publish over HTTP.
+    Resolve legacy mode=... and launch_server=... into one decision.
 
-    Rules:
-      - mode="local"  => local/in-process publish
-      - mode="remote" => remote HTTP publish
+    Preferred API:
+      - launch_server=True  => attached in-process server
+      - launch_server=False => publish over HTTP to existing server
+
+    Compatibility:
+      - mode="local"  => launch_server=True
+      - mode="remote" => launch_server=False
       - mode="auto"   => host/port omitted means local; host/port supplied means remote
+      - omitted mode   => same as mode="auto"
     """
-    if mode == "local":
-        return False
-    if mode == "remote":
+    if launch_server is not None:
+        # Validate mode if the user supplied it as well, so debug/error behaviour
+        # remains useful for accidental bad mode values.
+        if mode is not None:
+            _normalise_publish_mode(mode)
+        return bool(launch_server)
+
+    mode2 = _normalise_publish_mode(mode)
+
+    if mode2 == "local":
         return True
-    return host is not None or port is not None
+
+    if mode2 == "remote":
+        return False
+
+    # mode="auto"
+    return not (host is not None or port is not None)
 
 
 def _normalise_remote_target(
@@ -623,7 +641,8 @@ def _publish_view_local(
 def publish_view(
     obj: Any,
     *,
-    mode: PublishMode | str = "auto",
+    launch_server: bool | None = None,
+    mode: PublishMode | str | None = None,
     host: str | None = None,
     port: int | None = None,
     label: str | None = None,
@@ -637,18 +656,18 @@ def publish_view(
     """
     Publish an object as a plotsrv browser view.
 
-    Preferred public publishing API.
+    Default behaviour is compatibility/auto mode:
+      - host/port omitted  -> start/use an attached local server
+      - host/port supplied -> publish over HTTP to an existing server
 
-    Modes:
-      - mode="auto":
-          host/port omitted  -> local in-process publish
-          host/port supplied -> remote HTTP publish
-      - mode="local":
-          publish in-process and start/use a local plotsrv server.
-          host/port are treated as server bind settings.
-      - mode="remote":
-          publish over HTTP to an existing plotsrv server.
-          host/port are treated as the remote target.
+    Preferred explicit behaviour:
+      - launch_server=True  -> start/use an attached local server
+      - launch_server=False -> publish over HTTP to an existing server
+
+    Legacy mode= is still accepted:
+      - mode="local"  -> attached local server
+      - mode="remote" -> HTTP publish
+      - mode="auto"   -> compatibility/auto behaviour
 
     This accepts anything plotsrv knows how to display: plots, tables, text,
     JSON-like objects, markdown, HTML payloads, images, path-like files, and
@@ -657,20 +676,24 @@ def publish_view(
     debug = _debug_enabled()
 
     try:
-        mode2 = _normalise_publish_mode(mode)
+        launch = _resolve_launch_server(
+            launch_server=launch_server,
+            mode=mode,
+            host=host,
+            port=port,
+        )
     except Exception:
         if debug:
             raise
         return
 
-    remote = _is_remote_publish(mode=mode2, host=host, port=port)
     remote_host, remote_port = _normalise_remote_target(host=host, port=port)
 
     if _try_publish_pathlike_view(
         obj,
-        mode=mode2,
-        host=remote_host if remote else host,
-        port=remote_port if remote else port,
+        launch_server=launch,
+        host=host if launch else remote_host,
+        port=port if launch else remote_port,
         label=label,
         section=section,
         view_id=view_id,
@@ -681,7 +704,7 @@ def publish_view(
     ):
         return
 
-    if not remote:
+    if launch:
         try:
             _publish_view_local(
                 obj,
@@ -725,41 +748,8 @@ def publish_view(
         return
 
     _post_publish_payload(
-        payload=payload, host=remote_host, port=remote_port, debug=debug
+        payload=payload,
+        host=remote_host,
+        port=remote_port,
+        debug=debug,
     )
-
-
-def test_publish_view_pathlike_mode_local_preserves_local_mode(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path,
-) -> None:
-    captured: dict[str, Any] = {}
-
-    def fake_start_server(**kwargs: Any) -> None:
-        captured["start_server"] = kwargs
-
-    def fake_refresh_view(obj: Any, **kwargs: Any) -> None:
-        captured["refresh_view"] = {"obj": obj, **kwargs}
-
-    import plotsrv.server as srv
-
-    monkeypatch.setattr(srv, "start_server", fake_start_server)
-    monkeypatch.setattr(srv, "refresh_view", fake_refresh_view)
-
-    p = tmp_path / "app.log"
-    p.write_text("hello\n", encoding="utf-8")
-
-    publish_view(
-        p,
-        mode="local",
-        host="0.0.0.0",
-        port=8998,
-        label="Log",
-        section="Files",
-    )
-
-    assert captured["start_server"]["host"] == "0.0.0.0"
-    assert captured["start_server"]["port"] == 8998
-    assert captured["refresh_view"]["label"] == "Log"
-    assert captured["refresh_view"]["section"] == "Files"
-    assert captured["refresh_view"]["artifact_kind"] == "text"

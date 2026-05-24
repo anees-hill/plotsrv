@@ -24,6 +24,7 @@ class PlotsrvSpec:
     port: int | None = None
     update_limit_s: int | None = None
     on_error: OnErrorMode = "raise"
+    launch_server: bool = False
 
 
 _PLOTSRV_ATTR = "__plotsrv__"
@@ -55,12 +56,14 @@ def _inspect_instance(obj: Any) -> dict[str, Any]:
     }
 
     attrs: dict[str, Any] = {}
+
     try:
         d = vars(obj)
         for i, (k, v) in enumerate(d.items()):
             if i >= 200:
                 attrs["…"] = f"(+{len(d) - 200} more attrs)"
                 break
+
             try:
                 attrs[str(k)] = _escape_repr(repr(v))
             except Exception:
@@ -70,6 +73,46 @@ def _inspect_instance(obj: Any) -> dict[str, Any]:
 
     out["attrs"] = attrs
     return out
+
+
+def _should_publish(spec: PlotsrvSpec) -> bool:
+    """
+    Decide whether @view should actively publish when the wrapped callable/class
+    is used.
+
+    Passive metadata-only usage:
+
+        @ps.view(label="x")
+        def f(): ...
+
+    Active publishing usage:
+
+        @ps.view(port=8000)
+        def f(): ...
+
+        @ps.view(host="127.0.0.1", port=8000)
+        def f(): ...
+
+        @ps.view(launch_server=True)
+        def f(): ...
+    """
+    return bool(spec.launch_server or spec.host is not None or spec.port is not None)
+
+
+def _publish_host(spec: PlotsrvSpec) -> str | None:
+    return spec.host
+
+
+def _publish_port(spec: PlotsrvSpec) -> int | None:
+    return int(spec.port) if spec.port is not None else None
+
+
+def _traceback_host(spec: PlotsrvSpec) -> str:
+    return spec.host or "127.0.0.1"
+
+
+def _traceback_port(spec: PlotsrvSpec) -> int:
+    return int(spec.port) if spec.port is not None else 8000
 
 
 def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
@@ -89,8 +132,9 @@ def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
                 _inspect_instance(self),
                 label=spec.label or cls.__name__,
                 section=spec.section,
-                host=spec.host or "127.0.0.1",
-                port=int(spec.port) if spec.port is not None else 8000,
+                host=_publish_host(spec),
+                port=_publish_port(spec),
+                launch_server=spec.launch_server,
                 artifact_kind="json",
                 update_limit_s=spec.update_limit_s,
                 force=False,
@@ -111,11 +155,12 @@ def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
 
 def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
     """
-    Wrap function so calling it publishes result to plotsrv,
-    OR wrap class so instantiation publishes an inspection artifact,
-    but only if port is configured.
+    Wrap function so calling it publishes result to plotsrv, OR wrap class so
+    instantiation publishes an inspection artifact.
+
+    If the decorator is metadata-only, the object is returned unchanged.
     """
-    if spec.port is None:
+    if not _should_publish(spec):
         return func
 
     # Class support for @view(...)
@@ -135,8 +180,8 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
                         e,
                         label=spec.label or func.__name__,
                         section=spec.section,
-                        host=spec.host or "127.0.0.1",
-                        port=int(spec.port),
+                        host=_traceback_host(spec),
+                        port=_traceback_port(spec),
                     )
                 except Exception:
                     if os.environ.get("PLOTSRV_DEBUG", "").strip() == "1":
@@ -144,16 +189,18 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
 
             if spec.on_error in ("raise", "publish_and_raise"):
                 raise
+
             return None
 
-            # success path: publish result
+        # success path: publish result
         try:
             publish_view(
                 out,
                 label=spec.label or func.__name__,
                 section=spec.section,
-                host=spec.host or "127.0.0.1",
-                port=int(spec.port),
+                host=_publish_host(spec),
+                port=_publish_port(spec),
+                launch_server=spec.launch_server,
                 update_limit_s=spec.update_limit_s,
                 force=False,
             )
@@ -175,6 +222,7 @@ def view(
     port: int | None = None,
     update_limit_s: int | None = None,
     on_error: OnErrorMode = "raise",
+    launch_server: bool = False,
 ) -> Callable[[F], F]: ...
 
 
@@ -187,6 +235,7 @@ def view(
     port: int | None = None,
     update_limit_s: int | None = None,
     on_error: OnErrorMode = "raise",
+    launch_server: bool = False,
 ) -> Callable[[type[Any]], type[Any]]: ...
 
 
@@ -198,16 +247,33 @@ def view(
     port: int | None = None,
     update_limit_s: int | None = None,
     on_error: OnErrorMode = "raise",
+    launch_server: bool = False,
 ) -> Callable[[Any], Any]:
     """
     Decorator: marks a function OR class as a plotsrv view producer.
 
-    By default, @view is passive metadata used by discovery, CLI registration,
-    and config population.
+    Metadata-only usage:
 
-    If port is supplied, the decorated function publishes its return value when
-    called. If applied to a class with port supplied, creating an instance
-    publishes a lightweight inspection artifact.
+        @ps.view(label="daily import", section="pipelines")
+        def daily_import_status():
+            ...
+
+    This lets plotsrv discover the view for UI pre-population.
+
+    Active publishing usage:
+
+        @ps.view(label="daily import", section="pipelines", port=8000)
+        def daily_import_status():
+            ...
+
+    This publishes to an existing plotsrv server when the function is called.
+
+        @ps.view(label="daily import", section="pipelines", launch_server=True)
+        def daily_import_status():
+            ...
+
+    This starts/uses an in-process plotsrv server and publishes locally when the
+    function is called.
     """
 
     def decorator(obj: Any) -> Any:
@@ -219,7 +285,9 @@ def view(
             port=port,
             update_limit_s=update_limit_s,
             on_error=on_error,
+            launch_server=launch_server,
         )
+
         o2 = _attach_spec(obj, spec)
         return _wrap_with_publish(o2, spec)
 
