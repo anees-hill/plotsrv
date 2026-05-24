@@ -25,7 +25,7 @@
 **Lightweight observability for Python processes with instant UI**
 
 > **Live demo:** https://demo.plotsrv.com  
-> See plotsrv render live plots, tables, JSON, and HTML from real sensor data.
+> See plotsrv render plots, tables, JSON, and HTML from real sensor data.
 
 `plotsrv` is a lightweight Python server for exposing live Python objects and on-disk files in a single browser UI. It gives you quick visibility into pipelines, experiments, batch jobs, and long-running processes without needing a full observability stack.
 
@@ -58,7 +58,9 @@ Or:
 uv add plotsrv
 ```
 
-plotsrv can be used in an interactive session. Open a Python session and publish an object:
+## Interactive use
+
+plotsrv can be used directly from a Python session. Publish any object you want to inspect:
 
 ```python
 import plotsrv as ps
@@ -82,17 +84,15 @@ Open the viewer at:
 http://127.0.0.1:8000
 ```
 
-`publish_view()` starts a local plotsrv server automatically when needed (attached to the process).
-
-To serve the viewer on a custom host or port, use explicit local mode:
+`publish_view()` starts a local plotsrv server automatically if one is not already running. In interactive mode, the server runs in the same Python process, so it stops when that process exits.
 
 ## Passive server workflow
 
-For process **observability** (longer-running scripts, batch jobs, pipelines, etc.), you can run a separate plotsrv server and publish updates to it from your normal Python code.
+For scripts, jobs, and pipelines that run separately from the viewer, start plotsrv as a passive server. This gives you a lightweight UI for seeing the latest outputs from your process, checking whether they are fresh, and browsing the views it exposes.
 
 ### 1. Adjust your code to publish views
 
-The most natural pattern is to add `@view` to a function that already produces something useful:
+A simple way to expose existing code is to add `@view` to a function that already returns something useful:
 
 ```python
 # demo_view.py
@@ -119,7 +119,7 @@ print(status)
 
 When `daily_import_status()` is called, it returns the same object as usual and also publishes that object to the plotsrv server.
 
-You can also publish directly with `publish_view()` when you already have an object:
+You can also use `publish_view()` when you want to publish an explicit object directly:
 
 ```python
 # demo_pipeline.py
@@ -150,11 +150,11 @@ In a terminal, start plotsrv against the script, module, or package you want it 
 plotsrv run demo_pipeline.py --host 127.0.0.1 --port 8000
 ```
 
-The server uses static discovery to pre-populate views where possible.
+plotsrv scans the given script, module, or package for `@view` decorators and simple `publish_view()` calls, then uses those to pre-populate the UI where possible.
 
 ### 3. Run your script as normal
 
-Run your python script/process as usual. i.e:
+Run your Python script or process as usual:
 
 ```bash
 python demo_pipeline.py
@@ -168,6 +168,37 @@ http://127.0.0.1:8000
 
 The published view should appear in the browser UI.
 
+### 4. Enable history and persistent storage
+
+By default, plotsrv keeps live views in memory. This is fast and simple, but views disappear when the process exits.
+
+To keep historical snapshots and restore the latest live view after restart, create a `plotsrv.yaml` file:
+
+```yaml
+storage-settings:
+  enabled: true
+  root_dir: .plotsrv/store
+
+  latest:
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
+
+  default_keep_last: 5
+  default_min_store_interval: 1h
+  max_snapshot_size_mb: 20
+```
+
+With storage enabled, plotsrv can keep recent snapshots for comparison and restore the latest view when the server starts again. You can control how much is kept with settings such as `default_keep_last`, `default_min_store_interval`, and `max_snapshot_size_mb`.
+
+You can also create a starter config file with:
+
+```bash
+plotsrv config create
+```
+
+The config file can also control table limits, freshness checks, UI settings, logo/header customisation, and renderer behaviour.
+
 ## Watching files on disk
 
 `plotsrv` can expose files directly from disk, which is useful for logs, reports, HTML files, JSON outputs, CSVs, and generated artifacts.
@@ -179,7 +210,16 @@ plotsrv run --host 127.0.0.1 --port 8000 \
   --watch /var/log/etl_log.txt --watch-label etl-log --watch-section log-files --watch-tail
 ```
 
+## What can plotsrv render?
 
+plotsrv automatically chooses a renderer for common Python outputs, including:
+
+- dictionaries, lists, and JSON-like objects
+- pandas and polars DataFrames
+- matplotlib and plotnine plots
+- text, logs, markdown, HTML, and images
+- Python objects and tracebacks
+- files on disk, including CSV, JSON, YAML, TOML, markdown, HTML, text, and images
 
 ## License
 
