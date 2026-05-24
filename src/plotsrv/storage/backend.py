@@ -267,6 +267,8 @@ def get_storage_stats(*, root_dir: Path) -> dict[str, Any]:
     for child in root.iterdir():
         if not child.is_dir():
             continue
+        if child.name == "latest":
+            continue
         view_count += 1
         for p in child.iterdir():
             if p.is_file():
@@ -302,6 +304,8 @@ def list_stored_views(*, root_dir: Path) -> list[dict[str, Any]]:
 
     for child in root.iterdir():
         if not child.is_dir():
+            continue
+        if child.name == "latest":
             continue
 
         metas: list[SnapshotMeta] = []
@@ -366,6 +370,8 @@ def delete_all_snapshots(*, root_dir: Path) -> int:
 
     for child in list(root.iterdir()):
         if not child.is_dir():
+            continue
+        if child.name == "latest":
             continue
 
         for p in list(child.iterdir()):

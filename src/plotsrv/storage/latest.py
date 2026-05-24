@@ -265,3 +265,153 @@ def deserialise_latest_payload(*, meta: LatestMeta, payload_path: Path) -> Any:
         meta=snapshot_like,
         payload_path=payload_path,
     )
+
+
+def list_latest_views(*, root_dir: str | Path) -> list[dict[str, Any]]:
+    """
+    Return latest live-state summaries for all views.
+    """
+    backend = FileLatestStateBackend(root_dir=root_dir)
+    out: list[dict[str, Any]] = []
+
+    for meta in backend.list_latest():
+        out.append(
+            {
+                "view_id": meta.view_id,
+                "section": meta.section,
+                "label": meta.label,
+                "kind": meta.kind,
+                "updated_at": meta.updated_at,
+                "size_bytes": meta.size_bytes,
+                "payload_filename": meta.payload_filename,
+                "payload_exists": meta.payload_exists,
+            }
+        )
+
+    out.sort(key=lambda x: str(x.get("view_id") or "").lower())
+    return out
+
+
+def get_latest_stats(*, root_dir: str | Path) -> dict[str, Any]:
+    """
+    Return latest live-state storage statistics.
+    """
+    root = storage_backend.ensure_storage_root(Path(root_dir))
+    latest_root = root / "latest"
+
+    latest_count = 0
+    total_bytes = 0
+
+    if not latest_root.exists() or not latest_root.is_dir():
+        return {
+            "root_dir": str(root),
+            "latest_count": 0,
+            "total_bytes": 0,
+        }
+
+    for view_dir in latest_root.iterdir():
+        if not view_dir.is_dir():
+            continue
+
+        has_meta = False
+        for path in view_dir.iterdir():
+            if not path.is_file():
+                continue
+            try:
+                total_bytes += int(path.stat().st_size)
+            except Exception:
+                pass
+            if path.name == "latest__meta.json":
+                has_meta = True
+
+        if has_meta:
+            latest_count += 1
+
+    return {
+        "root_dir": str(root),
+        "latest_count": latest_count,
+        "total_bytes": total_bytes,
+    }
+
+
+def delete_latest_for_view(*, root_dir: str | Path, view_id: str) -> int:
+    """
+    Delete latest live-state files for one view.
+
+    Returns the number of files removed.
+    """
+    backend = FileLatestStateBackend(root_dir=root_dir)
+    view_dir = backend._view_dir(view_id)
+
+    if not view_dir.exists() or not view_dir.is_dir():
+        return 0
+
+    removed = 0
+    for path in list(view_dir.iterdir()):
+        try:
+            if path.is_file():
+                path.unlink()
+                removed += 1
+        except Exception:
+            pass
+
+    try:
+        next(view_dir.iterdir())
+    except StopIteration:
+        try:
+            view_dir.rmdir()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    return removed
+
+
+def delete_all_latest(*, root_dir: str | Path) -> int:
+    """
+    Delete all latest live-state files for all views.
+
+    Returns the number of files removed.
+    """
+    root = storage_backend.ensure_storage_root(Path(root_dir))
+    latest_root = root / "latest"
+
+    if not latest_root.exists() or not latest_root.is_dir():
+        return 0
+
+    removed = 0
+
+    for view_dir in list(latest_root.iterdir()):
+        if not view_dir.is_dir():
+            continue
+
+        for path in list(view_dir.iterdir()):
+            try:
+                if path.is_file():
+                    path.unlink()
+                    removed += 1
+            except Exception:
+                pass
+
+        try:
+            next(view_dir.iterdir())
+        except StopIteration:
+            try:
+                view_dir.rmdir()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    try:
+        next(latest_root.iterdir())
+    except StopIteration:
+        try:
+            latest_root.rmdir()
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    return removed

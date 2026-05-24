@@ -7,6 +7,10 @@ from .latest import (
     FileLatestStateBackend,
     latest_meta_from_dict,
     deserialise_latest_payload,
+    list_latest_views,
+    get_latest_stats,
+    delete_latest_for_view,
+    delete_all_latest,
 )
 from .backend import (
     ensure_storage_root,
@@ -48,4 +52,8 @@ __all__ = [
     "FileLatestStateBackend",
     "latest_meta_from_dict",
     "deserialise_latest_payload",
+    "list_latest_views",
+    "get_latest_stats",
+    "delete_latest_for_view",
+    "delete_all_latest",
 ]

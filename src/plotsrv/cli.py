@@ -24,6 +24,12 @@ from .storage.backend import (
     list_snapshots,
     list_stored_views,
 )
+from .storage.latest import (
+    list_latest_views,
+    get_latest_stats,
+    delete_latest_for_view,
+    delete_all_latest,
+)
 from .runtime import (
     WatchConfig,
     apply_runtime_options,
@@ -333,7 +339,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--tail", action="store_true", help="Read file from the end (tail)."
     )
 
-    store_p = sub.add_parser("store", help="Inspect or clear plotsrv stored snapshots")
+    store_p = sub.add_parser("store", help="Inspect or clear plotsrv stored state")
     store_p.add_argument(
         "--name",
         default=None,
@@ -349,7 +355,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     store_stats_p = store_sub.add_parser("stats", help="Show storage statistics")
 
-    store_list_p = store_sub.add_parser("list", help="List stored views or snapshots")
+    store_list_p = store_sub.add_parser(
+        "list", help="List stored latest views or snapshots"
+    )
     store_list_p.add_argument(
         "--view",
         default=None,
@@ -360,12 +368,12 @@ def build_parser() -> argparse.ArgumentParser:
     store_clear_p.add_argument(
         "--view",
         default=None,
-        help="Delete stored snapshots for one view id.",
+        help="Delete stored latest state and snapshots for one view id.",
     )
     store_clear_p.add_argument(
         "--all",
         action="store_true",
-        help="Delete all stored snapshots for all views.",
+        help="Delete all stored latest state and snapshots for all views.",
     )
     store_clear_p.add_argument(
         "-y",
@@ -1068,12 +1076,20 @@ def _parse_truncate_arg(raw: str | None, *, no_truncate: bool) -> object:
 
 def _run_store_stats() -> int:
     root = config.get_storage_root_dir()
-    stats = get_storage_stats(root_dir=root)
+    snap_stats = get_storage_stats(root_dir=root)
+    latest_stats = get_latest_stats(root_dir=root)
 
-    print(f"root_dir: {stats['root_dir']}")
-    print(f"view_count: {stats['view_count']}")
-    print(f"snapshot_count: {stats['snapshot_count']}")
-    print(f"total_bytes: {stats['total_bytes']} ({_fmt_bytes(stats['total_bytes'])})")
+    snapshot_bytes = int(snap_stats.get("total_bytes") or 0)
+    latest_bytes = int(latest_stats.get("total_bytes") or 0)
+    total_bytes = snapshot_bytes + latest_bytes
+
+    print(f"root_dir: {snap_stats['root_dir']}")
+    print(f"snapshot_view_count: {snap_stats['view_count']}")
+    print(f"snapshot_count: {snap_stats['snapshot_count']}")
+    print(f"snapshot_bytes: {snapshot_bytes} ({_fmt_bytes(snapshot_bytes)})")
+    print(f"latest_count: {latest_stats['latest_count']}")
+    print(f"latest_bytes: {latest_bytes} ({_fmt_bytes(latest_bytes)})")
+    print(f"total_bytes: {total_bytes} ({_fmt_bytes(total_bytes)})")
     return 0
 
 
@@ -1081,8 +1097,23 @@ def _run_store_list(*, view_id: str | None) -> int:
     root = config.get_storage_root_dir()
 
     if view_id:
-        snaps = list_snapshots(root_dir=root, view_id=view_id)
+        latest_items = list_latest_views(root_dir=root)
+        latest = next((x for x in latest_items if x.get("view_id") == view_id), None)
+
         print(f"view_id: {view_id}")
+
+        if latest is not None:
+            size = _fmt_bytes(int(latest.get("size_bytes") or 0))
+            updated = latest.get("updated_at") or "—"
+            kind = latest.get("kind") or "unknown"
+            exists = "ok" if latest.get("payload_exists") else "missing"
+            payload = latest.get("payload_filename") or ""
+            print("")
+            print("latest:")
+            print(f"{updated}  {kind}  {size}  {exists}  {payload}")
+
+        snaps = list_snapshots(root_dir=root, view_id=view_id)
+        print("")
         print(f"snapshot_count: {len(snaps)}")
         print("")
 
@@ -1100,19 +1131,35 @@ def _run_store_list(*, view_id: str | None) -> int:
             )
         return 0
 
-    views = list_stored_views(root_dir=root)
+    latest_views = list_latest_views(root_dir=root)
+    snapshot_views = list_stored_views(root_dir=root)
+
     print(f"root_dir: {root}")
     print("")
 
-    if not views:
-        print("(no stored views)")
+    if latest_views:
+        print("latest:")
+        for v in latest_views:
+            updated = v.get("updated_at") or "—"
+            kind = v.get("kind") or "unknown"
+            size = _fmt_bytes(int(v.get("size_bytes") or 0))
+            exists = "ok" if v.get("payload_exists") else "missing"
+            print(
+                f"{v['view_id']}  updated={updated}  kind={kind}  size={size}  {exists}"
+            )
+        print("")
+
+    if snapshot_views:
+        print("snapshots:")
+        for v in snapshot_views:
+            last = v.get("last_created_at") or "—"
+            count = int(v.get("snapshot_count") or 0)
+            size = _fmt_bytes(int(v.get("total_bytes") or 0))
+            print(f"{v['view_id']}  snapshots={count}  size={size}  last={last}")
         return 0
 
-    for v in views:
-        last = v.get("last_created_at") or "—"
-        count = int(v.get("snapshot_count") or 0)
-        size = _fmt_bytes(int(v.get("total_bytes") or 0))
-        print(f"{v['view_id']}  snapshots={count}  size={size}  last={last}")
+    if not latest_views:
+        print("(no stored views)")
 
     return 0
 
@@ -1128,21 +1175,39 @@ def _run_store_clear(*, view_id: str | None, clear_all: bool, assume_yes: bool) 
 
     if clear_all:
         if not assume_yes:
-            if not _confirm(f"Delete ALL stored snapshots under {root}?"):
+            if not _confirm(
+                f"Delete ALL stored latest state and snapshots under {root}?"
+            ):
                 print("Aborted.")
                 return 0
 
-        removed = delete_all_snapshots(root_dir=root)
-        print(f"Removed {removed} file(s) from {root}")
+        removed_snapshots = delete_all_snapshots(root_dir=root)
+        removed_latest = delete_all_latest(root_dir=root)
+        removed = removed_snapshots + removed_latest
+
+        print(
+            f"Removed {removed} file(s) from {root} "
+            f"({removed_latest} latest, {removed_snapshots} snapshots)"
+        )
         return 0
 
     if not assume_yes:
-        if not _confirm(f"Delete stored snapshots for view {view_id!r}?"):
+        if not _confirm(
+            f"Delete stored latest state and snapshots for view {view_id!r}?"
+        ):
             print("Aborted.")
             return 0
 
-    removed = delete_all_snapshots_for_view(root_dir=root, view_id=str(view_id))
-    print(f"Removed {removed} file(s) for view {view_id!r}")
+    removed_latest = delete_latest_for_view(root_dir=root, view_id=str(view_id))
+    removed_snapshots = delete_all_snapshots_for_view(
+        root_dir=root, view_id=str(view_id)
+    )
+    removed = removed_latest + removed_snapshots
+
+    print(
+        f"Removed {removed} file(s) for view {view_id!r} "
+        f"({removed_latest} latest, {removed_snapshots} snapshots)"
+    )
     return 0
 
 
