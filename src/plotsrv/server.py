@@ -7,7 +7,6 @@ from typing import Any
 from pathlib import Path
 from collections.abc import Sequence
 
-
 import matplotlib
 
 matplotlib.use("Agg")  # headless backend
@@ -27,7 +26,8 @@ from fastapi import BackgroundTasks, HTTPException
 from .app import app, require_local_request
 from .backends import fig_to_png_bytes, df_to_html_simple
 from . import store, config
-from .storage.worker import stop_storage_worker
+from .storage.worker import stop_storage_worker, enqueue_snapshot
+from .storage.latest import FileLatestStateBackend
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
 
@@ -43,6 +43,8 @@ except Exception:  # pragma: no cover
 _SERVER_THREAD: threading.Thread | None = None
 _SERVER: uvicorn.Server | None = None
 _SERVER_RUNNING: bool = False
+_SERVER_STARTING: bool = False
+_SERVER_LOCK = threading.Lock()
 
 _DEFAULT_HOST: str = "127.0.0.1"
 _DEFAULT_PORT: int = 8000
@@ -57,7 +59,7 @@ _SHOW_PATCHED: bool = False
 
 
 def _run_server(host: str, port: int, quiet: bool) -> None:
-    global _SERVER, _SERVER_RUNNING
+    global _SERVER, _SERVER_RUNNING, _SERVER_STARTING
 
     log_level = "error" if quiet else "info"
     access_log = not quiet
@@ -70,13 +72,28 @@ def _run_server(host: str, port: int, quiet: bool) -> None:
         access_log=access_log,
     )
     server = uvicorn.Server(config_uv)
-    _SERVER = server
-    _SERVER_RUNNING = True
+
+    with _SERVER_LOCK:
+        _SERVER = server
+        _SERVER_RUNNING = True
+        _SERVER_STARTING = False
+
     try:
         server.run()
     finally:
-        _SERVER_RUNNING = False
-        _SERVER = None
+        with _SERVER_LOCK:
+            _SERVER_RUNNING = False
+            _SERVER_STARTING = False
+            _SERVER = None
+
+
+def _announce_server_running(*, host: str, port: int) -> None:
+    display_host = "127.0.0.1" if host == "0.0.0.0" else host
+
+    print(f"plotsrv server running at http://{display_host}:{port}")
+
+    if host == "0.0.0.0":
+        print(f"Bound to 0.0.0.0:{port} for network access.")
 
 
 def _wait_for_server_ready(host: str, port: int, *, timeout_s: float = 5.0) -> bool:
@@ -97,32 +114,42 @@ def _wait_for_server_ready(host: str, port: int, *, timeout_s: float = 5.0) -> b
     return False
 
 
-def _ensure_server_running(host: str, port: int, quiet: bool) -> None:
+def _ensure_server_running(host: str, port: int, quiet: bool) -> bool:
     """
-    Start server in a background thread if not already running.
+    Start server in a background thread if not already running or starting.
 
-    If already running on a different host/port, raise an error.
+    If already running/starting on a different host/port, raise an error.
+
+    Returns True if a new server thread was started, otherwise False.
     """
-    global _SERVER_THREAD, _SERVER_RUNNING, _CURRENT_HOST, _CURRENT_PORT
+    global _SERVER_THREAD, _SERVER_RUNNING, _SERVER_STARTING
+    global _CURRENT_HOST, _CURRENT_PORT
 
-    if _SERVER_RUNNING:
-        if host != _CURRENT_HOST or port != _CURRENT_PORT:
-            raise RuntimeError(
-                f"plotsrv server already running on {_CURRENT_HOST}:{_CURRENT_PORT}; "
-                f"stop it before starting a new one."
-            )
-        return
+    with _SERVER_LOCK:
+        thread_alive = _SERVER_THREAD is not None and _SERVER_THREAD.is_alive()
+        active = _SERVER_RUNNING or _SERVER_STARTING or thread_alive
 
-    _CURRENT_HOST = host
-    _CURRENT_PORT = port
+        if active:
+            if host != _CURRENT_HOST or port != _CURRENT_PORT:
+                raise RuntimeError(
+                    f"plotsrv server already running on {_CURRENT_HOST}:{_CURRENT_PORT}; "
+                    "call plotsrv.stop_server() before starting a new one on a different host/port."
+                )
+            return False
 
-    thread = threading.Thread(
-        target=_run_server,
-        args=(host, port, quiet),
-        daemon=True,
-    )
-    _SERVER_THREAD = thread
-    thread.start()
+        _CURRENT_HOST = host
+        _CURRENT_PORT = port
+        _SERVER_STARTING = True
+
+        thread = threading.Thread(
+            target=_run_server,
+            args=(host, port, quiet),
+            daemon=True,
+        )
+        _SERVER_THREAD = thread
+        thread.start()
+
+    return True
 
 
 # ---- Helpers to normalize objects
@@ -253,6 +280,164 @@ def _register_refresh_view_if_named(
     store.set_active_view(resolved_view_id)
 
 
+def _set_restored_status(*, view_id: str, updated_at: str | None) -> None:
+    """
+    Preserve the original latest-state timestamp after restoring into memory.
+    """
+    store.mark_restored(
+        view_id=view_id,
+        last_updated=updated_at,
+        source="latest",
+    )
+
+
+def _restore_latest_loaded_view(loaded: Any) -> None:
+    """
+    Restore one LoadedLatest record into the in-memory store.
+
+    This deliberately updates store directly rather than going through
+    refresh_view(), so restore does not enqueue a new snapshot/latest write.
+    """
+    meta = loaded.meta
+    view_id = meta.view_id
+    kind = str(meta.kind or "artifact").strip().lower()
+
+    store.register_view(
+        view_id=view_id,
+        section=meta.section,
+        label=meta.label,
+        kind="none",
+        icon_key="unknown",
+        activate_if_first=True,
+    )
+
+    if kind == "plot":
+        obj = loaded.obj
+        if not isinstance(obj, (bytes, bytearray)):
+            return
+
+        store.set_plot(bytes(obj), view_id=view_id)
+        _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
+        return
+
+    if kind == "table":
+        obj = loaded.obj
+        if not isinstance(obj, pd.DataFrame):
+            return
+
+        html_simple = (
+            df_to_html_simple(obj, config.get_max_table_rows_simple())
+            if config.get_table_view_mode() == "simple"
+            else None
+        )
+
+        total_rows = None
+        returned_rows = None
+        if isinstance(meta.extra, dict):
+            raw_total = meta.extra.get("total_rows")
+            raw_returned = meta.extra.get("returned_rows")
+            total_rows = raw_total if isinstance(raw_total, int) else None
+            returned_rows = raw_returned if isinstance(raw_returned, int) else None
+
+        store.set_table(
+            obj,
+            html_simple=html_simple,
+            view_id=view_id,
+            total_rows=total_rows,
+            returned_rows=returned_rows,
+        )
+        _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
+        return
+
+    store.set_artifact(
+        obj=loaded.obj,
+        kind=kind,  # type: ignore[arg-type]
+        label=meta.label,
+        section=meta.section,
+        view_id=view_id,
+    )
+    _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
+
+
+def restore_latest_views_from_storage(
+    *,
+    restore_scope: str | None = None,
+) -> int:
+    """
+    Restore latest persisted live-state records into the in-memory store.
+
+    restore_scope:
+      - "discovered": restore only latest records whose view_id is already
+        registered/discovered. If no views are registered, restore nothing.
+      - "all": restore all latest records.
+      - "none": restore nothing.
+      - None: read from config.
+
+    Returns the number of views successfully restored.
+    """
+    scope = (
+        str(restore_scope).strip().lower()
+        if restore_scope is not None
+        else config.get_storage_latest_restore_scope()
+    )
+
+    if scope not in ("discovered", "all", "none"):
+        scope = "discovered"
+
+    if scope == "none":
+        return 0
+
+    if not config.get_storage_restore_latest_on_startup():
+        return 0
+
+    registered_view_ids = {v.view_id for v in store.list_views()}
+
+    latest_backend = FileLatestStateBackend(root_dir=config.get_storage_root_dir())
+
+    restored = 0
+    for meta in latest_backend.list_latest():
+        if scope == "discovered" and meta.view_id not in registered_view_ids:
+            continue
+
+        try:
+            loaded = latest_backend.load_latest(view_id=meta.view_id)
+            _restore_latest_loaded_view(loaded)
+            restored += 1
+        except Exception:
+            continue
+
+    return restored
+
+
+def _enqueue_refresh_persistence(
+    *,
+    resolved_view_id: str | None,
+    kind: str,
+    obj: Any,
+    section: str | None,
+    label: str | None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """
+    Enqueue optional disk persistence for refresh_view() updates.
+
+    This covers latest live-state persistence and snapshot history when enabled.
+    If resolved_view_id is None, use the active/default view for backwards
+    compatibility.
+    """
+    view_id = resolved_view_id or store.get_active_view_id()
+
+    enqueue_snapshot(
+        view_id=view_id,
+        kind=kind,
+        obj=obj,
+        section=section if isinstance(section, str) else None,
+        label=label if isinstance(label, str) else None,
+        extra=extra,
+        source=None,
+    )
+
+
 def _infer_artifact_kind_for_refresh(obj: Any) -> str:
     if isinstance(obj, str):
         return "text"
@@ -282,7 +467,7 @@ def _set_artifact_for_refresh(
     label: str | None,
     section: str | None,
     view_id: str | None,
-) -> None:
+) -> tuple[str, Any]:
     kind = (artifact_kind or "").strip().lower() or _infer_artifact_kind_for_refresh(
         obj
     )
@@ -313,6 +498,8 @@ def _set_artifact_for_refresh(
         view_id=view_id,
     )
 
+    return kind, obj
+
 
 # ---- Core refresh logic
 
@@ -327,11 +514,13 @@ def refresh_view(
     artifact_kind: str | None = None,
     force_plotnine: bool = False,
     update_status: bool = True,
+    launch_server: bool = True,
 ) -> None:
     """
     Update an in-process plotsrv view directly.
 
-    This is the in-process counterpart to publish_view(...).
+    This is the lower-level in-process publishing helper used by publish_view()
+    when no remote host/port is supplied.
 
     - DataFrame (pandas or polars) -> table view
     - Figure / plotnine / None -> plot view
@@ -383,7 +572,16 @@ def refresh_view(
             if update_status:
                 store.mark_success(duration_s=None, view_id=resolved_view_id)
 
-            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+            _enqueue_refresh_persistence(
+                resolved_view_id=resolved_view_id,
+                kind="table",
+                obj=df,
+                section=section,
+                label=label,
+            )
+
+            if launch_server:
+                _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
             return
 
         ak = artifact_kind or coerced.artifact_kind or "text"
@@ -396,7 +594,7 @@ def refresh_view(
             kind="artifact",
             icon_key=ak,
         )
-        _set_artifact_for_refresh(
+        stored_kind, stored_obj = _set_artifact_for_refresh(
             obj_to_store,
             artifact_kind=ak,
             label=label,
@@ -407,7 +605,16 @@ def refresh_view(
         if update_status:
             store.mark_success(duration_s=None, view_id=resolved_view_id)
 
-        _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+        _enqueue_refresh_persistence(
+            resolved_view_id=resolved_view_id,
+            kind=stored_kind,
+            obj=stored_obj,
+            section=section,
+            label=label,
+        )
+
+        if launch_server:
+            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
     # Table mode
@@ -432,7 +639,16 @@ def refresh_view(
         if update_status:
             store.mark_success(duration_s=None, view_id=resolved_view_id)
 
-        _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+        _enqueue_refresh_persistence(
+            resolved_view_id=resolved_view_id,
+            kind="table",
+            obj=df,
+            section=section,
+            label=label,
+        )
+
+        if launch_server:
+            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
     # Plot mode
@@ -452,7 +668,16 @@ def refresh_view(
         if update_status:
             store.mark_success(duration_s=None, view_id=resolved_view_id)
 
-        _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+        _enqueue_refresh_persistence(
+            resolved_view_id=resolved_view_id,
+            kind="plot",
+            obj=png_bytes,
+            section=section,
+            label=label,
+        )
+
+        if launch_server:
+            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
     # Generic artifact mode
@@ -466,7 +691,7 @@ def refresh_view(
             kind="artifact",
             icon_key=ak,
         )
-        _set_artifact_for_refresh(
+        stored_kind, stored_obj = _set_artifact_for_refresh(
             obj,
             artifact_kind=ak,
             label=label,
@@ -477,7 +702,16 @@ def refresh_view(
         if update_status:
             store.mark_success(duration_s=None, view_id=resolved_view_id)
 
-        _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
+        _enqueue_refresh_persistence(
+            resolved_view_id=resolved_view_id,
+            kind=stored_kind,
+            obj=stored_obj,
+            section=section,
+            label=label,
+        )
+
+        if launch_server:
+            _ensure_server_running(_DEFAULT_HOST, _DEFAULT_PORT, quiet=True)
         return
 
     raise ValueError(
@@ -528,6 +762,8 @@ def start_server(
     truncate: int | str | None = None,
     no_truncate: bool = False,
     watches: Sequence[Any] | None = None,
+    restore_latest: bool = True,
+    announce: bool = False,
 ) -> None:
     """
     Start the viewer server in a background thread.
@@ -541,6 +777,8 @@ def start_server(
     - truncate: runtime truncation override, equivalent to CLI --truncate.
     - no_truncate: disable text/html/markdown truncation.
     - watches: optional WatchConfig/dict values for files to publish live.
+    - restore_latest: restore latest persisted views on startup if configured.
+    - announce: print a short server URL message when a new server starts.
     """
     from .runtime import apply_runtime_options, start_watch_threads
 
@@ -555,7 +793,13 @@ def start_server(
     _DEFAULT_HOST = host
     _DEFAULT_PORT = port
 
-    _ensure_server_running(host, port, quiet=quiet)
+    if restore_latest:
+        restore_latest_views_from_storage()
+
+    started = _ensure_server_running(host, port, quiet=quiet)
+
+    if announce and started:
+        _announce_server_running(host=host, port=port)
 
     if auto_on_show:
         _patch_matplotlib_show()
@@ -571,12 +815,24 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
 
     If join=True, wait (up to `timeout` seconds) for the thread to exit.
     """
-    global _SERVER, _SERVER_THREAD
-    if _SERVER is not None:
-        _SERVER.should_exit = True
+    global _SERVER, _SERVER_THREAD, _SERVER_RUNNING, _SERVER_STARTING
 
-    if join and _SERVER_THREAD is not None:
-        _SERVER_THREAD.join(timeout=timeout)
+    with _SERVER_LOCK:
+        server = _SERVER
+        thread = _SERVER_THREAD
+
+    if server is not None:
+        server.should_exit = True
+
+    if join and thread is not None:
+        thread.join(timeout=timeout)
+
+    with _SERVER_LOCK:
+        if join:
+            _SERVER_THREAD = None
+        _SERVER_STARTING = False
+        if _SERVER is None:
+            _SERVER_RUNNING = False
 
     stop_storage_worker(join=False)
     _unpatch_matplotlib_show()
@@ -594,6 +850,8 @@ def plot_session(
     truncate: int | str | None = None,
     no_truncate: bool = False,
     watches: Sequence[Any] | None = None,
+    restore_latest: bool = True,
+    announce: bool = False,
 ):
     """
     Context manager: start server on entry, stop on exit.
@@ -608,6 +866,8 @@ def plot_session(
         truncate=truncate,
         no_truncate=no_truncate,
         watches=watches,
+        restore_latest=restore_latest,
+        announce=announce,
     )
     try:
         yield

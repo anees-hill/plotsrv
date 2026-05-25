@@ -75,6 +75,11 @@ _DEFAULTS: dict[str, Any] = {
         "max_snapshot_size_mb": 20.0,
         "default_keep_last": 2,
         "default_min_store_interval": None,
+        "latest": {
+            "enabled": False,
+            "restore_on_startup": True,
+            "restore_scope": "discovered",
+        },
         "views": {},
     },
     "freshness-settings": {
@@ -573,6 +578,68 @@ def get_storage_root_dir() -> Path:
 
     base = settings.get_runtime_config_dir() or Path.cwd()
     return (base / p).resolve()
+
+
+def _storage_latest_settings() -> dict[str, Any]:
+    sec = _merged_section("storage-settings")
+    latest = sec.get("latest")
+    default_latest = _DEFAULTS["storage-settings"]["latest"]
+
+    if not isinstance(latest, dict):
+        return dict(default_latest)
+
+    return _deep_merge_dicts(dict(default_latest), latest)
+
+
+def get_storage_latest_enabled() -> bool:
+    """
+    Whether latest live-state persistence is enabled.
+
+    Global storage-settings.enabled remains the master switch. This means latest
+    persistence is active only when both storage is enabled and latest.enabled is
+    true.
+    """
+    if not get_storage_enabled():
+        return False
+
+    latest = _storage_latest_settings()
+    return _as_bool(latest.get("enabled"), False)
+
+
+def get_storage_restore_latest_on_startup() -> bool:
+    """
+    Whether plotsrv should restore latest live-state records into memory on
+    server startup.
+
+    This only has effect when latest persistence is enabled.
+    """
+    if not get_storage_latest_enabled():
+        return False
+
+    latest = _storage_latest_settings()
+    return _as_bool(latest.get("restore_on_startup"), True)
+
+
+def get_storage_latest_restore_scope() -> str:
+    """
+    Scope used when restoring latest live-state records.
+
+    Values:
+      - "discovered": restore only views already registered/discovered.
+        If no views are registered, restore all latest records.
+      - "all": restore all latest records.
+      - "none": restore nothing.
+    """
+    if not get_storage_restore_latest_on_startup():
+        return "none"
+
+    latest = _storage_latest_settings()
+    raw = str(latest.get("restore_scope") or "discovered").strip().lower()
+
+    if raw not in ("discovered", "all", "none"):
+        return "discovered"
+
+    return raw
 
 
 def _storage_view_overrides() -> dict[str, Any]:

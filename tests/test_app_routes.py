@@ -213,3 +213,28 @@ def test_publish_respects_update_limit(client: TestClient) -> None:
 
     # sanity: it still identifies the view
     assert data2["view_id"] == "etl-1:import"
+
+
+def test_status_includes_restored_fields(client: TestClient) -> None:
+    vid = store.register_view(section="demo", label="message", kind="artifact")
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="demo",
+        label="message",
+        view_id=vid,
+    )
+    store.mark_restored(
+        view_id=vid,
+        last_updated="2026-01-01T00:00:00+00:00",
+        restored_at="2026-01-02T00:00:00+00:00",
+        source="latest",
+    )
+
+    resp = client.get(f"/status?view={vid}")
+    assert resp.status_code == 200
+
+    data = resp.json()
+    assert data["restored_from_storage"] is True
+    assert data["restored_at"] == "2026-01-02T00:00:00+00:00"
+    assert data["restore_source"] == "latest"

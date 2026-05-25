@@ -62,9 +62,12 @@ class ViewState:
     def __post_init__(self) -> None:
         if self.status is None:
             self.status = {
-                "last_updated": None,  # ISO string
-                "last_duration_s": None,  # float | None
-                "last_error": None,  # str | None
+                "last_updated": None,
+                "last_duration_s": None,
+                "last_error": None,
+                "restored_from_storage": False,
+                "restored_at": None,
+                "restore_source": None,
             }
 
 
@@ -279,6 +282,7 @@ def set_plot(png_bytes: bytes, *, view_id: str | None = None) -> None:
 
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+    _clear_restored_status(st)
 
     register_view(
         view_id=vid, kind="plot", icon_key=st.icon_key, activate_if_first=False
@@ -325,6 +329,7 @@ def set_table(
 
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+    _clear_restored_status(st)
 
     register_view(
         view_id=vid, kind="table", icon_key=st.icon_key, activate_if_first=False
@@ -357,6 +362,7 @@ def set_artifact(
 
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+    _clear_restored_status(st)
 
     register_view(
         view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
@@ -409,12 +415,37 @@ def mark_success(*, duration_s: float | None, view_id: str | None = None) -> Non
     st.status["last_updated"] = _now_iso()
     st.status["last_duration_s"] = duration_s
     st.status["last_error"] = None
+    _clear_restored_status(st)
 
 
 def mark_error(message: str, *, view_id: str | None = None) -> None:
     st = get_view_state(view_id)
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = message
+
+
+def mark_restored(
+    *,
+    view_id: str,
+    last_updated: str | None,
+    restored_at: str | None = None,
+    source: str = "latest",
+) -> None:
+    """
+    Mark a view as restored from persisted storage.
+
+    last_updated should represent the original publish/update timestamp, not the
+    time the server restored it.
+    """
+    st = get_view_state(view_id)
+
+    if last_updated:
+        st.status["last_updated"] = last_updated
+
+    st.status["last_error"] = None
+    st.status["restored_from_storage"] = True
+    st.status["restored_at"] = restored_at or _now_iso()
+    st.status["restore_source"] = source
 
 
 def get_status(*, view_id: str | None = None) -> dict[str, Any]:
@@ -515,6 +546,12 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
         "overdue_after_s": overdue_after_s,
         "error_after_s": overdue_after_s,  # legacy alias
     }
+
+
+def _clear_restored_status(st: ViewState) -> None:
+    st.status["restored_from_storage"] = False
+    st.status["restored_at"] = None
+    st.status["restore_source"] = None
 
 
 # Publish throttling

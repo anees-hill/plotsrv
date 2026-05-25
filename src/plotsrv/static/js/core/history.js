@@ -99,7 +99,7 @@
       state.historyItems = snapshots;
 
       const parts = [];
-      parts.push('<option value="">Live (latest)</option>');
+      parts.push('<option value="">Live</option>');
 
       if (snapshots.length === 0) {
         parts.push(
@@ -111,12 +111,21 @@
             snap.created_at && typeof core.fmtLocalTime === "function"
               ? core.fmtLocalTime(snap.created_at)
               : snap.snapshot_id;
+          let label = ts;
+          
+          if (snap.is_live_equivalent) {
+            label = "Latest snapshot (same as Live)";
+          } else if (snap.is_latest) {
+            label = "Latest snapshot · " + ts;
+          }
+          
           const kind = snap.kind ? " · " + core.escapeHtml(snap.kind) : "";
+          
           parts.push(
             '<option value="' +
               core.escapeHtml(snap.snapshot_id) +
               '">' +
-              core.escapeHtml(ts) +
+              core.escapeHtml(label) +
               kind +
               "</option>"
           );
@@ -138,7 +147,7 @@
       syncHistoryUi();
     } catch (e) {
       sel.innerHTML =
-        '<option value="">Live (latest)</option>' +
+        '<option value="">Live</option>' +
         '<option value="__err__" disabled>History unavailable</option>';
       state.historyItems = [];
       syncHistoryUi();

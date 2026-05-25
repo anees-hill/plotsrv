@@ -1,28 +1,31 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from typing import Any
 
+from pathlib import Path
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
 import pandas as pd
 import pytest
 from fastapi import BackgroundTasks, HTTPException
 
 from plotsrv import config, store
 import plotsrv.server as srv
+from plotsrv.storage.models import LatestMeta, LoadedLatest
 
 
 @pytest.fixture(autouse=True)
-def reset_state() -> None:
+def reset_state(monkeypatch: pytest.MonkeyPatch) -> None:
     # Reset store and server globals around each test.
     store.reset()
 
     srv._SERVER_RUNNING = False
+    srv._SERVER_STARTING = False
     srv._SERVER_THREAD = None
     srv._SERVER = None
     srv._CURRENT_HOST = "0.0.0.0"
     srv._CURRENT_PORT = 8000
+
+    monkeypatch.setattr(srv, "enqueue_snapshot", lambda **kwargs: False)
 
     # ensure matplotlib show is unpatched
     if getattr(srv, "_SHOW_PATCHED", False):
@@ -41,7 +44,7 @@ def reset_state() -> None:
 @pytest.fixture
 def fake_run_server(monkeypatch: pytest.MonkeyPatch) -> None:
     def _fake_run_server(host: str, port: int, quiet: bool) -> None:
-        # pretend server is running then immediately stop
+        srv._SERVER_STARTING = False
         srv._SERVER_RUNNING = True
 
     monkeypatch.setattr(srv, "_run_server", _fake_run_server)
@@ -127,8 +130,51 @@ def test_start_server_twice_same_host_port_ok(fake_run_server: None) -> None:
 
 def test_start_server_different_port_raises(fake_run_server: None) -> None:
     srv.start_server(host="127.0.0.1", port=9123, auto_on_show=False, quiet=True)
-    with pytest.raises(RuntimeError):
+
+    with pytest.raises(RuntimeError, match="stop_server"):
         srv.start_server(host="127.0.0.1", port=9999, auto_on_show=False, quiet=True)
+
+
+def test_start_server_announces_local_url_when_requested(
+    fake_run_server: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    srv.start_server(
+        host="127.0.0.1",
+        port=8123,
+        auto_on_show=False,
+        quiet=True,
+        announce=True,
+    )
+
+    out = capsys.readouterr().out
+    assert "plotsrv server running at http://127.0.0.1:8123" in out
+
+
+def test_start_server_announces_local_url_for_zero_host(
+    fake_run_server: None,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    srv.start_server(
+        host="0.0.0.0",
+        port=8123,
+        auto_on_show=False,
+        quiet=True,
+        announce=True,
+    )
+
+    out = capsys.readouterr().out
+    assert "plotsrv server running at http://127.0.0.1:8123" in out
+    assert "Bound to 0.0.0.0:8123 for network access." in out
+
+
+def test_start_server_different_port_error_mentions_stop_server(
+    fake_run_server: None,
+) -> None:
+    srv.start_server(host="127.0.0.1", port=8123, auto_on_show=False, quiet=True)
+
+    with pytest.raises(RuntimeError, match="stop_server"):
+        srv.start_server(host="127.0.0.1", port=8999, auto_on_show=False, quiet=True)
 
 
 def test_stop_server_unpatches_show(fake_run_server: None) -> None:
@@ -306,6 +352,8 @@ def test_plot_session_starts_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:
             "truncate": None,
             "no_truncate": False,
             "watches": None,
+            "restore_latest": True,
+            "announce": False,
         },
     )
     assert calls[1] == ("inside", {})
@@ -349,6 +397,7 @@ def test_start_server_applies_runtime_options(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(srv, "_ensure_server_running", lambda *a, **k: None)
     monkeypatch.setattr(srv, "_patch_matplotlib_show", lambda: None)
+    monkeypatch.setattr(srv, "restore_latest_views_from_storage", lambda: 0)
 
     cfg = tmp_path / "plotsrv.yml"
     cfg.write_text("{}", encoding="utf-8")
@@ -385,6 +434,7 @@ def test_start_server_starts_watch_threads(monkeypatch):
     )
     monkeypatch.setattr(srv, "_ensure_server_running", lambda *a, **k: None)
     monkeypatch.setattr(srv, "_patch_matplotlib_show", lambda: None)
+    monkeypatch.setattr(srv, "restore_latest_views_from_storage", lambda: 0)
 
     def fake_start_watch_threads(watches, *, host, port):
         watch_calls.append({"watches": watches, "host": host, "port": port})
@@ -443,6 +493,8 @@ def test_plot_session_passes_runtime_options(monkeypatch: pytest.MonkeyPatch) ->
             "truncate": 60_000,
             "no_truncate": False,
             "watches": watches,
+            "restore_latest": True,
+            "announce": False,
         },
     )
 
@@ -485,3 +537,543 @@ def test_refresh_view_pathlike_text_file(fake_run_server: None, tmp_path) -> Non
 def test_refresh_view_invalid_forced_kind_raises(fake_run_server: None) -> None:
     with pytest.raises(ValueError):
         srv.refresh_view({"x": 1}, kind="bad")
+
+
+def test_refresh_view_enqueues_persistence_for_named_table(
+    fake_run_server: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        srv, "enqueue_snapshot", lambda **kwargs: calls.append(kwargs) or True
+    )
+
+    df = pd.DataFrame({"a": [1, 2]})
+    srv.refresh_view(df, label="rows", section="analysis")
+
+    assert calls
+    assert calls[0]["view_id"] == "analysis:rows"
+    assert calls[0]["kind"] == "table"
+    assert calls[0]["section"] == "analysis"
+    assert calls[0]["label"] == "rows"
+
+
+def _latest_meta(
+    *,
+    view_id: str = "demo:message",
+    kind: str = "text",
+    section: str | None = "demo",
+    label: str | None = "message",
+) -> LatestMeta:
+    return LatestMeta(
+        view_id=view_id,
+        section=section,
+        label=label,
+        kind=kind,
+        updated_at="2026-01-01T00:00:00+00:00",
+        payload_filename="latest__payload.txt",
+        payload_format="text",
+        size_bytes=5,
+        path_payload="/tmp/latest__payload.txt",
+        path_meta="/tmp/latest__meta.json",
+        payload_exists=True,
+        extra=None,
+    )
+
+
+def test_restore_latest_views_from_storage_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: False,
+    )
+
+    assert srv.restore_latest_views_from_storage() == 0
+
+
+def test_restore_latest_views_from_storage_restores_text_artifact(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    meta = _latest_meta()
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir):
+            assert root_dir == tmp_path
+
+        def list_latest(self):
+            return [meta]
+
+        def load_latest(self, *, view_id: str):
+            assert view_id == "demo:message"
+            return LoadedLatest(meta=meta, obj="hello")
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "all",
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
+
+    restored = srv.restore_latest_views_from_storage()
+
+    assert restored == 1
+    assert store.get_kind("demo:message") == "artifact"
+
+    art = store.get_artifact(view_id="demo:message")
+    assert art.kind == "text"
+    assert art.obj == "hello"
+    assert art.label == "message"
+    assert art.section == "demo"
+
+    status = store.get_status(view_id="demo:message")
+    assert status["last_updated"] == "2026-01-01T00:00:00+00:00"
+    assert status["restored_from_storage"] is True
+    assert status["restore_source"] == "latest"
+    assert status["restored_at"] is not None
+
+
+def test_restore_latest_views_from_storage_restores_table(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    df = pd.DataFrame({"a": [1, 2]})
+    meta = _latest_meta(
+        view_id="etl:table",
+        kind="table",
+        section="etl",
+        label="table",
+    )
+
+    meta = LatestMeta(
+        view_id=meta.view_id,
+        section=meta.section,
+        label=meta.label,
+        kind=meta.kind,
+        updated_at=meta.updated_at,
+        payload_filename="latest__payload.csv",
+        payload_format="csv",
+        size_bytes=10,
+        path_payload="/tmp/latest__payload.csv",
+        path_meta="/tmp/latest__meta.json",
+        payload_exists=True,
+        extra={"total_rows": 99, "returned_rows": 2},
+    )
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir):
+            pass
+
+        def list_latest(self):
+            return [meta]
+
+        def load_latest(self, *, view_id: str):
+            return LoadedLatest(meta=meta, obj=df)
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "all",
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
+
+    restored = srv.restore_latest_views_from_storage()
+
+    assert restored == 1
+    assert store.get_kind("etl:table") == "table"
+    assert store.get_table_df(view_id="etl:table").equals(df)
+    assert store.get_table_counts(view_id="etl:table") == (99, 2)
+    assert store.get_status(view_id="etl:table")["last_updated"] == meta.updated_at
+
+
+def test_restore_latest_views_from_storage_restores_plot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    png = b"\x89PNG\r\n\x1a\nfake"
+    meta = _latest_meta(
+        view_id="plots:one",
+        kind="plot",
+        section="plots",
+        label="one",
+    )
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir):
+            pass
+
+        def list_latest(self):
+            return [meta]
+
+        def load_latest(self, *, view_id: str):
+            return LoadedLatest(meta=meta, obj=png)
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "all",
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
+
+    restored = srv.restore_latest_views_from_storage()
+
+    assert restored == 1
+    assert store.get_kind("plots:one") == "plot"
+    assert store.get_plot(view_id="plots:one") == png
+    assert store.get_status(view_id="plots:one")["last_updated"] == meta.updated_at
+
+
+def test_restore_latest_views_from_storage_skips_bad_records(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    good = _latest_meta(view_id="demo:good", label="good")
+    bad = _latest_meta(view_id="demo:bad", label="bad")
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir):
+            pass
+
+        def list_latest(self):
+            return [bad, good]
+
+        def load_latest(self, *, view_id: str):
+            if view_id == "demo:bad":
+                raise LookupError("missing")
+            return LoadedLatest(meta=good, obj="ok")
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "all",
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
+
+    restored = srv.restore_latest_views_from_storage()
+
+    assert restored == 1
+    assert store.has_artifact(view_id="demo:good") is True
+    assert store.has_artifact(view_id="demo:bad") is False
+
+
+def test_restore_latest_views_discovered_scope_skips_unregistered_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    store.register_view(
+        view_id="demo:live",
+        section="demo",
+        label="live",
+        kind="none",
+        activate_if_first=False,
+    )
+
+    meta = _latest_meta(view_id="demo:other", label="other")
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir):
+            pass
+
+        def list_latest(self):
+            return [meta]
+
+        def load_latest(self, *, view_id: str):
+            raise AssertionError("should not load unregistered latest record")
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "discovered",
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
+
+    assert srv.restore_latest_views_from_storage() == 0
+    assert store.has_artifact(view_id="demo:other") is False
+
+
+def test_restore_latest_views_discovered_scope_restores_registered_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    store.register_view(
+        view_id="demo:message",
+        section="demo",
+        label="message",
+        kind="none",
+        activate_if_first=False,
+    )
+
+    meta = _latest_meta(view_id="demo:message", label="message")
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir):
+            pass
+
+        def list_latest(self):
+            return [meta]
+
+        def load_latest(self, *, view_id: str):
+            assert view_id == "demo:message"
+            return LoadedLatest(meta=meta, obj="hello")
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "discovered",
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
+
+    assert srv.restore_latest_views_from_storage() == 1
+    assert store.get_artifact(view_id="demo:message").obj == "hello"
+
+
+def test_restore_latest_views_all_scope_restores_unregistered_latest(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    store.register_view(
+        view_id="demo:registered",
+        section="demo",
+        label="registered",
+        kind="none",
+        activate_if_first=False,
+    )
+
+    meta = _latest_meta(view_id="demo:other", label="other")
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir):
+            pass
+
+        def list_latest(self):
+            return [meta]
+
+        def load_latest(self, *, view_id: str):
+            return LoadedLatest(meta=meta, obj="hello")
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "all",
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
+
+    assert srv.restore_latest_views_from_storage() == 1
+    assert store.get_artifact(view_id="demo:other").obj == "hello"
+
+
+def test_restore_latest_views_none_scope_restores_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir):
+            raise AssertionError("should not construct backend")
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "none",
+    )
+    monkeypatch.setattr(srv, "FileLatestStateBackend", FakeLatestBackend)
+
+    assert srv.restore_latest_views_from_storage() == 0
+
+
+def test_restore_latest_views_from_real_file_backend(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    from plotsrv.storage.latest import FileLatestStateBackend
+
+    latest_backend = FileLatestStateBackend(root_dir=tmp_path)
+    latest_backend.write_latest(
+        view_id="demo:message",
+        kind="text",
+        obj="hello from disk",
+        section="demo",
+        label="message",
+    )
+
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_restore_latest_on_startup",
+        lambda: True,
+    )
+    monkeypatch.setattr(
+        srv.config,
+        "get_storage_latest_restore_scope",
+        lambda: "all",
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+
+    restored = srv.restore_latest_views_from_storage()
+
+    assert restored == 1
+    assert store.get_artifact(view_id="demo:message").obj == "hello from disk"
+
+
+def test_restore_latest_discovered_scope_restores_nothing_when_no_views_registered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import pandas as pd
+    import plotsrv.server as srv
+    from plotsrv import store
+    from plotsrv.storage.latest import FileLatestStateBackend
+
+    store.reset()
+
+    monkeypatch.setattr(
+        srv.config, "get_storage_restore_latest_on_startup", lambda: True
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+    backend.write_latest(
+        view_id="etl:orders",
+        kind="table",
+        obj=pd.DataFrame({"a": [1]}),
+        section="etl",
+        label="orders",
+    )
+
+    restored = srv.restore_latest_views_from_storage(restore_scope="discovered")
+
+    assert restored == 0
+    assert store.list_views() == []
+
+
+def test_restore_latest_all_scope_restores_when_no_views_registered(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import pandas as pd
+    import plotsrv.server as srv
+    from plotsrv import store
+    from plotsrv.storage.latest import FileLatestStateBackend
+
+    store.reset()
+
+    monkeypatch.setattr(
+        srv.config, "get_storage_restore_latest_on_startup", lambda: True
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+    backend.write_latest(
+        view_id="etl:orders",
+        kind="table",
+        obj=pd.DataFrame({"a": [1]}),
+        section="etl",
+        label="orders",
+    )
+
+    restored = srv.restore_latest_views_from_storage(restore_scope="all")
+
+    assert restored == 1
+
+    views = {v.view_id for v in store.list_views()}
+    assert "etl:orders" in views
+    assert store.get_kind("etl:orders") == "table"
+
+
+def test_restore_latest_discovered_scope_restores_registered_view_only(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    import pandas as pd
+    import plotsrv.server as srv
+    from plotsrv import store
+    from plotsrv.storage.latest import FileLatestStateBackend
+
+    store.reset()
+
+    monkeypatch.setattr(
+        srv.config, "get_storage_restore_latest_on_startup", lambda: True
+    )
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+
+    backend = FileLatestStateBackend(root_dir=tmp_path)
+
+    backend.write_latest(
+        view_id="etl:orders",
+        kind="table",
+        obj=pd.DataFrame({"a": [1]}),
+        section="etl",
+        label="orders",
+    )
+    backend.write_latest(
+        view_id="ops:health",
+        kind="json",
+        obj={"status": "ok"},
+        section="ops",
+        label="health",
+    )
+
+    store.register_view(
+        view_id="etl:orders",
+        section="etl",
+        label="orders",
+        kind="none",
+        activate_if_first=False,
+    )
+
+    restored = srv.restore_latest_views_from_storage(restore_scope="discovered")
+
+    assert restored == 1
+
+    views = {v.view_id for v in store.list_views()}
+    assert "etl:orders" in views
+    assert "ops:health" not in views
+    assert store.get_kind("etl:orders") == "table"

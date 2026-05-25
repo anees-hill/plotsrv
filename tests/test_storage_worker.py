@@ -160,6 +160,7 @@ def test_process_task_returns_early_when_decision_rejected(
     monkeypatch.setattr(worker_mod.config, "get_storage_root_dir", lambda: tmp_path)
     monkeypatch.setattr(worker_mod, "list_snapshots", lambda **kwargs: [_snap()])
     monkeypatch.setattr(worker_mod, "estimate_payload_size_bytes", lambda **kwargs: 123)
+    monkeypatch.setattr(worker_mod.config, "get_storage_latest_enabled", lambda: False)
 
     class Decision:
         accepted = False
@@ -193,6 +194,7 @@ def test_process_task_writes_snapshot_when_accepted(
     monkeypatch.setattr(worker_mod.config, "get_storage_root_dir", lambda: tmp_path)
     monkeypatch.setattr(worker_mod, "list_snapshots", lambda **kwargs: [_snap()])
     monkeypatch.setattr(worker_mod, "estimate_payload_size_bytes", lambda **kwargs: 321)
+    monkeypatch.setattr(worker_mod.config, "get_storage_latest_enabled", lambda: False)
 
     class Decision:
         accepted = True
@@ -353,3 +355,103 @@ def test_start_and_stop_storage_worker_wrapper_functions(
     assert calls[2][0] == "submit"
     assert calls[2][1]["view_id"] == "v1"
     assert calls[2][1]["source"] == "watch"
+
+
+def test_process_task_writes_latest_when_enabled_even_if_snapshot_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    w = worker_mod.StorageWorker()
+
+    monkeypatch.setattr(worker_mod.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(worker_mod.config, "get_storage_latest_enabled", lambda: True)
+    monkeypatch.setattr(worker_mod, "list_snapshots", lambda **kwargs: [_snap()])
+    monkeypatch.setattr(worker_mod, "estimate_payload_size_bytes", lambda **kwargs: 123)
+
+    class Decision:
+        accepted = False
+        keep_last = 2
+
+    monkeypatch.setattr(
+        worker_mod, "should_store_snapshot", lambda **kwargs: Decision()
+    )
+
+    latest_calls: list[dict[str, Any]] = []
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir: Path) -> None:
+            latest_calls.append({"root_dir": root_dir})
+
+        def write_latest(self, **kwargs: Any) -> object:
+            latest_calls.append(kwargs)
+            return object()
+
+    monkeypatch.setattr(worker_mod, "FileLatestStateBackend", FakeLatestBackend)
+
+    snapshot_calls: list[dict[str, Any]] = []
+
+    monkeypatch.setattr(
+        worker_mod,
+        "write_snapshot_and_prune",
+        lambda **kwargs: snapshot_calls.append(kwargs),
+    )
+
+    task = worker_mod.StorageTask(
+        view_id="v1",
+        kind="text",
+        obj="hello",
+        section="sec",
+        label="lab",
+        extra={"x": 1},
+    )
+    w._process_task(task)
+
+    assert latest_calls[0] == {"root_dir": tmp_path}
+    assert latest_calls[1]["view_id"] == "v1"
+    assert latest_calls[1]["kind"] == "text"
+    assert latest_calls[1]["obj"] == "hello"
+    assert latest_calls[1]["section"] == "sec"
+    assert latest_calls[1]["label"] == "lab"
+    assert latest_calls[1]["extra"] == {"x": 1}
+    assert snapshot_calls == []
+
+
+def test_process_task_does_not_write_latest_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    w = worker_mod.StorageWorker()
+
+    monkeypatch.setattr(worker_mod.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(worker_mod.config, "get_storage_latest_enabled", lambda: False)
+    monkeypatch.setattr(worker_mod, "list_snapshots", lambda **kwargs: [])
+    monkeypatch.setattr(worker_mod, "estimate_payload_size_bytes", lambda **kwargs: 123)
+
+    class Decision:
+        accepted = True
+        keep_last = 2
+
+    monkeypatch.setattr(
+        worker_mod, "should_store_snapshot", lambda **kwargs: Decision()
+    )
+
+    latest_calls: list[dict[str, Any]] = []
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir: Path) -> None:
+            pass
+
+        def write_latest(self, **kwargs: Any) -> object:
+            latest_calls.append(kwargs)
+            return object()
+
+    monkeypatch.setattr(worker_mod, "FileLatestStateBackend", FakeLatestBackend)
+    monkeypatch.setattr(
+        worker_mod,
+        "write_snapshot_and_prune",
+        lambda **kwargs: (object(), []),
+    )
+
+    w._process_task(worker_mod.StorageTask(view_id="v1", kind="text", obj="hello"))
+
+    assert latest_calls == []

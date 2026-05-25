@@ -8,9 +8,11 @@ from typing import Any
 import pytest
 
 from plotsrv.discovery import (
+    _call_name,
     _decorator_name,
     _extract_kw_int,
     _extract_kw_str,
+    _extract_publish_view_discovery,
     discover_views,
 )
 
@@ -215,3 +217,116 @@ def f():
 
     found = discover_views(p)
     assert found == []
+
+
+def test_call_name_handles_name_and_attribute() -> None:
+    tree = ast.parse("""
+publish_view(x, label="A")
+ps.publish_view(x, label="B")
+factory()(x)
+""".strip())
+
+    calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+
+    names = [_call_name(call) for call in calls]
+
+    assert "publish_view" in names
+    assert names.count("publish_view") == 2
+
+
+def test_discover_views_finds_publish_view_call(tmp_path: Path) -> None:
+    p = tmp_path / "pub.py"
+    p.write_text(
+        """
+from plotsrv import publish_view
+
+def main():
+    df = object()
+    publish_view(df, label="Data", section="EDA")
+""".strip(),
+        encoding="utf-8",
+    )
+
+    found = discover_views(tmp_path)
+
+    assert [(v.kind, v.label, v.section) for v in found] == [
+        ("artifact", "Data", "EDA"),
+    ]
+
+
+def test_discover_views_finds_attribute_publish_view_call(tmp_path: Path) -> None:
+    p = tmp_path / "pub_attr.py"
+    p.write_text(
+        """
+import plotsrv as ps
+
+def main():
+    df = object()
+    ps.publish_view(df, label="Orders", section="ETL")
+""".strip(),
+        encoding="utf-8",
+    )
+
+    found = discover_views(tmp_path)
+
+    assert [(v.kind, v.label, v.section) for v in found] == [
+        ("artifact", "Orders", "ETL"),
+    ]
+
+
+def test_discover_views_ignores_publish_view_dynamic_label(tmp_path: Path) -> None:
+    p = tmp_path / "dynamic.py"
+    p.write_text(
+        """
+import plotsrv as ps
+
+def main():
+    label = "Data"
+    ps.publish_view(object(), label=label, section="EDA")
+""".strip(),
+        encoding="utf-8",
+    )
+
+    found = discover_views(tmp_path)
+
+    assert found == []
+
+
+def test_discover_views_finds_publish_view_literal_view_id(tmp_path: Path) -> None:
+    p = tmp_path / "view_id.py"
+    p.write_text(
+        """
+import plotsrv as ps
+
+def main():
+    ps.publish_view(object(), view_id="etl:orders")
+""".strip(),
+        encoding="utf-8",
+    )
+
+    found = discover_views(tmp_path)
+
+    assert [(v.kind, v.label, v.section) for v in found] == [
+        ("artifact", "orders", "etl"),
+    ]
+
+
+def test_discover_views_publish_view_label_overrides_view_id_label(
+    tmp_path: Path,
+) -> None:
+    p = tmp_path / "view_id_label.py"
+    p.write_text(
+        """
+import plotsrv as ps
+
+def main():
+    ps.publish_view(object(), view_id="etl:orders", label="Orders nice")
+""".strip(),
+        encoding="utf-8",
+    )
+
+    found = discover_views(tmp_path)
+
+    assert [(v.kind, v.label, v.section) for v in found] == [
+        ("artifact", "Orders nice", "etl"),
+    ]
