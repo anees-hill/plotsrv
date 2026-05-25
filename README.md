@@ -27,7 +27,7 @@
 > **Live demo:** https://demo.plotsrv.com  
 > See plotsrv render plots, tables, JSON, and HTML from real sensor data.
 
-`plotsrv` is a lightweight Python server for exposing live Python objects and on-disk files in a single browser UI. It gives you quick visibility into pipelines, experiments, batch jobs, and long-running processes without needing a full observability stack.
+`plotsrv` is a lightweight Python server for exposing live Python objects and on-disk files in a single browser UI. It provides quick visibility into pipelines, experiments, batch jobs, and long-running processes without needing a full observability stack.
 
 Add a decorator to functions you want to expose, or publish artifacts directly from your code. Fire up the server with a single command, and plotsrv takes care of discovery, view registration, and object-specific rendering automatically.
 
@@ -60,7 +60,7 @@ uv add plotsrv
 
 ## Interactive use
 
-plotsrv can be used directly from a Python session. Publish any object you want to inspect:
+plotsrv can be used directly from a Python session. For quick inspection, pass `launch_server=True` to start a local plotsrv server attached to your current Python process:
 
 ```python
 import plotsrv as ps
@@ -70,12 +70,11 @@ summary = {
     "rows_processed": 123,
     "checks": {
         "schema_valid": True,
-        "missing_values": 0,
         "duplicates": 2,
     },
 }
 
-ps.publish_view(summary, label="summary", section="demo")
+ps.publish_view(summary, label="summary", launch_server=True)
 ```
 
 Open the viewer at:
@@ -84,26 +83,21 @@ Open the viewer at:
 http://127.0.0.1:8000
 ```
 
-`publish_view()` starts a local plotsrv server automatically if one is not already running. In interactive mode, the server runs in the same Python process, so it stops when that process exits.
+In this mode, plotsrv starts a server in the same Python process. When that process exits, the attached server exits too.
 
 ## Passive server workflow
 
-For scripts, jobs, and pipelines that run separately from the viewer, start plotsrv as a passive server. This gives you a lightweight UI for seeing the latest outputs from your process, checking whether they are fresh, and browsing the views it exposes.
+For scripts, jobs, and pipelines, start plotsrv as a passive server:
 
 ### 1. Adjust your code to publish views
 
-A simple way to expose existing code is to add `@view` to a function that already returns something useful:
+A simple way to expose existing code is to add a `@view` decorator to a function that already returns something useful:
 
 ```python
 # demo_view.py
 import plotsrv as ps
 
-@ps.view(
-    label="daily import",
-    section="pipelines",
-    host="127.0.0.1",
-    port=8000,
-)
+@ps.view(label="daily import", section="pipelines", host="127.0.0.1", port=8000)
 def daily_import_status():
     return {
         "job": "daily-import",
@@ -119,26 +113,24 @@ print(status)
 
 When `daily_import_status()` is called, it returns the same object as usual and also publishes that object to the plotsrv server.
 
-You can also use `publish_view()` when you want to publish an explicit object directly:
+Alternatively, use `publish_view() to publish an object directly:
 
 ```python
 # demo_pipeline.py
 import plotsrv as ps
+import polars as pl
 
-result = {
-    "job": "daily-import",
-    "status": "ok",
-    "rows_processed": 123,
-    "warnings": ["2 duplicate rows found"],
-}
+df = pl.DataFrame({
+    "name": ["Alice", "Bob", "Charlie"],
+    "score": [82, 91, 77],
+})
 
 ps.publish_view(
-    result,
+    df,
     mode="remote",
     host="127.0.0.1",
     port=8000,
-    label="daily import",
-    section="pipelines",
+    label="student scores",
 )
 ```
 
@@ -150,7 +142,7 @@ In a terminal, start plotsrv against the script, module, or package you want it 
 plotsrv run demo_pipeline.py --host 127.0.0.1 --port 8000
 ```
 
-plotsrv scans the given script, module, or package for `@view` decorators and simple `publish_view()` calls, then uses those to pre-populate the UI where possible.
+plotsrv scans the given script, module, or package for `@view` decorators / `publish_view()` calls and uses those to pre-populate the UI.
 
 ### 3. Run your script as normal
 
@@ -166,7 +158,7 @@ Then open:
 http://127.0.0.1:8000
 ```
 
-The published view should appear in the browser UI.
+The published views will appear in the browser UI and update each time the script is run.
 
 ### 4. Enable history and persistent storage
 
@@ -177,19 +169,12 @@ To keep historical snapshots and restore the latest live view after restart, cre
 ```yaml
 storage-settings:
   enabled: true
-  root_dir: .plotsrv/store
-
-  latest:
-    enabled: true
-    restore_on_startup: true
-    restore_scope: discovered
-
   default_keep_last: 5
   default_min_store_interval: 1h
   max_snapshot_size_mb: 20
 ```
 
-With storage enabled, plotsrv can keep recent snapshots for comparison and restore the latest view when the server starts again. You can control how much is kept with settings such as `default_keep_last`, `default_min_store_interval`, and `max_snapshot_size_mb`.
+With storage enabled, plotsrv can keep recent snapshots for comparison and restore the latest view when the server starts again.
 
 You can also create a starter config file with:
 
@@ -201,7 +186,7 @@ The config file can also control table limits, freshness checks, UI settings, lo
 
 ## Watching files on disk
 
-`plotsrv` can expose files directly from disk, which is useful for logs, reports, HTML files, JSON outputs, CSVs, and generated artifacts.
+`plotsrv` can expose files directly from disk including logs, reports, HTML files, JSON outputs, CSVs, and generated artifacts.
 
 For quick use:
 
@@ -214,9 +199,9 @@ plotsrv run --host 127.0.0.1 --port 8000 \
 
 plotsrv automatically chooses a renderer for common Python outputs, including:
 
+- matplotlib and plotnine plots
 - dictionaries, lists, and JSON-like objects
 - pandas and polars DataFrames
-- matplotlib and plotnine plots
 - text, logs, markdown, HTML, and images
 - Python objects and tracebacks
 - files on disk, including CSV, JSON, YAML, TOML, markdown, HTML, text, and images
