@@ -369,3 +369,69 @@ def test_publish_watch_payload_rejects_bad_kind() -> None:
             section="S",
             kind="plot",
         )
+
+
+def test_run_passive_server_registers_before_restore(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls.append(f"start:restore_latest={kwargs.get('restore_latest')}")
+
+    def fake_stop_server(**kwargs: Any) -> None:
+        calls.append("stop")
+
+    def fake_restore_latest() -> int:
+        calls.append("restore")
+        return 0
+
+    def fake_passive_register_views(*args: Any, **kwargs: Any) -> None:
+        calls.append("register")
+
+    monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+    monkeypatch.setattr(
+        cli_mod,
+        "restore_latest_views_from_storage",
+        fake_restore_latest,
+        raising=False,
+    )
+    monkeypatch.setattr(cli_mod, "_passive_register_views", fake_passive_register_views)
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *args, **kwargs: True)
+
+    def fake_sleep(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_mod.time, "sleep", fake_sleep)
+
+    rc = cli_mod._run_passive_server_forever(
+        "dummy-root",
+        host="127.0.0.1",
+        port=8000,
+        quiet=True,
+        excludes=set(),
+        includes=set(),
+    )
+
+    assert rc == 0
+    assert calls[:3] == [
+        "start:restore_latest=False",
+        "register",
+        "restore",
+    ]
+
+
+def test_get_restore_latest_hook_uses_cli_global_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_restore() -> int:
+        return 123
+
+    monkeypatch.setattr(
+        cli_mod, "restore_latest_views_from_storage", fake_restore, raising=False
+    )
+
+    hook = cli_mod._get_restore_latest_hook()
+
+    assert hook() == 123

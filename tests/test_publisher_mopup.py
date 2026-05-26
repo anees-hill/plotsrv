@@ -172,7 +172,9 @@ def test_publish_view_html_string_becomes_html_dict(
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    pub.publish_view("<div>x</div>", label="L", artifact_kind="html")
+    pub.publish_view(
+        "<div>x</div>", label="L", artifact_kind="html", host="127.0.0.1", port=8000
+    )
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["artifact_kind"] == "html"
     assert payload["artifact"]["html"] == "<div>x</div>"
@@ -189,7 +191,9 @@ def test_publish_view_forced_artifact_kind_overrides_inferred(
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
-    pub.publish_view({"a": 1}, label="L", artifact_kind="python")
+    pub.publish_view(
+        {"a": 1}, label="L", artifact_kind="python", host="127.0.0.1", port=8000
+    )
     payload = json.loads(captured["data"].decode("utf-8"))
     assert payload["artifact_kind"] == "python"
 
@@ -200,7 +204,7 @@ def test_publish_view_debug_reraises_json_dump_failure(
     monkeypatch.setenv("PLOTSRV_DEBUG", "1")
     monkeypatch.setattr(pub, "_json_safe", lambda x: {"a": {1, 2, 3}})
     with pytest.raises(TypeError):
-        pub.publish_view({"a": 1}, label="L")
+        pub.publish_view({"a": 1}, label="L", host="127.0.0.1", port=8000)
 
 
 def test_publish_view_debug_reraises_payload_build_failure(
@@ -208,4 +212,6 @@ def test_publish_view_debug_reraises_payload_build_failure(
 ) -> None:
     monkeypatch.setenv("PLOTSRV_DEBUG", "1")
     with pytest.raises(TypeError):
-        pub.publish_view({"bad": "plot"}, label="L", kind="plot")
+        pub.publish_view(
+            {"bad": "plot"}, label="L", kind="plot", host="127.0.0.1", port=8000
+        )

@@ -8,6 +8,7 @@ from typing import Any
 
 from .. import config
 from .backend import list_snapshots, write_snapshot_and_prune
+from .latest import FileLatestStateBackend
 from .policy import estimate_payload_size_bytes, should_store_snapshot
 
 
@@ -24,7 +25,11 @@ class StorageTask:
 
 class StorageWorker:
     """
-    Lightweight background worker for optional disk snapshot persistence.
+    Lightweight background worker for optional disk persistence.
+
+    Handles both:
+    - latest live-state persistence
+    - historical snapshots
     """
 
     def __init__(self, *, max_queue_size: int = 1000) -> None:
@@ -119,6 +124,17 @@ class StorageWorker:
 
     def _process_task(self, task: StorageTask) -> None:
         root_dir = config.get_storage_root_dir()
+
+        if config.get_storage_latest_enabled():
+            latest_backend = FileLatestStateBackend(root_dir=root_dir)
+            latest_backend.write_latest(
+                view_id=task.view_id,
+                kind=task.kind,
+                obj=task.obj,
+                section=task.section,
+                label=task.label,
+                extra=task.extra,
+            )
 
         existing = list_snapshots(root_dir=root_dir, view_id=task.view_id)
         size_bytes = estimate_payload_size_bytes(kind=task.kind, obj=task.obj)

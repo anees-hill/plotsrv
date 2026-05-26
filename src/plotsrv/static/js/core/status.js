@@ -230,6 +230,10 @@
         updatedAgo.textContent = fmtAgo(s.last_updated);
       }
 
+      const restored = !!s.restored_from_storage;
+      const restoredAt = s.restored_at || null;
+      const restoreSource = s.restore_source || "storage";
+
       const isHistory =
         typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
 
@@ -260,6 +264,22 @@
           err.textContent = "";
           errWrap.style.display = "none";
         }
+      }
+
+      const isRestoredLive =
+        restored &&
+        !(typeof core.isHistoryMode === "function" && core.isHistoryMode());
+      
+      if (isRestoredLive && typeof core.setStatusMessage === "function") {
+        const sourceLabel = restoreSource === "latest" ? "latest storage" : "storage";
+        const restoredAtText = restoredAt ? " Restored at " + fmtLocalTime(restoredAt) + "." : "";
+        core.setStatusMessage(
+          '<span class="ps-restored-badge">RESTORED</span> ' +
+            "Restored from " +
+            core.escapeHtml(sourceLabel) +
+            ". Waiting for the next live update." +
+            core.escapeHtml(restoredAtText)
+        );
       }
 
       refreshViewIcons();

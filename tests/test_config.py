@@ -43,3 +43,10 @@ def test_default_limits_are_generous() -> None:
     assert config.get_truncation_max_chars("text") == 1_000_000
     assert config.get_truncation_max_chars("html") is None
     assert config.get_truncation_max_chars("markdown") is None
+
+
+def test_storage_latest_defaults_disabled() -> None:
+    assert config.get_storage_enabled() is False
+    assert config.get_storage_latest_enabled() is False
+    assert config.get_storage_restore_latest_on_startup() is False
+    assert config.get_storage_latest_restore_scope() == "none"

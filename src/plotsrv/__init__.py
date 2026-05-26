@@ -19,14 +19,15 @@ from .tracebacks import publish_traceback, TracebackPublishOptions
 from .runtime import WatchConfig
 
 __all__ = [
-    # Server/session API
-    "start_server",
-    "stop_server",
-    "refresh_view",
-    "plot_session",
     # Core public API
     "view",
     "publish_view",
+    # Server/session API
+    "start_server",
+    "stop_server",
+    "plot_session",
+    # Backwards-compatible in-process helper
+    "refresh_view",
     # Exception helpers
     "capture_exceptions",
     "publish_traceback",

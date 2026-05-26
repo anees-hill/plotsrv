@@ -593,3 +593,31 @@ def test_snapshot_backend_roundtrips_all_artifact_kinds(tmp_path: Path) -> None:
             assert loaded.obj["mime"] == "image/png"
         else:
             assert loaded.obj == obj
+
+
+def test_snapshot_listing_ignores_latest_directory(tmp_path: Path) -> None:
+    latest_dir = tmp_path / "latest" / "etl__orders"
+    latest_dir.mkdir(parents=True)
+    (latest_dir / "latest__meta.json").write_text("{}", encoding="utf-8")
+
+    snap = backend.write_snapshot(
+        root_dir=tmp_path,
+        view_id="etl:orders",
+        kind="text",
+        obj="hello",
+    )
+
+    snaps = backend.list_snapshots(root_dir=tmp_path, view_id="etl:orders")
+
+    assert [s.snapshot_id for s in snaps] == [snap.snapshot_id]
+
+
+def test_storage_stats_ignores_latest_directory(tmp_path: Path) -> None:
+    latest_dir = tmp_path / "latest" / "etl__orders"
+    latest_dir.mkdir(parents=True)
+    (latest_dir / "latest__meta.json").write_text("{}", encoding="utf-8")
+    (latest_dir / "latest__payload.txt").write_text("hello", encoding="utf-8")
+
+    stats = backend.get_storage_stats(root_dir=tmp_path)
+    assert stats["view_count"] == 0
+    assert stats["snapshot_count"] == 0

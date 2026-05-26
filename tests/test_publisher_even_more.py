@@ -49,7 +49,9 @@ def test_publish_view_http_error_swallowed_when_not_debug(
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
 
     # should not raise
-    pub.publish_view(pd.DataFrame({"a": [1]}), label="L", kind="table")
+    pub.publish_view(
+        pd.DataFrame({"a": [1]}), label="L", kind="table", host="127.0.0.1", port=8000
+    )
 
 
 def test_publish_view_forced_plot_with_non_plot_obj_swallowed_when_not_debug(
@@ -59,7 +61,9 @@ def test_publish_view_forced_plot_with_non_plot_obj_swallowed_when_not_debug(
 
     # Should fail inside _to_publish_payload(kind="plot") -> _to_figure TypeError,
     # but publish_view should swallow when not debug.
-    pub.publish_view({"not": "a figure"}, label="L", kind="plot")
+    pub.publish_view(
+        {"not": "a figure"}, label="L", kind="plot", host="127.0.0.1", port=8000
+    )
 
 
 def test_publish_view_pathlike_parse_error_publishes_text_error(
