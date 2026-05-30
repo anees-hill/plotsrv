@@ -37,6 +37,8 @@ dev = [
     "seaborn>=0.13",
     "polars-lts-cpu>=1.33",
     "pyarrow>=20",
+    "ipython",
+    "debugpy",
 ]
 docs = [
     "zensical>=0.0.41",

@@ -4,172 +4,78 @@ icon: lucide/home
 
 # plotsrv
 
-**plotsrv** is a lightweight browser UI for observing what your Python processes are producing.
+**Lightweight observability for Python processes.**
 
-It lets you publish plots, tables, logs, JSON, markdown, HTML, images, tracebacks, and files to a local or server-side web UI with very little setup.
+`plotsrv` turns Python objects into live browser views with minimal code.
 
-It is especially useful when you have Python scripts, ETL jobs, experiments, inference processes, or headless server workflows where you want to see what is happening without building a dashboard application.
+Tables, plots, JSON, HTML, logs, images, tracebacks, and files can be surfaced through a browser UI designed for scripts, pipelines, experiments, batch jobs, and long-running processes.
+
+> **Live demo:** https://demo.plotsrv.com  
+> See a deployed example showing real sensor data.
+
+![plotsrv overview diagram](assets/images/ui/ui-example-temperature-1.png){ width="900" }
+
+Wrap a content-producing function with `@ps.view(...)`, or publish an object directly with `ps.publish_view(...)`.
+
+Your code continues to run normally, while plotsrv publishes the returned objects into a browser UI. Labels and sections organise related outputs into a connected interface, giving scripts and pipelines lightweight observability with historical snapshots, freshness indicators, rich renderers, and more.
+
+## Who is it for?
+
+plotsrv is for Python users who want more visibility into scripts, pipelines, experiments, and batch processes without building dashboards or manually producing lots of on-disk artifacts.
+
+It is useful when outputs are currently hidden in terminal logs, scattered across files, or difficult to inspect visually. For example:
+
+- checking pipeline outputs while a job runs
+- surfacing validation summaries, plots, tables, and status objects
+- going beyond a text log file buried on disk
+- inspecting data visually from a headless or remote server
+- creating a lightweight observability surface for internal scripts and jobs
+
+plotsrv is not intended to replace heavier observability or experiment-tracking platforms such as Grafana, Prometheus, MLflow, or Weights & Biases.
+
+Its strength is that it can directly render a wide range of ordinary Python objects with very little setup, making it useful in the space between `print()` statements, log files, notebooks, dashboards, and full observability stacks.
+
+## More than a viewer
+
+Beyond simply rendering outputs, it can:
+
+- organise related views into sections
+- track freshness and staleness
+- watch files on disk
+- retain historical snapshots
+- compare current and previous outputs
+- restore persisted views after restart
+- provide rich renderers for tables, plots, HTML, JSON, tracebacks, and more
+
+## Where to start
+
+### New to plotsrv?
+
+- **[Quick Start](get-started/quick-start.md)** — publish a first view
+- **[What is plotsrv?](get-started/what-is-plotsrv.md)** — A brief overview of plotsrv and it's features.
+
+### Exploring features
+
+- **[Renderers](guides/renderers.md)** — tables, plots, JSON, HTML, markdown, images, tracebacks, and files
+- **[Storage & History](guides/storage-and-history.md)** — snapshots and historical browsing
+- **[Freshness](guides/freshness.md)** — monitor when outputs become stale
+- **[Configuration](get-started/configuration-basics.md)** — control plotsrv behaviour
+
+## Is it reliable?
+
+plotsrv is developed with automated testing as a core part of the project.
+
+Coverage includes:
+
+- unit and integration testing
+- end-to-end tests
+- benchmark tests
+- automated example pipelines using a dedicated [examples repository](https://github.com/anees-hill/plotsrv-examples)
 
 !!! note
 
-    plotsrv is not a dashboard framework. It is a low-friction way to observe what Python processes are producing.
+    More information is available on the **[Testing & Benchmarks](about/testing-and-benchmarks.md)** page.
 
-## Install
+## Next step
 
-=== "pip"
-
-    ```bash
-    pip install plotsrv
-    ```
-
-=== "uv"
-
-    ```bash
-    uv add plotsrv
-    ```
-
-## Quick start
-
-```python title="quickstart.py"
-import polars as pl
-import plotsrv as ps
-
-df = pl.DataFrame({
-    "name": ["alpha", "beta", "gamma"],
-    "value": [10, 20, 30],
-})
-
-ps.refresh_view(df)
-```
-
-Then open:
-
-```text
-http://127.0.0.1:8000
-```
-
-`refresh_view()` publishes the object and starts the local plotsrv server automatically if one is not already running.
-
-??? info "What happened?"
-
-    plotsrv inspected the object, chose a renderer, stored the latest value in memory, and started the local browser UI if needed.
-
-    Because the object was a DataFrame, plotsrv rendered it as a table.
-
-## What plotsrv can show
-
-plotsrv chooses a renderer based on what you publish.
-
-| Object | Renderer |
-|---|---|
-| Polars or pandas DataFrame | Table |
-| matplotlib or plotnine plot | Plot |
-| `dict`, `list`, `tuple` | JSON tree |
-| `str`, `bytes`, log output | Text |
-| Markdown text or files | Markdown |
-| HTML text or files | HTML |
-| Image files | Image |
-| Exceptions / tracebacks | Traceback |
-| Other Python objects | Python/repr view |
-
-## Common ways to use plotsrv
-
-### Mark views in a project
-
-Use `@ps.view(...)` to describe outputs in your code, then run a plotsrv server.
-
-```python title="views.py"
-import polars as pl
-import plotsrv as ps
-
-@ps.view(label="Daily checks", section="etl")
-def daily_checks():
-    return pl.DataFrame({
-        "check": ["source rows", "loaded rows", "warnings"],
-        "value": [10000, 9985, 15],
-    })
-```
-
-Then start plotsrv:
-
-```bash
-plotsrv run
-```
-
-This is the main server-style workflow: mark the views in code, start plotsrv, and let the UI organise them by section and label.
-
-### Publish from Python
-
-Use `refresh_view()` when working interactively in Python.
-
-```python
-import polars as pl
-import plotsrv as ps
-
-df = pl.DataFrame({
-    "name": ["alpha", "beta", "gamma"],
-    "value": [10, 20, 30],
-})
-
-ps.refresh_view(df, label="Example table", section="quickstart")
-```
-
-Use `publish_view()` when sending data to an already-running plotsrv server.
-
-```python
-import polars as pl
-import plotsrv as ps
-
-df = pl.DataFrame({
-    "name": ["alpha", "beta", "gamma"],
-    "value": [10, 20, 30],
-})
-
-ps.publish_view(df, label="Example table", section="quickstart")
-```
-
-### Watch files
-
-Use plotsrv to watch logs, CSV files, JSON files, markdown files, and other files on disk.
-
-```bash
-plotsrv watch app.log
-```
-
-```bash
-plotsrv watch results.csv
-```
-
-You can also start a plotsrv server and attach watched files at the same time:
-
-```bash
-plotsrv run --watch app.log --watch results.csv
-```
-
-## Why plotsrv?
-
-plotsrv is for people who already have Python processes and want useful observability without building a full web app.
-
-It is designed to be:
-
-- quick to start
-- useful on headless servers
-- friendly to scripts and ETL jobs
-- good at rendering ordinary Python objects
-- simple enough to use during exploration
-- flexible enough to use in longer-running processes
-
-## What plotsrv is not
-
-plotsrv is not trying to replace Grafana, Prometheus, Streamlit, Dash, Shiny, or a full BI platform.
-
-It is best thought of as a lightweight observability layer for Python work: a way to see the current state, recent outputs, logs, files, tables, and artifacts from a process while it runs.
-
-## Next steps
-
-Start with:
-
-- [Installation](get-started/installation.md)
-- [Quick start](get-started/quick-start.md)
-- [Ways to use plotsrv](get-started/ways-to-use.md)
-- [Renderer overview](renderers.md)
+Continue to **[Quick Start](get-started/quick-start.md)**.

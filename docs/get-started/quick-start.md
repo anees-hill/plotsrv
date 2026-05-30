@@ -4,172 +4,296 @@ icon: lucide/rocket
 
 # Quick start
 
-This page shows the fastest way to see something in plotsrv.
+This page shows the quickest way to see what plotsrv does. It starts with a small interactive example, then moves to the server workflow used for scripts, jobs, and repeatable processes.
 
-You will publish a small table from Python and view it in your browser.
+## Interactive check
 
-## Publish a table
+> This first example is designed for a REPL, notebook, or interactive Python session.
+>
+> For scripts and repeatable jobs, use the server workflow in the next section.
 
-Start a Python session and run:
+Start Python:
 
-```python title="quickstart.py"
-import polars as pl
-import plotsrv as ps
-
-df = pl.DataFrame({
-    "name": ["alpha", "beta", "gamma"],
-    "value": [10, 20, 30],
-})
-
-ps.refresh_view(df)
+```bash
+python
 ```
 
-Then open:
+Then run:
+
+```python
+import plotsrv as ps
+
+summary = {
+    "status": "ok",
+    "rows_processed": 123,
+    "checks": {
+        "schema_valid": True,
+        "duplicates": 2,
+    },
+}
+
+ps.publish_view(
+    summary,
+    label="summary",
+    section="quick start",
+    launch_server=True,
+)
+```
+
+Open:
 
 ```text
 http://127.0.0.1:8000
 ```
 
-You should see the DataFrame rendered as a table.
+The object appears as structured JSON.
 
-!!! note
+`launch_server=True` starts an attached plotsrv server inside the current Python process.
 
-    `ps.refresh_view()` is the quickest way to send an object to plotsrv from a Python session.
+## Server workflow
 
-??? info "What happened?"
+For scripts, jobs, pipelines, and repeatable processes, start plotsrv separately and publish to it from Python.
 
-    plotsrv inspected the object, chose a renderer, stored the latest value in memory, and started the local browser UI if needed.
+This keeps the browser UI running independently of the script that produces the output.
 
-    Because the object was a DataFrame, plotsrv rendered it as a table.
+The pattern is:
 
-## Add a label and section
-
-You can give the view a label and section.
-
-```python title="labelled_table.py"
-import polars as pl
-import plotsrv as ps
-
-df = pl.DataFrame({
-    "name": ["alpha", "beta", "gamma"],
-    "value": [10, 20, 30],
-})
-
-ps.refresh_view(df, label="Example table", section="quickstart")
+```text
+start plotsrv -> run Python script -> inspect output in browser
 ```
 
-Labels and sections make the UI easier to navigate when you have more than one view.
+## Create a plotting script
 
-- `label` is the display name for the view.
-- `section` groups related views together.
-- Together, they help organise the view selector in the browser UI.
+Install dependencies if needed:
 
-## Publish JSON
-
-Dictionaries and lists are shown as structured JSON views.
-
-```python title="json_example.py"
-import plotsrv as ps
-
-summary = {
-    "job": "daily-import",
-    "status": "ok",
-    "checks": {
-        "rows_in": 10000,
-        "rows_out": 9985,
-        "warnings": ["15 rows skipped"],
-    },
-}
-
-ps.refresh_view(summary, label="Job summary", section="quickstart")
+```bash
+pip install matplotlib pandas
 ```
 
-The JSON renderer gives you an expandable tree view, search controls, and different viewing modes.
+or:
 
-## Publish text
-
-Strings are shown with the text renderer.
-
-```python title="text_example.py"
-import plotsrv as ps
-
-log_text = """INFO extract complete
-INFO transform complete
-WARNING 15 rows skipped
-INFO load complete
-"""
-
-ps.refresh_view(log_text, label="Job log", section="quickstart")
+```bash
+uv add matplotlib pandas
 ```
 
-The text renderer includes controls for copying, wrapping, reversing lines, and lightweight log styling.
+> `polars` will also work here. Alternative plotting libraries such as `plotnine` and `seaborn` can also be used.
 
-## Publish a plot
+Create `quickstart_plot.py`:
 
-matplotlib figures are shown as plot views.
-
-```python title="plot_example.py"
+```python title="quickstart_plot.py"
 import matplotlib.pyplot as plt
+import pandas as pd
 import plotsrv as ps
 
-fig, ax = plt.subplots()
-ax.plot([1, 2, 3], [10, 20, 15])
-ax.set_title("Example metric")
 
-ps.refresh_view(fig, label="Metric plot", section="quickstart")
-```
+HOST = "127.0.0.1"
+PORT = 8000
 
-The plot renderer displays the figure as an image in the browser and includes an export button.
 
-## Publish more than one view
-
-You can publish several views into different labels and sections.
-
-```python title="multiple_views.py"
-import polars as pl
-import plotsrv as ps
-
-checks = pl.DataFrame({
-    "check": ["source rows", "loaded rows", "warnings"],
-    "value": [10000, 9985, 15],
+df = pd.DataFrame({
+    "hours_studied": [1, 2, 3, 4, 5, 6, 7],
+    "score": [48, 52, 61, 66, 72, 78, 85],
 })
 
-summary = {
-    "job": "daily-import",
-    "status": "warning",
-    "message": "15 rows were skipped",
-}
 
-log_text = """INFO extract complete
-INFO transform complete
-WARNING 15 rows skipped
-INFO load complete
-"""
+@ps.view(label="scatter plot", section="demo", host=HOST, port=PORT)
+def study_scatter_plot():
+    fig, ax = plt.subplots()
+    ax.scatter(df["hours_studied"], df["score"])
+    ax.set_title("Study time and score")
+    ax.set_xlabel("Hours studied")
+    ax.set_ylabel("Score")
+    return fig
 
-ps.refresh_view(checks, label="Checks", section="etl")
-ps.refresh_view(summary, label="Summary", section="etl")
-ps.refresh_view(log_text, label="Log", section="etl")
+
+if __name__ == "__main__":
+    study_scatter_plot()
 ```
 
-The browser UI will show these as separate views in the view selector.
+## Start plotsrv
 
-## Stop the server
+In one terminal, run:
 
-If you started plotsrv from Python, you can stop it with:
+```bash
+plotsrv run quickstart_plot.py --host 127.0.0.1 --port 8000
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+At this point, plotsrv is running and ready to receive output.
+
+It will also have discovered known views from the script before data has been published.
+
+## Run the script
+
+In another terminal, run:
+
+```bash
+python quickstart_plot.py
+```
+
+The scatter plot appears in the browser UI.
+
+Running the script again updates the same view.
+
+## Labels and sections
+
+This part of the script controls where the output appears in the UI:
 
 ```python
-import plotsrv as ps
-
-ps.stop_server()
+@ps.view(label="scatter plot", section="demo", host=HOST, port=PORT)
+def study_scatter_plot():
+    ...
 ```
 
-If plotsrv was started from the command line, stop it from the terminal with `Ctrl+C`.
+`label` names the individual view.
 
-## Next steps
+`section` groups related views together.
 
-Once the quick start works, read:
+For example:
 
-- [Ways to use plotsrv](ways-to-use.md)
-- [Run a plotsrv server](run-a-plotsrv-server.md)
-- [Use plotsrv interactively](interactive-use.md)
-- [Watch files](watch-files.md)
+| Section | Label |
+|---|---|
+| `demo` | `scatter plot` |
+| `demo` | `source data` |
+| `demo` | `summary` |
+| `pipelines` | `daily import` |
+| `models` | `latest metrics` |
+
+When the decorated function is called, it returns the same object as usual and also publishes that object to the plotsrv server.
+
+## Publish more views
+
+Now extend `quickstart_plot.py` so the same script publishes a plot, a table, and a summary.
+
+```python title="quickstart_plot.py"
+import matplotlib.pyplot as plt
+import pandas as pd
+import plotsrv as ps
+
+
+HOST = "127.0.0.1"
+PORT = 8000
+
+
+df = pd.DataFrame({
+    "hours_studied": [1, 2, 3, 4, 5, 6, 7],
+    "score": [48, 52, 61, 66, 72, 78, 85],
+})
+
+
+@ps.view(label="scatter plot", section="demo", host=HOST, port=PORT)
+def study_scatter_plot():
+    fig, ax = plt.subplots()
+    ax.scatter(df["hours_studied"], df["score"])
+    ax.set_title("Study time and score")
+    ax.set_xlabel("Hours studied")
+    ax.set_ylabel("Score")
+    return fig
+
+
+@ps.view(label="source data", section="demo", host=HOST, port=PORT)
+def source_data():
+    return df
+
+
+@ps.view(label="summary", section="demo", host=HOST, port=PORT)
+def summary():
+    return {
+        "rows": len(df),
+        "average_score": round(df["score"].mean(), 1),
+        "max_score": int(df["score"].max()),
+    }
+
+
+if __name__ == "__main__":
+    study_scatter_plot()
+    source_data()
+    summary()
+```
+
+Run it again:
+
+```bash
+python quickstart_plot.py
+```
+
+The `demo` section now contains:
+
+- a scatter plot
+- an inspectable table
+- a JSON summary
+
+This is the core plotsrv pattern: useful Python outputs are surfaced together in a live browser UI.
+
+## Add storage and freshness
+
+Create a config file:
+
+```bash
+plotsrv config create
+```
+
+Edit `plotsrv.yaml` and enable storage and freshness:
+
+```yaml title="plotsrv.yaml"
+storage-settings:
+  enabled: true
+  root_dir: .plotsrv/store
+  default_keep_last: 5
+  default_min_store_interval: 1h
+  max_snapshot_size_mb: 20
+
+freshness-settings:
+  enabled: true
+  expected_every: 1h
+  warn_after: 90m
+  overdue_after: 2h
+```
+
+Restart plotsrv with the config:
+
+
+```bash
+plotsrv run quickstart_plot.py --config plotsrv.yaml --host 127.0.0.1 --port 8000
+```
+
+> Note: If `plotsrv.yaml` exists in project root, it will be used by default. The --config flag allows the use of alternative config files (or allows us to be explicit, as we have done here).
+
+Then run the script again:
+
+```bash
+python quickstart_plot.py
+```
+
+Storage allows plotsrv to keep recent history and restore the latest view after restart.
+
+Freshness helps show whether a view has updated recently enough.
+
+## What to try next
+
+Run the script a few times and inspect the UI.
+
+Try changing the data:
+
+```python
+"score": [48, 55, 63, 70, 76, 82, 90]
+```
+
+Then run:
+
+```bash
+python quickstart_plot.py
+```
+
+The same views update in the browser.
+
+With storage enabled, recent versions can be inspected through the UI history controls.
+
+## Next step
+
+Continue to [Watch files](watch-files.md).

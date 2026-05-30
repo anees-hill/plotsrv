@@ -127,7 +127,6 @@ df = pl.DataFrame({
 
 ps.publish_view(
     df,
-    mode="remote",
     host="127.0.0.1",
     port=8000,
     label="student scores",

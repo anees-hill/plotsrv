@@ -6,333 +6,51 @@ icon: lucide/settings
 
 plotsrv works without a config file.
 
-You can install it, run it, and publish objects immediately:
+A config file becomes useful when behaviour needs to be kept consistent across runs, especially for:
 
-```python
-import polars as pl
-import plotsrv as ps
-
-df = pl.DataFrame({
-    "name": ["alpha", "beta", "gamma"],
-    "value": [10, 20, 30],
-})
-
-ps.refresh_view(df)
-```
-
-A config file becomes useful when you want to control behaviour such as:
-
+- storage
+- history
+- freshness checks
 - table limits
 - watched-file limits
-- storage and historical snapshots
-- freshness indicators
-- UI customisation
-- security-related options
+- UI settings
 - per-view settings
 
 ## Create a config file
 
-Create a starter config file with:
+To create a starter config:
 
 ```bash
 plotsrv config create
 ```
 
-This creates:
+This creates a plotsrv config file in the current directory.
 
-```text
-plotsrv.yml
-```
+The starter config is written from plotsrv’s built-in config template.
 
-in the current directory.
+!!! note
 
-If the file already exists, plotsrv will not overwrite it unless you pass `--force`:
+    If `plotsrv.yaml` exists in project root, it will be used by default. When running `plotsrv run`, the --config flag allows the use of alternative config files (or allows us to be explicit, as we have done here).
 
-```bash
-plotsrv config create --force
-```
+## Use a config file
 
-!!! warning
-
-    `--force` overwrites the existing config file.
-
-    Use it carefully if you have already customised `plotsrv.yml`.
-
-## How plotsrv finds config
-
-By default, plotsrv looks for a config file in the current working directory:
-
-```text
-plotsrv.yml
-plotsrv.yaml
-```
-
-You can also pass a config path explicitly.
-
-From the CLI:
+To start plotsrv with a config file:
 
 ```bash
-plotsrv run --config path/to/plotsrv.yml
+plotsrv run --config plotsrv.yaml
 ```
 
-From Python:
+A config file can also be used when starting plotsrv from Python:
 
 ```python
 import plotsrv as ps
 
-ps.start_server(config="path/to/plotsrv.yml")
+ps.start_server(config="plotsrv.yaml")
 ```
 
-You can also use the `PLOTSRV_CONFIG` environment variable.
+## Create per-view config automatically
 
-```bash
-PLOTSRV_CONFIG=path/to/plotsrv.yml plotsrv run
-```
-
-## A small config file
-
-A minimal useful config might look like this:
-
-```yaml title="plotsrv.yml"
-limits:
-  watched_files:
-    max_bytes: 5000000
-
-table-settings:
-  table_view_mode: rich
-  max_table_rows_rich: 1000
-
-storage-settings:
-  enabled: false
-
-freshness-settings:
-  enabled: false
-```
-
-You do not need to configure everything at once. Start with the settings you need.
-
-## Table settings
-
-Table settings control how many rows plotsrv shows in table views.
-
-```yaml title="plotsrv.yml"
-table-settings:
-  table_view_mode: rich
-  max_table_rows_simple: 200
-  max_table_rows_rich: 1000
-```
-
-`table_view_mode` can be:
-
-- `rich`
-- `simple`
-
-`rich` mode gives you the interactive table renderer with search, filters, column controls, pagination, and export.
-
-`simple` mode renders a simpler static HTML table.
-
-!!! note
-
-    Table display limits are there to keep the browser UI responsive.
-
-    They do not mean your original Python object has been changed.
-
-## Watched-file limits
-
-Watched-file limits control how much data plotsrv reads from files on disk.
-
-```yaml title="plotsrv.yml"
-limits:
-  watched_files:
-    max_bytes: 5000000
-```
-
-Use `off` to read the whole file:
-
-```yaml title="plotsrv.yml"
-limits:
-  watched_files:
-    max_bytes: off
-```
-
-This is useful for small files, but can be expensive for very large logs or CSV files.
-
-## Renderer limits
-
-Renderer limits control how much text-like content is displayed in the browser.
-
-```yaml title="plotsrv.yml"
-limits:
-  render:
-    text: 1000000
-    html: off
-    markdown: off
-```
-
-These settings apply to text-like renderers:
-
-- text
-- HTML
-- markdown
-
-Use `off` to disable the render limit for that type.
-
-!!! note
-
-    Watched-file limits and renderer limits are different.
-
-    Watched-file limits control how much plotsrv reads from disk.
-
-    Renderer limits control how much plotsrv displays in the browser.
-
-## Table publish limits
-
-Table publish limits control how much table data plotsrv accepts and stores for rendering.
-
-```yaml title="plotsrv.yml"
-limits:
-  tables:
-    max_rows: 10000
-    max_columns: 200
-```
-
-These limits help protect the UI and server from very large table payloads.
-
-## Storage and historical snapshots
-
-Storage is disabled by default.
-
-Enable it if you want plotsrv to keep recent historical snapshots.
-
-```yaml title="plotsrv.yml"
-storage-settings:
-  enabled: true
-  root_dir: .plotsrv/store
-  default_keep_last: 5
-  max_snapshot_size_mb: 20
-```
-
-When storage is enabled, plotsrv can show previous versions of plots, tables, and artifacts through the history controls in the UI.
-
-`default_keep_last` controls how many snapshots are kept per view.
-
-```yaml title="plotsrv.yml"
-storage-settings:
-  enabled: true
-  default_keep_last: 5
-```
-
-Use `default_keep_last: null` if you want to keep snapshots indefinitely.
-
-!!! warning
-
-    Keeping snapshots indefinitely can use a lot of disk space.
-
-    Prefer a small `default_keep_last` value unless you have a reason to keep more.
-
-## Freshness indicators
-
-Freshness indicators are disabled by default.
-
-Enable them when a view is expected to update regularly.
-
-```yaml title="plotsrv.yml"
-freshness-settings:
-  enabled: true
-  expected_every: 60s
-  warn_after: 90s
-  overdue_after: 180s
-```
-
-This lets plotsrv show whether a view is:
-
-- fresh
-- stale
-- overdue
-
-Freshness is useful for repeated jobs, scheduled processes, and monitoring-style workflows.
-
-## UI customisation
-
-You can customise the page title, header text, logo, favicon, and some UI controls.
-
-```yaml title="plotsrv.yml"
-ui-settings:
-  page_title: "My plotsrv"
-  header_text: "Operations monitor"
-  header_fill_colour: "#ffffff"
-  logo: "logo.png"
-  favicon: "favicon.png"
-```
-
-Logo and favicon paths are resolved relative to the config file.
-
-## Security-related settings
-
-Some routes and features are controlled by security settings.
-
-```yaml title="plotsrv.yml"
-security-settings:
-  docs_enabled: false
-  openapi_enabled: false
-  shutdown_enabled: false
-  control_local_only: true
-  tracebacks_enabled: false
-```
-
-For example:
-
-- `docs_enabled` controls FastAPI docs routes.
-- `openapi_enabled` controls the OpenAPI JSON route.
-- `shutdown_enabled` controls the browser-triggered shutdown endpoint.
-- `control_local_only` restricts control routes to local requests.
-- `tracebacks_enabled` controls whether traceback artifacts can be published and displayed.
-
-!!! warning
-
-    Tracebacks can expose file paths and source-code context.
-
-    They are disabled by default. Only enable them where that is acceptable.
-
-## Named config instances
-
-plotsrv supports named config instances.
-
-This is useful when the same config file should behave differently for different environments or processes.
-
-```yaml title="plotsrv.yml"
-table-settings:
-  default:
-    table_view_mode: rich
-    max_table_rows_rich: 1000
-
-  instances:
-    local:
-      max_table_rows_rich: 5000
-
-    production:
-      max_table_rows_rich: 1000
-```
-
-Run with a name:
-
-```bash
-plotsrv run --name local
-```
-
-Or from Python:
-
-```python
-import plotsrv as ps
-
-ps.start_server(name="local")
-```
-
-The named instance is merged over the default settings for that section.
-
-## Automatically populate per-view config
-
-If you use `@ps.view(...)`, plotsrv can discover your views and populate parts of the config file.
+For projects with several views, plotsrv can scan code and populate config entries automatically.
 
 For freshness settings:
 
@@ -346,102 +64,333 @@ For storage settings:
 plotsrv config populate storage .
 ```
 
-For render limits:
+For render and table limits:
 
 ```bash
 plotsrv config populate limits .
 ```
 
-These commands scan for `@ps.view(...)` decorators and add per-view entries.
+The target can be a script, module, package, or directory:
+
+```bash
+plotsrv config populate freshness demo_pipeline.py
+```
+
+```bash
+plotsrv config populate storage ./src
+```
+
+plotsrv scans for:
+
+- `@ps.view(...)` decorators
+- simple `publish_view(...)` calls with literal labels, sections, or view IDs
 
 For example:
 
-```python title="views.py"
+```python title="demo_pipeline.py"
 import plotsrv as ps
 
-@ps.view(label="Daily checks", section="etl")
-def daily_checks():
+@ps.view(label="daily import", section="pipelines")
+def daily_import_status():
     return {"status": "ok"}
 ```
 
-may produce a per-view config entry for:
+or:
 
-```text
-etl:Daily checks
-```
-
-!!! note
-
-    Automatic config population is useful once your project has several views.
-
-    You can start without it and add it later.
-
-## Config from Python
-
-Some runtime options can be supplied when starting plotsrv from Python.
-
-```python
+```python title="demo_pipeline.py"
 import plotsrv as ps
 
-ps.start_server(
-    config="plotsrv.yml",
-    name="local",
-    truncate=1000000,
+ps.publish_view(
+    {"status": "ok"},
+    label="daily import",
+    section="pipelines",
+    host="127.0.0.1",
+    port=8000,
 )
 ```
 
-You can also disable text-like render truncation at runtime:
+Both can give plotsrv enough information to add per-view config for:
 
-```python
-import plotsrv as ps
-
-ps.start_server(no_truncate=True)
+```text
+pipelines:daily import
 ```
 
-## Config from the CLI
+## Populate freshness settings
 
-Common CLI config options include:
+Freshness checks show whether a view has updated recently enough.
+
+To add freshness entries for discovered views:
 
 ```bash
-plotsrv run --config plotsrv.yml
+plotsrv config populate freshness .
 ```
+
+This is useful for scripts, jobs, and pipelines where outputs are expected to update on a schedule.
+
+For example, a generated config might include entries based on discovered views, alongside the global freshness settings:
+
+```yaml title="plotsrv.yaml"
+freshness-settings:
+  enabled: true
+  expected_every: 1h
+  warn_after: 90m
+  overdue_after: 2h
+```
+
+Freshness is useful when a view should not just exist, but should be recent.
+
+For example:
+
+- an hourly import
+- a nightly report
+- a repeated validation job
+- a long-running monitor
+- a process expected to publish regular status updates
+
+When content is restored from storage, freshness is still based on the original update time, not the restore time.
+
+## Populate storage settings
+
+Storage controls latest restore and historical snapshots.
+
+To add storage entries for discovered views:
 
 ```bash
-plotsrv run --name local
+plotsrv config populate storage .
 ```
+
+This is useful when different views need different retention behaviour.
+
+For example:
+
+- keep more snapshots for important result tables
+- keep fewer snapshots for large plots
+- apply a minimum snapshot interval to frequently updated views
+- disable or reduce storage for noisy outputs
+
+A basic storage section looks like this:
+
+```yaml title="plotsrv.yaml"
+storage-settings:
+  enabled: true
+  root_dir: .plotsrv/store
+  latest:
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
+  default_keep_last: 5
+  default_min_store_interval: 1h
+  max_snapshot_size_mb: 20
+```
+
+`storage-settings.enabled` is the master switch.
+
+Even if `latest.enabled` is present in the config, storage remains off unless `storage-settings.enabled` is `true`.
+
+## Populate limits
+
+Limits help keep the UI responsive.
+
+To add limit entries for discovered views:
 
 ```bash
-plotsrv run --truncate 1000000
+plotsrv config populate limits .
 ```
+
+This is useful when some views are expected to be much larger than others.
+
+For example:
+
+- a large DataFrame might need a higher table row limit
+- a log view might need a larger text render limit
+- an HTML or markdown report might need different render limits
+- a noisy view might need stricter limits than the default
+
+Global limit settings look like this:
+
+```yaml title="plotsrv.yaml"
+limits:
+  watched_files:
+    max_bytes: 5000000
+
+  tables:
+    max_rows: 10000
+    max_columns: 200
+```
+
+For first use, the defaults are usually enough. Populate limits once there are several views with different size expectations.
+
+## Merge or replace generated entries
+
+Config population can merge generated entries into an existing config.
 
 ```bash
-plotsrv run --no-truncate
+plotsrv config populate freshness . --mode merge
 ```
 
-These runtime options are useful when you want to test a different config without editing the file.
-
-## Recommended path
-
-Start simple:
+It can also replace the generated section:
 
 ```bash
-plotsrv config create
+plotsrv config populate freshness . --mode replace
 ```
 
-Then edit only the section you need.
+`merge` is usually safer for existing config files.
 
-A common progression is:
+`replace` is useful when regenerating a section from scratch.
 
-- adjust table or watched-file limits
-- enable storage if you want historical snapshots
-- enable freshness if views should update on a schedule
-- customise the UI once the basic workflow is working
-- use automatic config population when you have several `@ps.view(...)` views
+To skip confirmation prompts:
+
+```bash
+plotsrv config populate freshness . --yes
+```
+
+## Latest restore
+
+Latest restore lets plotsrv restore the most recent live view after restart.
+
+```yaml title="plotsrv.yaml"
+storage-settings:
+  enabled: true
+  latest:
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
+```
+
+With this enabled, plotsrv can bring back the last live content when the server starts again.
+
+Restored content is marked in the UI, so it is clear that it came from storage and is waiting for the next live update.
+
+## Restore scope
+
+`restore_scope` controls which latest records are restored.
+
+```yaml
+storage-settings:
+  latest:
+    restore_scope: discovered
+```
+
+The common options are:
+
+| Value | Meaning |
+|---|---|
+| `discovered` | restore only latest records matching already registered/discovered views |
+| `all` | restore all latest records |
+| `none` | restore nothing |
+
+`discovered` is the safest default for most workflows.
+
+It avoids unexpectedly filling the UI with unrelated old views from earlier runs.
+
+## Snapshots
+
+Snapshots are different from latest restore.
+
+| Concept | Purpose |
+|---|---|
+| Latest restore | restores the current live view after restart |
+| Snapshots | keeps previous versions for history browsing |
+
+Snapshot retention is controlled with settings such as:
+
+```yaml title="plotsrv.yaml"
+storage-settings:
+  enabled: true
+  default_keep_last: 5
+  default_min_store_interval: 1h
+  max_snapshot_size_mb: 20
+```
+
+`default_keep_last` controls how many snapshots are kept.
+
+`default_min_store_interval` controls how often snapshots are stored for repeated updates.
+
+`max_snapshot_size_mb` limits the size of stored snapshots.
+
+## Watched-file limits
+
+Watched-file limits control how much of a file plotsrv reads from disk.
+
+```yaml title="plotsrv.yaml"
+limits:
+  watched_files:
+    max_bytes: 5000000
+```
+
+To read the whole watched file:
+
+```yaml
+limits:
+  watched_files:
+    max_bytes: off
+```
+
+Keeping a limit is usually better for logs and large files.
+
+## UI settings
+
+The config file can also customise the UI.
+
+For example:
+
+```yaml title="plotsrv.yaml"
+ui-settings:
+  page_title: "plotsrv"
+  header_text: "plotsrv"
+```
+
+More detailed UI customisation is covered in the guide pages.
+
+## A practical starter config
+
+For a small server workflow, a practical starting point is:
+
+```yaml title="plotsrv.yaml"
+storage-settings:
+  enabled: true
+  root_dir: .plotsrv/store
+  latest:
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
+  default_keep_last: 5
+  default_min_store_interval: 1h
+  max_snapshot_size_mb: 20
+
+freshness-settings:
+  enabled: true
+  expected_every: 1h
+  warn_after: 90m
+  overdue_after: 2h
+
+limits:
+  watched_files:
+    max_bytes: 5000000
+  tables:
+    max_rows: 10000
+    max_columns: 200
+```
+
+Then populate per-view entries from discovered views:
+
+```bash
+plotsrv config populate freshness . --yes
+plotsrv config populate storage . --yes
+plotsrv config populate limits . --yes
+```
+
+This gives a useful pattern:
+
+1. create a starter config
+2. enable the broad features needed
+3. let plotsrv populate per-view entries from the codebase
+4. edit the generated entries where specific views need different behaviour
 
 ## Next steps
 
-- [Watch files](watch-files.md)
-- [Renderer overview](../renderers.md)
-- [Freshness indicators](../features/freshness-indicators.md)
-- [Historical snapshots](../features/historical-snapshots.md)
-- [Automatic config](../features/automatic-config.md)
+For more detail:
+
+- [Storage and history](../guides/storage-and-history.md)
+- [CLI reference](../guides/cli.md)
+- [Renderers](../guides/renderers.md)

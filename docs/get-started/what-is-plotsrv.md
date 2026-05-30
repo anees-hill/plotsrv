@@ -4,44 +4,49 @@ icon: lucide/circle-help
 
 # What is plotsrv?
 
-plotsrv is a lightweight browser UI for observing live outputs from Python processes.
+`plotsrv` is a lightweight observability platform for surfacing live outputs from Python processes through a browser UI.
 
-You publish something from Python, and plotsrv shows it in a browser.
+It gives a Python process somewhere useful to publish:
 
-That “something” might be:
+- tables
+- plots
+- JSON-like objects
+- logs
+- markdown
+- HTML
+- images
+- tracebacks
+- files on disk
 
-- a table
-- a plot
-- a log
-- a JSON object
-- a markdown report
-- an HTML report
-- an image
-- a traceback
-- a generic Python object
+Many useful outputs already exist in memory while a script, job, pipeline, or experiment runs. `plotsrv` makes those objects visible and inspectable with very little extra code.
 
-!!! note
+It can also be used deliberately: publish status objects, validation summaries, generated reports, intermediate results, or ordinary Python objects, and plotsrv will render them with an appropriate viewer.
 
-    plotsrv is not mainly for building dashboards. It is for observing what Python processes are producing while they run.
+Those viewers provide useful inspection features where possible, such as search, filtering, expansion, browsing, and history.
 
-## The basic idea
+In short: `plotsrv` gives Python processes cheap observability.
 
-A Python process sends data to plotsrv.
+## A small example
 
-plotsrv stores the latest version of that data in memory and renders it in a browser UI.
+To publish a nested Python dictionary into the UI:
 
-For example:
-
-```python title="example.py"
-import polars as pl
+```python
 import plotsrv as ps
 
-df = pl.DataFrame({
-    "name": ["alpha", "beta", "gamma"],
-    "value": [10, 20, 30],
-})
+summary = {
+    "status": "ok",
+    "rows_processed": 123,
+    "checks": {
+        "schema_valid": True,
+        "duplicates": 2,
+    },
+}
 
-ps.refresh_view(df)
+ps.publish_view(
+    summary,
+    label="summary",
+    launch_server=True,
+)
 ```
 
 Open:
@@ -50,92 +55,63 @@ Open:
 http://127.0.0.1:8000
 ```
 
-You should see the DataFrame as an interactive table.
+plotsrv will render the object as structured JSON.
 
-??? info "What happened?"
+<div align="center">
+  <img
+    src="../assets/images/ui/json_tree_example-1.png"
+    width="900"
+    alt="plotsrv live table view"
+  >
+</div>
 
-    `ps.refresh_view(df)` inspected the object, recognised it as a DataFrame, published it into plotsrv, and started the local browser UI if needed.
+## What it is for
 
-    The current object is held in memory by the running plotsrv server.
+plotsrv is useful when a Python process already produces useful objects such as plots, tables, HTML reports, logs, metrics, or intermediate results, and there is value in exposing those outputs through a lightweight live UI with minimal additional code.
 
-## Why use it?
+Common cases include:
 
-plotsrv is useful when you want to see what a Python process is doing without building a dashboard application.
-
-Common examples include:
-
-- monitoring an ETL job
-- checking the latest output from a scheduled script
-- inspecting logs from a running process
-- viewing a table on a headless server
-- exploring JSON-like Python objects
+- checking outputs from an ETL job
+- viewing/exploring a DataFrame on a server
+- inspecting JSON-like status objects
 - publishing plots during experimentation
-- checking the state of an ML or AI inference process
-- seeing tracebacks in a browser UI
+- watching log files and generated artifacts
+- seeing whether a repeated process is fresh or stale
+- keeping recent snapshots of outputs
 
-## How plotsrv is different from a dashboard framework
+## What it is not
 
-With a dashboard framework, you usually start by designing an application.
+plotsrv is not intended to replace:
 
-With plotsrv, you usually start by publishing an object:
+- a dashboard framework
+- a BI tool
+- a public web application framework
+
+## Ways to use it
+
+For quick interactive use, start an attached server from Python:
 
 ```python
-ps.refresh_view(obj)
+ps.publish_view(obj, launch_server=True)
 ```
 
-or by marking a function as a view:
+For scripts, jobs, and pipelines, start plotsrv separately:
+
+```bash
+plotsrv run path/to/script_or_project.py
+```
+
+Then publish to that running server using `publish_view` or `@view`:
 
 ```python
-import plotsrv as ps
-
-@ps.view(label="Daily result", section="etl")
-def daily_result():
-    return {
-        "status": "ok",
-        "rows": 10000,
-        "warnings": 0,
-    }
+ps.publish_view(
+    obj,
+    host="127.0.0.1",
+    port=8000,
+    label="result",
+)
 ```
 
-plotsrv then chooses a suitable renderer.
+## Next step
 
-That means the first useful version of a plotsrv view can be very small.
-
-## Where plotsrv fits well
-
-plotsrv works well for:
-
-- scripts
-- ETL pipelines
-- scheduled jobs
-- development servers
-- exploratory analysis
-- headless machines
-- SSH workflows
-- operational debugging
-- lightweight monitoring
-
-It is especially useful when the output is already available in Python, but you want a better way to inspect it than printing to the terminal.
-
-## Where plotsrv may not be the right tool
-
-plotsrv may not be the right tool if you need:
-
-- a polished multi-user dashboard
-- a public internet-facing application
-- full authentication and user management
-- a replacement for Grafana or Prometheus
-- a business intelligence platform
-- a complex custom frontend
-
-You can still deploy plotsrv carefully, but its core purpose is simple: observe what Python processes are producing.
-
-## The shortest mental model
-
-```mermaid
-flowchart LR
-    A[Python process] --> B[plotsrv]
-    B --> C[Browser UI]
-```
-
-Your Python code publishes an object. plotsrv renders it. You view it in the browser.
+Continue to [Installation](installation.md).
