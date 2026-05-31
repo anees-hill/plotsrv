@@ -1,7 +1,3 @@
----
-icon: lucide/rocket
----
-
 # Release notes
 
 ## v0.3.0

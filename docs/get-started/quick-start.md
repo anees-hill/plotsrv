@@ -297,8 +297,7 @@ With storage enabled, recent versions can be inspected through the UI history co
 ## Next step
 
 - **[Watch files](watch-files.md)** - include on-disk files such as logs, HTML or csv in the UI.
-- **[Renderers](guides/renderers.md)** - tables, plots, JSON, HTML, markdown, images, tracebacks, and files
-- **[Storage & History](guides/storage-and-history.md)** - snapshots and historical browsing
-- **[Freshness](guides/freshness.md)** - monitor when outputs become stale
-- **[Configuration](get-started/configuration-basics.md)** - control plotsrv behaviour
-- **[Deployment Patterns](guides/deployment-patterns.md)** - guides for deploying plotsrv in various environments
+- **[Storage & History](../guides/storage-and-history.md)** - snapshots and historical browsing
+- **[Freshness](../guides/freshness.md)** - monitor when outputs become stale
+- **[Configuration](configuration-basics.md)** - control plotsrv behaviour
+- **[Deployment Patterns](../guides/deployment-patterns.md)** - guides for deploying plotsrv in various environments

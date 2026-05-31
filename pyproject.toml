@@ -1,7 +1,10 @@
 [project]
 name = "plotsrv"
-version = "0.3.0"
+version = "0.3.1"
 description = "Cheap observability for Python processes"
+authors = [
+    { name = "Samuel Anees-Hill", email = "plotsrv@gmail.com" }
+]
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }

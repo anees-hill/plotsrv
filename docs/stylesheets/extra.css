@@ -1,0 +1,108 @@
+:root {
+  --plotsrv-red: #b83232;
+  --plotsrv-red-soft: #e29a9a;
+  --plotsrv-red-hover: #fff1f1;
+
+  --plotsrv-active-bg: #f1f1f1;
+  --plotsrv-active-bg-dark: rgba(255, 255, 255, 0.08);
+
+  --md-primary-fg-color: #b83232;
+  --md-primary-fg-color--light: #d96b6b;
+  --md-primary-fg-color--dark: #8f2626;
+  --md-accent-fg-color: #b83232;
+  --md-accent-fg-color--transparent: rgba(184, 50, 50, 0.12);
+}
+
+[data-md-color-scheme="slate"] {
+  --plotsrv-red: #ff7777;
+  --plotsrv-red-soft: #ff9a9a;
+  --plotsrv-red-hover: rgba(255, 119, 119, 0.10);
+
+  --plotsrv-active-bg: var(--plotsrv-active-bg-dark);
+
+  --md-primary-fg-color: #b83232;
+  --md-accent-fg-color: #ff7777;
+  --md-accent-fg-color--transparent: rgba(255, 119, 119, 0.16);
+}
+
+.md-header__title {
+  font-weight: 700;
+}
+
+.md-typeset h1 {
+  font-weight: 700;
+}
+
+.md-typeset code {
+  border-radius: 0.25rem;
+}
+
+/* Header bottom border */
+.md-header {
+  border-bottom: 1.5px solid var(--plotsrv-red-soft);
+}
+
+/* Sidebar hover state */
+.md-sidebar .md-nav__link:hover,
+.md-sidebar .md-nav__link:focus {
+  color: var(--plotsrv-red) !important;
+  background-color: var(--plotsrv-red-hover) !important;
+  border-radius: 0.35rem;
+}
+
+/* Sidebar active/current page state */
+.md-sidebar .md-nav__link--active,
+.md-sidebar .md-nav__link[aria-current="page"],
+.md-sidebar .md-nav__item--active > .md-nav__link {
+  color: var(--plotsrv-red) !important;
+  background-color: var(--plotsrv-active-bg) !important;
+  border-radius: 0.35rem;
+}
+
+/* Some Zensical/Material variants apply active colour through links inside active items */
+.md-sidebar .md-nav__item--active > .md-nav__link,
+.md-sidebar .md-nav__item--active > .md-nav__link:visited {
+  color: var(--plotsrv-red) !important;
+}
+
+/* Sidebar icons */
+.md-sidebar .md-nav__link svg,
+.md-sidebar .md-nav__link:hover svg,
+.md-sidebar .md-nav__link--active svg,
+.md-sidebar .md-nav__link[aria-current="page"] svg {
+  color: var(--plotsrv-red) !important;
+  fill: none;
+}
+
+/* Hide the homepage H1 visually while keeping it in the document structure */
+.md-typeset h1.page-title-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Homepage hero logo */
+.plotsrv-hero-logo {
+  display: flex;
+  justify-content: center;
+  margin: 1rem auto 1rem;
+}
+
+.plotsrv-hero-logo img {
+  width: min(380px, 70%);
+  height: auto;
+}
+
+/* Homepage tagline */
+.plotsrv-tagline {
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin: 0 0 1.5rem;
+}

@@ -1,12 +1,16 @@
----
-icon: lucide/home
----
+<style>
+.md-typeset h1:first-of-type {
+  display: none;
+}
+</style>
 
 # plotsrv
 
-**Lightweight observability for Python processes.**
+<div class="plotsrv-hero-logo">
+  <img src="assets/images/brand/plotsrv_brush_stroke_logo.png" alt="plotsrv">
+</div>
 
-`plotsrv` turns Python objects into live browser views with minimal code.
+plotsrv turns Python objects into live browser views with minimal code.
 
 Tables, plots, JSON, HTML, logs, images, tracebacks, and files can be surfaced through a browser UI designed for scripts, pipelines, experiments, batch jobs, and long-running processes.
 
