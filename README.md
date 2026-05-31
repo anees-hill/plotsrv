@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <strong>Lightweight observability for Python processes.</strong>
+  <strong>Developer friendly, lightweight observability for Python processes.</strong>
 </p>
 
 <p align="center">
@@ -52,7 +52,7 @@
   <a href="https://demo.plotsrv.com"><strong>Live demo</strong></a>
 </p>
 
-`plotsrv` turns Python objects into live browser views with minimal code.
+Turn Python objects into live browser views with minimal code.
 
 It is designed for scripts, pipelines, experiments, batch jobs, and long-running processes where useful outputs are otherwise hidden in terminal logs, temporary objects, generated files, or ad hoc plots.
 
@@ -111,12 +111,7 @@ Then publish to it from Python:
 ```python
 import plotsrv as ps
 
-@ps.view(
-    label="daily import",
-    section="pipelines",
-    host="127.0.0.1",
-    port=8000,
-)
+@ps.view(label="daily import", section="pipelines", host="127.0.0.1", port=8000)
 def daily_import_status():
     return {
         "job": "daily-import",
