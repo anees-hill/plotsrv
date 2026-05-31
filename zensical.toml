@@ -1,0 +1,134 @@
+[project]
+site_name = "plotsrv"
+site_description = "Lightweight observability for Python processes."
+site_author = "Anees Hill"
+site_url = "https://docs.plotsrv.com"
+
+repo_name = "anees-hill/plotsrv"
+repo_url = "https://github.com/anees-hill/plotsrv"
+edit_uri = "edit/main/docs/"
+
+copyright = """
+Copyright &copy; 2026 Anees-Hill
+"""
+
+extra_css = ["stylesheets/extra.css"]
+
+nav = [
+  { "Home" = "index.md" },
+
+  { "Getting started" = [
+    { "What is plotsrv?" = "get-started/what-is-plotsrv.md" },
+    { "Installation" = "get-started/installation.md" },
+    { "Quick start" = "get-started/quick-start.md" },
+    { "Watch files" = "get-started/watch-files.md" },
+    { "Configuration basics" = "get-started/configuration-basics.md" },
+  ] },
+
+  { "Guides" = [
+    { "CLI reference" = "guides/cli.md" },
+    { "Python API" = "guides/python-api.md" },
+    { "Renderers" = "guides/renderers.md" },
+    { "Storage and history" = "guides/storage-and-history.md" },
+    { "Freshness" = "guides/freshness.md" },
+    { "Tracebacks" = "guides/tracebacks.md" },
+    { "UI customisation" = "guides/ui-customisation.md" },
+    { "Deployment patterns" = "guides/deployment-patterns.md" },
+  ] },
+
+  { "Examples" = [
+    { "Overview" = "examples/index.md" },
+    { "ETL pipeline" = "examples/etl-pipeline.md" },
+    { "EDA on a server" = "examples/eda-on-a-server.md" },
+  ] },
+
+  { "About" = [
+    { "Philosophy" = "about/philosophy.md" },
+    { "Contributing" = "about/contributing.md" },
+    { "Testing and benchmarks" = "about/testing-and-benchmarks.md" },
+  ] },
+  { "Release notes" = "release-notes.md" },
+]
+
+
+[project.theme]
+language = "en"
+logo = "assets/images/brand/plotsrv_icon_logo.png"
+favicon = "assets/images/brand/plotsrv_icon_logo.png"
+
+features = [
+  "content.code.copy",
+  "content.code.select",
+  "content.code.annotate",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+
+# ----------------------------------------------------------------------------
+# The "extra" section contains miscellaneous settings.
+# ----------------------------------------------------------------------------
+#[[project.extra.social]]
+#icon = "fontawesome/brands/github"
+#link = "https://github.com/user/repo"
+
+# ----------------------------------------------------------------------------
+# In this section you can configure the Markdown extensions that are used when
+# rendering your documentation. We enable the most useful extensions by default,
+# but you can customize this list to your needs.
+#
+# Read more:
+# - https://zensical.org/docs/setup/extensions/
+# ----------------------------------------------------------------------------
+[project.markdown_extensions.abbr]
+[project.markdown_extensions.admonition]
+[project.markdown_extensions.attr_list]
+[project.markdown_extensions.def_list]
+[project.markdown_extensions.footnotes]
+[project.markdown_extensions.md_in_html]
+[project.markdown_extensions.toc]
+permalink = true
+[project.markdown_extensions.pymdownx.arithmatex]
+generic = true
+[project.markdown_extensions.pymdownx.betterem]
+[project.markdown_extensions.pymdownx.caret]
+[project.markdown_extensions.pymdownx.details]
+[project.markdown_extensions.pymdownx.emoji]
+emoji_generator = "zensical.extensions.emoji.to_svg"
+emoji_index = "zensical.extensions.emoji.twemoji"
+[project.markdown_extensions.pymdownx.highlight]
+anchor_linenums = true
+line_spans = "__span"
+pygments_lang_class = true
+[project.markdown_extensions.pymdownx.inlinehilite]
+[project.markdown_extensions.pymdownx.keys]
+[project.markdown_extensions.pymdownx.magiclink]
+[project.markdown_extensions.pymdownx.mark]
+[project.markdown_extensions.pymdownx.smartsymbols]
+[project.markdown_extensions.pymdownx.superfences]
+custom_fences = [
+  { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
+]
+[project.markdown_extensions.pymdownx.tabbed]
+alternate_style = true
+combine_header_slug = true
+[project.markdown_extensions.pymdownx.tasklist]
+custom_checkbox = true
+[project.markdown_extensions.pymdownx.tilde]
