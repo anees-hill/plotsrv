@@ -4,13 +4,9 @@ icon: lucide/rocket
 
 # Release notes
 
-A short summary of notable plotsrv releases.
-
 ## v0.3.0
 
 v0.3.0 focused on making plotsrv easier to use in real scripts and longer-running workflows.
-
-Notable changes:
 
 - improved `@ps.view(...)` and `ps.publish_view(...)` as the main public API
 - added `launch_server=True` for quick interactive use
@@ -23,8 +19,6 @@ Notable changes:
 
 v0.2.0 focused on API usability and project tidying.
 
-Notable changes:
-
 - moved toward `@ps.view(...)` and `ps.publish_view(...)`
 - improved CLI behaviour
 - improved config creation and population
@@ -33,11 +27,8 @@ Notable changes:
 
 ## v0.1.0
 
-v0.1.0 was the first usable version of plotsrv.
+- significant UI updates/rich features
 
-Notable features:
+## Pre v0.1.0
 
-- browser UI
-- renderer support for common output types
-- initial Python publishing API
-- initial CLI workflow
+Please see [GitHub](https://github.com/anees-hill/plotsrv/tags)

@@ -678,3 +678,4 @@ def build_result():
 - [CLI reference](cli.md)
 - [Renderers](renderers.md)
 - [Tracebacks](tracebacks.md)
+- [Deployment Patterns](deployment-patterns.md)

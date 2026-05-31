@@ -1,5 +1,5 @@
 ---
-icon: lucide/rocket
+icon: lucide/terminal
 ---
 
 # CLI reference
@@ -8,7 +8,7 @@ plotsrv includes a small CLI for starting the server, watching files, creating c
 
 !!! note
 
-    CLI workflows can also be controlled from Python. See [Python API](python-api.md).
+    Workflows can also be controlled through Python code. See [Python API](python-api.md).
 
 ## Run the server
 
@@ -358,3 +358,4 @@ plotsrv run demo_pipeline.py --config plotsrv.yaml
 - [Storage and history](storage-and-history.md)
 - [Freshness](freshness.md)
 - [Watch files](../get-started/watch-files.md)
+- [Deployment Patterns](deployment-patterns.md)

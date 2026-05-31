@@ -1,5 +1,5 @@
 ---
-icon: lucide/rocket
+icon: lucide/chart-scatter
 ---
 
 # EDA on a server
