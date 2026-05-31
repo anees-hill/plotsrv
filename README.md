@@ -20,22 +20,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/anees-hill/plotsrv/actions/workflows/ci.yml"><img
-    src="https://github.com/anees-hill/plotsrv/actions/workflows/ci.yml/badge.svg"
-    alt="CI"
-  /></a>
-  <a href="https://codecov.io/github/anees-hill/plotsrv"><img
-    src="https://codecov.io/github/anees-hill/plotsrv/graph/badge.svg?token=B9D8LB8K2H"
-    alt="Codecov"
-  /></a>
-  <a href="https://pypi.org/project/plotsrv/"><img
-    src="https://img.shields.io/pypi/v/plotsrv.svg?logo=pypi&label=PyPI&logoColor=gold"
-    alt="PyPI"
-  /></a>
-  <a href="https://pypi.org/project/plotsrv/"><img
-    src="https://img.shields.io/pypi/pyversions/plotsrv.svg?logo=python&label=Python&logoColor=gold"
-    alt="Python versions"
-  /></a>
+  <a href="https://docs.plotsrv.com"><strong>Documentation</strong></a>
+  &middot;
+  <a href="https://docs.plotsrv.com/get-started/quick-start/"><strong>Quick start</strong></a>
+  &middot;
+  <a href="https://docs.plotsrv.com/guides/python-api/"><strong>Python API</strong></a>
+  &middot;
+  <a href="https://docs.plotsrv.com/guides/cli/"><strong>CLI</strong></a>
+  &middot;
+  <a href="https://docs.plotsrv.com/examples/"><strong>Examples</strong></a>
 </p>
 
 <p align="center">
@@ -57,6 +50,9 @@ Turn Python objects into live browser views with minimal code.
 It is designed for scripts, pipelines, experiments, batch jobs, and long-running processes where useful outputs are otherwise hidden in terminal logs, temporary objects, generated files, or ad hoc plots.
 
 `plotsrv` can render tables, plots, JSON, HTML, logs, images, tracebacks, files, and ordinary Python objects in a single browser UI.
+
+> **Live demo:** https://demo.plotsrv.com  
+> See a deployed example showing real sensor data.
 
 ## Install
 
