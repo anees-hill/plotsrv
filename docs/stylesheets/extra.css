@@ -95,7 +95,20 @@
 }
 
 .plotsrv-hero-logo img {
-  width: min(380px, 70%);
+  width: min(150px, 70%);
+  height: auto;
+}
+
+
+/* Homepage title logo */
+.plotsrv-title-logo {
+  display: flex;
+  justify-content: center;
+  margin: 1rem auto 1rem;
+}
+
+.plotsrv-title-logo img {
+  width: min(180px, 70%);
   height: auto;
 }
 

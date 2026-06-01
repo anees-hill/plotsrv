@@ -469,7 +469,9 @@ def render_index(
 
     header_fill = _escape_attr(ui.header_fill_colour or "#ffffff")
     header_text = _escape_html(ui.header_text or "")
-    logo_url = _safe_url_attr(ui.logo_url or "/static/plotsrv_brush_stroke_logo.png")
+    logo_url = _safe_url_attr(
+        ui.logo_url or "/static/plotsrv_title_logo_ui-white-bk.png"
+    )
 
     cfg_json = json.dumps(
         {
