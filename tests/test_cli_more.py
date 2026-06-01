@@ -371,6 +371,117 @@ def test_publish_watch_payload_rejects_bad_kind() -> None:
         )
 
 
+def test_client_host_for_bind_host_maps_all_interfaces() -> None:
+    assert cli_mod._client_host_for_bind_host("0.0.0.0") == "127.0.0.1"
+    assert cli_mod._client_host_for_bind_host("") == "127.0.0.1"
+    assert cli_mod._client_host_for_bind_host("*") == "127.0.0.1"
+    assert cli_mod._client_host_for_bind_host("::") == "127.0.0.1"
+
+
+def test_client_host_for_bind_host_preserves_normal_hosts() -> None:
+    assert cli_mod._client_host_for_bind_host("127.0.0.1") == "127.0.0.1"
+    assert cli_mod._client_host_for_bind_host("localhost") == "localhost"
+    assert cli_mod._client_host_for_bind_host("192.168.1.20") == "192.168.1.20"
+
+
+def test_run_watch_mode_waits_for_server_before_publish(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    watched = tmp_path / "README.md"
+    watched.write_text("# hello\n", encoding="utf-8")
+
+    calls: list[str] = []
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls.append(f"start:{kwargs['host']}:{kwargs['port']}")
+
+    def fake_stop_server(**kwargs: Any) -> None:
+        calls.append("stop")
+
+    def fake_wait_for_server(host: str, port: int, *, timeout_s: float = 5.0) -> bool:
+        calls.append(f"wait:{host}:{port}")
+        return True
+
+    def fake_publish_watch_payload(**kwargs: Any) -> None:
+        calls.append(f"publish:{kwargs['host']}:{kwargs['port']}")
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+    monkeypatch.setattr(cli_mod, "_wait_for_server", fake_wait_for_server)
+    monkeypatch.setattr(cli_mod, "_publish_watch_payload", fake_publish_watch_payload)
+
+    rc = cli_mod._run_watch_mode(
+        str(watched),
+        host="0.0.0.0",
+        port=8356,
+        every=0.1,
+        kind="auto",
+        section="watch",
+        label=None,
+        view_id=None,
+        max_bytes=1000,
+        encoding="utf-8",
+        update_limit_s=None,
+        force=False,
+        quiet=True,
+        read_mode=None,
+    )
+
+    assert rc == 0
+    assert calls[:3] == [
+        "start:0.0.0.0:8356",
+        "wait:127.0.0.1:8356",
+        "publish:127.0.0.1:8356",
+    ]
+
+
+def test_run_watch_mode_returns_clean_error_when_server_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    watched = tmp_path / "README.md"
+    watched.write_text("# hello\n", encoding="utf-8")
+
+    calls: list[str] = []
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls.append("start")
+
+    def fake_stop_server(**kwargs: Any) -> None:
+        calls.append("stop")
+
+    monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *a, **k: False)
+
+    rc = cli_mod._run_watch_mode(
+        str(watched),
+        host="0.0.0.0",
+        port=8356,
+        every=0.1,
+        kind="auto",
+        section="watch",
+        label=None,
+        view_id=None,
+        max_bytes=1000,
+        encoding="utf-8",
+        update_limit_s=None,
+        force=False,
+        quiet=True,
+        read_mode=None,
+    )
+
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert calls == ["start", "stop"]
+    assert "server did not become ready" in captured.err
+    assert "http://127.0.0.1:8356/status" in captured.err
+
+
 def test_run_passive_server_registers_before_restore(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -435,3 +546,62 @@ def test_get_restore_latest_hook_uses_cli_global_when_present(
     hook = cli_mod._get_restore_latest_hook()
 
     assert hook() == 123
+
+
+def test_run_passive_server_uses_client_host_for_watch_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls.append(f"start:{kwargs['host']}")
+
+    def fake_stop_server(**kwargs: Any) -> None:
+        calls.append("stop")
+
+    def fake_start_watch_threads(watches: Any, *, host: str, port: int) -> list[Any]:
+        calls.append(f"watch_threads:{host}:{port}")
+        return []
+
+    def fake_sleep(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+    monkeypatch.setattr(cli_mod, "_passive_register_views", lambda *a, **k: None)
+    monkeypatch.setattr(
+        cli_mod,
+        "restore_latest_views_from_storage",
+        lambda: 0,
+        raising=False,
+    )
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *a, **k: True)
+    monkeypatch.setattr(cli_mod, "start_watch_threads", fake_start_watch_threads)
+    monkeypatch.setattr(cli_mod.time, "sleep", fake_sleep)
+
+    rc = cli_mod._run_passive_server_forever(
+        "dummy-root",
+        host="0.0.0.0",
+        port=8356,
+        quiet=True,
+        excludes=set(),
+        includes=set(),
+        watch_specs=[
+            cli_mod.WatchSpec(
+                path="README.md",
+                label=None,
+                section=None,
+                read_mode=None,
+            )
+        ],
+        watch_kind="auto",
+        watch_every=1.0,
+        watch_max_bytes=1000,
+        watch_encoding="utf-8",
+        watch_update_limit_s=None,
+        watch_force=False,
+    )
+
+    assert rc == 0
+    assert "start:0.0.0.0" in calls
+    assert "watch_threads:127.0.0.1:8356" in calls

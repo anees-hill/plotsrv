@@ -660,6 +660,22 @@ def _find_project_root(start: Path) -> Path | None:
     return None
 
 
+def _client_host_for_bind_host(host: str) -> str:
+    """
+    Return the host plotsrv should use for internal client requests.
+
+    `0.0.0.0` is a bind address, not a good self-connect address.
+    When the server binds on all interfaces, internal POST/status requests
+    should connect through localhost.
+    """
+    h = str(host or "").strip()
+
+    if h in ("", "0.0.0.0", "::", "*"):
+        return "127.0.0.1"
+
+    return h
+
+
 def _wait_for_server(host: str, port: int, *, timeout_s: float = 5.0) -> bool:
     """
     Wait until the plotsrv server is accepting HTTP connections.
@@ -1393,6 +1409,8 @@ def _run_passive_server_forever(
     start_server, stop_server = _get_server_hooks()
     restore_latest = _get_restore_latest_hook()
 
+    client_host = _client_host_for_bind_host(host)
+
     start_server(
         host=host,
         port=port,
@@ -1405,7 +1423,11 @@ def _run_passive_server_forever(
 
     restore_latest()
 
-    _wait_for_server(host, port, timeout_s=5.0)
+    if not _wait_for_server(client_host, port, timeout_s=5.0):
+        stop_server(join=False)
+        return _die(
+            f"server did not become ready at http://{client_host}:{port}/status"
+        )
 
     if watch_specs:
         watch_configs = _watch_configs_from_cli_specs(
@@ -1416,7 +1438,7 @@ def _run_passive_server_forever(
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
-        start_watch_threads(watch_configs, host=host, port=port)
+        start_watch_threads(watch_configs, host=client_host, port=port)
 
     store.set_service_info(
         service_mode=True, target=f"passive:{scan_root}", refresh_rate_s=None
@@ -1455,7 +1477,15 @@ def _run_watch_mode(
     if not p.exists() or not p.is_file():
         return _die(f"watch: file not found: {p}")
 
+    client_host = _client_host_for_bind_host(host)
+
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+
+    if not _wait_for_server(client_host, port, timeout_s=5.0):
+        stop_server(join=False)
+        return _die(
+            f"server did not become ready at http://{client_host}:{port}/status"
+        )
 
     mode: WatchReadMode = read_mode or _default_watch_read_mode(p)
 
@@ -1505,7 +1535,7 @@ def _run_watch_mode(
                 txt = raw.decode(encoding, errors="replace")
                 txt2 = _with_text_anchor_header(txt, mode)
                 _publish_watch_payload(
-                    host=host,
+                    host=client_host,
                     port=port,
                     label=view_label,
                     section=section,
@@ -1523,7 +1553,7 @@ def _run_watch_mode(
                     txt = raw.decode(encoding, errors="replace")
                     obj = json.loads(txt)
                     _publish_watch_payload(
-                        host=host,
+                        host=client_host,
                         port=port,
                         label=view_label,
                         section=section,
@@ -1536,7 +1566,7 @@ def _run_watch_mode(
                 except Exception as e:
                     txt = raw.decode(encoding, errors="replace")
                     _publish_watch_payload(
-                        host=host,
+                        host=client_host,
                         port=port,
                         label=view_label,
                         section=section,
@@ -1560,7 +1590,7 @@ def _run_watch_mode(
 
                 if coerced.publish_kind == "table":
                     _publish_watch_payload(
-                        host=host,
+                        host=client_host,
                         port=port,
                         label=view_label,
                         section=section,
@@ -1579,7 +1609,7 @@ def _run_watch_mode(
                         )
 
                     _publish_watch_payload(
-                        host=host,
+                        host=client_host,
                         port=port,
                         label=view_label,
                         section=section,
@@ -1593,7 +1623,7 @@ def _run_watch_mode(
             except Exception as e:
                 txt = raw.decode(encoding, errors="replace")
                 _publish_watch_payload(
-                    host=host,
+                    host=client_host,
                     port=port,
                     label=view_label,
                     section=section,
@@ -1788,6 +1818,8 @@ def main(argv: list[str] | None = None) -> int:
     # mode == "callable"
     start_server, stop_server = _get_server_hooks()
 
+    client_host = _client_host_for_bind_host(args.host)
+
     # Start server first
     start_server(
         host=args.host,
@@ -1802,7 +1834,11 @@ def main(argv: list[str] | None = None) -> int:
     restore_latest = _get_restore_latest_hook()
     restore_latest()
 
-    _wait_for_server(args.host, args.port, timeout_s=5.0)
+    if not _wait_for_server(client_host, args.port, timeout_s=5.0):
+        stop_server(join=False)
+        return _die(
+            f"server did not become ready at http://{client_host}:{args.port}/status"
+        )
 
     # Watches
     if watch_specs:
@@ -1814,7 +1850,7 @@ def main(argv: list[str] | None = None) -> int:
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
-        start_watch_threads(watch_configs, host=args.host, port=args.port)
+        start_watch_threads(watch_configs, host=client_host, port=args.port)
 
     stop_event = threading.Event()
     call_every = getattr(args, "call_every", None)
@@ -1823,7 +1859,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         _callable_loop(
             target=target,
-            host=args.host,
+            host=args.client_host,
             port=args.port,
             call_every=call_every,
             keep_alive=keep_alive,
