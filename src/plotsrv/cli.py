@@ -33,6 +33,7 @@ from .storage.latest import (
 from .runtime import (
     WatchConfig,
     apply_runtime_options,
+    register_watch_views,
     default_watch_read_mode,
     parse_truncate_arg,
     parse_watch_max_bytes,
@@ -1438,6 +1439,7 @@ def _run_passive_server_forever(
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
+        register_watch_views(watch_configs, activate_first_if_none=True)
         start_watch_threads(watch_configs, host=client_host, port=port)
 
     store.set_service_info(
@@ -1490,18 +1492,37 @@ def _run_watch_mode(
     mode: WatchReadMode = read_mode or _default_watch_read_mode(p)
 
     view_label = label or p.name
-    vid = store.normalize_view_id(view_id, section=section, label=view_label)
-    fk = infer_file_kind(p)
-    preregister_kind = "table" if fk == "csv" else "artifact"
 
-    store.register_view(
-        view_id=vid,
-        section=section,
-        label=view_label,
-        kind=preregister_kind,
-        activate_if_first=False,
-    )
-    store.set_active_view(vid)
+    if view_id is None:
+        registered = register_watch_views(
+            [
+                WatchConfig(
+                    path=p,
+                    label=view_label,
+                    section=section,
+                    kind=kind,  # type: ignore[arg-type]
+                    read_mode=mode,
+                    max_bytes=max_bytes,
+                    encoding=encoding,
+                    update_limit_s=update_limit_s,
+                    force=force,
+                )
+            ],
+            activate_first_if_none=True,
+        )
+        vid = registered[0].view_id
+    else:
+        fk = infer_file_kind(p)
+        preregister_kind = "table" if fk == "csv" else "artifact"
+        vid = store.normalize_view_id(view_id, section=section, label=view_label)
+        store.register_view(
+            view_id=vid,
+            section=section,
+            label=view_label,
+            kind=preregister_kind,
+            activate_if_first=False,
+        )
+        store.set_active_view(vid)
 
     store.set_service_info(service_mode=True, target=f"watch:{p}", refresh_rate_s=None)
 
@@ -1850,6 +1871,7 @@ def main(argv: list[str] | None = None) -> int:
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
+        register_watch_views(watch_configs, activate_first_if_none=True)
         start_watch_threads(watch_configs, host=client_host, port=args.port)
 
     stop_event = threading.Event()
@@ -1859,7 +1881,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         _callable_loop(
             target=target,
-            host=args.client_host,
+            host=client_host,
             port=args.port,
             call_every=call_every,
             keep_alive=keep_alive,

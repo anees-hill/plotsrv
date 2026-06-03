@@ -20,6 +20,16 @@ _WATCH_MAX_BYTES_UNSET = object()
 
 
 @dataclass(frozen=True, slots=True)
+class RegisteredWatchView:
+    path: Path
+    view_id: str
+    section: str
+    label: str
+    kind: Literal["artifact", "table"]
+    read_mode: WatchReadMode
+
+
+@dataclass(frozen=True, slots=True)
 class WatchConfig:
     path: str | Path
     label: str | None = None
@@ -202,6 +212,61 @@ def resolve_watch_max_bytes(
         return config.get_watch_max_bytes()
 
     return spec.max_bytes  # type: ignore[return-value]
+
+
+def register_watch_views(
+    watches: Sequence[WatchConfig | Mapping[str, Any]],
+    *,
+    activate_first_if_none: bool = True,
+) -> list[RegisteredWatchView]:
+    """
+    Register watched files as real plotsrv views.
+
+    This makes watch-only workflows first-class: the UI can show a watched file
+    view before any Python object has been published and before the watcher has
+    emitted its first payload.
+    """
+    configs = coerce_watch_configs(watches)
+    registered: list[RegisteredWatchView] = []
+
+    active_before = store.get_active_view_id()
+
+    for spec in configs:
+        p = Path(spec.path).expanduser().resolve()
+        section = (spec.section or "watch").strip() or "watch"
+        label = (spec.label or p.name).strip() or p.name
+
+        view_id = store.normalize_view_id(None, section=section, label=label)
+
+        fk = infer_file_kind(p)
+        read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)
+        preregister_kind: Literal["artifact", "table"] = (
+            "table" if fk == "csv" else "artifact"
+        )
+
+        store.register_view(
+            view_id=view_id,
+            section=section,
+            label=label,
+            kind=preregister_kind,
+            activate_if_first=False,
+        )
+
+        registered.append(
+            RegisteredWatchView(
+                path=p,
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind=preregister_kind,
+                read_mode=read_mode,
+            )
+        )
+
+    if activate_first_if_none and registered and active_before is None:
+        store.set_active_view(registered[0].view_id)
+
+    return registered
 
 
 def default_watch_read_mode(path: Path) -> WatchReadMode:
@@ -404,25 +469,15 @@ def start_watch_threads(
     configs = coerce_watch_configs(watches)
     threads: list[threading.Thread] = []
 
-    for spec in configs:
-        p = Path(spec.path).expanduser().resolve()
-        section = (spec.section or "watch").strip() or "watch"
-        label = (spec.label or p.name).strip() or p.name
+    registered_views = register_watch_views(configs, activate_first_if_none=True)
 
-        view_id = store.normalize_view_id(None, section=section, label=label)
-
-        fk = infer_file_kind(p)
-        read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)
-        preregister_kind = "table" if fk == "csv" else "artifact"
+    for spec, registered in zip(configs, registered_views, strict=True):
+        p = registered.path
+        section = registered.section
+        label = registered.label
+        view_id = registered.view_id
+        read_mode = registered.read_mode
         resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=view_id)
-
-        store.register_view(
-            view_id=view_id,
-            section=section,
-            label=label,
-            kind=preregister_kind,
-            activate_if_first=False,
-        )
 
         def _worker(
             pth: Path = p,
