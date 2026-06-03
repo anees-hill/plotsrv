@@ -605,3 +605,130 @@ def test_run_passive_server_uses_client_host_for_watch_threads(
     assert rc == 0
     assert "start:0.0.0.0" in calls
     assert "watch_threads:127.0.0.1:8356" in calls
+
+
+def test_run_passive_server_registers_watch_views_before_threads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls.append("start")
+
+    def fake_stop_server(**kwargs: Any) -> None:
+        calls.append("stop")
+
+    def fake_restore_latest() -> int:
+        calls.append("restore")
+        return 0
+
+    def fake_passive_register_views(*args: Any, **kwargs: Any) -> None:
+        calls.append("register_python")
+
+    def fake_register_watch_views(watches: Any, **kwargs: Any) -> list[Any]:
+        calls.append("register_watch")
+        return []
+
+    def fake_start_watch_threads(watches: Any, *, host: str, port: int) -> list[Any]:
+        calls.append("start_watch_threads")
+        return []
+
+    def fake_sleep(_seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+    monkeypatch.setattr(
+        cli_mod,
+        "restore_latest_views_from_storage",
+        fake_restore_latest,
+        raising=False,
+    )
+    monkeypatch.setattr(cli_mod, "_passive_register_views", fake_passive_register_views)
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *args, **kwargs: True)
+    monkeypatch.setattr(cli_mod, "register_watch_views", fake_register_watch_views)
+    monkeypatch.setattr(cli_mod, "start_watch_threads", fake_start_watch_threads)
+    monkeypatch.setattr(cli_mod.time, "sleep", fake_sleep)
+
+    rc = cli_mod._run_passive_server_forever(
+        "dummy-root",
+        host="0.0.0.0",
+        port=8356,
+        quiet=True,
+        excludes=set(),
+        includes=set(),
+        watch_specs=[
+            cli_mod.WatchSpec(
+                path="README.md",
+                label=None,
+                section=None,
+                read_mode=None,
+            )
+        ],
+        watch_kind="auto",
+        watch_every=1.0,
+        watch_max_bytes=1000,
+        watch_encoding="utf-8",
+        watch_update_limit_s=None,
+        watch_force=False,
+    )
+
+    assert rc == 0
+    assert calls[:5] == [
+        "start",
+        "register_python",
+        "restore",
+        "register_watch",
+        "start_watch_threads",
+    ]
+
+
+def test_main_callable_uses_client_host_for_callable_loop(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "pyproject.toml").write_text("[project]\nname='x'\n", encoding="utf-8")
+
+    calls: list[str] = []
+
+    monkeypatch.setattr(cli_mod, "_resolve_scan_root_for_passive", lambda _t: str(root))
+    monkeypatch.setattr(cli_mod, "_passive_register_views", lambda *a, **k: None)
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *a, **k: True)
+    monkeypatch.setattr(
+        cli_mod,
+        "restore_latest_views_from_storage",
+        lambda: 0,
+        raising=False,
+    )
+
+    def fake_start_server(**kwargs: Any) -> None:
+        calls.append(f"start:{kwargs['host']}")
+
+    def fake_stop_server(**kwargs: Any) -> None:
+        calls.append("stop")
+
+    def fake_callable_loop(**kwargs: Any) -> None:
+        calls.append(f"callable:{kwargs['host']}:{kwargs['port']}")
+
+    monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+    monkeypatch.setattr(cli_mod, "_callable_loop", fake_callable_loop)
+
+    rc = cli_mod.main(
+        [
+            "run",
+            str(root),
+            "--mode",
+            "callable",
+            "--host",
+            "0.0.0.0",
+            "--port",
+            "8356",
+        ]
+    )
+
+    assert rc == 0
+    assert "start:0.0.0.0" in calls
+    assert "callable:127.0.0.1:8356" in calls

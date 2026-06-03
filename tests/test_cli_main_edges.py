@@ -8,7 +8,6 @@ import pytest
 
 import plotsrv.cli as cli_mod
 
-
 # ----------------------------
 # _coerce_watch_specs: error paths
 # ----------------------------
@@ -34,6 +33,7 @@ def test_main_run_watch_label_count_mismatch_returns_2(
             "b.txt",
         ]
     )
+
     assert rc == 2
 
 
@@ -59,6 +59,7 @@ def test_main_run_watch_section_count_mismatch_returns_2(
             "s3",
         ]
     )
+
     assert rc == 2
 
 
@@ -70,9 +71,6 @@ def test_main_run_watch_section_count_mismatch_returns_2(
 def test_main_callable_mode_keyboardinterrupt_stops_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # IMPORTANT: cli.main() imports start_server/stop_server from plotsrv.server
-    import plotsrv.server as server_mod
-
     started: dict[str, int] = {"n": 0}
     stopped: dict[str, int] = {"n": 0}
 
@@ -82,16 +80,22 @@ def test_main_callable_mode_keyboardinterrupt_stops_server(
     def fake_stop_server(**kwargs: Any) -> None:
         stopped["n"] += 1
 
-    monkeypatch.setattr(server_mod, "start_server", fake_start_server)
-    monkeypatch.setattr(server_mod, "stop_server", fake_stop_server)
-
-    monkeypatch.setattr(cli_mod, "_start_watch_threads", lambda *a, **k: [])
-    monkeypatch.setattr(cli_mod, "_passive_register_views", lambda *a, **k: None)
-
-    def boom(**kwargs: Any) -> None:
+    def fake_callable_loop(**kwargs: Any) -> None:
         raise KeyboardInterrupt()
 
-    monkeypatch.setattr(cli_mod, "_callable_loop", boom)
+    monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+
+    monkeypatch.setattr(cli_mod, "_passive_register_views", lambda *a, **k: None)
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *a, **k: True)
+    monkeypatch.setattr(
+        cli_mod,
+        "restore_latest_views_from_storage",
+        lambda: 0,
+        raising=False,
+    )
+    monkeypatch.setattr(cli_mod, "start_watch_threads", lambda *a, **k: [])
+    monkeypatch.setattr(cli_mod, "_callable_loop", fake_callable_loop)
 
     rc = cli_mod.main(
         [
@@ -101,6 +105,7 @@ def test_main_callable_mode_keyboardinterrupt_stops_server(
             "callable",
         ]
     )
+
     assert rc == 0
     assert started["n"] == 1
     assert stopped["n"] == 1
@@ -117,7 +122,8 @@ def test_run_watch_mode_missing_file_returns_2(
 ) -> None:
     missing = tmp_path / "nope.txt"
 
-    # Prevent server import/use
+    # Prevent server import/use if the function changes later.
+    # Currently this path returns before server startup.
     monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
 
@@ -137,4 +143,5 @@ def test_run_watch_mode_missing_file_returns_2(
         quiet=True,
         read_mode=None,
     )
+
     assert rc == 2
