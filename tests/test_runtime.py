@@ -375,3 +375,79 @@ def test_register_watch_views_can_skip_activation(
 
     assert len(out) == 1
     assert active_calls == []
+
+
+def test_start_watch_threads_can_skip_view_registration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    register_calls: list[dict[str, object]] = []
+    thread_calls: list[dict[str, object]] = []
+
+    class FakeThread:
+        def __init__(self, **kwargs: object) -> None:
+            thread_calls.append(dict(kwargs))
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.store.register_view",
+        lambda **kwargs: register_calls.append(dict(kwargs)),
+    )
+    monkeypatch.setattr("plotsrv.runtime.threading.Thread", FakeThread)
+
+    from plotsrv.runtime import start_watch_threads
+
+    threads = start_watch_threads(
+        [WatchConfig(path=p)],
+        host="127.0.0.1",
+        port=8000,
+        register_views=False,
+    )
+
+    assert len(threads) == 1
+    assert register_calls == []
+    assert len(thread_calls) == 1
+
+
+def test_start_watch_threads_registers_views_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    register_calls: list[dict[str, object]] = []
+    active_calls: list[str] = []
+
+    class FakeThread:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.store.register_view",
+        lambda **kwargs: register_calls.append(dict(kwargs)),
+    )
+    monkeypatch.setattr("plotsrv.runtime.store.get_active_view_id", lambda: None)
+    monkeypatch.setattr("plotsrv.runtime.store.set_active_view", active_calls.append)
+    monkeypatch.setattr("plotsrv.runtime.threading.Thread", FakeThread)
+
+    from plotsrv.runtime import start_watch_threads
+
+    threads = start_watch_threads(
+        [WatchConfig(path=p)],
+        host="127.0.0.1",
+        port=8000,
+    )
+
+    assert len(threads) == 1
+    assert len(register_calls) == 1
+    assert register_calls[0]["view_id"] == "watch:app.log"
+    assert active_calls == ["watch:app.log"]

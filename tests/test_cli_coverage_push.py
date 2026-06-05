@@ -179,8 +179,6 @@ def test_run_watch_mode_json_parse_error_publishes_text_error(
 
     monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
-
-    # New after A0: readiness is tested elsewhere, so bypass it here.
     monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *args, **kwargs: True)
 
     monkeypatch.setattr(
@@ -233,8 +231,6 @@ def test_run_watch_mode_auto_parse_error_branch(
 
     monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
-
-    # New after A0: readiness is tested elsewhere, so bypass it here.
     monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *args, **kwargs: True)
 
     monkeypatch.setattr(

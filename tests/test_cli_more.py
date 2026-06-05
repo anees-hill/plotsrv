@@ -527,9 +527,9 @@ def test_run_passive_server_registers_before_restore(
 
     assert rc == 0
     assert calls[:3] == [
-        "start:restore_latest=False",
         "register",
         "restore",
+        "start:restore_latest=False",
     ]
 
 
@@ -559,8 +559,14 @@ def test_run_passive_server_uses_client_host_for_watch_threads(
     def fake_stop_server(**kwargs: Any) -> None:
         calls.append("stop")
 
-    def fake_start_watch_threads(watches: Any, *, host: str, port: int) -> list[Any]:
-        calls.append(f"watch_threads:{host}:{port}")
+    def fake_start_watch_threads(
+        watches: Any,
+        *,
+        host: str,
+        port: int,
+        register_views: bool = True,
+    ) -> list[Any]:
+        calls.append(f"watch_threads:{host}:{port}:register_views={register_views}")
         return []
 
     def fake_sleep(_seconds: float) -> None:
@@ -604,7 +610,7 @@ def test_run_passive_server_uses_client_host_for_watch_threads(
 
     assert rc == 0
     assert "start:0.0.0.0" in calls
-    assert "watch_threads:127.0.0.1:8356" in calls
+    assert "watch_threads:127.0.0.1:8356:register_views=False" in calls
 
 
 def test_run_passive_server_registers_watch_views_before_threads(
@@ -629,8 +635,14 @@ def test_run_passive_server_registers_watch_views_before_threads(
         calls.append("register_watch")
         return []
 
-    def fake_start_watch_threads(watches: Any, *, host: str, port: int) -> list[Any]:
-        calls.append("start_watch_threads")
+    def fake_start_watch_threads(
+        watches: Any,
+        *,
+        host: str,
+        port: int,
+        register_views: bool = True,
+    ) -> list[Any]:
+        calls.append(f"start_watch_threads:register_views={register_views}")
         return []
 
     def fake_sleep(_seconds: float) -> None:
@@ -675,11 +687,11 @@ def test_run_passive_server_registers_watch_views_before_threads(
 
     assert rc == 0
     assert calls[:5] == [
-        "start",
         "register_python",
         "restore",
         "register_watch",
-        "start_watch_threads",
+        "start",
+        "start_watch_threads:register_views=False",
     ]
 
 
