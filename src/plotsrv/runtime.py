@@ -214,6 +214,29 @@ def resolve_watch_max_bytes(
     return spec.max_bytes  # type: ignore[return-value]
 
 
+def _watch_view_from_config(spec: WatchConfig) -> RegisteredWatchView:
+    p = Path(spec.path).expanduser().resolve()
+    section = (spec.section or "watch").strip() or "watch"
+    label = (spec.label or p.name).strip() or p.name
+
+    view_id = store.normalize_view_id(None, section=section, label=label)
+
+    fk = infer_file_kind(p)
+    read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)
+    preregister_kind: Literal["artifact", "table"] = (
+        "table" if fk == "csv" else "artifact"
+    )
+
+    return RegisteredWatchView(
+        path=p,
+        view_id=view_id,
+        section=section,
+        label=label,
+        kind=preregister_kind,
+        read_mode=read_mode,
+    )
+
+
 def register_watch_views(
     watches: Sequence[WatchConfig | Mapping[str, Any]],
     *,
@@ -227,40 +250,17 @@ def register_watch_views(
     emitted its first payload.
     """
     configs = coerce_watch_configs(watches)
-    registered: list[RegisteredWatchView] = []
+    registered = [_watch_view_from_config(spec) for spec in configs]
 
     active_before = store.get_active_view_id()
 
-    for spec in configs:
-        p = Path(spec.path).expanduser().resolve()
-        section = (spec.section or "watch").strip() or "watch"
-        label = (spec.label or p.name).strip() or p.name
-
-        view_id = store.normalize_view_id(None, section=section, label=label)
-
-        fk = infer_file_kind(p)
-        read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)
-        preregister_kind: Literal["artifact", "table"] = (
-            "table" if fk == "csv" else "artifact"
-        )
-
+    for view in registered:
         store.register_view(
-            view_id=view_id,
-            section=section,
-            label=label,
-            kind=preregister_kind,
+            view_id=view.view_id,
+            section=view.section,
+            label=view.label,
+            kind=view.kind,
             activate_if_first=False,
-        )
-
-        registered.append(
-            RegisteredWatchView(
-                path=p,
-                view_id=view_id,
-                section=section,
-                label=label,
-                kind=preregister_kind,
-                read_mode=read_mode,
-            )
         )
 
     if activate_first_if_none and registered and active_before is None:
@@ -465,11 +465,15 @@ def start_watch_threads(
     *,
     host: str,
     port: int,
+    register_views: bool = True,
 ) -> list[threading.Thread]:
     configs = coerce_watch_configs(watches)
     threads: list[threading.Thread] = []
 
-    registered_views = register_watch_views(configs, activate_first_if_none=True)
+    if register_views:
+        registered_views = register_watch_views(configs, activate_first_if_none=True)
+    else:
+        registered_views = [_watch_view_from_config(spec) for spec in configs]
 
     for spec, registered in zip(configs, registered_views, strict=True):
         p = registered.path

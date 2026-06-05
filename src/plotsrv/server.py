@@ -87,6 +87,22 @@ def _run_server(host: str, port: int, quiet: bool) -> None:
             _SERVER = None
 
 
+def _client_host_for_bind_host(host: str) -> str:
+    """
+    Return the host plotsrv should use for internal client requests.
+
+    `0.0.0.0` is a bind address, not a good self-connect address.
+    When the server binds on all interfaces, internal POST/status requests
+    should connect through localhost.
+    """
+    h = str(host or "").strip()
+
+    if h in ("", "0.0.0.0", "::", "*"):
+        return "127.0.0.1"
+
+    return h
+
+
 def _announce_server_running(*, host: str, port: int) -> None:
     display_host = "127.0.0.1" if host == "0.0.0.0" else host
 
@@ -780,7 +796,11 @@ def start_server(
     - restore_latest: restore latest persisted views on startup if configured.
     - announce: print a short server URL message when a new server starts.
     """
-    from .runtime import apply_runtime_options, start_watch_threads
+    from .runtime import (
+        apply_runtime_options,
+        register_watch_views,
+        start_watch_threads,
+    )
 
     apply_runtime_options(
         config=config,
@@ -805,8 +825,17 @@ def start_server(
         _patch_matplotlib_show()
 
     if watches:
-        _wait_for_server_ready(host, port, timeout_s=5.0)
-        start_watch_threads(watches, host=host, port=port)
+        client_host = _client_host_for_bind_host(host)
+
+        register_watch_views(watches, activate_first_if_none=True)
+        _wait_for_server_ready(client_host, port, timeout_s=5.0)
+
+        start_watch_threads(
+            watches,
+            host=client_host,
+            port=port,
+            register_views=False,
+        )
 
 
 def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:

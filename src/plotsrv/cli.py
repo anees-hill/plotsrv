@@ -1412,24 +1412,7 @@ def _run_passive_server_forever(
 
     client_host = _client_host_for_bind_host(host)
 
-    start_server(
-        host=host,
-        port=port,
-        auto_on_show=False,
-        quiet=quiet,
-        restore_latest=False,
-    )
-
-    _passive_register_views(scan_root, excludes=excludes, includes=includes)
-
-    restore_latest()
-
-    if not _wait_for_server(client_host, port, timeout_s=5.0):
-        stop_server(join=False)
-        return _die(
-            f"server did not become ready at http://{client_host}:{port}/status"
-        )
-
+    watch_configs: list[WatchConfig] = []
     if watch_specs:
         watch_configs = _watch_configs_from_cli_specs(
             watch_specs,
@@ -1439,8 +1422,36 @@ def _run_passive_server_forever(
             update_limit_s=watch_update_limit_s,
             force=watch_force,
         )
+
+    # Register all known views before the server can render the initial UI.
+    _passive_register_views(scan_root, excludes=excludes, includes=includes)
+
+    restore_latest()
+
+    if watch_configs:
         register_watch_views(watch_configs, activate_first_if_none=True)
-        start_watch_threads(watch_configs, host=client_host, port=port)
+
+    start_server(
+        host=host,
+        port=port,
+        auto_on_show=False,
+        quiet=quiet,
+        restore_latest=False,
+    )
+
+    if not _wait_for_server(client_host, port, timeout_s=5.0):
+        stop_server(join=False)
+        return _die(
+            f"server did not become ready at http://{client_host}:{port}/status"
+        )
+
+    if watch_configs:
+        start_watch_threads(
+            watch_configs,
+            host=client_host,
+            port=port,
+            register_views=False,
+        )
 
     store.set_service_info(
         service_mode=True, target=f"passive:{scan_root}", refresh_rate_s=None
@@ -1481,16 +1492,7 @@ def _run_watch_mode(
 
     client_host = _client_host_for_bind_host(host)
 
-    start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
-
-    if not _wait_for_server(client_host, port, timeout_s=5.0):
-        stop_server(join=False)
-        return _die(
-            f"server did not become ready at http://{client_host}:{port}/status"
-        )
-
     mode: WatchReadMode = read_mode or _default_watch_read_mode(p)
-
     view_label = label or p.name
 
     if view_id is None:
@@ -1523,6 +1525,14 @@ def _run_watch_mode(
             activate_if_first=False,
         )
         store.set_active_view(vid)
+
+    start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+
+    if not _wait_for_server(client_host, port, timeout_s=5.0):
+        stop_server(join=False)
+        return _die(
+            f"server did not become ready at http://{client_host}:{port}/status"
+        )
 
     store.set_service_info(service_mode=True, target=f"watch:{p}", refresh_rate_s=None)
 
@@ -1872,7 +1882,12 @@ def main(argv: list[str] | None = None) -> int:
             force=watch_force,
         )
         register_watch_views(watch_configs, activate_first_if_none=True)
-        start_watch_threads(watch_configs, host=client_host, port=args.port)
+        start_watch_threads(
+            watch_configs,
+            host=client_host,
+            port=args.port,
+            register_views=False,
+        )
 
     stop_event = threading.Event()
     call_every = getattr(args, "call_every", None)
