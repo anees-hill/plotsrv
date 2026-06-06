@@ -224,8 +224,7 @@ def test_run_watch_mode_auto_parse_error_branch(
     monkeypatch.setattr(cli_mod, "_publish_watch_payload", fake_publish_watch_payload)
 
     monkeypatch.setattr(
-        cli_mod,
-        "coerce_file_to_publishable",
+        "plotsrv.runtime.coerce_file_to_publishable",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("nope")),
     )
 
