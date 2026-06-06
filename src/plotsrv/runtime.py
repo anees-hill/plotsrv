@@ -447,6 +447,89 @@ def post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> bo
         return False
 
 
+def _normalise_render_limit(raw: Any) -> int | None:
+    """
+    Convert render limit values to an int or None.
+
+    None means no render truncation. This accepts the same broad shape as the
+    existing config layer: int-like values, "off", "none", "false", etc.
+    """
+    if raw is None:
+        return None
+
+    if raw is settings._TRUNCATE_OFF:
+        return None
+
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("off", "none", "null", "false", "no", "0", ""):
+            return None
+        try:
+            return max(1, int(float(s)))
+        except Exception:
+            return None
+
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return None
+
+
+def get_watch_render_limit(artifact_kind: str | None) -> int | None:
+    """
+    Return the render limit that should be applied to a watched text-like artifact.
+
+    C1 deliberately uses the existing render limits, not publish-limits.
+    """
+    ak = (artifact_kind or "text").strip().lower()
+
+    if ak == "markdown":
+        return _normalise_render_limit(config.get_render_markdown_max_chars())
+
+    if ak == "html":
+        return _normalise_render_limit(config.get_render_html_max_chars())
+
+    return _normalise_render_limit(config.get_render_text_max_chars())
+
+
+def truncate_watch_text_like_artifact(
+    artifact: Any,
+    *,
+    artifact_kind: str | None,
+) -> Any:
+    """
+    Apply watched-file render limits before POSTing to /publish.
+
+    Only text-like watched artifacts are affected:
+      - text
+      - markdown
+      - html
+
+    JSON objects and tables are left unchanged.
+    """
+    ak = (artifact_kind or "text").strip().lower()
+
+    if ak not in {"text", "markdown", "html"}:
+        return artifact
+
+    if not isinstance(artifact, str):
+        return artifact
+
+    limit = get_watch_render_limit(ak)
+    if limit is None:
+        return artifact
+
+    if len(artifact) <= limit:
+        return artifact
+
+    omitted = len(artifact) - limit
+    return (
+        artifact[:limit]
+        + "\n\n"
+        + f"[plotsrv watch] truncated {omitted} characters using limits.render.{ak}"
+    )
+
+
 def build_watch_publish_payload(
     *,
     path: str | Path,
@@ -467,9 +550,14 @@ def build_watch_publish_payload(
 
     if watch_config.kind == "text":
         txt = raw.decode(watch_config.encoding, errors="replace")
+        artifact = with_text_anchor_header(txt, read_mode)
+
         return WatchPublishPayload(
             kind="artifact",
-            artifact=with_text_anchor_header(txt, read_mode),
+            artifact=truncate_watch_text_like_artifact(
+                artifact,
+                artifact_kind="text",
+            ),
             artifact_kind="text",
         )
 
@@ -483,11 +571,16 @@ def build_watch_publish_payload(
                 artifact_kind="json",
             )
         except Exception as e:
+            artifact = (
+                f"[plotsrv watch] JSON parse error: "
+                f"{type(e).__name__}: {e}\n\n{txt}"
+            )
+
             return WatchPublishPayload(
                 kind="artifact",
-                artifact=(
-                    f"[plotsrv watch] JSON parse error: "
-                    f"{type(e).__name__}: {e}\n\n{txt}"
+                artifact=truncate_watch_text_like_artifact(
+                    artifact,
+                    artifact_kind="text",
                 ),
                 artifact_kind="text",
             )
@@ -513,6 +606,11 @@ def build_watch_publish_payload(
         if artifact_kind == "text":
             obj_to_publish = with_text_anchor_header(str(coerced.obj), read_mode)
 
+        obj_to_publish = truncate_watch_text_like_artifact(
+            obj_to_publish,
+            artifact_kind=artifact_kind,
+        )
+
         return WatchPublishPayload(
             kind="artifact",
             artifact=obj_to_publish,
@@ -521,9 +619,14 @@ def build_watch_publish_payload(
 
     except Exception as e:
         txt = raw.decode(watch_config.encoding, errors="replace")
+        artifact = f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}"
+
         return WatchPublishPayload(
             kind="artifact",
-            artifact=f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
+            artifact=truncate_watch_text_like_artifact(
+                artifact,
+                artifact_kind="text",
+            ),
             artifact_kind="text",
         )
 

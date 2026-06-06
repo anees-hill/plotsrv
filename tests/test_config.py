@@ -50,3 +50,21 @@ def test_storage_latest_defaults_disabled() -> None:
     assert config.get_storage_latest_enabled() is False
     assert config.get_storage_restore_latest_on_startup() is False
     assert config.get_storage_latest_restore_scope() == "none"
+
+
+def test_get_render_text_max_chars_default() -> None:
+    from plotsrv import config
+
+    assert config.get_render_text_max_chars() == 1_000_000
+
+
+def test_get_render_markdown_max_chars_default() -> None:
+    from plotsrv import config
+
+    assert config.get_render_markdown_max_chars() is None
+
+
+def test_get_render_html_max_chars_default() -> None:
+    from plotsrv import config
+
+    assert config.get_render_html_max_chars() is None

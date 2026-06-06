@@ -381,6 +381,51 @@ def get_max_table_rows_rich() -> int:
     return _as_int_or_inf(sec.get("max_table_rows_rich"), 1000, min_value=1)
 
 
+def get_render_text_max_chars() -> int | None:
+    limits = _merged_limits_section()
+    render = limits.get("render")
+
+    if not isinstance(render, Mapping):
+        render = {}
+
+    default = _DEFAULTS["limits"]["render"]["text"]
+
+    return _parse_limit_int_or_none(
+        render.get("text"),
+        default,
+    )
+
+
+def get_render_markdown_max_chars() -> int | None:
+    limits = _merged_limits_section()
+    render = limits.get("render")
+
+    if not isinstance(render, Mapping):
+        render = {}
+
+    default = _DEFAULTS["limits"]["render"]["markdown"]
+
+    return _parse_limit_int_or_none(
+        render.get("markdown"),
+        default,
+    )
+
+
+def get_render_html_max_chars() -> int | None:
+    limits = _merged_limits_section()
+    render = limits.get("render")
+
+    if not isinstance(render, Mapping):
+        render = {}
+
+    default = _DEFAULTS["limits"]["render"]["html"]
+
+    return _parse_limit_int_or_none(
+        render.get("html"),
+        default,
+    )
+
+
 # ---- Render settings ----------------------------------------------------------
 
 
