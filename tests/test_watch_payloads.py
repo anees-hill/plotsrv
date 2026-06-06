@@ -280,3 +280,29 @@ def test_publish_prepared_watch_payload_delegates_to_publish_watch_payload(
         "update_limit_s": 10,
         "force": True,
     }
+
+
+def test_read_then_build_tail_text_keeps_tail_anchor(tmp_path: Path) -> None:
+    from plotsrv.runtime import read_watch_file_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("first\nsecond\nthird\n", encoding="utf-8")
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode="tail",
+        max_bytes=12,
+    )
+
+    out = build_watch_publish_payload(
+        path=p,
+        raw=raw,
+        watch_config=WatchConfig(path=p, kind="text", encoding="utf-8"),
+        read_mode="tail",
+        max_bytes=12,
+    )
+
+    assert out.kind == "artifact"
+    assert out.artifact_kind == "text"
+    assert str(out.artifact).startswith("\ufeffPLOTSRV_ANCHOR=tail\n")
+    assert "third" in str(out.artifact)

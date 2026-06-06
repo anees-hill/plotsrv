@@ -76,6 +76,31 @@ def parse_truncate_arg(raw: int | str | None, *, no_truncate: bool) -> object:
         return settings._UNSET
 
 
+def read_watch_file_bytes(
+    path: str | Path,
+    *,
+    read_mode: WatchReadMode,
+    max_bytes: int | None,
+) -> bytes:
+    """
+    Read watched-file bytes using plotsrv's watch semantics.
+
+    - CSV + tail keeps the header row.
+    - head reads from the start.
+    - tail reads from the end.
+    """
+    p = Path(path).expanduser().resolve()
+    fk = infer_file_kind(p)
+
+    if fk == "csv" and read_mode == "tail":
+        return read_csv_tail_with_header_bytes(p, max_bytes=max_bytes)
+
+    if read_mode == "head":
+        return read_head_bytes(p, max_bytes=max_bytes)
+
+    return read_tail_bytes(p, max_bytes=max_bytes)
+
+
 def parse_watch_max_bytes(raw: int | str | bool | None) -> int | None:
     """
     Parse watched-file read limit.
@@ -621,16 +646,13 @@ def start_watch_threads(
                     continue
 
                 try:
-                    fk2 = infer_file_kind(pth)
-                    if fk2 == "csv" and watch_read_mode == "tail":
-                        raw = read_csv_tail_with_header_bytes(
-                            pth, max_bytes=watch_max_bytes
-                        )
-                    elif watch_read_mode == "head":
-                        raw = read_head_bytes(pth, max_bytes=watch_max_bytes)
-                    else:
-                        raw = read_tail_bytes(pth, max_bytes=watch_max_bytes)
+                    raw = read_watch_file_bytes(
+                        pth,
+                        read_mode=watch_read_mode,
+                        max_bytes=watch_max_bytes,
+                    )
                 except Exception as e:
+
                     publish_watch_payload(
                         host=host,
                         port=port,

@@ -5,7 +5,7 @@ import pytest
 
 from plotsrv.cli import build_parser, _coerce_watch_specs
 import plotsrv.cli as cli_mod
-import pytest
+from plotsrv.runtime import default_watch_read_mode, read_watch_file_bytes
 
 
 def test_watch_head_before_watch_binds_to_next_watch() -> None:
@@ -161,3 +161,100 @@ def test_coerce_watch_specs_too_many_read_modes_raises() -> None:
             sections=[],
             read_modes=["head", "tail"],
         )
+
+
+# ----------------------------
+# default watch read mode
+# ----------------------------
+
+
+def test_default_watch_read_mode_csv_is_head(tmp_path: Path) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a,b\n1,2\n", encoding="utf-8")
+
+    assert default_watch_read_mode(p) == "head"
+
+
+def test_default_watch_read_mode_json_is_head(tmp_path: Path) -> None:
+    p = tmp_path / "data.json"
+    p.write_text('{"a": 1}', encoding="utf-8")
+
+    assert default_watch_read_mode(p) == "head"
+
+
+def test_default_watch_read_mode_markdown_is_head(tmp_path: Path) -> None:
+    p = tmp_path / "README.md"
+    p.write_text("# hello\n", encoding="utf-8")
+
+    assert default_watch_read_mode(p) == "head"
+
+
+def test_default_watch_read_mode_html_is_head(tmp_path: Path) -> None:
+    p = tmp_path / "page.html"
+    p.write_text("<h1>Hello</h1>", encoding="utf-8")
+
+    assert default_watch_read_mode(p) == "head"
+
+
+def test_default_watch_read_mode_log_is_tail(tmp_path: Path) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    assert default_watch_read_mode(p) == "tail"
+
+
+def test_default_watch_read_mode_txt_is_tail(tmp_path: Path) -> None:
+    p = tmp_path / "notes.txt"
+    p.write_text("hello\n", encoding="utf-8")
+
+    assert default_watch_read_mode(p) == "tail"
+
+
+# ----------------------------
+# shared watch byte reading
+# ----------------------------
+
+
+def test_read_watch_file_bytes_head_reads_from_start(tmp_path: Path) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("0123456789", encoding="utf-8")
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode="head",
+        max_bytes=4,
+    )
+
+    assert raw == b"0123"
+
+
+def test_read_watch_file_bytes_tail_reads_from_end(tmp_path: Path) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("0123456789", encoding="utf-8")
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode="tail",
+        max_bytes=4,
+    )
+
+    assert raw == b"6789"
+
+
+def test_read_watch_file_bytes_csv_tail_keeps_header(tmp_path: Path) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text(
+        "a,b\n" "1,one\n" "2,two\n" "3,three\n" "4,four\n",
+        encoding="utf-8",
+    )
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode="tail",
+        max_bytes=12,
+    )
+
+    text = raw.decode("utf-8", errors="replace")
+
+    assert text.startswith("a,b\n")
+    assert "4,four" in text

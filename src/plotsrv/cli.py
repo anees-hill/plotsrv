@@ -34,6 +34,7 @@ from .runtime import (
     WatchConfig,
     apply_runtime_options,
     build_watch_publish_payload,
+    read_watch_file_bytes,
     register_watch_views,
     default_watch_read_mode,
     parse_truncate_arg,
@@ -1364,13 +1365,11 @@ def _run_watch_mode(
 
             last_sig = sig
 
-            fk2 = infer_file_kind(p)
-            if fk2 == "csv" and mode == "tail":
-                raw = _read_csv_tail_with_header_bytes(p, max_bytes=max_bytes)
-            elif mode == "head":
-                raw = _read_head_bytes(p, max_bytes=max_bytes)
-            else:
-                raw = _read_tail_bytes(p, max_bytes=max_bytes)
+            raw = read_watch_file_bytes(
+                p,
+                read_mode=mode,
+                max_bytes=max_bytes,
+            )
 
             payload = build_watch_publish_payload(
                 path=p,
