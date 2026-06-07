@@ -239,3 +239,203 @@ def test_build_watch_publish_payload_does_not_truncate_table(
     assert out.kind == "table"
     assert out.table_df is df
     assert out.artifact is None
+
+
+def test_effective_watch_tail_read_uses_smaller_of_watch_and_render_limits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import get_effective_watch_read_max_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("x" * 100, encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: 10)
+
+    assert (
+        get_effective_watch_read_max_bytes(
+            p,
+            read_mode="tail",
+            max_bytes=50,
+            watch_config=WatchConfig(path=p, kind="text"),
+        )
+        == 10
+    )
+
+
+def test_effective_watch_tail_read_uses_render_limit_when_watch_limit_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import get_effective_watch_read_max_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("x" * 100, encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: 12)
+
+    assert (
+        get_effective_watch_read_max_bytes(
+            p,
+            read_mode="tail",
+            max_bytes=None,
+            watch_config=WatchConfig(path=p, kind="text"),
+        )
+        == 12
+    )
+
+
+def test_effective_watch_tail_read_uses_watch_limit_when_render_limit_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import get_effective_watch_read_max_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("x" * 100, encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: None)
+
+    assert (
+        get_effective_watch_read_max_bytes(
+            p,
+            read_mode="tail",
+            max_bytes=25,
+            watch_config=WatchConfig(path=p, kind="text"),
+        )
+        == 25
+    )
+
+
+def test_effective_watch_tail_read_has_no_limit_when_both_limits_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import get_effective_watch_read_max_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("x" * 100, encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: None)
+
+    assert (
+        get_effective_watch_read_max_bytes(
+            p,
+            read_mode="tail",
+            max_bytes=None,
+            watch_config=WatchConfig(path=p, kind="text"),
+        )
+        is None
+    )
+
+
+def test_effective_watch_read_does_not_apply_render_limit_to_head_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import get_effective_watch_read_max_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("x" * 100, encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: 10)
+
+    assert (
+        get_effective_watch_read_max_bytes(
+            p,
+            read_mode="head",
+            max_bytes=50,
+            watch_config=WatchConfig(path=p, kind="text"),
+        )
+        == 50
+    )
+
+
+def test_read_watch_file_bytes_tail_uses_render_window_when_smaller(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import read_watch_file_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("0123456789ABCDEFGHIJ", encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: 6)
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode="tail",
+        max_bytes=20,
+        watch_config=WatchConfig(path=p, kind="text"),
+    )
+
+    assert raw == b"EFGHIJ"
+
+
+def test_read_watch_file_bytes_tail_uses_watch_window_when_render_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import read_watch_file_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("0123456789ABCDEFGHIJ", encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: None)
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode="tail",
+        max_bytes=5,
+        watch_config=WatchConfig(path=p, kind="text"),
+    )
+
+    assert raw == b"FGHIJ"
+
+
+def test_read_watch_file_bytes_tail_reads_all_when_both_limits_off(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import read_watch_file_bytes
+
+    p = tmp_path / "app.log"
+    p.write_text("0123456789", encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: None)
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode="tail",
+        max_bytes=None,
+        watch_config=WatchConfig(path=p, kind="text"),
+    )
+
+    assert raw == b"0123456789"
+
+
+def test_csv_tail_does_not_use_render_text_limit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import read_watch_file_bytes
+
+    p = tmp_path / "data.csv"
+    p.write_text(
+        "a,b\n" "1,one\n" "2,two\n" "3,three\n" "4,four\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: 1)
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode="tail",
+        max_bytes=20,
+        watch_config=WatchConfig(path=p, kind="auto"),
+    )
+
+    text = raw.decode("utf-8", errors="replace")
+
+    assert text.startswith("a,b\n")
+    assert "4,four" in text

@@ -81,6 +81,7 @@ def read_watch_file_bytes(
     *,
     read_mode: WatchReadMode,
     max_bytes: int | None,
+    watch_config: WatchConfig | None = None,
 ) -> bytes:
     """
     Read watched-file bytes using plotsrv's watch semantics.
@@ -88,17 +89,102 @@ def read_watch_file_bytes(
     - CSV + tail keeps the header row.
     - head reads from the start.
     - tail reads from the end.
+    - text-like tail reads are bounded by the useful render window.
     """
     p = Path(path).expanduser().resolve()
     fk = infer_file_kind(p)
 
+    effective_max_bytes = get_effective_watch_read_max_bytes(
+        p,
+        read_mode=read_mode,
+        max_bytes=max_bytes,
+        watch_config=watch_config,
+    )
+
     if fk == "csv" and read_mode == "tail":
-        return read_csv_tail_with_header_bytes(p, max_bytes=max_bytes)
+        return read_csv_tail_with_header_bytes(p, max_bytes=effective_max_bytes)
 
     if read_mode == "head":
-        return read_head_bytes(p, max_bytes=max_bytes)
+        return read_head_bytes(p, max_bytes=effective_max_bytes)
 
-    return read_tail_bytes(p, max_bytes=max_bytes)
+    return read_tail_bytes(p, max_bytes=effective_max_bytes)
+
+
+def _min_enabled_limit(*limits: int | None) -> int | None:
+    enabled = [x for x in limits if x is not None]
+    if not enabled:
+        return None
+    return min(enabled)
+
+
+def get_watch_tail_render_limit_for_path(
+    path: str | Path,
+    *,
+    watch_config: WatchConfig | None = None,
+) -> int | None:
+    """
+    Return the render limit that can safely bound tail reads for text-like files.
+
+    CSV/table-like files are not controlled by render.text because CSV tail mode
+    has special header-preserving behaviour and is later table-shaped.
+    """
+    p = Path(path).expanduser().resolve()
+    kind = watch_config.kind if watch_config is not None else "auto"
+
+    if kind == "json":
+        return None
+
+    if kind == "text":
+        return get_watch_render_limit("text")
+
+    if kind == "auto":
+        fk = infer_file_kind(p)
+
+        if fk == "csv":
+            return None
+
+        if fk == "html":
+            return get_watch_render_limit("html")
+
+        if fk == "markdown":
+            return get_watch_render_limit("markdown")
+
+        if fk == "json":
+            return None
+
+        return get_watch_render_limit("text")
+
+    return get_watch_render_limit("text")
+
+
+def get_effective_watch_read_max_bytes(
+    path: str | Path,
+    *,
+    read_mode: WatchReadMode,
+    max_bytes: int | None,
+    watch_config: WatchConfig | None = None,
+) -> int | None:
+    """
+    Return the number of bytes to read for a watched file.
+
+    For tail mode on text-like files, there is no point reading substantially more
+    than the render limit because C1 will truncate before publish anyway.
+
+    Rules:
+      watched_files.max_bytes=5_000_000 and render.text=1_000_000 -> 1_000_000
+      watched_files.max_bytes=None and render.text=1_000_000      -> 1_000_000
+      watched_files.max_bytes=5_000_000 and render.text=None      -> 5_000_000
+      watched_files.max_bytes=None and render.text=None           -> None
+    """
+    if read_mode != "tail":
+        return max_bytes
+
+    render_limit = get_watch_tail_render_limit_for_path(
+        path,
+        watch_config=watch_config,
+    )
+
+    return _min_enabled_limit(max_bytes, render_limit)
 
 
 def parse_watch_max_bytes(raw: int | str | bool | None) -> int | None:
@@ -753,6 +839,7 @@ def start_watch_threads(
                         pth,
                         read_mode=watch_read_mode,
                         max_bytes=watch_max_bytes,
+                        watch_config=watch_config,
                     )
                 except Exception as e:
 

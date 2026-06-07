@@ -1365,10 +1365,32 @@ def _run_watch_mode(
 
             last_sig = sig
 
+            watch_config = WatchConfig(
+                path=p,
+                label=view_label,
+                section=section,
+                kind=kind,  # type: ignore[arg-type]
+                read_mode=mode,
+                max_bytes=max_bytes,
+                encoding=encoding,
+                update_limit_s=update_limit_s,
+                force=force,
+            )
+
             raw = read_watch_file_bytes(
                 p,
                 read_mode=mode,
                 max_bytes=max_bytes,
+                watch_config=watch_config,
+            )
+
+            payload = build_watch_publish_payload(
+                path=p,
+                raw=raw,
+                watch_config=watch_config,
+                read_mode=mode,
+                max_bytes=max_bytes,
+                max_rows=config.get_max_table_rows_rich(),
             )
 
             payload = build_watch_publish_payload(
