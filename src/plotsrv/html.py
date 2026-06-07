@@ -460,8 +460,8 @@ def render_index(
         content_html = """
           <div class="plot-frame empty ps-frame ps-frame--empty plot-frame--empty">
             <div class="empty-state ps-empty">
-              Waiting for views.<br />
-              plotsrv is running and ready to receive plots, tables, and artifacts from Python. 
+              Waiting for content.<br />
+              plotsrv is running and ready to receive Python outputs or watched file updates.
             </div>
           </div>
         """

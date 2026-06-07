@@ -827,6 +827,9 @@ def build_watch_publish_error_artifact(
 ) -> str:
     """
     Build a user-visible watch publish failure message.
+
+    This is intentionally plain text so it can render even when richer artifact
+    rendering is the thing that failed.
     """
     if isinstance(error, BaseException):
         error_text = f"{type(error).__name__}: {error}"
@@ -842,14 +845,22 @@ def build_watch_publish_error_artifact(
 
     tail_hint = ""
     if read_mode != "tail":
-        tail_hint = "\n\nFor large logs/text files, try:\n  --watch-tail"
+        tail_hint = (
+            "\n\n"
+            "For large logs or text files, prefer tail mode:\n"
+            "  plotsrv watch <file> --watch-tail\n"
+            "  plotsrv run <target> --watch <file> --watch-tail"
+        )
 
     return (
         "[plotsrv watch] publish failed\n\n"
-        f"What failed:\n  {error_text}\n\n"
-        f"Watched file:\n  {file_text}\n\n"
-        f"View:\n  section={section!r}, label={label!r}\n\n"
-        "Adjust:\n"
+        "What failed:\n"
+        f"  {error_text}\n\n"
+        "Watched file:\n"
+        f"  {file_text}\n\n"
+        "View:\n"
+        f"  section={section!r}, label={label!r}\n\n"
+        "Config keys to adjust:\n"
         f"{key_lines}"
         f"{tail_hint}"
     )
