@@ -763,6 +763,98 @@ def publish_watch_payload(
     return post_publish_payload(host=host, port=port, payload=payload)
 
 
+def get_watch_adjustment_keys(
+    *,
+    path: str | Path | None,
+    artifact_kind: str | None,
+) -> list[str]:
+    """
+    Return config keys likely to help with a failed watched-file publish.
+    """
+    ak = (artifact_kind or "text").strip().lower()
+
+    if path is not None:
+        try:
+            fk = infer_file_kind(Path(path).expanduser().resolve())
+        except Exception:
+            fk = None
+
+        if fk == "csv":
+            return [
+                "limits.watched_files.max_bytes",
+                "limits.tables.max_rows",
+                "limits.tables.max_columns",
+            ]
+
+        if fk == "markdown":
+            return [
+                "limits.watched_files.max_bytes",
+                "limits.render.markdown",
+            ]
+
+        if fk == "html":
+            return [
+                "limits.watched_files.max_bytes",
+                "limits.render.html",
+            ]
+
+    if ak == "markdown":
+        return [
+            "limits.watched_files.max_bytes",
+            "limits.render.markdown",
+        ]
+
+    if ak == "html":
+        return [
+            "limits.watched_files.max_bytes",
+            "limits.render.html",
+        ]
+
+    return [
+        "limits.watched_files.max_bytes",
+        "limits.render.text",
+    ]
+
+
+def build_watch_publish_error_artifact(
+    *,
+    error: BaseException | str,
+    path: str | Path | None,
+    section: str,
+    label: str,
+    artifact_kind: str | None,
+    read_mode: WatchReadMode | None = None,
+) -> str:
+    """
+    Build a user-visible watch publish failure message.
+    """
+    if isinstance(error, BaseException):
+        error_text = f"{type(error).__name__}: {error}"
+    else:
+        error_text = str(error)
+
+    file_text = (
+        str(Path(path).expanduser().resolve()) if path is not None else "unknown"
+    )
+    keys = get_watch_adjustment_keys(path=path, artifact_kind=artifact_kind)
+
+    key_lines = "\n".join(f"  - {key}" for key in keys)
+
+    tail_hint = ""
+    if read_mode != "tail":
+        tail_hint = "\n\nFor large logs/text files, try:\n  --watch-tail"
+
+    return (
+        "[plotsrv watch] publish failed\n\n"
+        f"What failed:\n  {error_text}\n\n"
+        f"Watched file:\n  {file_text}\n\n"
+        f"View:\n  section={section!r}, label={label!r}\n\n"
+        "Adjust:\n"
+        f"{key_lines}"
+        f"{tail_hint}"
+    )
+
+
 def publish_prepared_watch_payload(
     *,
     host: str,
@@ -772,19 +864,54 @@ def publish_prepared_watch_payload(
     payload: WatchPublishPayload,
     update_limit_s: int | None = None,
     force: bool = False,
+    path: str | Path | None = None,
+    read_mode: WatchReadMode | None = None,
 ) -> bool:
-    return publish_watch_payload(
-        host=host,
-        port=port,
-        label=label,
+    try:
+        ok = publish_watch_payload(
+            host=host,
+            port=port,
+            label=label,
+            section=section,
+            kind=payload.kind,
+            artifact=payload.artifact,
+            artifact_kind=payload.artifact_kind,
+            table_df=payload.table_df,
+            update_limit_s=update_limit_s,
+            force=force,
+        )
+    except Exception as e:
+        ok = False
+        error: BaseException | str = e
+    else:
+        error = "server rejected or did not accept the watch publish"
+
+    if ok:
+        return True
+
+    fallback = build_watch_publish_error_artifact(
+        error=error,
+        path=path,
         section=section,
-        kind=payload.kind,
-        artifact=payload.artifact,
+        label=label,
         artifact_kind=payload.artifact_kind,
-        table_df=payload.table_df,
-        update_limit_s=update_limit_s,
-        force=force,
+        read_mode=read_mode,
     )
+
+    try:
+        return publish_watch_payload(
+            host=host,
+            port=port,
+            label=label,
+            section=section,
+            kind="artifact",
+            artifact=fallback,
+            artifact_kind="text",
+            update_limit_s=None,
+            force=True,
+        )
+    except Exception:
+        return False
 
 
 def start_watch_threads(
@@ -876,6 +1003,8 @@ def start_watch_threads(
                     payload=payload,
                     update_limit_s=watch_config.update_limit_s,
                     force=watch_config.force,
+                    path=pth,
+                    read_mode=watch_read_mode,
                 )
 
                 time.sleep(1.0)

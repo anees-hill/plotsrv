@@ -97,6 +97,10 @@ def _is_watch_publish_source(publish_source: str | None) -> bool:
     return (publish_source or "").strip().lower() == "watch"
 
 
+def _publish_source_label(publish_source: str | None) -> str:
+    return (publish_source or "normal").strip().lower()
+
+
 def _validate_artifact_size(
     obj: Any,
     *,
@@ -112,42 +116,45 @@ def _validate_artifact_size(
     if _is_watch_publish_source(publish_source):
         return
 
+    source = _publish_source_label(publish_source)
     max_text = config.get_publish_max_artifact_text_chars()
     max_items = config.get_publish_max_json_container_items()
 
     if isinstance(obj, str):
-        if len(obj) > max_text:
+        actual = len(obj)
+        if actual > max_text:
             raise HTTPException(
                 status_code=413,
                 detail=(
-                    f"Artifact text payload has {len(obj)} characters, exceeding "
+                    f"Artifact text payload has {actual} characters, exceeding "
                     f"publish-limits.max_artifact_text_chars={max_text}. "
-                    f"publish_source={publish_source or 'normal'}"
+                    f"publish_source={source}"
                 ),
             )
         return
 
     if isinstance(obj, (dict, list, tuple, set)):
-        item_count = _container_item_count(obj)
-        if item_count > max_items:
+        actual = _container_item_count(obj)
+        if actual > max_items:
             raise HTTPException(
                 status_code=413,
                 detail=(
-                    f"Artifact JSON/container payload has {item_count} items, exceeding "
+                    f"Artifact JSON/container payload has {actual} items, exceeding "
                     f"publish-limits.max_json_container_items={max_items}. "
-                    f"publish_source={publish_source or 'normal'}"
+                    f"publish_source={source}"
                 ),
             )
         return
 
     s = repr(obj)
-    if len(s) > max_text:
+    actual = len(s)
+    if actual > max_text:
         raise HTTPException(
             status_code=413,
             detail=(
-                f"Artifact representation has {len(s)} characters, exceeding "
+                f"Artifact representation has {actual} characters, exceeding "
                 f"publish-limits.max_artifact_text_chars={max_text}. "
-                f"publish_source={publish_source or 'normal'}"
+                f"publish_source={source}"
             ),
         )
 
@@ -597,7 +604,11 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         if len(png_bytes) > max_plot_bytes:
             raise HTTPException(
                 status_code=413,
-                detail=f"publish: decoded plot too large (>{max_plot_bytes} bytes)",
+                detail=(
+                    f"Decoded plot payload has {len(png_bytes)} bytes, exceeding "
+                    f"publish-limits.max_plot_bytes={max_plot_bytes}. "
+                    f"publish_source={_publish_source_label(publish_source)}"
+                ),
             )
 
         store.set_plot(png_bytes, view_id=view_id)
@@ -679,20 +690,32 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         if len(cols) > max_cols:
             raise HTTPException(
                 status_code=413,
-                detail=f"publish: table has too many columns (>{max_cols})",
+                detail=(
+                    f"Table payload has {len(cols)} columns, exceeding "
+                    f"publish-limits.max_table_columns={max_cols}. "
+                    f"publish_source={_publish_source_label(publish_source)}"
+                ),
             )
 
         if len(rows) > max_rows:
             raise HTTPException(
                 status_code=413,
-                detail=f"publish: table has too many rows (>{max_rows})",
+                detail=(
+                    f"Table payload has {len(rows)} rows, exceeding "
+                    f"publish-limits.max_table_rows={max_rows}. "
+                    f"publish_source={_publish_source_label(publish_source)}"
+                ),
             )
 
         for i, row in enumerate(rows[:50]):
             if isinstance(row, dict) and len(row) > max_cols:
                 raise HTTPException(
                     status_code=413,
-                    detail=f"publish: table row {i} has too many fields (>{max_cols})",
+                    detail=(
+                        f"Table row {i} has {len(row)} fields, exceeding "
+                        f"publish-limits.max_table_columns={max_cols}. "
+                        f"publish_source={_publish_source_label(publish_source)}"
+                    ),
                 )
 
         total_rows = table.get("total_rows")

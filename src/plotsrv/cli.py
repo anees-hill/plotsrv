@@ -34,6 +34,7 @@ from .runtime import (
     WatchConfig,
     apply_runtime_options,
     build_watch_publish_payload,
+    build_watch_publish_error_artifact,
     read_watch_file_bytes,
     register_watch_views,
     default_watch_read_mode,
@@ -1412,18 +1413,44 @@ def _run_watch_mode(
                 max_rows=config.get_max_table_rows_rich(),
             )
 
-            _publish_watch_payload(
-                host=client_host,
-                port=port,
-                label=view_label,
-                section=section,
-                kind=payload.kind,
-                artifact=payload.artifact,
-                artifact_kind=payload.artifact_kind,
-                table_df=payload.table_df,
-                update_limit_s=update_limit_s,
-                force=force,
-            )
+            try:
+                _publish_watch_payload(
+                    host=client_host,
+                    port=port,
+                    label=view_label,
+                    section=section,
+                    kind=payload.kind,
+                    artifact=payload.artifact,
+                    artifact_kind=payload.artifact_kind,
+                    table_df=payload.table_df,
+                    update_limit_s=update_limit_s,
+                    force=force,
+                )
+            except Exception as e:
+                fallback = build_watch_publish_error_artifact(
+                    error=e,
+                    path=p,
+                    section=section,
+                    label=view_label,
+                    artifact_kind=payload.artifact_kind,
+                    read_mode=mode,
+                )
+
+                try:
+                    _publish_watch_payload(
+                        host=client_host,
+                        port=port,
+                        label=view_label,
+                        section=section,
+                        kind="artifact",
+                        artifact=fallback,
+                        artifact_kind="text",
+                        table_df=None,
+                        update_limit_s=None,
+                        force=True,
+                    )
+                except Exception:
+                    pass
 
             time.sleep(max(0.05, float(every)))
 

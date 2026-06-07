@@ -346,3 +346,79 @@ def test_publish_watch_large_json_artifact_bypasses_publish_json_limit(
 
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+
+def test_publish_normal_large_text_artifact_413_is_actionable(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    resp = client.post(
+        "/publish",
+        json={
+            "kind": "artifact",
+            "artifact_kind": "text",
+            "section": "limits",
+            "label": "normal-large-text",
+            "artifact": "x" * 20,
+        },
+    )
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "20 characters" in detail
+    assert "publish-limits.max_artifact_text_chars=5" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_publish_table_too_many_rows_413_is_actionable(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 1)
+
+    resp = client.post(
+        "/publish",
+        json={
+            "kind": "table",
+            "section": "limits",
+            "label": "too-many-rows",
+            "table": {
+                "columns": ["a"],
+                "rows": [{"a": 1}, {"a": 2}],
+            },
+        },
+    )
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "2 rows" in detail
+    assert "publish-limits.max_table_rows=1" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_publish_table_too_many_columns_413_is_actionable(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_columns", lambda: 1)
+
+    resp = client.post(
+        "/publish",
+        json={
+            "kind": "table",
+            "section": "limits",
+            "label": "too-many-columns",
+            "table": {
+                "columns": ["a", "b"],
+                "rows": [{"a": 1, "b": 2}],
+            },
+        },
+    )
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "2 columns" in detail
+    assert "publish-limits.max_table_columns=1" in detail
+    assert "publish_source=normal" in detail
