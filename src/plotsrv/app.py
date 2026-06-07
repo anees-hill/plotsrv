@@ -93,7 +93,25 @@ def _container_item_count(obj: Any) -> int:
     return 0
 
 
-def _validate_artifact_size(obj: Any) -> None:
+def _is_watch_publish_source(publish_source: str | None) -> bool:
+    return (publish_source or "").strip().lower() == "watch"
+
+
+def _validate_artifact_size(
+    obj: Any,
+    *,
+    publish_source: str | None = None,
+) -> None:
+    """
+    Validate normal /publish artifact payloads.
+
+    Watched files are source-aware: by the time they reach /publish, they should
+    already have been controlled by limits.watched_files and limits.render.*.
+    They should not also be rejected by publish-limits.*.
+    """
+    if _is_watch_publish_source(publish_source):
+        return
+
     max_text = config.get_publish_max_artifact_text_chars()
     max_items = config.get_publish_max_json_container_items()
 
@@ -101,7 +119,11 @@ def _validate_artifact_size(obj: Any) -> None:
         if len(obj) > max_text:
             raise HTTPException(
                 status_code=413,
-                detail=f"publish: artifact text too large (>{max_text} chars)",
+                detail=(
+                    f"Artifact text payload has {len(obj)} characters, exceeding "
+                    f"publish-limits.max_artifact_text_chars={max_text}. "
+                    f"publish_source={publish_source or 'normal'}"
+                ),
             )
         return
 
@@ -110,16 +132,23 @@ def _validate_artifact_size(obj: Any) -> None:
         if item_count > max_items:
             raise HTTPException(
                 status_code=413,
-                detail=f"publish: artifact JSON/container too large (>{max_items} items)",
+                detail=(
+                    f"Artifact JSON/container payload has {item_count} items, exceeding "
+                    f"publish-limits.max_json_container_items={max_items}. "
+                    f"publish_source={publish_source or 'normal'}"
+                ),
             )
         return
 
-    # repr-like fallback
     s = repr(obj)
     if len(s) > max_text:
         raise HTTPException(
             status_code=413,
-            detail=f"publish: artifact representation too large (>{max_text} chars)",
+            detail=(
+                f"Artifact representation has {len(s)} characters, exceeding "
+                f"publish-limits.max_artifact_text_chars={max_text}. "
+                f"publish_source={publish_source or 'normal'}"
+            ),
         )
 
 
@@ -602,7 +631,10 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 "view_id": view_id,
             }
 
-        _validate_artifact_size(artifact_obj)
+        _validate_artifact_size(
+            artifact_obj,
+            publish_source=publish_source,
+        )
 
         store.set_artifact(
             obj=artifact_obj,

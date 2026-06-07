@@ -238,3 +238,111 @@ def test_status_includes_restored_fields(client: TestClient) -> None:
     assert data["restored_from_storage"] is True
     assert data["restored_at"] == "2026-01-02T00:00:00+00:00"
     assert data["restore_source"] == "latest"
+
+
+def test_publish_normal_large_text_artifact_still_rejected(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "limits",
+        "label": "normal-large-text",
+        "artifact": "x" * 20,
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "publish-limits.max_artifact_text_chars=5" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_publish_watch_large_text_artifact_bypasses_publish_text_limit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "limits",
+        "label": "watch-large-text",
+        "artifact": "x" * 20,
+        "publish_source": "watch",
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert resp.json()["ignored"] is False
+
+
+def test_publish_watch_source_is_case_and_space_insensitive(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "limits",
+        "label": "watch-source-normalised",
+        "artifact": "x" * 20,
+        "publish_source": "  WATCH  ",
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_publish_normal_large_json_artifact_still_rejected(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_json_container_items", lambda: 2)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "json",
+        "section": "limits",
+        "label": "normal-large-json",
+        "artifact": {"a": [1, 2, 3]},
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "publish-limits.max_json_container_items=2" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_publish_watch_large_json_artifact_bypasses_publish_json_limit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_json_container_items", lambda: 2)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "json",
+        "section": "limits",
+        "label": "watch-large-json",
+        "artifact": {"a": [1, 2, 3]},
+        "publish_source": "watch",
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True

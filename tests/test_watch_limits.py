@@ -439,3 +439,34 @@ def test_csv_tail_does_not_use_render_text_limit(
 
     assert text.startswith("a,b\n")
     assert "4,four" in text
+
+
+def test_publish_watch_payload_marks_publish_source_watch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.runtime import publish_watch_payload
+
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.post_publish_payload",
+        lambda *, host, port, payload: captured.update(
+            {"host": host, "port": port, "payload": payload}
+        )
+        or True,
+    )
+
+    ok = publish_watch_payload(
+        host="127.0.0.1",
+        port=8000,
+        label="log",
+        section="watch",
+        kind="artifact",
+        artifact="hello",
+        artifact_kind="text",
+    )
+
+    assert ok is True
+    assert captured["host"] == "127.0.0.1"
+    assert captured["port"] == 8000
+    assert captured["payload"]["publish_source"] == "watch"
