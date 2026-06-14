@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from typing import Any
+from pathlib import Path
+import yaml
 
 import pytest
 
@@ -358,3 +360,109 @@ def test_run_store_clear_view_yes(monkeypatch: pytest.MonkeyPatch, capsys) -> No
     assert "Removed 3" in out
     assert "1 latest" in out
     assert "2 snapshots" in out
+
+
+def test_default_config_text_uses_new_config_layout() -> None:
+    from plotsrv.config_writer import default_config_text
+
+    text = default_config_text()
+
+    assert "limits:" in text
+    assert "published_objects:" in text
+    assert "watched_files:" in text
+    assert "max_mb: 500" in text
+    assert "truncate_after:" in text
+    assert "table_rows: 100000" in text
+    assert "table_columns: 200" in text
+
+    assert "render-settings:" in text
+    assert "default:" in text
+    assert "table_view_mode: rich" in text
+    assert "html_sanitize: false" in text
+    assert "markdown_sanitize: true" in text
+
+    assert "storage-settings:" in text
+    assert "watch_enabled: false" in text
+    assert "freshness-settings:" in text
+    assert "security-settings:" in text
+    assert "tracebacks_enabled: false" in text
+
+    assert "configuration-reference" in text
+
+
+def test_default_config_text_no_longer_emits_legacy_sections() -> None:
+    from plotsrv.config_writer import default_config_text
+
+    text = default_config_text()
+
+    assert "publish-limits:" not in text
+    assert "table-settings:" not in text
+    assert "artifact-render-settings:" not in text
+
+    assert "max_table_rows_simple" not in text
+    assert "max_table_rows_rich" not in text
+
+    assert "max_bytes:" not in text
+    assert "  render:" not in text
+    assert "  tables:" not in text
+
+
+def test_default_config_text_parses_as_yaml() -> None:
+    from plotsrv.config_writer import default_config_text
+
+    data = yaml.safe_load(default_config_text())
+
+    assert isinstance(data, dict)
+
+    assert data["limits"]["published_objects"]["max_plot_bytes"] == 5 * 1024 * 1024
+    assert data["limits"]["published_objects"]["max_table_rows"] == 100000
+    assert data["limits"]["published_objects"]["max_table_columns"] == 200
+
+    assert data["limits"]["watched_files"]["max_mb"] == 500
+
+    assert data["limits"]["truncate_after"]["text"] == 1000000
+    assert data["limits"]["truncate_after"]["markdown"] == 100000
+    assert data["limits"]["truncate_after"]["html"] is False
+    assert data["limits"]["truncate_after"]["table_rows"] == 100000
+    assert data["limits"]["truncate_after"]["table_columns"] == 200
+
+    assert data["render-settings"]["default"]["table_view_mode"] == "rich"
+    assert data["render-settings"]["default"]["html_sanitize"] is False
+    assert data["render-settings"]["default"]["markdown_sanitize"] is True
+
+    assert data["storage-settings"]["enabled"] is False
+    assert data["storage-settings"]["watch_enabled"] is False
+
+    assert data["freshness-settings"]["enabled"] is False
+    assert data["freshness-settings"]["expected_every"] == "60s"
+    assert data["freshness-settings"]["warn_after"] == "2m"
+    assert data["freshness-settings"]["overdue_after"] == "10m"
+
+    assert data["security-settings"]["tracebacks_enabled"] is False
+
+
+def test_create_config_file_writes_new_layout(tmp_path: Path) -> None:
+    from plotsrv.config_writer import create_config_file
+
+    path = tmp_path / "plotsrv.yml"
+
+    result = create_config_file(path)
+
+    assert result.created is True
+    assert result.overwritten is False
+    assert path.exists()
+
+    text = path.read_text(encoding="utf-8")
+    data = yaml.safe_load(text)
+
+    assert "limits" in data
+    assert "published_objects" in data["limits"]
+    assert "watched_files" in data["limits"]
+    assert "truncate_after" in data["limits"]
+
+    assert "publish-limits" not in data
+    assert "table-settings" not in data
+    assert "artifact-render-settings" not in data
+
+    assert data["limits"]["watched_files"]["max_mb"] == 500
+    assert data["render-settings"]["default"]["table_view_mode"] == "rich"
