@@ -253,3 +253,37 @@ def test_cli_parses_config_populate_limits() -> None:
     assert args.text == "off"
     assert args.html == "off"
     assert args.markdown == "50000"
+
+
+def test_cli_watch_accepts_watch_max_mb() -> None:
+    from plotsrv.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "watch",
+            "app.log",
+            "--watch-max-mb",
+            "25",
+        ]
+    )
+
+    assert args.max_mb == "25"
+
+
+def test_cli_run_accepts_watch_max_mb() -> None:
+    from plotsrv.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "run",
+            "my.module",
+            "--watch",
+            "app.log",
+            "--watch-max-mb",
+            "25",
+        ]
+    )
+
+    assert args.watch_max_mb == "25"

@@ -744,3 +744,30 @@ def test_main_callable_uses_client_host_for_callable_loop(
     assert rc == 0
     assert "start:0.0.0.0" in calls
     assert "callable:127.0.0.1:8356" in calls
+
+
+def test_cli_watch_rejects_both_watch_max_mb_and_bytes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from plotsrv import cli
+
+    p = tmp_path / "app.log"
+    p.write_text("hello", encoding="utf-8")
+
+    rc = cli.main(
+        [
+            "watch",
+            str(p),
+            "--watch-max-mb",
+            "10",
+            "--watch-max-bytes",
+            "1000",
+        ]
+    )
+
+    assert rc != 0
+    out = capsys.readouterr()
+    assert "--watch-max-mb" in out.err or "--watch-max-mb" in out.out
+    assert "--watch-max-bytes" in out.err or "--watch-max-bytes" in out.out

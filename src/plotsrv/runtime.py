@@ -50,6 +50,69 @@ class WatchConfig:
     force: bool = False
 
 
+def parse_watch_max_mb(raw: int | float | str | None) -> int | None:
+    """
+    Parse a watched-file MB limit from CLI/user input.
+
+    Returns:
+      - int bytes
+      - None for off/no limit
+    """
+    if raw is None:
+        return None
+
+    if isinstance(raw, bool):
+        return None if raw is False else 1024 * 1024
+
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("off", "none", "null", "false", "no", "0", ""):
+            return None
+
+        try:
+            mb = float(s)
+        except Exception as e:
+            raise ValueError(f"watch max MB must be a number or 'off': {raw!r}") from e
+
+        if mb <= 0:
+            return None
+
+        return max(1, int(mb * 1024 * 1024))
+
+    try:
+        mb2 = float(raw)
+    except Exception as e:
+        raise ValueError(f"watch max MB must be a number or 'off': {raw!r}") from e
+
+    if mb2 <= 0:
+        return None
+
+    return max(1, int(mb2 * 1024 * 1024))
+
+
+def resolve_watch_cli_max_bytes(
+    *,
+    watch_max_bytes: int | str | None = None,
+    watch_max_mb: int | float | str | None = None,
+) -> int | None:
+    """
+    Resolve watched-file CLI size options.
+
+    --watch-max-mb is preferred.
+    --watch-max-bytes remains supported for compatibility/precision.
+    """
+    if watch_max_bytes is not None and watch_max_mb is not None:
+        raise ValueError("Use only one of --watch-max-mb or --watch-max-bytes.")
+
+    if watch_max_mb is not None:
+        return parse_watch_max_mb(watch_max_mb)
+
+    if watch_max_bytes is not None:
+        return parse_watch_max_bytes(watch_max_bytes)
+
+    return None
+
+
 def parse_truncate_arg(raw: int | str | None, *, no_truncate: bool) -> object:
     """
     Parse CLI/Python render truncation override.

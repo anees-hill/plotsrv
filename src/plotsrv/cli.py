@@ -39,7 +39,7 @@ from .runtime import (
     register_watch_views,
     default_watch_read_mode,
     parse_truncate_arg,
-    parse_watch_max_bytes,
+    resolve_watch_cli_max_bytes,
     read_csv_tail_with_header_bytes,
     read_head_bytes,
     read_tail_bytes,
@@ -248,9 +248,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Watch poll interval seconds (default: 1.0).",
     )
     run_p.add_argument(
+        "--watch-max-mb",
+        default=None,
+        help=(
+            "Read at most N MB from each watched file. "
+            "Use 'off' to read whole files. "
+            "Preferred over --watch-max-bytes. "
+            "Default comes from limits.watched_files.max_mb."
+        ),
+    )
+    run_p.add_argument(
         "--watch-max-bytes",
         default=None,
-        help="Read at most N bytes from each watched file. Use 'off' to read whole files. Default comes from limits.watched_files.max_bytes.",
+        help=(
+            "Legacy/advanced watched-file read limit in bytes. "
+            "Use 'off' to read whole files. "
+            "Prefer --watch-max-mb for ordinary use."
+        ),
     )
     run_p.add_argument(
         "--watch-encoding",
@@ -316,9 +330,28 @@ def build_parser() -> argparse.ArgumentParser:
         "--view-id", default=None, help="Explicit view_id (overrides section/label)"
     )
     watch_p.add_argument(
-        "--max-bytes",
+        "--max-mb",
+        "--watch-max-mb",
+        dest="max_mb",
         default=None,
-        help="Read at most N bytes from the watched file. Use 'off' to read the whole file. Default comes from limits.watched_files.max_bytes.",
+        help=(
+            "Read at most N MB from the watched file. "
+            "Use 'off' to read the whole file. "
+            "Preferred over --max-bytes / --watch-max-bytes. "
+            "Default comes from limits.watched_files.max_mb."
+        ),
+    )
+
+    watch_p.add_argument(
+        "--max-bytes",
+        "--watch-max-bytes",
+        dest="max_bytes",
+        default=None,
+        help=(
+            "Legacy/advanced watched-file read limit in bytes. "
+            "Use 'off' to read the whole file. "
+            "Prefer --max-mb / --watch-max-mb for ordinary use."
+        ),
     )
     watch_p.add_argument(
         "--encoding", default="utf-8", help="Text encoding (default: utf-8)"
@@ -1394,25 +1427,6 @@ def _run_watch_mode(
                 max_rows=config.get_max_table_rows_rich(),
             )
 
-            payload = build_watch_publish_payload(
-                path=p,
-                raw=raw,
-                watch_config=WatchConfig(
-                    path=p,
-                    label=view_label,
-                    section=section,
-                    kind=kind,  # type: ignore[arg-type]
-                    read_mode=mode,
-                    max_bytes=max_bytes,
-                    encoding=encoding,
-                    update_limit_s=update_limit_s,
-                    force=force,
-                ),
-                read_mode=mode,
-                max_bytes=max_bytes,
-                max_rows=config.get_max_table_rows_rich(),
-            )
-
             try:
                 _publish_watch_payload(
                     host=client_host,
@@ -1555,7 +1569,10 @@ def main(argv: list[str] | None = None) -> int:
         read_mode = "head" if args.head else ("tail" if args.tail else None)
 
         try:
-            max_bytes = parse_watch_max_bytes(args.max_bytes)
+            max_bytes = resolve_watch_cli_max_bytes(
+                watch_max_bytes=getattr(args, "max_bytes", None),
+                watch_max_mb=getattr(args, "max_mb", None),
+            )
         except ValueError as e:
             return _die(str(e))
 
@@ -1586,7 +1603,10 @@ def main(argv: list[str] | None = None) -> int:
     watch_kind = getattr(args, "watch_kind", "auto")
     watch_every = float(getattr(args, "watch_every", 1.0))
     try:
-        watch_max_bytes = parse_watch_max_bytes(getattr(args, "watch_max_bytes", None))
+        watch_max_bytes = resolve_watch_cli_max_bytes(
+            watch_max_bytes=getattr(args, "watch_max_bytes", None),
+            watch_max_mb=getattr(args, "watch_max_mb", None),
+        )
     except ValueError as e:
         return _die(str(e))
     watch_encoding = str(getattr(args, "watch_encoding", "utf-8"))

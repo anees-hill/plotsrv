@@ -258,3 +258,60 @@ def test_read_watch_file_bytes_csv_tail_keeps_header(tmp_path: Path) -> None:
 
     assert text.startswith("a,b\n")
     assert "4,four" in text
+
+
+def test_parse_watch_max_mb_number() -> None:
+    from plotsrv.runtime import parse_watch_max_mb
+
+    assert parse_watch_max_mb("2") == 2 * 1024 * 1024
+    assert parse_watch_max_mb(2) == 2 * 1024 * 1024
+    assert parse_watch_max_mb(0.5) == 512 * 1024
+
+
+def test_parse_watch_max_mb_off() -> None:
+    from plotsrv.runtime import parse_watch_max_mb
+
+    assert parse_watch_max_mb("off") is None
+    assert parse_watch_max_mb("none") is None
+    assert parse_watch_max_mb("0") is None
+
+
+def test_parse_watch_max_mb_invalid_raises() -> None:
+    from plotsrv.runtime import parse_watch_max_mb
+
+    with pytest.raises(ValueError):
+        parse_watch_max_mb("not-a-number")
+
+
+def test_resolve_watch_cli_max_bytes_prefers_mb_when_given_alone() -> None:
+    from plotsrv.runtime import resolve_watch_cli_max_bytes
+
+    assert (
+        resolve_watch_cli_max_bytes(
+            watch_max_bytes=None,
+            watch_max_mb="3",
+        )
+        == 3 * 1024 * 1024
+    )
+
+
+def test_resolve_watch_cli_max_bytes_keeps_legacy_bytes() -> None:
+    from plotsrv.runtime import resolve_watch_cli_max_bytes
+
+    assert (
+        resolve_watch_cli_max_bytes(
+            watch_max_bytes="1234",
+            watch_max_mb=None,
+        )
+        == 1234
+    )
+
+
+def test_resolve_watch_cli_max_bytes_rejects_both_mb_and_bytes() -> None:
+    from plotsrv.runtime import resolve_watch_cli_max_bytes
+
+    with pytest.raises(ValueError, match="--watch-max-mb or --watch-max-bytes"):
+        resolve_watch_cli_max_bytes(
+            watch_max_bytes="1234",
+            watch_max_mb="5",
+        )
