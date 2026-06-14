@@ -641,30 +641,16 @@ def _get_published_object_limit(key: str, default: int) -> int:
     Legacy:
       publish-limits.<key>
 
-    Temporary compatibility:
-      limits.tables.max_rows/max_columns still act as table publish limits until
-      the later table truncation refactor separates display truncation from hard
-      server limits.
+    Note:
+      limits.tables.* is no longer treated as a publish limit. It is a legacy
+      display/table-preparation setting only. New display truncation lives under
+      limits.truncate_after.table_rows/table_columns.
     """
     raw_limits = _raw_limits_section()
 
     published_objects = _mapping_value(raw_limits, "published_objects")
     if key in published_objects:
         return _as_int_or_inf(published_objects.get(key), default, min_value=1)
-
-    if key == "max_table_rows":
-        legacy_tables = _mapping_value(raw_limits, "tables")
-        if "max_rows" in legacy_tables:
-            return _as_int_or_inf(legacy_tables.get("max_rows"), default, min_value=1)
-
-    if key == "max_table_columns":
-        legacy_tables = _mapping_value(raw_limits, "tables")
-        if "max_columns" in legacy_tables:
-            return _as_int_or_inf(
-                legacy_tables.get("max_columns"),
-                default,
-                min_value=1,
-            )
 
     legacy_publish = _raw_section("publish-limits")
     if key in legacy_publish:

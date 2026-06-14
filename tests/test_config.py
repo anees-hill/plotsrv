@@ -83,6 +83,94 @@ def test_default_published_object_limits() -> None:
     assert config.get_publish_max_json_container_items() == 20_000
 
 
+def test_published_object_limits_use_new_limits_section(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+limits:
+  published_objects:
+    max_plot_bytes: 123
+    max_table_rows: 456
+    max_table_columns: 78
+    max_artifact_text_chars: 910
+    max_json_container_items: 1112
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_publish_max_plot_bytes() == 123
+    assert config.get_publish_max_table_rows() == 456
+    assert config.get_publish_max_table_columns() == 78
+    assert config.get_publish_max_artifact_text_chars() == 910
+    assert config.get_publish_max_json_container_items() == 1112
+
+
+def test_published_object_limits_new_section_wins_over_legacy_publish_limits(
+    tmp_path,
+) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+publish-limits:
+  max_table_rows: 10
+  max_table_columns: 11
+  max_artifact_text_chars: 12
+
+limits:
+  published_objects:
+    max_table_rows: 100
+    max_table_columns: 101
+    max_artifact_text_chars: 102
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_publish_max_table_rows() == 100
+    assert config.get_publish_max_table_columns() == 101
+    assert config.get_publish_max_artifact_text_chars() == 102
+
+
+def test_legacy_publish_limits_still_work_without_new_section(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+publish-limits:
+  max_table_rows: 10
+  max_table_columns: 11
+  max_artifact_text_chars: 12
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_publish_max_table_rows() == 10
+    assert config.get_publish_max_table_columns() == 11
+    assert config.get_publish_max_artifact_text_chars() == 12
+
+
+def test_limits_tables_no_longer_affect_publish_limits(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+limits:
+  tables:
+    max_rows: 10
+    max_columns: 11
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_publish_max_table_rows() == 100_000
+    assert config.get_publish_max_table_columns() == 200
+
+
 def test_default_render_settings_include_table_and_artifact_behaviour() -> None:
     assert config.get_table_view_mode() == "rich"
     assert config.get_html_sanitize() is False

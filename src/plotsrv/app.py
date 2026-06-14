@@ -109,6 +109,7 @@ def _validate_artifact_size(
     """
     Validate normal /publish artifact payloads.
 
+
     Watched files are source-aware: by the time they reach /publish, they should
     already have been controlled by limits.watched_files and limits.render.*.
     They should not also be rejected by publish-limits.*.
@@ -127,7 +128,7 @@ def _validate_artifact_size(
                 status_code=413,
                 detail=(
                     f"Artifact text payload has {actual} characters, exceeding "
-                    f"publish-limits.max_artifact_text_chars={max_text}. "
+                    f"limits.published_objects.max_artifact_text_chars={max_text}. "
                     f"publish_source={source}"
                 ),
             )
@@ -140,7 +141,7 @@ def _validate_artifact_size(
                 status_code=413,
                 detail=(
                     f"Artifact JSON/container payload has {actual} items, exceeding "
-                    f"publish-limits.max_json_container_items={max_items}. "
+                    f"limits.published_objects.max_json_container_items={max_items}. "
                     f"publish_source={source}"
                 ),
             )
@@ -153,7 +154,7 @@ def _validate_artifact_size(
             status_code=413,
             detail=(
                 f"Artifact representation has {actual} characters, exceeding "
-                f"publish-limits.max_artifact_text_chars={max_text}. "
+                f"limits.published_objects.max_artifact_text_chars={max_text}. "
                 f"publish_source={source}"
             ),
         )
@@ -631,7 +632,7 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 status_code=413,
                 detail=(
                     f"Decoded plot payload has {len(png_bytes)} bytes, exceeding "
-                    f"publish-limits.max_plot_bytes={max_plot_bytes}. "
+                    f"limits.published_objects.max_plot_bytes={max_plot_bytes}. "
                     f"publish_source={_publish_source_label(publish_source)}"
                 ),
             )
@@ -717,7 +718,7 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 status_code=413,
                 detail=(
                     f"Table payload has {len(cols)} columns, exceeding "
-                    f"publish-limits.max_table_columns={max_cols}. "
+                    f"limits.published_objects.max_table_columns={max_cols}. "
                     f"publish_source={_publish_source_label(publish_source)}"
                 ),
             )
@@ -727,7 +728,7 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 status_code=413,
                 detail=(
                     f"Table payload has {len(rows)} rows, exceeding "
-                    f"publish-limits.max_table_rows={max_rows}. "
+                    f"limits.published_objects.max_table_rows={max_rows}. "
                     f"publish_source={_publish_source_label(publish_source)}"
                 ),
             )

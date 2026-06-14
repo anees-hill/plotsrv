@@ -249,8 +249,10 @@ limits:
     assert cfg.get_truncation_max_chars("text") == 123456
     assert cfg.get_truncation_max_chars("html") is None
     assert cfg.get_truncation_max_chars("markdown") is None
-    assert cfg.get_publish_max_table_rows() == 123
-    assert cfg.get_publish_max_table_columns() == 45
+    assert cfg.get_table_truncate_rows() == 123
+    assert cfg.get_table_truncate_columns() == 45
+    assert cfg.get_publish_max_table_rows() == 100_000
+    assert cfg.get_publish_max_table_columns() == 200
 
 
 def test_limits_view_overrides_from_yaml(tmp_path: Path) -> None:
@@ -480,9 +482,10 @@ limits:
     assert cfg.get_table_truncate_columns() == 66
     assert cfg.get_publish_max_artifact_text_chars() == 1234
 
-    # Temporary compatibility until the later table truncation/server-limit split.
-    assert cfg.get_publish_max_table_rows() == 77
-    assert cfg.get_publish_max_table_columns() == 66
+    # B7: legacy limits.tables still controls display/truncation compatibility,
+    # but no longer controls hard publish rejection limits.
+    assert cfg.get_publish_max_table_rows() == 100_000
+    assert cfg.get_publish_max_table_columns() == 200
 
 
 def test_limits_view_truncate_after_overrides_from_yaml(tmp_path: Path) -> None:

@@ -260,7 +260,7 @@ def test_publish_normal_large_text_artifact_still_rejected(
 
     assert resp.status_code == 413
     detail = resp.json()["detail"]
-    assert "publish-limits.max_artifact_text_chars=5" in detail
+    assert "limits.published_objects.max_artifact_text_chars=5" in detail
     assert "publish_source=normal" in detail
 
 
@@ -325,7 +325,7 @@ def test_publish_normal_large_json_artifact_still_rejected(
 
     assert resp.status_code == 413
     detail = resp.json()["detail"]
-    assert "publish-limits.max_json_container_items=2" in detail
+    assert "limits.published_objects.max_json_container_items=2" in detail
     assert "publish_source=normal" in detail
 
 
@@ -370,7 +370,7 @@ def test_publish_normal_large_text_artifact_413_is_actionable(
     assert resp.status_code == 413
     detail = resp.json()["detail"]
     assert "20 characters" in detail
-    assert "publish-limits.max_artifact_text_chars=5" in detail
+    assert "limits.published_objects.max_artifact_text_chars=5" in detail
     assert "publish_source=normal" in detail
 
 
@@ -396,7 +396,7 @@ def test_publish_table_too_many_rows_413_is_actionable(
     assert resp.status_code == 413
     detail = resp.json()["detail"]
     assert "2 rows" in detail
-    assert "publish-limits.max_table_rows=1" in detail
+    assert "limits.published_objects.max_table_rows=1" in detail
     assert "publish_source=normal" in detail
 
 
@@ -422,7 +422,7 @@ def test_publish_table_too_many_columns_413_is_actionable(
     assert resp.status_code == 413
     detail = resp.json()["detail"]
     assert "2 columns" in detail
-    assert "publish-limits.max_table_columns=1" in detail
+    assert "limits.published_objects.max_table_columns=1" in detail
     assert "publish_source=normal" in detail
 
 
