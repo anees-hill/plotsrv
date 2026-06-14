@@ -101,18 +101,115 @@ def _publish_source_label(publish_source: str | None) -> str:
     return (publish_source or "normal").strip().lower()
 
 
+def _http_detail_to_text(detail: Any) -> str:
+    if isinstance(detail, str):
+        return detail
+    try:
+        return str(detail)
+    except Exception:
+        return "Unknown publish error"
+
+
+def _publish_rejection_artifact_text(
+    *,
+    status_code: int,
+    detail: Any,
+    view_id: str,
+    kind: str,
+    publish_source: str | None,
+) -> str:
+    detail_text = _http_detail_to_text(detail)
+
+    return (
+        "plotsrv publish rejected\n"
+        "\n"
+        f"Status: {status_code}\n"
+        f"View: {view_id}\n"
+        f"Kind: {kind}\n"
+        f"Publish source: {_publish_source_label(publish_source)}\n"
+        "\n"
+        "What failed:\n"
+        f"{detail_text}\n"
+        "\n"
+        "Adjust the config key mentioned above, or publish a smaller/truncated object.\n"
+    )
+
+
+def _record_publish_rejection_artifact(
+    *,
+    exc: HTTPException,
+    view_id: str,
+    section: Any,
+    label: Any,
+    kind: str,
+    publish_source: str | None,
+) -> None:
+    """
+    Make rejected normal Python publishes visible in the UI.
+
+    Watch publishes have their own fallback path in runtime.py, so avoid
+    duplicating that behaviour here.
+    """
+    if _is_watch_publish_source(publish_source):
+        return
+
+    msg = _publish_rejection_artifact_text(
+        status_code=int(exc.status_code),
+        detail=exc.detail,
+        view_id=view_id,
+        kind=kind,
+        publish_source=publish_source,
+    )
+
+    try:
+        store.set_artifact(
+            obj=msg,
+            kind="text",
+            label=label if isinstance(label, str) else None,
+            section=section if isinstance(section, str) else None,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
+        store.mark_error(msg, view_id=view_id)
+    except Exception:
+        # Never hide the original publish rejection.
+        return
+
+
+def _raise_publish_rejection(
+    *,
+    status_code: int,
+    detail: str,
+    view_id: str,
+    section: Any,
+    label: Any,
+    kind: str,
+    publish_source: str | None,
+) -> None:
+    exc = HTTPException(status_code=status_code, detail=detail)
+    _record_publish_rejection_artifact(
+        exc=exc,
+        view_id=view_id,
+        section=section,
+        label=label,
+        kind=kind,
+        publish_source=publish_source,
+    )
+    raise exc
+
+
 def _validate_artifact_size(
     obj: Any,
     *,
     publish_source: str | None = None,
 ) -> None:
     """
-    Validate normal /publish artifact payloads.
+        Validate normal /publish artifact payloads.
 
 
     Watched files are source-aware: by the time they reach /publish, they should
-    already have been controlled by limits.watched_files and limits.render.*.
-    They should not also be rejected by publish-limits.*.
+    already have been controlled by limits.watched_files and limits.truncate_after.*.
+    They should not also be rejected by limits.published_objects.*.
     """
     if _is_watch_publish_source(publish_source):
         return
@@ -614,27 +711,43 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     if kind == "plot":
         b64 = payload.get("plot_png_b64")
         if not b64:
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=422,
                 detail="publish: plot_png_b64 is required for kind='plot'",
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="plot",
+                publish_source=publish_source,
             )
 
         try:
             png_bytes = base64.b64decode(b64.encode("utf-8"))
         except Exception:
-            raise HTTPException(
-                status_code=422, detail="publish: plot_png_b64 was not valid base64"
+            _raise_publish_rejection(
+                status_code=422,
+                detail="publish: plot_png_b64 was not valid base64",
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="plot",
+                publish_source=publish_source,
             )
 
         max_plot_bytes = config.get_publish_max_plot_bytes()
         if len(png_bytes) > max_plot_bytes:
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=413,
                 detail=(
                     f"Decoded plot payload has {len(png_bytes)} bytes, exceeding "
                     f"limits.published_objects.max_plot_bytes={max_plot_bytes}. "
                     f"publish_source={_publish_source_label(publish_source)}"
                 ),
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="plot",
+                publish_source=publish_source,
             )
 
         store.set_plot(
@@ -676,10 +789,21 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 "view_id": view_id,
             }
 
-        _validate_artifact_size(
-            artifact_obj,
-            publish_source=publish_source,
-        )
+        try:
+            _validate_artifact_size(
+                artifact_obj,
+                publish_source=publish_source,
+            )
+        except HTTPException as e:
+            _record_publish_rejection_artifact(
+                exc=e,
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="artifact",
+                publish_source=publish_source,
+            )
+            raise
 
         store.set_artifact(
             obj=artifact_obj,
@@ -710,51 +834,76 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     elif kind == "table":
         table = payload.get("table")
         if not isinstance(table, dict):
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=422,
                 detail="publish: table dict is required for kind='table'",
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="table",
+                publish_source=publish_source,
             )
 
         cols = table.get("columns")
         rows = table.get("rows")
         if not isinstance(cols, list) or not isinstance(rows, list):
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=422,
                 detail="publish: table must include columns(list) and rows(list)",
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="table",
+                publish_source=publish_source,
             )
 
         max_rows = config.get_publish_max_table_rows()
         max_cols = config.get_publish_max_table_columns()
 
         if len(cols) > max_cols:
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=413,
                 detail=(
                     f"Table payload has {len(cols)} columns, exceeding "
                     f"limits.published_objects.max_table_columns={max_cols}. "
                     f"publish_source={_publish_source_label(publish_source)}"
                 ),
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="table",
+                publish_source=publish_source,
             )
 
         if len(rows) > max_rows:
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=413,
                 detail=(
                     f"Table payload has {len(rows)} rows, exceeding "
                     f"limits.published_objects.max_table_rows={max_rows}. "
                     f"publish_source={_publish_source_label(publish_source)}"
                 ),
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="table",
+                publish_source=publish_source,
             )
 
         for i, row in enumerate(rows[:50]):
             if isinstance(row, dict) and len(row) > max_cols:
-                raise HTTPException(
+                _raise_publish_rejection(
                     status_code=413,
                     detail=(
                         f"Table row {i} has {len(row)} fields, exceeding "
-                        f"publish-limits.max_table_columns={max_cols}. "
+                        f"limits.published_objects.max_table_columns={max_cols}. "
                         f"publish_source={_publish_source_label(publish_source)}"
                     ),
+                    view_id=view_id,
+                    section=section,
+                    label=label,
+                    kind="table",
+                    publish_source=publish_source,
                 )
 
         total_rows = table.get("total_rows")

@@ -474,3 +474,126 @@ def test_table_data_query_limit_can_reduce_below_table_truncate_limit(
     assert data["rows"] == [{"a": 1}]
     assert data["total_rows"] == 3
     assert data["returned_rows"] == 1
+
+
+def test_rejected_python_artifact_publish_creates_visible_error_artifact(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "tests",
+        "label": "too-big",
+        "artifact": "x" * 20,
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+
+    vid = store.normalize_view_id(None, section="tests", label="too-big")
+    art = store.get_artifact(view_id=vid)
+
+    assert art.kind == "text"
+    assert "plotsrv publish rejected" in art.obj
+    assert "Status: 413" in art.obj
+    assert "View: tests:too-big" in art.obj
+    assert "Kind: artifact" in art.obj
+    assert "limits.published_objects.max_artifact_text_chars=5" in art.obj
+
+    status = store.get_status(view_id=vid)
+    assert status["last_error"]
+
+
+def test_rejected_python_table_publish_creates_visible_error_artifact(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 1)
+
+    payload = {
+        "kind": "table",
+        "section": "tests",
+        "label": "too-many-rows",
+        "table": {
+            "columns": ["a"],
+            "rows": [{"a": 1}, {"a": 2}],
+            "total_rows": 2,
+            "returned_rows": 2,
+        },
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+
+    vid = store.normalize_view_id(None, section="tests", label="too-many-rows")
+    art = store.get_artifact(view_id=vid)
+
+    assert art.kind == "text"
+    assert "plotsrv publish rejected" in art.obj
+    assert "Status: 413" in art.obj
+    assert "Kind: table" in art.obj
+    assert "limits.published_objects.max_table_rows=1" in art.obj
+
+    status = store.get_status(view_id=vid)
+    assert status["last_error"]
+
+
+def test_rejected_python_plot_publish_creates_visible_error_artifact(
+    client: TestClient,
+) -> None:
+    payload = {
+        "kind": "plot",
+        "section": "tests",
+        "label": "bad-plot",
+        "plot_png_b64": "not valid base64",
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 422
+
+    vid = store.normalize_view_id(None, section="tests", label="bad-plot")
+    art = store.get_artifact(view_id=vid)
+
+    assert art.kind == "text"
+    assert "plotsrv publish rejected" in art.obj
+    assert "Status: 422" in art.obj
+    assert "Kind: plot" in art.obj
+    assert "plot_png_b64 was not valid base64" in art.obj
+
+    status = store.get_status(view_id=vid)
+    assert status["last_error"]
+
+
+def test_rejected_watch_publish_does_not_create_app_level_error_artifact(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 1)
+
+    payload = {
+        "kind": "table",
+        "section": "watch",
+        "label": "too-many-rows",
+        "publish_source": "watch",
+        "table": {
+            "columns": ["a"],
+            "rows": [{"a": 1}, {"a": 2}],
+            "total_rows": 2,
+            "returned_rows": 2,
+        },
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+
+    vid = store.normalize_view_id(None, section="watch", label="too-many-rows")
+
+    with pytest.raises(LookupError):
+        store.get_artifact(view_id=vid)
