@@ -637,7 +637,11 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 ),
             )
 
-        store.set_plot(png_bytes, view_id=view_id)
+        store.set_plot(
+            png_bytes,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
 
@@ -675,10 +679,11 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
         store.set_artifact(
             obj=artifact_obj,
-            kind=artifact_kind,  # type: ignore[arg-type]
-            label=label,
+            kind=artifact_kind,
             section=section,
+            label=label,
             view_id=view_id,
+            publish_source=publish_source,
         )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)
@@ -760,10 +765,11 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
         store.set_table(
             df,
-            html_simple=html_simple,
+            html_simple,
             view_id=view_id,
             total_rows=total_rows,
             returned_rows=returned_rows,
+            publish_source=publish_source,
         )
         store.mark_success(duration_s=None, view_id=view_id)
         store.note_publish(view_id, now_s=now_s)

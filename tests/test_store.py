@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pandas as pd
 import pytest
-
+from datetime import datetime, timedelta, timezone
 from plotsrv import store
 
 
@@ -214,3 +214,138 @@ def test_fresh_publish_clears_restored_status() -> None:
     assert status["restored_from_storage"] is False
     assert status["restored_at"] is None
     assert status["restore_source"] is None
+
+
+def _make_old_last_updated(seconds_ago: int = 120) -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds_ago)).isoformat()
+
+
+def test_freshness_global_applies_to_normal_publish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(store.config, "get_freshness_enabled", lambda: True)
+    monkeypatch.setattr(
+        store.config, "get_freshness_view_enabled", lambda view_id: True
+    )
+    monkeypatch.setattr(
+        store.config, "has_freshness_view_config", lambda view_id: False
+    )
+    monkeypatch.setattr(
+        store.config, "get_freshness_expected_every_s", lambda view_id=None: 1
+    )
+    monkeypatch.setattr(
+        store.config, "get_freshness_warn_after_s", lambda view_id=None: 1
+    )
+    monkeypatch.setattr(
+        store.config, "get_freshness_overdue_after_s", lambda view_id=None: 2
+    )
+
+    vid = "normal:view"
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="normal",
+        label="view",
+        view_id=vid,
+    )
+    store.get_view_state(vid).status["last_updated"] = _make_old_last_updated(120)
+
+    out = store.get_freshness(view_id=vid)
+
+    assert out["enabled"] is True
+    assert out["state"] == "error"
+    assert out["publish_source"] == "normal"
+    assert out["source_disabled"] is False
+
+
+def test_freshness_global_does_not_apply_to_watch_publish_without_view_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(store.config, "get_freshness_enabled", lambda: True)
+    monkeypatch.setattr(
+        store.config, "get_freshness_view_enabled", lambda view_id: True
+    )
+    monkeypatch.setattr(
+        store.config, "has_freshness_view_config", lambda view_id: False
+    )
+    monkeypatch.setattr(
+        store.config, "get_freshness_expected_every_s", lambda view_id=None: 1
+    )
+    monkeypatch.setattr(
+        store.config, "get_freshness_warn_after_s", lambda view_id=None: 1
+    )
+    monkeypatch.setattr(
+        store.config, "get_freshness_overdue_after_s", lambda view_id=None: 2
+    )
+
+    vid = "watch:log"
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="watch",
+        label="log",
+        view_id=vid,
+        publish_source="watch",
+    )
+    store.get_view_state(vid).status["last_updated"] = _make_old_last_updated(120)
+
+    out = store.get_freshness(view_id=vid)
+
+    assert out["enabled"] is False
+    assert out["state"] == "disabled"
+    assert out["publish_source"] == "watch"
+    assert out["source_disabled"] is True
+    assert out["reason"] == "watch_source_without_view_freshness"
+
+
+def test_freshness_view_config_opts_watch_publish_into_freshness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(store.config, "get_freshness_enabled", lambda: True)
+    monkeypatch.setattr(
+        store.config, "get_freshness_view_enabled", lambda view_id: True
+    )
+    monkeypatch.setattr(store.config, "has_freshness_view_config", lambda view_id: True)
+    monkeypatch.setattr(
+        store.config, "get_freshness_expected_every_s", lambda view_id=None: 1
+    )
+    monkeypatch.setattr(
+        store.config, "get_freshness_warn_after_s", lambda view_id=None: 1
+    )
+    monkeypatch.setattr(
+        store.config, "get_freshness_overdue_after_s", lambda view_id=None: 2
+    )
+
+    vid = "watch:log"
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="watch",
+        label="log",
+        view_id=vid,
+        publish_source="watch",
+    )
+    store.get_view_state(vid).status["last_updated"] = _make_old_last_updated(120)
+
+    out = store.get_freshness(view_id=vid)
+
+    assert out["enabled"] is True
+    assert out["state"] == "error"
+    assert out["publish_source"] == "watch"
+    assert out["source_disabled"] is False
+
+
+def test_publish_source_is_normalised_on_status() -> None:
+    vid = "watch:source"
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="watch",
+        label="source",
+        view_id=vid,
+        publish_source=" WATCH ",
+    )
+
+    status = store.get_status(view_id=vid)
+
+    assert status["publish_source"] == "watch"

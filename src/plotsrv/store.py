@@ -65,6 +65,7 @@ class ViewState:
                 "last_updated": None,
                 "last_duration_s": None,
                 "last_error": None,
+                "publish_source": "normal",
                 "restored_from_storage": False,
                 "restored_at": None,
                 "restore_source": None,
@@ -118,6 +119,11 @@ _SERVICE_STOP_HOOK: Callable[[], None] | None = None
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalize_publish_source(publish_source: str | None) -> str:
+    raw = str(publish_source or "normal").strip().lower()
+    return "watch" if raw == "watch" else "normal"
 
 
 def _ensure_view(view_id: str) -> ViewState:
@@ -265,7 +271,12 @@ def get_kind(view_id: str | None = None) -> str:
     return get_view_state(view_id).kind
 
 
-def set_plot(png_bytes: bytes, *, view_id: str | None = None) -> None:
+def set_plot(
+    png_bytes: bytes,
+    *,
+    view_id: str | None = None,
+    publish_source: str | None = None,
+) -> None:
     st = get_view_state(view_id)
     vid = view_id or _ACTIVE_VIEW_ID
 
@@ -282,6 +293,7 @@ def set_plot(png_bytes: bytes, *, view_id: str | None = None) -> None:
 
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+    st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
 
     register_view(
@@ -308,6 +320,7 @@ def set_table(
     view_id: str | None = None,
     total_rows: int | None = None,
     returned_rows: int | None = None,
+    publish_source: str | None = None,
 ) -> None:
     st = get_view_state(view_id)
     st.icon_key = _icon_for_view_kind("table")
@@ -329,6 +342,7 @@ def set_table(
 
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+    st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
 
     register_view(
@@ -344,6 +358,7 @@ def set_artifact(
     section: str | None = None,
     view_id: str | None = None,
     truncation: Truncation | None = None,
+    publish_source: str | None = None,
 ) -> None:
     st = get_view_state(view_id)
     vid = view_id or _ACTIVE_VIEW_ID
@@ -362,6 +377,7 @@ def set_artifact(
 
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = None
+    st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
 
     register_view(
@@ -410,11 +426,17 @@ def get_table_counts(*, view_id: str | None = None) -> tuple[int | None, int | N
 # ------------------------------------------------------------------------------
 
 
-def mark_success(*, duration_s: float | None, view_id: str | None = None) -> None:
+def mark_success(
+    *,
+    duration_s: float | None,
+    view_id: str | None = None,
+    publish_source: str | None = None,
+) -> None:
     st = get_view_state(view_id)
     st.status["last_updated"] = _now_iso()
     st.status["last_duration_s"] = duration_s
     st.status["last_error"] = None
+    st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
 
 
@@ -476,15 +498,34 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
       - "ok"
       - "warn"
       - "error"
+
+    Source-aware behaviour:
+      - normal/Python publishes use global freshness
+      - watched-file publishes do not use global freshness by default
+      - watched-file publishes only use freshness when freshness-settings.views
+        contains an explicit entry for that view
     """
     vid = view_id or _ACTIVE_VIEW_ID
+    st = get_view_state(vid)
+
+    publish_source = _normalize_publish_source(st.status.get("publish_source"))
+    has_view_freshness = config.has_freshness_view_config(vid)
 
     enabled = config.get_freshness_enabled()
+    if enabled:
+        enabled = config.get_freshness_view_enabled(vid)
+
     expected_every_s = config.get_freshness_expected_every_s(vid)
     warn_after_s = config.get_freshness_warn_after_s(vid)
     overdue_after_s = config.get_freshness_overdue_after_s(vid)
 
-    if not enabled:
+    source_disabled = publish_source == "watch" and not has_view_freshness
+
+    if not enabled or source_disabled:
+        reason = None
+        if source_disabled:
+            reason = "watch_source_without_view_freshness"
+
         return {
             "enabled": False,
             "state": "disabled",
@@ -495,6 +536,9 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
             "warn_after_s": warn_after_s,
             "overdue_after_s": overdue_after_s,
             "error_after_s": overdue_after_s,  # legacy alias
+            "publish_source": publish_source,
+            "source_disabled": source_disabled,
+            "reason": reason,
         }
 
     if warn_after_s is None and expected_every_s is not None:
@@ -502,7 +546,6 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
     if overdue_after_s is None and warn_after_s is not None:
         overdue_after_s = warn_after_s * 2
 
-    st = get_view_state(vid)
     last_updated_raw = st.status.get("last_updated")
     last_updated_dt = _parse_iso_utc(last_updated_raw)
 
@@ -517,6 +560,9 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
             "warn_after_s": warn_after_s,
             "overdue_after_s": overdue_after_s,
             "error_after_s": overdue_after_s,  # legacy alias
+            "publish_source": publish_source,
+            "source_disabled": False,
+            "reason": None,
         }
 
     now = datetime.now(timezone.utc)
@@ -545,6 +591,9 @@ def get_freshness(*, view_id: str | None = None) -> dict[str, Any]:
         "warn_after_s": warn_after_s,
         "overdue_after_s": overdue_after_s,
         "error_after_s": overdue_after_s,  # legacy alias
+        "publish_source": publish_source,
+        "source_disabled": False,
+        "reason": None,
     }
 
 

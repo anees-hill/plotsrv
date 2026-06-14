@@ -1079,6 +1079,38 @@ def get_freshness_view_settings(view_id: str) -> dict[str, Any]:
     return dict(raw) if isinstance(raw, dict) else {}
 
 
+def has_freshness_view_config(view_id: str | None) -> bool:
+    """
+    Return True when freshness-settings.views contains an explicit entry
+    for this view.
+
+    Used to keep global freshness from applying to watched-file views unless
+    the user opted that watched view into freshness.
+    """
+    if not view_id:
+        return False
+
+    views = _freshness_view_overrides()
+    return str(view_id) in views
+
+
+def get_freshness_view_enabled(view_id: str | None) -> bool:
+    """
+    Per-view enabled flag.
+
+    The global freshness-settings.enabled remains the master switch.
+    This helper only answers whether a configured view has opted itself out.
+    """
+    if not view_id:
+        return True
+
+    view_sec = get_freshness_view_settings(str(view_id))
+    if "enabled" in view_sec:
+        return _as_bool(view_sec.get("enabled"), True)
+
+    return True
+
+
 def get_freshness_expected_every_s(view_id: str | None = None) -> int | None:
     sec = _merged_section("freshness-settings")
     if view_id:
