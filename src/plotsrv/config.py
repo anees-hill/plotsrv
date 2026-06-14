@@ -20,11 +20,14 @@ PLOTSRV_COLOURS = {
 
 # Defaults
 _DEFAULTS: dict[str, Any] = {
+    # Legacy section.
+    # New preferred home for table view behaviour is render-settings.
     "table-settings": {
         "table_view_mode": "rich",
         "max_table_rows_simple": 200,
         "max_table_rows_rich": 1000,
     },
+    # Preferred render configuration.
     "render-settings": {
         "plot_dpi": 200,
         "plot_default_figsize_in": (12.0, 6.0),
@@ -36,6 +39,8 @@ _DEFAULTS: dict[str, Any] = {
         "markdown_sanitize": True,
         "markdown_sandbox": "",
     },
+    # Legacy section.
+    # New preferred home for artifact render behaviour is render-settings.
     "artifact-render-settings": {
         "html_sanitize": False,
         "html_sandbox": "",
@@ -54,12 +59,15 @@ _DEFAULTS: dict[str, Any] = {
         "tracebacks_enabled": False,
     },
     "view-order-settings": {},
+    # Legacy top-level truncation section.
+    # New preferred home is limits.truncate_after.
     "truncation": {
         "text": 1_000_000,
         "html": None,
         "markdown": None,
     },
     "limits": {
+        # Preferred hard publish safety limits.
         "published_objects": {
             "max_plot_bytes": 5 * 1024 * 1024,
             "max_table_rows": 100_000,
@@ -67,11 +75,13 @@ _DEFAULTS: dict[str, Any] = {
             "max_artifact_text_chars": 200_000,
             "max_json_container_items": 20_000,
         },
+        # Preferred watched-file read limit.
         "watched_files": {
             "max_mb": 500,
-            # Legacy alias
+            # Legacy alias.
             "max_bytes": 5_000_000,
         },
+        # Preferred preparation/display truncation limits.
         "truncate_after": {
             "text": 1_000_000,
             "html": None,
@@ -79,14 +89,14 @@ _DEFAULTS: dict[str, Any] = {
             "table_rows": 100_000,
             "table_columns": 200,
         },
-        # Legacy aliases
+        # Legacy aliases.
         "render": {
             "text": 1_000_000,
             "html": None,
             "markdown": None,
         },
         "tables": {
-            "max_rows": 5000,
+            "max_rows": 5_000,
             "max_columns": 200,
         },
     },
@@ -111,10 +121,11 @@ _DEFAULTS: dict[str, Any] = {
         "overdue_after": None,
         "views": {},
     },
+    # Legacy section.
+    # New preferred path is limits.published_objects.
     "publish-limits": {
-        # Legacy section. New preferred path is limits.published_objects.
         "max_plot_bytes": 5 * 1024 * 1024,
-        "max_table_rows": 5000,
+        "max_table_rows": 5_000,
         "max_table_columns": 200,
         "max_artifact_text_chars": 200_000,
         "max_json_container_items": 20_000,

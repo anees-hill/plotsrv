@@ -98,6 +98,7 @@ def coerce_file_to_publishable(
     encoding: str = "utf-8",
     max_bytes: int | None = None,
     max_rows: int | None = None,
+    max_columns: int | None = None,
     raw: bytes | None = None,
 ) -> FileCoerceResult:
     """
@@ -260,12 +261,47 @@ def coerce_file_to_publishable(
             engine="python",
             on_bad_lines="skip",
         )
+
+        if max_columns is not None:
+            try:
+                ncols = max(1, int(max_columns))
+                df = df.iloc[:, :ncols]
+            except Exception:
+                pass
+
         return FileCoerceResult(
             publish_kind="table",
             artifact_kind=None,
             obj=df,
             file_kind=fk,
         )
+
+    if fk == "image":
+        import base64
+
+        mime = _infer_image_mime(path)
+        data_b64 = base64.b64encode(raw).decode("ascii")
+        payload = {
+            "mime": mime,
+            "data_b64": data_b64,
+            "filename": path.name,
+        }
+
+        return FileCoerceResult(
+            publish_kind="artifact",
+            artifact_kind="image",
+            obj=payload,
+            file_kind=fk,
+            mime=mime,
+        )
+
+    txt = raw.decode(encoding, errors="replace")
+    return FileCoerceResult(
+        publish_kind="artifact",
+        artifact_kind="text",
+        obj=txt,
+        file_kind=fk,
+    )
 
     if fk == "image":
         import base64

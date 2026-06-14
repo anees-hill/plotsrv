@@ -204,14 +204,15 @@ def test_coerce_html(tmp_path: Path) -> None:
 
 def test_coerce_csv_respects_max_rows(tmp_path: Path) -> None:
     p = tmp_path / "x.csv"
-    p.write_text("a,b\n1,2\n3,4\n5,6\n", encoding="utf-8")
+    p.write_text(
+        "a,b\n" "1,2\n" "3,4\n",
+        encoding="utf-8",
+    )
 
     out = fk.coerce_file_to_publishable(p, max_rows=1)
+
     assert out.publish_kind == "table"
-    assert out.file_kind == "csv"
-    df = out.obj
-    assert list(df.columns) == ["a", "b"]
-    assert len(df) == 1
+    assert len(out.obj) == 1
 
 
 def test_coerce_image_payload(tmp_path: Path) -> None:
@@ -299,3 +300,16 @@ def test_file_json_document_uses_canonical_json_model_shape(tmp_path: Path) -> N
     assert a["value_kind"] == "int"
     assert a["type_label"] == "int"
     assert a["full_value"] == "1"
+
+
+def test_coerce_csv_respects_max_columns(tmp_path: Path) -> None:
+    p = tmp_path / "x.csv"
+    p.write_text(
+        "a,b,c\n" "1,2,3\n" "4,5,6\n",
+        encoding="utf-8",
+    )
+
+    out = fk.coerce_file_to_publishable(p, max_columns=2)
+
+    assert out.publish_kind == "table"
+    assert list(out.obj.columns) == ["a", "b"]

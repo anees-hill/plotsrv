@@ -394,9 +394,36 @@ def get_plot(
     return Response(bytes(png), media_type="image/png", headers=headers)
 
 
+def _table_response_limits(limit: int | None) -> tuple[int | None, int | None]:
+    row_limit = config.get_table_truncate_rows()
+    col_limit = config.get_table_truncate_columns()
+
+    if limit is not None:
+        if row_limit is None:
+            row_limit = limit
+        else:
+            row_limit = min(row_limit, limit)
+
+    return row_limit, col_limit
+
+
+def _table_response_df(df: pd.DataFrame, *, limit: int | None) -> pd.DataFrame:
+    row_limit, col_limit = _table_response_limits(limit)
+
+    out = df
+
+    if col_limit is not None:
+        out = out.iloc[:, : max(1, int(col_limit))]
+
+    if row_limit is not None:
+        out = out.head(max(1, int(row_limit)))
+
+    return out
+
+
 @app.get("/table/data")
 def get_table_data(
-    limit: int = Query(default=config.get_max_table_rows_rich(), ge=1),
+    limit: int | None = Query(default=None, ge=1),
     view: str | None = None,
     snapshot: str | None = None,
 ) -> dict[str, Any]:
@@ -416,8 +443,7 @@ def get_table_data(
                 detail="Stored table snapshot payload was not a DataFrame.",
             )
 
-        max_rows = min(limit, config.get_max_table_rows_rich())
-        rows_df = df.head(max_rows)
+        rows_df = _table_response_df(df, limit=limit)
         columns = list(rows_df.columns)
         rows = rows_df.to_dict(orient="records")
 
@@ -444,9 +470,8 @@ def get_table_data(
         raise HTTPException(status_code=404, detail="No table has been published yet.")
 
     df = store.get_table_df(view_id=vid)
-    max_rows = min(limit, config.get_max_table_rows_rich())
 
-    rows_df = df.head(max_rows)
+    rows_df = _table_response_df(df, limit=limit)
     columns = list(rows_df.columns)
     rows = rows_df.to_dict(orient="records")
 
@@ -796,7 +821,8 @@ def index(view: str | None = None) -> HTMLResponse:
         table_view_mode=config.get_table_view_mode(),
         table_html_simple=table_html_simple,
         max_table_rows_simple=config.get_max_table_rows_simple(),
-        max_table_rows_rich=config.get_max_table_rows_rich(),
+        max_table_rows_rich=config.get_table_truncate_rows()
+        or config.get_max_table_rows_rich(),
         ui_settings=ui,
         views=views,
         view_freshness=view_freshness,

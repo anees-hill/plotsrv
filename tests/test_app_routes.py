@@ -424,3 +424,53 @@ def test_publish_table_too_many_columns_413_is_actionable(
     assert "2 columns" in detail
     assert "publish-limits.max_table_columns=1" in detail
     assert "publish_source=normal" in detail
+
+
+def test_table_data_uses_table_truncate_limits(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_table_truncate_rows", lambda: 2)
+    monkeypatch.setattr(config, "get_table_truncate_columns", lambda: 2)
+
+    df = pd.DataFrame(
+        {
+            "a": [1, 2, 3],
+            "b": [4, 5, 6],
+            "c": [7, 8, 9],
+        }
+    )
+    store.set_table(df, html_simple="<table>dummy</table>")
+
+    resp = client.get("/table/data")
+    assert resp.status_code == 200
+
+    data = resp.json()
+
+    assert data["columns"] == ["a", "b"]
+    assert data["rows"] == [
+        {"a": 1, "b": 4},
+        {"a": 2, "b": 5},
+    ]
+    assert data["total_rows"] == 3
+    assert data["returned_rows"] == 2
+
+
+def test_table_data_query_limit_can_reduce_below_table_truncate_limit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_table_truncate_rows", lambda: 3)
+    monkeypatch.setattr(config, "get_table_truncate_columns", lambda: 10)
+
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    store.set_table(df, html_simple="<table>dummy</table>")
+
+    resp = client.get("/table/data?limit=1")
+    assert resp.status_code == 200
+
+    data = resp.json()
+
+    assert data["rows"] == [{"a": 1}]
+    assert data["total_rows"] == 3
+    assert data["returned_rows"] == 1

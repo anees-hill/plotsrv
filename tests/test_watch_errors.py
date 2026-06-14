@@ -29,8 +29,8 @@ def test_build_watch_publish_error_artifact_for_text_log(tmp_path: Path) -> None
     assert "RuntimeError: boom" in msg
     assert str(p.resolve()) in msg
     assert "section='watch', label='app'" in msg
-    assert "limits.watched_files.max_bytes" in msg
-    assert "limits.render.text" in msg
+    assert "limits.watched_files.max_mb" in msg
+    assert "limits.truncate_after.text" in msg
     assert "--watch-tail" in msg
 
 
@@ -48,8 +48,8 @@ def test_build_watch_publish_error_artifact_for_markdown(tmp_path: Path) -> None
     )
 
     assert "bad response" in msg
-    assert "limits.watched_files.max_bytes" in msg
-    assert "limits.render.markdown" in msg
+    assert "limits.watched_files.max_mb" in msg
+    assert "limits.truncate_after.markdown" in msg
 
 
 def test_build_watch_publish_error_artifact_for_csv(tmp_path: Path) -> None:
@@ -65,9 +65,9 @@ def test_build_watch_publish_error_artifact_for_csv(tmp_path: Path) -> None:
         read_mode="tail",
     )
 
-    assert "limits.watched_files.max_bytes" in msg
-    assert "limits.tables.max_rows" in msg
-    assert "limits.tables.max_columns" in msg
+    assert "limits.watched_files.max_mb" in msg
+    assert "limits.truncate_after.table_rows" in msg
+    assert "limits.truncate_after.table_columns" in msg
     assert "--watch-tail" not in msg
 
 
@@ -113,7 +113,7 @@ def test_publish_prepared_watch_payload_falls_back_when_primary_returns_false(
     assert calls[1]["force"] is True
     assert calls[1]["update_limit_s"] is None
     assert "[plotsrv watch] publish failed" in str(calls[1]["artifact"])
-    assert "limits.render.text" in str(calls[1]["artifact"])
+    assert "limits.truncate_after.text" in str(calls[1]["artifact"])
 
 
 def test_publish_prepared_watch_payload_does_not_recursively_crash_if_fallback_fails(

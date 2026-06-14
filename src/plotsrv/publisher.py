@@ -14,7 +14,7 @@ from typing import Any, Literal
 import pandas as pd
 
 from . import config
-from .backends import df_to_html_simple, df_to_rich_sample, fig_to_png_bytes
+from .backends import df_to_html_simple, fig_to_png_bytes
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
 
@@ -113,6 +113,35 @@ def _to_dataframe(obj: Any) -> pd.DataFrame:
         except Exception:
             return pd.DataFrame(obj.to_dicts())
     raise TypeError(f"Expected pandas/polars DataFrame, got {type(obj)!r}")
+
+
+def _truncate_dataframe_for_publish(df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+    """
+    Apply user-facing table preparation limits before sending to /publish.
+
+    limits.truncate_after.table_rows/table_columns should truncate what plotsrv
+    prepares for display. The server-side published_objects limits remain hard
+    safety guards.
+    """
+    total_rows = len(df)
+
+    out = df
+
+    max_cols = config.get_table_truncate_columns()
+    if max_cols is not None:
+        try:
+            out = out.iloc[:, : max(1, int(max_cols))]
+        except Exception:
+            pass
+
+    max_rows = config.get_table_truncate_rows()
+    if max_rows is not None:
+        try:
+            out = out.head(max(1, int(max_rows)))
+        except Exception:
+            pass
+
+    return out, total_rows
 
 
 def _to_figure(obj: Any | None) -> Any:
@@ -339,12 +368,20 @@ def _to_publish_payload(
 
     if kind == "table":
         df = _to_dataframe(obj)
-        payload["table"] = df_to_rich_sample(
-            df, max_rows=config.get_max_table_rows_rich()
-        )
+        display_df, total_rows = _truncate_dataframe_for_publish(df)
+
+        payload["table"] = {
+            "columns": list(display_df.columns),
+            "rows": display_df.to_dict(orient="records"),
+            "total_rows": total_rows,
+            "returned_rows": len(display_df),
+        }
+
         payload["table_html_simple"] = df_to_html_simple(
-            df, max_rows=config.get_max_table_rows_simple()
+            display_df,
+            max_rows=max(1, len(display_df)),
         )
+
         return payload
 
     if kind == "artifact":

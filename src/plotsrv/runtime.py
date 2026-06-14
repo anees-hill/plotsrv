@@ -675,7 +675,7 @@ def truncate_watch_text_like_artifact(
     return (
         artifact[:limit]
         + "\n\n"
-        + f"[plotsrv watch] truncated {omitted} characters using limits.render.{ak}"
+        + f"[plotsrv watch] truncated {omitted} characters using limits.truncate_after.{ak}"
     )
 
 
@@ -687,6 +687,7 @@ def build_watch_publish_payload(
     read_mode: WatchReadMode,
     max_bytes: int | None,
     max_rows: int | None = None,
+    max_columns: int | None = None,
 ) -> WatchPublishPayload:
     """
     Convert watched-file bytes into a prepared publish payload.
@@ -695,7 +696,10 @@ def build_watch_publish_payload(
     and background watch threads prepare watched files in the same way.
     """
     p = Path(path).expanduser().resolve()
-    rows_limit = config.get_max_table_rows_rich() if max_rows is None else max_rows
+    rows_limit = config.get_table_truncate_rows() if max_rows is None else max_rows
+    columns_limit = (
+        config.get_table_truncate_columns() if max_columns is None else max_columns
+    )
 
     if watch_config.kind == "text":
         txt = raw.decode(watch_config.encoding, errors="replace")
@@ -740,6 +744,7 @@ def build_watch_publish_payload(
             encoding=watch_config.encoding,
             max_bytes=max_bytes,
             max_rows=rows_limit,
+            max_columns=columns_limit,
             raw=raw,
         )
 
@@ -844,38 +849,38 @@ def get_watch_adjustment_keys(
 
         if fk == "csv":
             return [
-                "limits.watched_files.max_bytes",
-                "limits.tables.max_rows",
-                "limits.tables.max_columns",
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.table_rows",
+                "limits.truncate_after.table_columns",
             ]
 
         if fk == "markdown":
             return [
-                "limits.watched_files.max_bytes",
-                "limits.render.markdown",
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.markdown",
             ]
 
         if fk == "html":
             return [
-                "limits.watched_files.max_bytes",
-                "limits.render.html",
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.html",
             ]
 
-    if ak == "markdown":
-        return [
-            "limits.watched_files.max_bytes",
-            "limits.render.markdown",
-        ]
+        if ak == "markdown":
+            return [
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.markdown",
+            ]
 
-    if ak == "html":
-        return [
-            "limits.watched_files.max_bytes",
-            "limits.render.html",
-        ]
+        if ak == "html":
+            return [
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.html",
+            ]
 
     return [
-        "limits.watched_files.max_bytes",
-        "limits.render.text",
+        "limits.watched_files.max_mb",
+        "limits.truncate_after.text",
     ]
 
 
@@ -1066,7 +1071,8 @@ def start_watch_threads(
                     watch_config=watch_config,
                     read_mode=watch_read_mode,
                     max_bytes=watch_max_bytes,
-                    max_rows=config.get_max_table_rows_rich(),
+                    max_rows=config.get_table_truncate_rows(),
+                    max_columns=config.get_table_truncate_columns(),
                 )
 
                 publish_prepared_watch_payload(

@@ -25,7 +25,7 @@ def test_truncate_watch_text_like_artifact_text(
 
     assert out.startswith("0123456789")
     assert "truncated 10 characters" in out
-    assert "limits.render.text" in out
+    assert "limits.truncate_after.text" in out
 
 
 def test_truncate_watch_text_like_artifact_markdown(
@@ -40,7 +40,7 @@ def test_truncate_watch_text_like_artifact_markdown(
 
     assert out.startswith("# title\n")
     assert "truncated" in out
-    assert "limits.render.markdown" in out
+    assert "limits.truncate_after.markdown" in out
 
 
 def test_truncate_watch_text_like_artifact_html(
@@ -55,7 +55,7 @@ def test_truncate_watch_text_like_artifact_html(
 
     assert out.startswith("<h1>Hello")
     assert "truncated" in out
-    assert "limits.render.html" in out
+    assert "limits.truncate_after.html" in out
 
 
 def test_truncate_watch_text_like_artifact_off_leaves_content(
@@ -110,7 +110,7 @@ def test_build_watch_publish_payload_truncates_text_before_publish(
     assert isinstance(out.artifact, str)
     assert out.artifact.startswith("x" * 20)
     assert "truncated 80 characters" in out.artifact
-    assert "limits.render.text" in out.artifact
+    assert "limits.truncate_after.text" in out.artifact
 
 
 def test_build_watch_publish_payload_truncates_json_parse_error_text(
@@ -135,7 +135,7 @@ def test_build_watch_publish_payload_truncates_json_parse_error_text(
     assert isinstance(out.artifact, str)
     assert "JSON parse error" in out.artifact
     assert "truncated" in out.artifact
-    assert "limits.render.text" in out.artifact
+    assert "limits.truncate_after.text" in out.artifact
 
 
 def test_build_watch_publish_payload_truncates_auto_markdown(
@@ -169,7 +169,7 @@ def test_build_watch_publish_payload_truncates_auto_markdown(
     assert isinstance(out.artifact, str)
     assert out.artifact.startswith("# hello\nxxxx")
     assert "truncated" in out.artifact
-    assert "limits.render.markdown" in out.artifact
+    assert "limits.truncate_after.markdown" in out.artifact
 
 
 def test_build_watch_publish_payload_truncates_auto_html(
@@ -203,7 +203,7 @@ def test_build_watch_publish_payload_truncates_auto_html(
     assert isinstance(out.artifact, str)
     assert out.artifact.startswith("<h1>Hello</")
     assert "truncated" in out.artifact
-    assert "limits.render.html" in out.artifact
+    assert "limits.truncate_after.html" in out.artifact
 
 
 def test_build_watch_publish_payload_does_not_truncate_table(
@@ -470,3 +470,32 @@ def test_publish_watch_payload_marks_publish_source_watch(
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 8000
     assert captured["payload"]["publish_source"] == "watch"
+
+
+def test_build_watch_publish_payload_csv_uses_table_truncate_limits(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "x.csv"
+    p.write_text(
+        "a,b,c\n" "1,2,3\n" "4,5,6\n" "7,8,9\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr("plotsrv.runtime.config.get_table_truncate_rows", lambda: 2)
+    monkeypatch.setattr("plotsrv.runtime.config.get_table_truncate_columns", lambda: 2)
+
+    raw = p.read_bytes()
+
+    out = build_watch_publish_payload(
+        path=p,
+        raw=raw,
+        watch_config=WatchConfig(path=p, kind="auto", encoding="utf-8"),
+        read_mode="head",
+        max_bytes=None,
+    )
+
+    assert out.kind == "table"
+    assert out.table_df is not None
+    assert len(out.table_df) == 2
+    assert list(out.table_df.columns) == ["a", "b"]
