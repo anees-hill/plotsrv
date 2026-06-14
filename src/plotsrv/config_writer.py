@@ -311,34 +311,50 @@ def populate_limits(
     mode: PopulateMode = "merge",
     text: str | int | None = "1000000",
     html: str | int | None = "off",
-    markdown: str | int | None = "off",
+    markdown: str | int | None = "100000",
+    max_mb: str | int | float | None = 500,
+    table_rows: str | int | None = 100000,
+    table_columns: str | int | None = 200,
 ) -> ConfigPopulateResult:
     def ensure(data: dict[str, Any]) -> dict[str, Any]:
         sec = _ensure_mapping(data, "limits")
 
+        published = _ensure_mapping(sec, "published_objects")
+        published.setdefault("max_plot_bytes", 5 * 1024 * 1024)
+        published.setdefault("max_table_rows", 100000)
+        published.setdefault("max_table_columns", 200)
+        published.setdefault("max_artifact_text_chars", 200000)
+        published.setdefault("max_json_container_items", 20000)
+
         watched = _ensure_mapping(sec, "watched_files")
-        watched.setdefault("max_bytes", 5_000_000)
+        if max_mb is not None:
+            watched.setdefault("max_mb", max_mb)
 
-        render = _ensure_mapping(sec, "render")
-        render.setdefault("text", 1_000_000)
-        render.setdefault("html", "off")
-        render.setdefault("markdown", "off")
-
-        tables = _ensure_mapping(sec, "tables")
-        tables.setdefault("max_rows", 10_000)
-        tables.setdefault("max_columns", 200)
+        truncate_after = _ensure_mapping(sec, "truncate_after")
+        if text is not None:
+            truncate_after.setdefault("text", text)
+        if markdown is not None:
+            truncate_after.setdefault("markdown", markdown)
+        if html is not None:
+            truncate_after.setdefault("html", html)
+        if table_rows is not None:
+            truncate_after.setdefault("table_rows", table_rows)
+        if table_columns is not None:
+            truncate_after.setdefault("table_columns", table_columns)
 
         return sec
 
     def make_entry(_view_id: str) -> dict[str, Any]:
-        render: dict[str, Any] = {}
+        truncate_after: dict[str, Any] = {}
+
         if text is not None:
-            render["text"] = text
-        if html is not None:
-            render["html"] = html
+            truncate_after["text"] = text
         if markdown is not None:
-            render["markdown"] = markdown
-        return {"render": render}
+            truncate_after["markdown"] = markdown
+        if html is not None:
+            truncate_after["html"] = html
+
+        return {"truncate_after": truncate_after}
 
     return _populate_view_section(
         path=path,

@@ -466,3 +466,209 @@ def test_create_config_file_writes_new_layout(tmp_path: Path) -> None:
 
     assert data["limits"]["watched_files"]["max_mb"] == 500
     assert data["render-settings"]["default"]["table_view_mode"] == "rich"
+
+
+def test_populate_limits_writes_new_schema(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv import config_writer
+
+    monkeypatch.setattr(
+        config_writer,
+        "discover_view_ids",
+        lambda target: ["etl:import", "ops:logs"],
+    )
+
+    path = tmp_path / "plotsrv.yml"
+
+    result = config_writer.populate_limits(
+        path=path,
+        target=tmp_path,
+        mode="merge",
+        text="123",
+        markdown="456",
+        html="off",
+    )
+
+    assert result.created is True
+    assert result.section == "limits"
+    assert result.discovered_count == 2
+    assert result.added_count == 2
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    limits = data["limits"]
+
+    assert "published_objects" in limits
+    assert limits["published_objects"]["max_plot_bytes"] == 5 * 1024 * 1024
+    assert limits["published_objects"]["max_table_rows"] == 100000
+    assert limits["published_objects"]["max_table_columns"] == 200
+
+    assert limits["watched_files"]["max_mb"] == 500
+    assert "max_bytes" not in limits["watched_files"]
+
+    assert limits["truncate_after"]["text"] == 1000000
+    assert limits["truncate_after"]["markdown"] == 100000
+    assert limits["truncate_after"]["html"] is False
+    assert limits["truncate_after"]["table_rows"] == 100000
+    assert limits["truncate_after"]["table_columns"] == 200
+
+    assert "render" not in limits
+    assert "tables" not in limits
+
+    assert limits["views"]["etl:import"] == {
+        "truncate_after": {
+            "text": "123",
+            "markdown": "456",
+            "html": "off",
+        }
+    }
+    assert limits["views"]["ops:logs"] == {
+        "truncate_after": {
+            "text": "123",
+            "markdown": "456",
+            "html": "off",
+        }
+    }
+
+
+def test_populate_limits_merge_preserves_existing_view_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv import config_writer
+
+    monkeypatch.setattr(
+        config_writer,
+        "discover_view_ids",
+        lambda target: ["etl:import", "ops:logs"],
+    )
+
+    path = tmp_path / "plotsrv.yml"
+    path.write_text(
+        """
+limits:
+  truncate_after:
+    text: 999
+  views:
+    etl:import:
+      truncate_after:
+        text: 111
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = config_writer.populate_limits(
+        path=path,
+        target=tmp_path,
+        mode="merge",
+        text="123",
+        markdown="456",
+        html="off",
+    )
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    views = data["limits"]["views"]
+
+    assert result.created is False
+    assert result.added_count == 1
+    assert result.preserved_count == 1
+
+    assert views["etl:import"]["truncate_after"]["text"] == 111
+    assert views["ops:logs"]["truncate_after"] == {
+        "text": "123",
+        "markdown": "456",
+        "html": "off",
+    }
+
+
+def test_populate_limits_replace_replaces_view_entries_with_new_schema(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv import config_writer
+
+    monkeypatch.setattr(
+        config_writer,
+        "discover_view_ids",
+        lambda target: ["etl:import"],
+    )
+
+    path = tmp_path / "plotsrv.yml"
+    path.write_text(
+        """
+limits:
+  views:
+    old:view:
+      render:
+        text: 111
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = config_writer.populate_limits(
+        path=path,
+        target=tmp_path,
+        mode="replace",
+        text="123",
+        markdown="456",
+        html="off",
+    )
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    assert result.replaced is True
+    assert "old:view" not in data["limits"]["views"]
+    assert data["limits"]["views"]["etl:import"] == {
+        "truncate_after": {
+            "text": "123",
+            "markdown": "456",
+            "html": "off",
+        }
+    }
+
+
+def test_populate_limits_does_not_delete_existing_legacy_limit_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv import config_writer
+
+    monkeypatch.setattr(
+        config_writer,
+        "discover_view_ids",
+        lambda target: ["etl:import"],
+    )
+
+    path = tmp_path / "plotsrv.yml"
+    path.write_text(
+        """
+limits:
+  watched_files:
+    max_bytes: 123
+  render:
+    text: 456
+  tables:
+    max_rows: 789
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config_writer.populate_limits(
+        path=path,
+        target=tmp_path,
+        mode="merge",
+    )
+
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    limits = data["limits"]
+
+    # B3 adds the new schema.
+    assert "truncate_after" in limits
+    assert limits["watched_files"]["max_mb"] == 500
+
+    # B3 does not delete user-provided legacy keys.
+    assert limits["watched_files"]["max_bytes"] == 123
+    assert limits["render"]["text"] == 456
+    assert limits["tables"]["max_rows"] == 789
