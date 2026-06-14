@@ -101,6 +101,20 @@ class _WatchPathAction(argparse.Action):
         setattr(namespace, "watch_read_mode", modes)
 
 
+def _resolve_watch_cli_max_bytes_or_config(
+    *,
+    watch_max_bytes: str | int | None,
+    watch_max_mb: str | int | float | None,
+) -> int | None:
+    if watch_max_bytes is None and watch_max_mb is None:
+        return config.get_watch_max_bytes()
+
+    return resolve_watch_cli_max_bytes(
+        watch_max_bytes=watch_max_bytes,
+        watch_max_mb=watch_max_mb,
+    )
+
+
 class _WatchReadModeAction(argparse.Action):
     """
     --watch-head / --watch-tail
@@ -1436,7 +1450,8 @@ def _run_watch_mode(
                 watch_config=watch_config,
                 read_mode=mode,
                 max_bytes=max_bytes,
-                max_rows=config.get_max_table_rows_rich(),
+                max_rows=config.get_table_truncate_rows(),
+                max_columns=config.get_table_truncate_columns(),
             )
 
             try:
@@ -1470,7 +1485,7 @@ def _run_watch_mode(
                         section=section,
                         kind="artifact",
                         artifact=fallback,
-                        artifact_kind="text",
+                        artifact_kind="watch_error",
                         table_df=None,
                         update_limit_s=None,
                         force=True,
@@ -1581,7 +1596,7 @@ def main(argv: list[str] | None = None) -> int:
         read_mode = "head" if args.head else ("tail" if args.tail else None)
 
         try:
-            max_bytes = resolve_watch_cli_max_bytes(
+            max_bytes = _resolve_watch_cli_max_bytes_or_config(
                 watch_max_bytes=getattr(args, "max_bytes", None),
                 watch_max_mb=getattr(args, "max_mb", None),
             )
@@ -1615,7 +1630,7 @@ def main(argv: list[str] | None = None) -> int:
     watch_kind = getattr(args, "watch_kind", "auto")
     watch_every = float(getattr(args, "watch_every", 1.0))
     try:
-        watch_max_bytes = resolve_watch_cli_max_bytes(
+        watch_max_bytes = _resolve_watch_cli_max_bytes_or_config(
             watch_max_bytes=getattr(args, "watch_max_bytes", None),
             watch_max_mb=getattr(args, "watch_max_mb", None),
         )
