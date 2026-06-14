@@ -24,6 +24,8 @@ def test_register_default_renderers_registers_expected_kinds_in_order() -> None:
         "python",
         "traceback",
         "text",
+        "watch_error",
+        "publish_error",
         "html",
     ]
 

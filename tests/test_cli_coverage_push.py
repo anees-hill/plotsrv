@@ -205,7 +205,7 @@ def test_run_watch_mode_json_parse_error_publishes_text_error(
     assert rc == 0
     assert calls, "expected _publish_watch_payload to be called"
     assert calls[0]["kind"] == "artifact"
-    assert calls[0]["artifact_kind"] == "text"
+    assert calls[0]["artifact_kind"] == "watch_error"
     assert "JSON parse error" in str(calls[0]["artifact"])
 
 
@@ -256,5 +256,5 @@ def test_run_watch_mode_auto_parse_error_branch(
     assert rc == 0
     assert calls
     assert calls[0]["kind"] == "artifact"
-    assert calls[0]["artifact_kind"] == "text"
+    assert calls[0]["artifact_kind"] == "watch_error"
     assert "parse error" in str(calls[0]["artifact"])

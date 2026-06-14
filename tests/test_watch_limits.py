@@ -113,29 +113,31 @@ def test_build_watch_publish_payload_truncates_text_before_publish(
     assert "limits.truncate_after.text" in out.artifact
 
 
-def test_build_watch_publish_payload_truncates_json_parse_error_text(
+def test_build_watch_publish_payload_json_parse_error_uses_untruncated_watch_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     p = tmp_path / "bad.json"
-    p.write_text("{bad" + ("x" * 100), encoding="utf-8")
+    bad_text = "{bad" + ("x" * 100)
+    p.write_text(bad_text, encoding="utf-8")
 
     monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: 40)
 
     out = build_watch_publish_payload(
         path=p,
-        raw=("{bad" + ("x" * 100)).encode("utf-8"),
+        raw=bad_text.encode("utf-8"),
         watch_config=WatchConfig(path=p, kind="json", encoding="utf-8"),
         read_mode="head",
         max_bytes=1000,
     )
 
     assert out.kind == "artifact"
-    assert out.artifact_kind == "text"
+    assert out.artifact_kind == "watch_error"
     assert isinstance(out.artifact, str)
     assert "JSON parse error" in out.artifact
-    assert "truncated" in out.artifact
-    assert "limits.truncate_after.text" in out.artifact
+    assert "limits.truncate_after.text" not in out.artifact
+    assert "truncated" not in out.artifact
+    assert bad_text in out.artifact
 
 
 def test_build_watch_publish_payload_truncates_auto_markdown(

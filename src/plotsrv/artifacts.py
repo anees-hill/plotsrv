@@ -14,6 +14,8 @@ ArtifactKind = Literal[
     "markdown",
     "image",
     "html",
+    "watch_error",
+    "publish_error",
     "traceback",
     "exception",  # legacy alias
 ]

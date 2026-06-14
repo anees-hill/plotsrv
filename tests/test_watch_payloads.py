@@ -81,7 +81,7 @@ def test_build_watch_publish_payload_json_parse_error(tmp_path: Path) -> None:
     )
 
     assert out.kind == "artifact"
-    assert out.artifact_kind == "text"
+    assert out.artifact_kind == "watch_error"
     assert "JSON parse error" in str(out.artifact)
     assert "{bad" in str(out.artifact)
     assert out.table_df is None
@@ -235,7 +235,7 @@ def test_build_watch_publish_payload_auto_parse_error_falls_back_to_text(
     )
 
     assert out.kind == "artifact"
-    assert out.artifact_kind == "text"
+    assert out.artifact_kind == "watch_error"
     assert "parse error" in str(out.artifact)
     assert "RuntimeError: nope" in str(out.artifact)
     assert "hello" in str(out.artifact)

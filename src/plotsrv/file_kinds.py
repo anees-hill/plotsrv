@@ -22,7 +22,9 @@ FileKind = Literal[
 
 PublishKind = Literal["artifact", "table"]
 
-ArtifactKind = Literal["text", "json", "markdown", "image", "html"]
+ArtifactKind = Literal[
+    "text", "json", "markdown", "image", "html", "watch_error", "publish_error"
+]
 
 
 @dataclass(frozen=True, slots=True)

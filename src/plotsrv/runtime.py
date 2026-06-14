@@ -632,6 +632,9 @@ def get_watch_render_limit(artifact_kind: str | None) -> int | None:
     """
     ak = (artifact_kind or "text").strip().lower()
 
+    if ak in {"watch_error", "publish_error"}:
+        return None
+
     if ak == "markdown":
         return _normalise_render_limit(config.get_render_markdown_max_chars())
 
@@ -657,6 +660,9 @@ def truncate_watch_text_like_artifact(
     JSON objects and tables are left unchanged.
     """
     ak = (artifact_kind or "text").strip().lower()
+
+    if ak in {"watch_error", "publish_error"}:
+        return artifact
 
     if ak not in {"text", "markdown", "html"}:
         return artifact
@@ -704,13 +710,14 @@ def build_watch_publish_payload(
     if watch_config.kind == "text":
         txt = raw.decode(watch_config.encoding, errors="replace")
         artifact = with_text_anchor_header(txt, read_mode)
+        artifact = truncate_watch_text_like_artifact(
+            artifact,
+            artifact_kind="text",
+        )
 
         return WatchPublishPayload(
             kind="artifact",
-            artifact=truncate_watch_text_like_artifact(
-                artifact,
-                artifact_kind="text",
-            ),
+            artifact=artifact,
             artifact_kind="text",
         )
 
@@ -731,11 +738,8 @@ def build_watch_publish_payload(
 
             return WatchPublishPayload(
                 kind="artifact",
-                artifact=truncate_watch_text_like_artifact(
-                    artifact,
-                    artifact_kind="text",
-                ),
-                artifact_kind="text",
+                artifact=artifact,
+                artifact_kind="watch_error",
             )
 
     try:
@@ -777,11 +781,8 @@ def build_watch_publish_payload(
 
         return WatchPublishPayload(
             kind="artifact",
-            artifact=truncate_watch_text_like_artifact(
-                artifact,
-                artifact_kind="text",
-            ),
-            artifact_kind="text",
+            artifact=artifact,
+            artifact_kind="watch_error",
         )
 
 
@@ -985,7 +986,7 @@ def publish_prepared_watch_payload(
             section=section,
             kind="artifact",
             artifact=fallback,
-            artifact_kind="text",
+            artifact_kind="watch_error",
             update_limit_s=None,
             force=True,
         )
@@ -1056,7 +1057,7 @@ def start_watch_threads(
                         section=view_section,
                         kind="artifact",
                         artifact=f"[plotsrv watch] read error: {type(e).__name__}: {e}",
-                        artifact_kind="text",
+                        artifact_kind="watch_error",
                         update_limit_s=watch_config.update_limit_s,
                         force=watch_config.force,
                     )

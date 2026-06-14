@@ -497,7 +497,7 @@ def test_rejected_python_artifact_publish_creates_visible_error_artifact(
     vid = store.normalize_view_id(None, section="tests", label="too-big")
     art = store.get_artifact(view_id=vid)
 
-    assert art.kind == "text"
+    assert art.kind == "publish_error"
     assert "plotsrv publish rejected" in art.obj
     assert "Status: 413" in art.obj
     assert "View: tests:too-big" in art.obj
@@ -533,7 +533,7 @@ def test_rejected_python_table_publish_creates_visible_error_artifact(
     vid = store.normalize_view_id(None, section="tests", label="too-many-rows")
     art = store.get_artifact(view_id=vid)
 
-    assert art.kind == "text"
+    assert art.kind == "publish_error"
     assert "plotsrv publish rejected" in art.obj
     assert "Status: 413" in art.obj
     assert "Kind: table" in art.obj
@@ -560,7 +560,7 @@ def test_rejected_python_plot_publish_creates_visible_error_artifact(
     vid = store.normalize_view_id(None, section="tests", label="bad-plot")
     art = store.get_artifact(view_id=vid)
 
-    assert art.kind == "text"
+    assert art.kind == "publish_error"
     assert "plotsrv publish rejected" in art.obj
     assert "Status: 422" in art.obj
     assert "Kind: plot" in art.obj
@@ -597,3 +597,39 @@ def test_rejected_watch_publish_does_not_create_app_level_error_artifact(
 
     with pytest.raises(LookupError):
         store.get_artifact(view_id=vid)
+
+
+def test_publish_error_artifact_renders_without_text_truncation(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+    monkeypatch.setattr(
+        config, "get_truncation_max_chars", lambda kind, view_id=None: 10
+    )
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "tests",
+        "label": "too-big-untruncated-error",
+        "artifact": "x" * 20,
+    }
+
+    resp = client.post("/publish", json=payload)
+    assert resp.status_code == 413
+
+    vid = store.normalize_view_id(
+        None,
+        section="tests",
+        label="too-big-untruncated-error",
+    )
+
+    rendered = client.get(f"/artifact?view={vid}")
+    assert rendered.status_code == 200
+
+    data = rendered.json()
+    assert data["kind"] == "publish_error"
+    assert data["truncation"]["truncated"] is False
+    assert "plotsrv publish rejected" in data["html"]
+    assert "limits.published_objects.max_artifact_text_chars=5" in data["html"]

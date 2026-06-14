@@ -164,7 +164,7 @@ def _record_publish_rejection_artifact(
     try:
         store.set_artifact(
             obj=msg,
-            kind="text",
+            kind="publish_error",
             label=label if isinstance(label, str) else None,
             section=section if isinstance(section, str) else None,
             view_id=view_id,

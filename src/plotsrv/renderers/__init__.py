@@ -4,7 +4,7 @@ from __future__ import annotations
 from .registry import register_renderer
 from .plot import PlotRenderer
 from .table import TableRenderer
-from .text import TextRenderer
+from .text import TextRenderer, ErrorTextRenderer
 from .json_tree import JsonTreeRenderer
 from .image import ImageRenderer
 from .html import HtmlRenderer
@@ -22,4 +22,6 @@ def register_default_renderers() -> None:
     register_renderer(PythonRenderer())
     register_renderer(TracebackRenderer())
     register_renderer(TextRenderer())
+    register_renderer(ErrorTextRenderer(kind="watch_error"))
+    register_renderer(ErrorTextRenderer(kind="publish_error"))
     register_renderer(HtmlRenderer())

@@ -23,10 +23,13 @@ class TextRenderer:
     def can_render(self, obj: Any) -> bool:
         return isinstance(obj, (str, bytes, bytearray, TextPayload))
 
+    def _get_max_chars(self, *, view_id: str) -> int | None:
+        return config.get_truncation_max_chars("text", view_id=view_id)
+
     def render(self, obj: Any, *, view_id: str) -> RenderResult:
         text, anchor = _to_text_and_anchor(obj)
 
-        max_chars = config.get_truncation_max_chars("text", view_id=view_id)
+        max_chars = self._get_max_chars(view_id=view_id)
         if max_chars is None:
             out = text
             from ..artifacts import Truncation
@@ -65,11 +68,26 @@ class TextRenderer:
         html = f"{toolbar}\n{pre}\n</div>"
 
         return RenderResult(
-            kind="text",
+            kind=self.kind,
             html=html,
             truncation=truncation,
             meta={"view_id": view_id, "length": len(text), "anchor": anchor},
         )
+
+
+class ErrorTextRenderer(TextRenderer):
+    """
+    Text-like renderer for plotsrv-generated error artifacts.
+
+    These must not obey limits.truncate_after.text because low text truncation
+    can hide the useful config/actionability message itself.
+    """
+
+    def __init__(self, *, kind: Literal["watch_error", "publish_error"]) -> None:
+        self.kind = kind
+
+    def _get_max_chars(self, *, view_id: str) -> int | None:
+        return None
 
 
 def _strip_anchor_header(text: str) -> tuple[str, Literal["head", "tail"]]:
