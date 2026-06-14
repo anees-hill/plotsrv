@@ -30,6 +30,11 @@ _DEFAULTS: dict[str, Any] = {
         "plot_default_figsize_in": (12.0, 6.0),
         "plot_bbox_tight": True,
         "plot_pad_inches": 0.10,
+        "table_view_mode": "rich",
+        "html_sanitize": False,
+        "html_sandbox": "",
+        "markdown_sanitize": True,
+        "markdown_sandbox": "",
     },
     "artifact-render-settings": {
         "html_sanitize": False,
@@ -352,6 +357,66 @@ def _merged_limits_section() -> dict[str, Any]:
     return _deep_merge_dicts(base, raw)
 
 
+def _raw_render_settings() -> dict[str, Any]:
+    return _raw_section("render-settings")
+
+
+def _merged_render_settings() -> dict[str, Any]:
+    """
+    Preferred render settings section.
+
+    settings.get_section("render-settings") already handles the common
+    default/instances pattern, so this gives us the active render settings for
+    the current runtime context.
+    """
+    return _merged_section("render-settings")
+
+
+def _render_setting_is_explicit(key: str) -> bool:
+    """
+    Return True if the active user config explicitly provides render-settings.<key>.
+
+    This lets new render-settings values win over legacy table/artifact settings
+    without the built-in render defaults accidentally hiding legacy config.
+    """
+    raw = _raw_render_settings()
+
+    if key in raw:
+        return True
+
+    raw_default = raw.get("default")
+    if isinstance(raw_default, Mapping) and key in raw_default:
+        return True
+
+    return False
+
+
+def _get_render_setting_prefer_new(
+    key: str,
+    *,
+    legacy_section: str | None = None,
+    legacy_key: str | None = None,
+    default: Any = None,
+) -> Any:
+    """
+    Read a setting from the new render-settings section first if explicitly set.
+
+    Falls back to a legacy section if present, otherwise returns render/default.
+    """
+    render_sec = _merged_render_settings()
+
+    if _render_setting_is_explicit(key):
+        return render_sec.get(key, default)
+
+    if legacy_section is not None:
+        legacy_sec = _raw_section(legacy_section)
+        lk = legacy_key or key
+        if lk in legacy_sec:
+            return legacy_sec.get(lk)
+
+    return render_sec.get(key, default)
+
+
 _MB: int = 1024 * 1024
 
 
@@ -629,9 +694,14 @@ def get_table_view_mode() -> TableViewMode:
     if _RUNTIME_TABLE_VIEW_MODE is not None:
         return _RUNTIME_TABLE_VIEW_MODE
 
-    sec = _merged_section("table-settings")
-    raw = str(sec.get("table_view_mode") or "rich").strip().lower()
-    return "simple" if raw == "simple" else "rich"
+    raw = _get_render_setting_prefer_new(
+        "table_view_mode",
+        legacy_section="table-settings",
+        default="rich",
+    )
+
+    mode = str(raw or "rich").strip().lower()
+    return "simple" if mode == "simple" else "rich"
 
 
 def get_max_table_rows_simple() -> int:
@@ -668,24 +738,24 @@ def get_table_truncate_columns() -> int | None:
 
 
 def get_plot_dpi() -> int:
-    sec = _merged_section("render-settings")
+    sec = _merged_render_settings()
     dpi = _as_int_or_inf(sec.get("plot_dpi"), 200, min_value=50)
     return int(dpi)
 
 
 def get_plot_default_figsize_in() -> tuple[float, float] | None:
-    sec = _merged_section("render-settings")
+    sec = _merged_render_settings()
     val = sec.get("plot_default_figsize_in", (12.0, 6.0))
     return _parse_figsize(val)
 
 
 def get_plot_bbox_tight() -> bool:
-    sec = _merged_section("render-settings")
+    sec = _merged_render_settings()
     return _as_bool(sec.get("plot_bbox_tight"), True)
 
 
 def get_plot_pad_inches() -> float:
-    sec = _merged_section("render-settings")
+    sec = _merged_render_settings()
     return _as_float(sec.get("plot_pad_inches"), 0.10, min_value=0.0)
 
 
@@ -693,31 +763,43 @@ def get_plot_pad_inches() -> float:
 
 
 def get_html_sanitize() -> bool:
-    sec = _merged_section("artifact-render-settings")
-    return _as_bool(sec.get("html_sanitize"), False)
+    raw = _get_render_setting_prefer_new(
+        "html_sanitize",
+        legacy_section="artifact-render-settings",
+        default=False,
+    )
+    return _as_bool(raw, False)
 
 
 def get_html_sandbox() -> str:
-    sec = _merged_section("artifact-render-settings")
-    raw = sec.get("html_sandbox")
-    default = ""
+    raw = _get_render_setting_prefer_new(
+        "html_sandbox",
+        legacy_section="artifact-render-settings",
+        default="",
+    )
     if isinstance(raw, str):
         return raw.strip()
-    return default
+    return ""
 
 
 def get_markdown_sanitize() -> bool:
-    sec = _merged_section("artifact-render-settings")
-    return _as_bool(sec.get("markdown_sanitize"), True)
+    raw = _get_render_setting_prefer_new(
+        "markdown_sanitize",
+        legacy_section="artifact-render-settings",
+        default=True,
+    )
+    return _as_bool(raw, True)
 
 
 def get_markdown_sandbox() -> str:
-    sec = _merged_section("artifact-render-settings")
-    raw = sec.get("markdown_sandbox")
-    default = ""
+    raw = _get_render_setting_prefer_new(
+        "markdown_sandbox",
+        legacy_section="artifact-render-settings",
+        default="",
+    )
     if isinstance(raw, str):
         return raw.strip()
-    return default
+    return ""
 
 
 def get_tracebacks_enabled() -> bool:

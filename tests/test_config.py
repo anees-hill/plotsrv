@@ -81,3 +81,11 @@ def test_default_published_object_limits() -> None:
     assert config.get_publish_max_table_columns() == 200
     assert config.get_publish_max_artifact_text_chars() == 200_000
     assert config.get_publish_max_json_container_items() == 20_000
+
+
+def test_default_render_settings_include_table_and_artifact_behaviour() -> None:
+    assert config.get_table_view_mode() == "rich"
+    assert config.get_html_sanitize() is False
+    assert config.get_html_sandbox() == ""
+    assert config.get_markdown_sanitize() is True
+    assert config.get_markdown_sandbox() == ""

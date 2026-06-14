@@ -519,3 +519,97 @@ limits:
     assert cfg.get_truncation_max_chars("text", view_id="live-logs:api") is None
     assert cfg.get_truncation_max_chars("text", view_id="live-logs:jobs") == 30000
     assert cfg.get_truncation_max_chars("html", view_id="reports:rr2c-check") == 90000
+
+
+def test_new_render_settings_default_reads_table_and_artifact_options(
+    tmp_path: Path,
+) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+render-settings:
+  default:
+    table_view_mode: simple
+    html_sanitize: true
+    html_sandbox: "allow-scripts"
+    markdown_sanitize: false
+    markdown_sandbox: "allow-forms"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_table_view_mode() == "simple"
+    assert cfg.get_html_sanitize() is True
+    assert cfg.get_html_sandbox() == "allow-scripts"
+    assert cfg.get_markdown_sanitize() is False
+    assert cfg.get_markdown_sandbox() == "allow-forms"
+
+
+def test_new_render_settings_win_over_legacy_table_and_artifact_settings(
+    tmp_path: Path,
+) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+table-settings:
+  table_view_mode: rich
+
+artifact-render-settings:
+  html_sanitize: false
+  html_sandbox: "legacy-html"
+  markdown_sanitize: true
+  markdown_sandbox: "legacy-md"
+
+render-settings:
+  default:
+    table_view_mode: simple
+    html_sanitize: true
+    html_sandbox: "new-html"
+    markdown_sanitize: false
+    markdown_sandbox: "new-md"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_table_view_mode() == "simple"
+    assert cfg.get_html_sanitize() is True
+    assert cfg.get_html_sandbox() == "new-html"
+    assert cfg.get_markdown_sanitize() is False
+    assert cfg.get_markdown_sandbox() == "new-md"
+
+
+def test_legacy_table_and_artifact_settings_still_work_without_new_render_keys(
+    tmp_path: Path,
+) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+table-settings:
+  table_view_mode: simple
+
+artifact-render-settings:
+  html_sanitize: true
+  html_sandbox: "legacy-html"
+  markdown_sanitize: false
+  markdown_sandbox: "legacy-md"
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_table_view_mode() == "simple"
+    assert cfg.get_html_sanitize() is True
+    assert cfg.get_html_sandbox() == "legacy-html"
+    assert cfg.get_markdown_sanitize() is False
+    assert cfg.get_markdown_sandbox() == "legacy-md"
