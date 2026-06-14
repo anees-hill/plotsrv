@@ -642,7 +642,11 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             view_id=view_id,
             publish_source=publish_source,
         )
-        store.mark_success(duration_s=None, view_id=view_id)
+        store.mark_success(
+            duration_s=None,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
         store.note_publish(view_id, now_s=now_s)
 
         enqueue_snapshot(
@@ -685,7 +689,11 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             view_id=view_id,
             publish_source=publish_source,
         )
-        store.mark_success(duration_s=None, view_id=view_id)
+        store.mark_success(
+            duration_s=None,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
         store.note_publish(view_id, now_s=now_s)
 
         enqueue_snapshot(
@@ -771,7 +779,11 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             returned_rows=returned_rows,
             publish_source=publish_source,
         )
-        store.mark_success(duration_s=None, view_id=view_id)
+        store.mark_success(
+            duration_s=None,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
         store.note_publish(view_id, now_s=now_s)
 
         enqueue_snapshot(
