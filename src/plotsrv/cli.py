@@ -133,12 +133,18 @@ class _WatchReadModeAction(argparse.Action):
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="plotsrv", description="plotsrv - serve plots/tables easily"
+        prog="plotsrv",
+        description=(
+            "plotsrv - inspect data, files, and live outputs in your browser\n\n"
+            "Documentation: https://docs.plotsrv.com"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
     run_p = sub.add_parser(
-        "run", help="Serve a codebase (passive) or run a target (callable)"
+        "run",
+        help="Discover and serve views from a project; optionally execute targets",
     )
 
     # target is now OPTIONAL
@@ -227,7 +233,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--watch",
         action=_WatchPathAction,
         default=[],
-        help=("Watch a file and publish it as an artifact view. Repeatable."),
+        help=("Watch a file and publish it as a live view. Repeatable."),
     )
     run_p.add_argument(
         "--watch-label",
@@ -309,8 +315,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Dedicated watch subcommand
-    watch_p = sub.add_parser("watch", help="Watch a text/JSON file and publish it live")
-    watch_p.add_argument("path", help="Path to a text/log/json file")
+    watch_p = sub.add_parser(
+        "watch", help="Watch a file and publish live updates as a view"
+    )
+    watch_p.add_argument("path", help="Path to a file to watch")
     watch_p.add_argument("--host", default="127.0.0.1")
     watch_p.add_argument("--port", type=int, default=8000)
     watch_p.add_argument(
@@ -376,7 +384,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--tail", action="store_true", help="Read file from the end (tail)."
     )
 
-    store_p = sub.add_parser("store", help="Inspect or clear plotsrv stored state")
+    store_p = sub.add_parser(
+        "store", help="Inspect or clear persisted plotsrv views and snapshots"
+    )
     store_p.add_argument(
         "--name",
         default=None,
@@ -418,7 +428,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip confirmation prompt.",
     )
-    config_p = sub.add_parser("config", help="Create or update plotsrv config files")
+    config_p = sub.add_parser(
+        "config", help="Create configs or populate settings from discovered views"
+    )
     config_sub = config_p.add_subparsers(dest="config_cmd", required=True)
 
     config_create_p = config_sub.add_parser(
@@ -470,7 +482,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     limits_p = populate_sub.add_parser(
         "limits",
-        help="Populate limits.views render settings",
+        help="Populate per-view truncation limits",
     )
     limits_p.add_argument("target", help="Path/module target to discover")
     limits_p.add_argument("--config", default="plotsrv.yml")
