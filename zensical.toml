@@ -29,6 +29,7 @@ nav = [
     { "CLI reference" = "guides/cli.md" },
     { "Python API" = "guides/python-api.md" },
     { "Renderers" = "guides/renderers.md" },
+    { "Configuration Reference" = "guides/configuration-reference.md" },
     { "Storage and history" = "guides/storage-and-history.md" },
     { "Freshness" = "guides/freshness.md" },
     { "Tracebacks" = "guides/tracebacks.md" },
