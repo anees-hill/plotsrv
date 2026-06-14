@@ -39,10 +39,10 @@ def test_max_table_rows_constants_positive() -> None:
 
 
 def test_default_limits_are_generous() -> None:
-    assert config.get_watch_max_bytes() == 5_000_000
+    assert config.get_watch_max_bytes() == 500 * 1024 * 1024
     assert config.get_truncation_max_chars("text") == 1_000_000
     assert config.get_truncation_max_chars("html") is None
-    assert config.get_truncation_max_chars("markdown") is None
+    assert config.get_truncation_max_chars("markdown") == 100_000
 
 
 def test_storage_latest_defaults_disabled() -> None:
@@ -61,10 +61,23 @@ def test_get_render_text_max_chars_default() -> None:
 def test_get_render_markdown_max_chars_default() -> None:
     from plotsrv import config
 
-    assert config.get_render_markdown_max_chars() is None
+    assert config.get_render_markdown_max_chars() == 100_000
 
 
 def test_get_render_html_max_chars_default() -> None:
     from plotsrv import config
 
     assert config.get_render_html_max_chars() is None
+
+
+def test_default_table_truncate_limits() -> None:
+    assert config.get_table_truncate_rows() == 100_000
+    assert config.get_table_truncate_columns() == 200
+
+
+def test_default_published_object_limits() -> None:
+    assert config.get_publish_max_plot_bytes() == 5 * 1024 * 1024
+    assert config.get_publish_max_table_rows() == 100_000
+    assert config.get_publish_max_table_columns() == 200
+    assert config.get_publish_max_artifact_text_chars() == 200_000
+    assert config.get_publish_max_json_container_items() == 20_000

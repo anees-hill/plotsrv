@@ -55,9 +55,26 @@ _DEFAULTS: dict[str, Any] = {
         "markdown": None,
     },
     "limits": {
+        "published_objects": {
+            "max_plot_bytes": 5 * 1024 * 1024,
+            "max_table_rows": 100_000,
+            "max_table_columns": 200,
+            "max_artifact_text_chars": 200_000,
+            "max_json_container_items": 20_000,
+        },
         "watched_files": {
+            "max_mb": 500,
+            # Legacy alias
             "max_bytes": 5_000_000,
         },
+        "truncate_after": {
+            "text": 1_000_000,
+            "html": None,
+            "markdown": 100_000,
+            "table_rows": 100_000,
+            "table_columns": 200,
+        },
+        # Legacy aliases
         "render": {
             "text": 1_000_000,
             "html": None,
@@ -90,6 +107,7 @@ _DEFAULTS: dict[str, Any] = {
         "views": {},
     },
     "publish-limits": {
+        # Legacy section. New preferred path is limits.published_objects.
         "max_plot_bytes": 5 * 1024 * 1024,
         "max_table_rows": 5000,
         "max_table_columns": 200,
@@ -334,6 +352,251 @@ def _merged_limits_section() -> dict[str, Any]:
     return _deep_merge_dicts(base, raw)
 
 
+_MB: int = 1024 * 1024
+
+
+def _raw_section(section: str) -> dict[str, Any]:
+    raw = settings.get_section(section)
+    return raw if isinstance(raw, dict) else {}
+
+
+def _raw_limits_section() -> dict[str, Any]:
+    return _raw_section("limits")
+
+
+def _mapping_value(parent: Mapping[str, Any], key: str) -> Mapping[str, Any]:
+    value = parent.get(key)
+    return value if isinstance(value, Mapping) else {}
+
+
+def _parse_mb_to_bytes(
+    x: Any,
+    default_mb: int | float | None,
+    *,
+    min_value: float = 0.000001,
+) -> int | None:
+    """
+    Parse a megabyte limit.
+
+    Returns:
+      - int bytes
+      - None for off/no limit
+    """
+    if x is None:
+        if default_mb is None:
+            return None
+        return max(1, int(float(default_mb) * _MB))
+
+    if isinstance(x, bool):
+        if x is False:
+            return None
+        if default_mb is None:
+            return None
+        return max(1, int(float(default_mb) * _MB))
+
+    if isinstance(x, str):
+        s = x.strip().lower()
+        if s in ("off", "none", "null", "false", "no", "0", ""):
+            return None
+
+        try:
+            mb = float(s)
+            if mb < min_value:
+                if default_mb is None:
+                    return None
+                return max(1, int(float(default_mb) * _MB))
+            return max(1, int(mb * _MB))
+        except Exception:
+            if default_mb is None:
+                return None
+            return max(1, int(float(default_mb) * _MB))
+
+    try:
+        mb2 = float(x)
+        if mb2 < min_value:
+            if default_mb is None:
+                return None
+            return max(1, int(float(default_mb) * _MB))
+        return max(1, int(mb2 * _MB))
+    except Exception:
+        if default_mb is None:
+            return None
+        return max(1, int(float(default_mb) * _MB))
+
+
+def _get_global_truncate_limit(kind: Literal["text", "html", "markdown"]) -> int | None:
+    """
+    Preferred:
+      limits.truncate_after.<kind>
+
+    Legacy:
+      limits.render.<kind>
+      truncation.<kind>
+    """
+    raw_limits = _raw_limits_section()
+
+    truncate_after = _mapping_value(raw_limits, "truncate_after")
+    if kind in truncate_after:
+        default_val = _DEFAULTS["limits"]["truncate_after"].get(kind)
+        return _parse_limit_int_or_none(
+            truncate_after.get(kind),
+            default_val,
+            min_value=1,
+        )
+
+    legacy_render = _mapping_value(raw_limits, "render")
+    if kind in legacy_render:
+        default_val = _DEFAULTS["limits"]["render"].get(kind)
+        return _parse_limit_int_or_none(
+            legacy_render.get(kind),
+            default_val,
+            min_value=1,
+        )
+
+    raw_truncation = _raw_section("truncation")
+    if kind in raw_truncation:
+        default_val = _DEFAULTS["truncation"].get(kind)
+        return _parse_limit_int_or_none(
+            raw_truncation.get(kind),
+            default_val,
+            min_value=1,
+        )
+
+    default_val = _DEFAULTS["limits"]["truncate_after"].get(kind)
+    return _parse_limit_int_or_none(default_val, default_val, min_value=1)
+
+
+def _get_view_truncate_limit(
+    kind: Literal["text", "html", "markdown"],
+    *,
+    view_id: str,
+) -> int | None | object:
+    """
+    Return a per-view truncate limit if configured.
+
+    Returns settings._UNSET if no per-view override exists.
+    """
+    raw_limits = _raw_limits_section()
+    raw_views = raw_limits.get("views")
+    if not isinstance(raw_views, Mapping):
+        return settings._UNSET
+
+    raw_view_limits = raw_views.get(view_id)
+    if not isinstance(raw_view_limits, Mapping):
+        return settings._UNSET
+
+    raw_view_truncate = raw_view_limits.get("truncate_after")
+    if isinstance(raw_view_truncate, Mapping) and kind in raw_view_truncate:
+        default_val = _DEFAULTS["limits"]["truncate_after"].get(kind)
+        return _parse_limit_int_or_none(
+            raw_view_truncate.get(kind),
+            default_val,
+            min_value=1,
+        )
+
+    raw_view_render = raw_view_limits.get("render")
+    if isinstance(raw_view_render, Mapping) and kind in raw_view_render:
+        default_val = _DEFAULTS["limits"]["render"].get(kind)
+        return _parse_limit_int_or_none(
+            raw_view_render.get(kind),
+            default_val,
+            min_value=1,
+        )
+
+    return settings._UNSET
+
+
+def _get_table_truncate_limit(
+    key: Literal["table_rows", "table_columns"],
+) -> int | None:
+    """
+    Preferred:
+      limits.truncate_after.table_rows/table_columns
+
+    Legacy:
+      limits.tables.max_rows/max_columns
+      table-settings.max_table_rows_rich for rows only
+    """
+    raw_limits = _raw_limits_section()
+
+    truncate_after = _mapping_value(raw_limits, "truncate_after")
+    if key in truncate_after:
+        default_val = _DEFAULTS["limits"]["truncate_after"].get(key)
+        return _parse_limit_int_or_none(
+            truncate_after.get(key),
+            default_val,
+            min_value=1,
+        )
+
+    legacy_tables = _mapping_value(raw_limits, "tables")
+
+    if key == "table_rows":
+        if "max_rows" in legacy_tables:
+            return _parse_limit_int_or_none(
+                legacy_tables.get("max_rows"),
+                _DEFAULTS["limits"]["tables"]["max_rows"],
+                min_value=1,
+            )
+
+        raw_table_settings = _raw_section("table-settings")
+        if "max_table_rows_rich" in raw_table_settings:
+            return _parse_limit_int_or_none(
+                raw_table_settings.get("max_table_rows_rich"),
+                _DEFAULTS["table-settings"]["max_table_rows_rich"],
+                min_value=1,
+            )
+
+    if key == "table_columns" and "max_columns" in legacy_tables:
+        return _parse_limit_int_or_none(
+            legacy_tables.get("max_columns"),
+            _DEFAULTS["limits"]["tables"]["max_columns"],
+            min_value=1,
+        )
+
+    default_val = _DEFAULTS["limits"]["truncate_after"].get(key)
+    return _parse_limit_int_or_none(default_val, default_val, min_value=1)
+
+
+def _get_published_object_limit(key: str, default: int) -> int:
+    """
+    Preferred:
+      limits.published_objects.<key>
+
+    Legacy:
+      publish-limits.<key>
+
+    Temporary compatibility:
+      limits.tables.max_rows/max_columns still act as table publish limits until
+      the later table truncation refactor separates display truncation from hard
+      server limits.
+    """
+    raw_limits = _raw_limits_section()
+
+    published_objects = _mapping_value(raw_limits, "published_objects")
+    if key in published_objects:
+        return _as_int_or_inf(published_objects.get(key), default, min_value=1)
+
+    if key == "max_table_rows":
+        legacy_tables = _mapping_value(raw_limits, "tables")
+        if "max_rows" in legacy_tables:
+            return _as_int_or_inf(legacy_tables.get("max_rows"), default, min_value=1)
+
+    if key == "max_table_columns":
+        legacy_tables = _mapping_value(raw_limits, "tables")
+        if "max_columns" in legacy_tables:
+            return _as_int_or_inf(
+                legacy_tables.get("max_columns"),
+                default,
+                min_value=1,
+            )
+
+    legacy_publish = _raw_section("publish-limits")
+    if key in legacy_publish:
+        return _as_int_or_inf(legacy_publish.get(key), default, min_value=1)
+
+    return default
+
+
 # ---- View ordering ------------------------------------------------------------
 
 
@@ -382,48 +645,23 @@ def get_max_table_rows_rich() -> int:
 
 
 def get_render_text_max_chars() -> int | None:
-    limits = _merged_limits_section()
-    render = limits.get("render")
-
-    if not isinstance(render, Mapping):
-        render = {}
-
-    default = _DEFAULTS["limits"]["render"]["text"]
-
-    return _parse_limit_int_or_none(
-        render.get("text"),
-        default,
-    )
+    return _get_global_truncate_limit("text")
 
 
 def get_render_markdown_max_chars() -> int | None:
-    limits = _merged_limits_section()
-    render = limits.get("render")
-
-    if not isinstance(render, Mapping):
-        render = {}
-
-    default = _DEFAULTS["limits"]["render"]["markdown"]
-
-    return _parse_limit_int_or_none(
-        render.get("markdown"),
-        default,
-    )
+    return _get_global_truncate_limit("markdown")
 
 
 def get_render_html_max_chars() -> int | None:
-    limits = _merged_limits_section()
-    render = limits.get("render")
+    return _get_global_truncate_limit("html")
 
-    if not isinstance(render, Mapping):
-        render = {}
 
-    default = _DEFAULTS["limits"]["render"]["html"]
+def get_table_truncate_rows() -> int | None:
+    return _get_table_truncate_limit("table_rows")
 
-    return _parse_limit_int_or_none(
-        render.get("html"),
-        default,
-    )
+
+def get_table_truncate_columns() -> int | None:
+    return _get_table_truncate_limit("table_columns")
 
 
 # ---- Render settings ----------------------------------------------------------
@@ -498,10 +736,12 @@ def get_truncation_max_chars(
     Renderer display limit for text/html/markdown views.
 
     Preferred config path:
+      limits.truncate_after.<kind>
+      limits.views.<view_id>.truncate_after.<kind>
+
+    Legacy config paths:
       limits.render.<kind>
       limits.views.<view_id>.render.<kind>
-
-    Legacy config path:
       truncation.<kind>
 
     Runtime/CLI truncate override remains global and wins.
@@ -513,64 +753,12 @@ def get_truncation_max_chars(
             return None
         return int(max(1, int(override)))
 
-    # Use the raw user-supplied limits section first.
-    # Do NOT use _merged_limits_section() here for render defaults, because that
-    # would make built-in limits.render defaults override legacy truncation config.
-    raw_limits = settings.get_section("limits")
+    if view_id:
+        view_limit = _get_view_truncate_limit(kind, view_id=view_id)
+        if view_limit is not settings._UNSET:
+            return view_limit  # type: ignore[return-value]
 
-    if view_id and isinstance(raw_limits, dict):
-        raw_views = raw_limits.get("views")
-        raw_view_limits = (
-            raw_views.get(view_id) if isinstance(raw_views, dict) else None
-        )
-        raw_view_render = (
-            raw_view_limits.get("render") if isinstance(raw_view_limits, dict) else None
-        )
-
-        if isinstance(raw_view_render, dict) and kind in raw_view_render:
-            default_val = _DEFAULTS["limits"]["render"].get(kind)
-            return _parse_limit_int_or_none(
-                raw_view_render.get(kind),
-                default_val,
-                min_value=1,
-            )
-
-    raw_render = raw_limits.get("render") if isinstance(raw_limits, dict) else None
-    if isinstance(raw_render, dict) and kind in raw_render:
-        default_val = _DEFAULTS["limits"]["render"].get(kind)
-        return _parse_limit_int_or_none(
-            raw_render.get(kind),
-            default_val,
-            min_value=1,
-        )
-
-    # Legacy config section.
-    raw_truncation = settings.get_section("truncation")
-    if isinstance(raw_truncation, dict) and kind in raw_truncation:
-        val = raw_truncation.get(kind)
-        default_val = _DEFAULTS["truncation"].get(kind)
-
-        if val is None:
-            return None
-
-        if isinstance(val, str) and val.strip().lower() in (
-            "off",
-            "none",
-            "false",
-            "no",
-            "0",
-            "",
-        ):
-            return None
-
-        if default_val is None:
-            return _parse_limit_int_or_none(val, None, min_value=1)
-
-        return _as_int_or_inf(val, int(default_val), min_value=1)
-
-    # Built-in defaults.
-    default_val = _DEFAULTS["limits"]["render"].get(kind)
-    return _parse_limit_int_or_none(default_val, default_val, min_value=1)
+    return _get_global_truncate_limit(kind)
 
 
 def get_watch_max_bytes(view_id: str | None = None) -> int | None:
@@ -578,6 +766,9 @@ def get_watch_max_bytes(view_id: str | None = None) -> int | None:
     Maximum bytes read from watched files.
 
     Preferred config path:
+      limits.watched_files.max_mb
+
+    Legacy config path:
       limits.watched_files.max_bytes
 
     Returns:
@@ -586,19 +777,26 @@ def get_watch_max_bytes(view_id: str | None = None) -> int | None:
 
     Note:
       view_id is accepted for API stability, but watched-file input limits are
-      currently global only. Use per-view render limits for display behaviour.
+      currently global only. Use per-view truncate/render limits for display
+      behaviour.
     """
-    limits = _merged_limits_section()
-    watched = limits.get("watched_files")
-    if not isinstance(watched, dict):
-        watched = {}
+    raw_limits = _raw_limits_section()
+    watched = _mapping_value(raw_limits, "watched_files")
 
-    default_val = _DEFAULTS["limits"]["watched_files"]["max_bytes"]
-    return _parse_limit_int_or_none(
-        watched.get("max_bytes", default_val),
-        default_val,
-        min_value=1,
-    )
+    default_mb = _DEFAULTS["limits"]["watched_files"]["max_mb"]
+
+    if "max_mb" in watched:
+        return _parse_mb_to_bytes(watched.get("max_mb"), default_mb)
+
+    if "max_bytes" in watched:
+        default_bytes = _DEFAULTS["limits"]["watched_files"]["max_bytes"]
+        return _parse_limit_int_or_none(
+            watched.get("max_bytes"),
+            default_bytes,
+            min_value=1,
+        )
+
+    return _parse_mb_to_bytes(default_mb, default_mb)
 
 
 # ---- Storage settings ---------------------------------------------------------
@@ -906,35 +1104,35 @@ def get_views_local_only() -> bool:
 
 
 def get_publish_max_plot_bytes() -> int:
-    sec = _merged_section("publish-limits")
-    return _as_int_or_inf(sec.get("max_plot_bytes"), 5 * 1024 * 1024, min_value=1)
+    return _get_published_object_limit(
+        "max_plot_bytes",
+        int(_DEFAULTS["limits"]["published_objects"]["max_plot_bytes"]),
+    )
 
 
 def get_publish_max_table_rows() -> int:
-    raw_limits = settings.get_section("limits")
-    tables = raw_limits.get("tables") if isinstance(raw_limits, dict) else None
-    if isinstance(tables, dict) and "max_rows" in tables:
-        return _as_int_or_inf(tables.get("max_rows"), 5000, min_value=1)
-
-    sec = _merged_section("publish-limits")
-    return _as_int_or_inf(sec.get("max_table_rows"), 5000, min_value=1)
+    return _get_published_object_limit(
+        "max_table_rows",
+        int(_DEFAULTS["limits"]["published_objects"]["max_table_rows"]),
+    )
 
 
 def get_publish_max_table_columns() -> int:
-    raw_limits = settings.get_section("limits")
-    tables = raw_limits.get("tables") if isinstance(raw_limits, dict) else None
-    if isinstance(tables, dict) and "max_columns" in tables:
-        return _as_int_or_inf(tables.get("max_columns"), 200, min_value=1)
-
-    sec = _merged_section("publish-limits")
-    return _as_int_or_inf(sec.get("max_table_columns"), 200, min_value=1)
+    return _get_published_object_limit(
+        "max_table_columns",
+        int(_DEFAULTS["limits"]["published_objects"]["max_table_columns"]),
+    )
 
 
 def get_publish_max_artifact_text_chars() -> int:
-    sec = _merged_section("publish-limits")
-    return _as_int_or_inf(sec.get("max_artifact_text_chars"), 200_000, min_value=1)
+    return _get_published_object_limit(
+        "max_artifact_text_chars",
+        int(_DEFAULTS["limits"]["published_objects"]["max_artifact_text_chars"]),
+    )
 
 
 def get_publish_max_json_container_items() -> int:
-    sec = _merged_section("publish-limits")
-    return _as_int_or_inf(sec.get("max_json_container_items"), 20_000, min_value=1)
+    return _get_published_object_limit(
+        "max_json_container_items",
+        int(_DEFAULTS["limits"]["published_objects"]["max_json_container_items"]),
+    )

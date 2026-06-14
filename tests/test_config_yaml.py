@@ -336,3 +336,186 @@ storage-settings:
     settings.set_runtime_context(config_path=yml)
 
     assert cfg.get_storage_latest_restore_scope() == "all"
+
+
+def test_new_limits_schema_from_yaml(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+limits:
+  published_objects:
+    max_plot_bytes: 12345
+    max_table_rows: 111
+    max_table_columns: 22
+    max_artifact_text_chars: 333
+    max_json_container_items: 44
+  watched_files:
+    max_mb: 2
+  truncate_after:
+    text: 123456
+    html: off
+    markdown: 98765
+    table_rows: 123
+    table_columns: 45
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_watch_max_bytes() == 2 * 1024 * 1024
+
+    assert cfg.get_truncation_max_chars("text") == 123456
+    assert cfg.get_truncation_max_chars("html") is None
+    assert cfg.get_truncation_max_chars("markdown") == 98765
+
+    assert cfg.get_render_text_max_chars() == 123456
+    assert cfg.get_render_html_max_chars() is None
+    assert cfg.get_render_markdown_max_chars() == 98765
+
+    assert cfg.get_table_truncate_rows() == 123
+    assert cfg.get_table_truncate_columns() == 45
+
+    assert cfg.get_publish_max_plot_bytes() == 12345
+    assert cfg.get_publish_max_table_rows() == 111
+    assert cfg.get_publish_max_table_columns() == 22
+    assert cfg.get_publish_max_artifact_text_chars() == 333
+    assert cfg.get_publish_max_json_container_items() == 44
+
+
+def test_new_limit_keys_win_over_legacy_keys(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+publish-limits:
+  max_table_rows: 10
+  max_table_columns: 11
+limits:
+  published_objects:
+    max_table_rows: 100
+    max_table_columns: 101
+  watched_files:
+    max_mb: 3
+    max_bytes: 9
+  truncate_after:
+    text: 222
+    markdown: 333
+    table_rows: 444
+    table_columns: 55
+  render:
+    text: 111
+    markdown: 112
+  tables:
+    max_rows: 12
+    max_columns: 13
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_watch_max_bytes() == 3 * 1024 * 1024
+
+    assert cfg.get_truncation_max_chars("text") == 222
+    assert cfg.get_truncation_max_chars("markdown") == 333
+
+    assert cfg.get_table_truncate_rows() == 444
+    assert cfg.get_table_truncate_columns() == 55
+
+    assert cfg.get_publish_max_table_rows() == 100
+    assert cfg.get_publish_max_table_columns() == 101
+
+
+def test_watched_files_max_mb_off_from_yaml(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+limits:
+  watched_files:
+    max_mb: off
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_watch_max_bytes() is None
+
+
+def test_legacy_limits_schema_still_works(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+publish-limits:
+  max_artifact_text_chars: 1234
+limits:
+  watched_files:
+    max_bytes: 999
+  render:
+    text: 888
+    html: off
+    markdown: off
+  tables:
+    max_rows: 77
+    max_columns: 66
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_watch_max_bytes() == 999
+    assert cfg.get_truncation_max_chars("text") == 888
+    assert cfg.get_truncation_max_chars("html") is None
+    assert cfg.get_truncation_max_chars("markdown") is None
+    assert cfg.get_table_truncate_rows() == 77
+    assert cfg.get_table_truncate_columns() == 66
+    assert cfg.get_publish_max_artifact_text_chars() == 1234
+
+    # Temporary compatibility until the later table truncation/server-limit split.
+    assert cfg.get_publish_max_table_rows() == 77
+    assert cfg.get_publish_max_table_columns() == 66
+
+
+def test_limits_view_truncate_after_overrides_from_yaml(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+limits:
+  truncate_after:
+    text: 1000000
+    html: off
+    markdown: 100000
+  views:
+    live-logs:api:
+      truncate_after:
+        text: off
+    live-logs:jobs:
+      truncate_after:
+        text: 30000
+    reports:rr2c-check:
+      truncate_after:
+        html: 90000
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_truncation_max_chars("text") == 1_000_000
+    assert cfg.get_truncation_max_chars("markdown") == 100_000
+    assert cfg.get_truncation_max_chars("html") is None
+
+    assert cfg.get_truncation_max_chars("text", view_id="live-logs:api") is None
+    assert cfg.get_truncation_max_chars("text", view_id="live-logs:jobs") == 30000
+    assert cfg.get_truncation_max_chars("html", view_id="reports:rr2c-check") == 90000
