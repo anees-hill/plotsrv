@@ -1,8 +1,25 @@
 # Release notes
 
+## v0.4.0
+
+v0.4.0 configuration clarity and watched-file reliability.
+
+* simplified and clarified configuration structure and generated starter config
+* improved watched-file behaviour, limits, freshness, and storage handling
+* improved error reporting and visibility for failed publishes and watched-file updates
+
+## v0.3.1
+
+v0.3.1 first plotsrv documentation release.
+
+* added getting-started guides and configuration documentation
+* added documentation for watched files, storage, freshness, and Python APIs
+* improved examples and guidance for real-world usage
+
+
 ## v0.3.0
 
-v0.3.0 focused on making plotsrv easier to use in real scripts and longer-running workflows.
+v0.3.0 ease of use in real scripts and longer-running workflows.
 
 - improved `@ps.view(...)` and `ps.publish_view(...)` as the main public API
 - added `launch_server=True` for quick interactive use
@@ -13,7 +30,7 @@ v0.3.0 focused on making plotsrv easier to use in real scripts and longer-runnin
 
 ## v0.2.0
 
-v0.2.0 focused on API usability and project tidying.
+v0.2.0 API usability and project tidying.
 
 - moved toward `@ps.view(...)` and `ps.publish_view(...)`
 - improved CLI behaviour

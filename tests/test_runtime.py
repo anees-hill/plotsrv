@@ -17,6 +17,7 @@ from plotsrv.runtime import (
     read_csv_tail_with_header_bytes,
     read_head_bytes,
     read_tail_bytes,
+    register_watch_views,
     resolve_watch_max_bytes,
 )
 
@@ -236,3 +237,217 @@ def test_read_csv_tail_with_header_none_reads_full_file(tmp_path: Path) -> None:
     out = read_csv_tail_with_header_bytes(p, max_bytes=None)
 
     assert out == content.encode("utf-8")
+
+
+def test_register_watch_views_registers_text_artifact(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "README.md"
+    p.write_text("# hello\n", encoding="utf-8")
+
+    calls: list[dict[str, object]] = []
+    active: list[str] = []
+
+    def fake_register_view(**kwargs: object) -> None:
+        calls.append(dict(kwargs))
+
+    monkeypatch.setattr("plotsrv.runtime.store.register_view", fake_register_view)
+    monkeypatch.setattr("plotsrv.runtime.store.get_active_view_id", lambda: None)
+    monkeypatch.setattr("plotsrv.runtime.store.set_active_view", active.append)
+
+    out = register_watch_views([WatchConfig(path=p)])
+
+    assert len(out) == 1
+    assert out[0].path == p.resolve()
+    assert out[0].section == "watch"
+    assert out[0].label == "README.md"
+    assert out[0].kind == "artifact"
+    assert out[0].read_mode == "head"
+
+    assert calls == [
+        {
+            "view_id": "watch:README.md",
+            "section": "watch",
+            "label": "README.md",
+            "kind": "artifact",
+            "activate_if_first": False,
+        }
+    ]
+    assert active == ["watch:README.md"]
+
+
+def test_register_watch_views_registers_csv_as_table(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a,b\n1,2\n", encoding="utf-8")
+
+    calls: list[dict[str, object]] = []
+    active: list[str] = []
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.store.register_view",
+        lambda **kwargs: calls.append(dict(kwargs)),
+    )
+    monkeypatch.setattr("plotsrv.runtime.store.get_active_view_id", lambda: None)
+    monkeypatch.setattr("plotsrv.runtime.store.set_active_view", active.append)
+
+    out = register_watch_views([WatchConfig(path=p)])
+
+    assert len(out) == 1
+    assert out[0].kind == "table"
+    assert out[0].read_mode == "head"
+    assert calls[0]["kind"] == "table"
+    assert active == ["watch:data.csv"]
+
+
+def test_register_watch_views_respects_label_and_section(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.store.register_view",
+        lambda **kwargs: calls.append(dict(kwargs)),
+    )
+    monkeypatch.setattr("plotsrv.runtime.store.get_active_view_id", lambda: None)
+    monkeypatch.setattr("plotsrv.runtime.store.set_active_view", lambda _vid: None)
+
+    out = register_watch_views(
+        [WatchConfig(path=p, label="api", section="logs", read_mode="tail")]
+    )
+
+    assert out[0].view_id == "logs:api"
+    assert out[0].section == "logs"
+    assert out[0].label == "api"
+    assert out[0].read_mode == "tail"
+
+    assert calls[0]["view_id"] == "logs:api"
+    assert calls[0]["section"] == "logs"
+    assert calls[0]["label"] == "api"
+
+
+def test_register_watch_views_does_not_override_existing_active_view(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    active_calls: list[str] = []
+
+    monkeypatch.setattr("plotsrv.runtime.store.register_view", lambda **kwargs: None)
+    monkeypatch.setattr(
+        "plotsrv.runtime.store.get_active_view_id",
+        lambda: "existing:view",
+    )
+    monkeypatch.setattr("plotsrv.runtime.store.set_active_view", active_calls.append)
+
+    out = register_watch_views([WatchConfig(path=p)])
+
+    assert len(out) == 1
+    assert active_calls == []
+
+
+def test_register_watch_views_can_skip_activation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    active_calls: list[str] = []
+
+    monkeypatch.setattr("plotsrv.runtime.store.register_view", lambda **kwargs: None)
+    monkeypatch.setattr("plotsrv.runtime.store.get_active_view_id", lambda: None)
+    monkeypatch.setattr("plotsrv.runtime.store.set_active_view", active_calls.append)
+
+    out = register_watch_views(
+        [WatchConfig(path=p)],
+        activate_first_if_none=False,
+    )
+
+    assert len(out) == 1
+    assert active_calls == []
+
+
+def test_start_watch_threads_can_skip_view_registration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    register_calls: list[dict[str, object]] = []
+    thread_calls: list[dict[str, object]] = []
+
+    class FakeThread:
+        def __init__(self, **kwargs: object) -> None:
+            thread_calls.append(dict(kwargs))
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.store.register_view",
+        lambda **kwargs: register_calls.append(dict(kwargs)),
+    )
+    monkeypatch.setattr("plotsrv.runtime.threading.Thread", FakeThread)
+
+    from plotsrv.runtime import start_watch_threads
+
+    threads = start_watch_threads(
+        [WatchConfig(path=p)],
+        host="127.0.0.1",
+        port=8000,
+        register_views=False,
+    )
+
+    assert len(threads) == 1
+    assert register_calls == []
+    assert len(thread_calls) == 1
+
+
+def test_start_watch_threads_registers_views_by_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    register_calls: list[dict[str, object]] = []
+    active_calls: list[str] = []
+
+    class FakeThread:
+        def __init__(self, **kwargs: object) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.store.register_view",
+        lambda **kwargs: register_calls.append(dict(kwargs)),
+    )
+    monkeypatch.setattr("plotsrv.runtime.store.get_active_view_id", lambda: None)
+    monkeypatch.setattr("plotsrv.runtime.store.set_active_view", active_calls.append)
+    monkeypatch.setattr("plotsrv.runtime.threading.Thread", FakeThread)
+
+    from plotsrv.runtime import start_watch_threads
+
+    threads = start_watch_threads(
+        [WatchConfig(path=p)],
+        host="127.0.0.1",
+        port=8000,
+    )
+
+    assert len(threads) == 1
+    assert len(register_calls) == 1
+    assert register_calls[0]["view_id"] == "watch:app.log"
+    assert active_calls == ["watch:app.log"]

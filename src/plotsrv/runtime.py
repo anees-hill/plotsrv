@@ -20,6 +20,24 @@ _WATCH_MAX_BYTES_UNSET = object()
 
 
 @dataclass(frozen=True, slots=True)
+class RegisteredWatchView:
+    path: Path
+    view_id: str
+    section: str
+    label: str
+    kind: Literal["artifact", "table"]
+    read_mode: WatchReadMode
+
+
+@dataclass(frozen=True, slots=True)
+class WatchPublishPayload:
+    kind: Literal["artifact", "table"]
+    artifact: Any = None
+    artifact_kind: str | None = None
+    table_df: Any = None
+
+
+@dataclass(frozen=True, slots=True)
 class WatchConfig:
     path: str | Path
     label: str | None = None
@@ -30,6 +48,69 @@ class WatchConfig:
     encoding: str = "utf-8"
     update_limit_s: int | None = None
     force: bool = False
+
+
+def parse_watch_max_mb(raw: int | float | str | None) -> int | None:
+    """
+    Parse a watched-file MB limit from CLI/user input.
+
+    Returns:
+      - int bytes
+      - None for off/no limit
+    """
+    if raw is None:
+        return None
+
+    if isinstance(raw, bool):
+        return None if raw is False else 1024 * 1024
+
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("off", "none", "null", "false", "no", "0", ""):
+            return None
+
+        try:
+            mb = float(s)
+        except Exception as e:
+            raise ValueError(f"watch max MB must be a number or 'off': {raw!r}") from e
+
+        if mb <= 0:
+            return None
+
+        return max(1, int(mb * 1024 * 1024))
+
+    try:
+        mb2 = float(raw)
+    except Exception as e:
+        raise ValueError(f"watch max MB must be a number or 'off': {raw!r}") from e
+
+    if mb2 <= 0:
+        return None
+
+    return max(1, int(mb2 * 1024 * 1024))
+
+
+def resolve_watch_cli_max_bytes(
+    *,
+    watch_max_bytes: int | str | None = None,
+    watch_max_mb: int | float | str | None = None,
+) -> int | None:
+    """
+    Resolve watched-file CLI size options.
+
+    --watch-max-mb is preferred.
+    --watch-max-bytes remains supported for compatibility/precision.
+    """
+    if watch_max_bytes is not None and watch_max_mb is not None:
+        raise ValueError("Use only one of --watch-max-mb or --watch-max-bytes.")
+
+    if watch_max_mb is not None:
+        return parse_watch_max_mb(watch_max_mb)
+
+    if watch_max_bytes is not None:
+        return parse_watch_max_bytes(watch_max_bytes)
+
+    return None
 
 
 def parse_truncate_arg(raw: int | str | None, *, no_truncate: bool) -> object:
@@ -56,6 +137,117 @@ def parse_truncate_arg(raw: int | str | None, *, no_truncate: bool) -> object:
         return max(1, n)
     except Exception:
         return settings._UNSET
+
+
+def read_watch_file_bytes(
+    path: str | Path,
+    *,
+    read_mode: WatchReadMode,
+    max_bytes: int | None,
+    watch_config: WatchConfig | None = None,
+) -> bytes:
+    """
+    Read watched-file bytes using plotsrv's watch semantics.
+
+    - CSV + tail keeps the header row.
+    - head reads from the start.
+    - tail reads from the end.
+    - text-like tail reads are bounded by the useful render window.
+    """
+    p = Path(path).expanduser().resolve()
+    fk = infer_file_kind(p)
+
+    effective_max_bytes = get_effective_watch_read_max_bytes(
+        p,
+        read_mode=read_mode,
+        max_bytes=max_bytes,
+        watch_config=watch_config,
+    )
+
+    if fk == "csv" and read_mode == "tail":
+        return read_csv_tail_with_header_bytes(p, max_bytes=effective_max_bytes)
+
+    if read_mode == "head":
+        return read_head_bytes(p, max_bytes=effective_max_bytes)
+
+    return read_tail_bytes(p, max_bytes=effective_max_bytes)
+
+
+def _min_enabled_limit(*limits: int | None) -> int | None:
+    enabled = [x for x in limits if x is not None]
+    if not enabled:
+        return None
+    return min(enabled)
+
+
+def get_watch_tail_render_limit_for_path(
+    path: str | Path,
+    *,
+    watch_config: WatchConfig | None = None,
+) -> int | None:
+    """
+    Return the render limit that can safely bound tail reads for text-like files.
+
+    CSV/table-like files are not controlled by render.text because CSV tail mode
+    has special header-preserving behaviour and is later table-shaped.
+    """
+    p = Path(path).expanduser().resolve()
+    kind = watch_config.kind if watch_config is not None else "auto"
+
+    if kind == "json":
+        return None
+
+    if kind == "text":
+        return get_watch_render_limit("text")
+
+    if kind == "auto":
+        fk = infer_file_kind(p)
+
+        if fk == "csv":
+            return None
+
+        if fk == "html":
+            return get_watch_render_limit("html")
+
+        if fk == "markdown":
+            return get_watch_render_limit("markdown")
+
+        if fk == "json":
+            return None
+
+        return get_watch_render_limit("text")
+
+    return get_watch_render_limit("text")
+
+
+def get_effective_watch_read_max_bytes(
+    path: str | Path,
+    *,
+    read_mode: WatchReadMode,
+    max_bytes: int | None,
+    watch_config: WatchConfig | None = None,
+) -> int | None:
+    """
+    Return the number of bytes to read for a watched file.
+
+    For tail mode on text-like files, there is no point reading substantially more
+    than the render limit because C1 will truncate before publish anyway.
+
+    Rules:
+      watched_files.max_bytes=5_000_000 and render.text=1_000_000 -> 1_000_000
+      watched_files.max_bytes=None and render.text=1_000_000      -> 1_000_000
+      watched_files.max_bytes=5_000_000 and render.text=None      -> 5_000_000
+      watched_files.max_bytes=None and render.text=None           -> None
+    """
+    if read_mode != "tail":
+        return max_bytes
+
+    render_limit = get_watch_tail_render_limit_for_path(
+        path,
+        watch_config=watch_config,
+    )
+
+    return _min_enabled_limit(max_bytes, render_limit)
 
 
 def parse_watch_max_bytes(raw: int | str | bool | None) -> int | None:
@@ -204,6 +396,61 @@ def resolve_watch_max_bytes(
     return spec.max_bytes  # type: ignore[return-value]
 
 
+def _watch_view_from_config(spec: WatchConfig) -> RegisteredWatchView:
+    p = Path(spec.path).expanduser().resolve()
+    section = (spec.section or "watch").strip() or "watch"
+    label = (spec.label or p.name).strip() or p.name
+
+    view_id = store.normalize_view_id(None, section=section, label=label)
+
+    fk = infer_file_kind(p)
+    read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)
+    preregister_kind: Literal["artifact", "table"] = (
+        "table" if fk == "csv" else "artifact"
+    )
+
+    return RegisteredWatchView(
+        path=p,
+        view_id=view_id,
+        section=section,
+        label=label,
+        kind=preregister_kind,
+        read_mode=read_mode,
+    )
+
+
+def register_watch_views(
+    watches: Sequence[WatchConfig | Mapping[str, Any]],
+    *,
+    activate_first_if_none: bool = True,
+) -> list[RegisteredWatchView]:
+    """
+    Register watched files as real plotsrv views.
+
+    This makes watch-only workflows first-class: the UI can show a watched file
+    view before any Python object has been published and before the watcher has
+    emitted its first payload.
+    """
+    configs = coerce_watch_configs(watches)
+    registered = [_watch_view_from_config(spec) for spec in configs]
+
+    active_before = store.get_active_view_id()
+
+    for view in registered:
+        store.register_view(
+            view_id=view.view_id,
+            section=view.section,
+            label=view.label,
+            kind=view.kind,
+            activate_if_first=False,
+        )
+
+    if activate_first_if_none and registered and active_before is None:
+        store.set_active_view(registered[0].view_id)
+
+    return registered
+
+
 def default_watch_read_mode(path: Path) -> WatchReadMode:
     fk = infer_file_kind(path)
 
@@ -349,6 +596,196 @@ def post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> bo
         return False
 
 
+def _normalise_render_limit(raw: Any) -> int | None:
+    """
+    Convert render limit values to an int or None.
+
+    None means no render truncation. This accepts the same broad shape as the
+    existing config layer: int-like values, "off", "none", "false", etc.
+    """
+    if raw is None:
+        return None
+
+    if raw is settings._TRUNCATE_OFF:
+        return None
+
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("off", "none", "null", "false", "no", "0", ""):
+            return None
+        try:
+            return max(1, int(float(s)))
+        except Exception:
+            return None
+
+    try:
+        return max(1, int(raw))
+    except Exception:
+        return None
+
+
+def get_watch_render_limit(artifact_kind: str | None) -> int | None:
+    """
+    Return the render limit that should be applied to a watched text-like artifact.
+
+    C1 deliberately uses the existing render limits, not publish-limits.
+    """
+    ak = (artifact_kind or "text").strip().lower()
+
+    if ak in {"watch_error", "publish_error"}:
+        return None
+
+    if ak == "markdown":
+        return _normalise_render_limit(config.get_render_markdown_max_chars())
+
+    if ak == "html":
+        return _normalise_render_limit(config.get_render_html_max_chars())
+
+    return _normalise_render_limit(config.get_render_text_max_chars())
+
+
+def truncate_watch_text_like_artifact(
+    artifact: Any,
+    *,
+    artifact_kind: str | None,
+) -> Any:
+    """
+    Apply watched-file render limits before POSTing to /publish.
+
+    Only text-like watched artifacts are affected:
+      - text
+      - markdown
+      - html
+
+    JSON objects and tables are left unchanged.
+    """
+    ak = (artifact_kind or "text").strip().lower()
+
+    if ak in {"watch_error", "publish_error"}:
+        return artifact
+
+    if ak not in {"text", "markdown", "html"}:
+        return artifact
+
+    if not isinstance(artifact, str):
+        return artifact
+
+    limit = get_watch_render_limit(ak)
+    if limit is None:
+        return artifact
+
+    if len(artifact) <= limit:
+        return artifact
+
+    omitted = len(artifact) - limit
+    return (
+        artifact[:limit]
+        + "\n\n"
+        + f"[plotsrv watch] truncated {omitted} characters using limits.truncate_after.{ak}"
+    )
+
+
+def build_watch_publish_payload(
+    *,
+    path: str | Path,
+    raw: bytes,
+    watch_config: WatchConfig,
+    read_mode: WatchReadMode,
+    max_bytes: int | None,
+    max_rows: int | None = None,
+    max_columns: int | None = None,
+) -> WatchPublishPayload:
+    """
+    Convert watched-file bytes into a prepared publish payload.
+
+    This centralises the text/json/auto branching so standalone CLI watch mode
+    and background watch threads prepare watched files in the same way.
+    """
+    p = Path(path).expanduser().resolve()
+    rows_limit = config.get_table_truncate_rows() if max_rows is None else max_rows
+    columns_limit = (
+        config.get_table_truncate_columns() if max_columns is None else max_columns
+    )
+
+    if watch_config.kind == "text":
+        txt = raw.decode(watch_config.encoding, errors="replace")
+        artifact = with_text_anchor_header(txt, read_mode)
+        artifact = truncate_watch_text_like_artifact(
+            artifact,
+            artifact_kind="text",
+        )
+
+        return WatchPublishPayload(
+            kind="artifact",
+            artifact=artifact,
+            artifact_kind="text",
+        )
+
+    if watch_config.kind == "json":
+        txt = raw.decode(watch_config.encoding, errors="replace")
+        try:
+            obj = json.loads(txt)
+            return WatchPublishPayload(
+                kind="artifact",
+                artifact=obj,
+                artifact_kind="json",
+            )
+        except Exception as e:
+            artifact = (
+                f"[plotsrv watch] JSON parse error: "
+                f"{type(e).__name__}: {e}\n\n{txt}"
+            )
+
+            return WatchPublishPayload(
+                kind="artifact",
+                artifact=artifact,
+                artifact_kind="watch_error",
+            )
+
+    try:
+        coerced = coerce_file_to_publishable(
+            p,
+            encoding=watch_config.encoding,
+            max_bytes=max_bytes,
+            max_rows=rows_limit,
+            max_columns=columns_limit,
+            raw=raw,
+        )
+
+        if coerced.publish_kind == "table":
+            return WatchPublishPayload(
+                kind="table",
+                table_df=coerced.obj,
+            )
+
+        obj_to_publish = coerced.obj
+        artifact_kind = coerced.artifact_kind or "text"
+
+        if artifact_kind == "text":
+            obj_to_publish = with_text_anchor_header(str(coerced.obj), read_mode)
+
+        obj_to_publish = truncate_watch_text_like_artifact(
+            obj_to_publish,
+            artifact_kind=artifact_kind,
+        )
+
+        return WatchPublishPayload(
+            kind="artifact",
+            artifact=obj_to_publish,
+            artifact_kind=artifact_kind,
+        )
+
+    except Exception as e:
+        txt = raw.decode(watch_config.encoding, errors="replace")
+        artifact = f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}"
+
+        return WatchPublishPayload(
+            kind="artifact",
+            artifact=artifact,
+            artifact_kind="watch_error",
+        )
+
+
 def publish_watch_payload(
     *,
     host: str,
@@ -395,34 +832,190 @@ def publish_watch_payload(
     return post_publish_payload(host=host, port=port, payload=payload)
 
 
+def get_watch_adjustment_keys(
+    *,
+    path: str | Path | None,
+    artifact_kind: str | None,
+) -> list[str]:
+    """
+    Return config keys likely to help with a failed watched-file publish.
+    """
+    ak = (artifact_kind or "text").strip().lower()
+
+    if path is not None:
+        try:
+            fk = infer_file_kind(Path(path).expanduser().resolve())
+        except Exception:
+            fk = None
+
+        if fk == "csv":
+            return [
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.table_rows",
+                "limits.truncate_after.table_columns",
+            ]
+
+        if fk == "markdown":
+            return [
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.markdown",
+            ]
+
+        if fk == "html":
+            return [
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.html",
+            ]
+
+        if ak == "markdown":
+            return [
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.markdown",
+            ]
+
+        if ak == "html":
+            return [
+                "limits.watched_files.max_mb",
+                "limits.truncate_after.html",
+            ]
+
+    return [
+        "limits.watched_files.max_mb",
+        "limits.truncate_after.text",
+    ]
+
+
+def build_watch_publish_error_artifact(
+    *,
+    error: BaseException | str,
+    path: str | Path | None,
+    section: str,
+    label: str,
+    artifact_kind: str | None,
+    read_mode: WatchReadMode | None = None,
+) -> str:
+    """
+    Build a user-visible watch publish failure message.
+
+    This is intentionally plain text so it can render even when richer artifact
+    rendering is the thing that failed.
+    """
+    if isinstance(error, BaseException):
+        error_text = f"{type(error).__name__}: {error}"
+    else:
+        error_text = str(error)
+
+    file_text = (
+        str(Path(path).expanduser().resolve()) if path is not None else "unknown"
+    )
+    keys = get_watch_adjustment_keys(path=path, artifact_kind=artifact_kind)
+
+    key_lines = "\n".join(f"  - {key}" for key in keys)
+
+    tail_hint = ""
+    if read_mode != "tail":
+        tail_hint = (
+            "\n\n"
+            "For large logs or text files, prefer tail mode:\n"
+            "  plotsrv watch <file> --watch-tail\n"
+            "  plotsrv run <target> --watch <file> --watch-tail"
+        )
+
+    return (
+        "[plotsrv watch] publish failed\n\n"
+        "What failed:\n"
+        f"  {error_text}\n\n"
+        "Watched file:\n"
+        f"  {file_text}\n\n"
+        "View:\n"
+        f"  section={section!r}, label={label!r}\n\n"
+        "Config keys to adjust:\n"
+        f"{key_lines}"
+        f"{tail_hint}"
+    )
+
+
+def publish_prepared_watch_payload(
+    *,
+    host: str,
+    port: int,
+    label: str,
+    section: str,
+    payload: WatchPublishPayload,
+    update_limit_s: int | None = None,
+    force: bool = False,
+    path: str | Path | None = None,
+    read_mode: WatchReadMode | None = None,
+) -> bool:
+    try:
+        ok = publish_watch_payload(
+            host=host,
+            port=port,
+            label=label,
+            section=section,
+            kind=payload.kind,
+            artifact=payload.artifact,
+            artifact_kind=payload.artifact_kind,
+            table_df=payload.table_df,
+            update_limit_s=update_limit_s,
+            force=force,
+        )
+    except Exception as e:
+        ok = False
+        error: BaseException | str = e
+    else:
+        error = "server rejected or did not accept the watch publish"
+
+    if ok:
+        return True
+
+    fallback = build_watch_publish_error_artifact(
+        error=error,
+        path=path,
+        section=section,
+        label=label,
+        artifact_kind=payload.artifact_kind,
+        read_mode=read_mode,
+    )
+
+    try:
+        return publish_watch_payload(
+            host=host,
+            port=port,
+            label=label,
+            section=section,
+            kind="artifact",
+            artifact=fallback,
+            artifact_kind="watch_error",
+            update_limit_s=None,
+            force=True,
+        )
+    except Exception:
+        return False
+
+
 def start_watch_threads(
     watches: Sequence[WatchConfig | Mapping[str, Any]],
     *,
     host: str,
     port: int,
+    register_views: bool = True,
 ) -> list[threading.Thread]:
     configs = coerce_watch_configs(watches)
     threads: list[threading.Thread] = []
 
-    for spec in configs:
-        p = Path(spec.path).expanduser().resolve()
-        section = (spec.section or "watch").strip() or "watch"
-        label = (spec.label or p.name).strip() or p.name
+    if register_views:
+        registered_views = register_watch_views(configs, activate_first_if_none=True)
+    else:
+        registered_views = [_watch_view_from_config(spec) for spec in configs]
 
-        view_id = store.normalize_view_id(None, section=section, label=label)
-
-        fk = infer_file_kind(p)
-        read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)
-        preregister_kind = "table" if fk == "csv" else "artifact"
+    for spec, registered in zip(configs, registered_views, strict=True):
+        p = registered.path
+        section = registered.section
+        label = registered.label
+        view_id = registered.view_id
+        read_mode = registered.read_mode
         resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=view_id)
-
-        store.register_view(
-            view_id=view_id,
-            section=section,
-            label=label,
-            kind=preregister_kind,
-            activate_if_first=False,
-        )
 
         def _worker(
             pth: Path = p,
@@ -449,16 +1042,14 @@ def start_watch_threads(
                     continue
 
                 try:
-                    fk2 = infer_file_kind(pth)
-                    if fk2 == "csv" and watch_read_mode == "tail":
-                        raw = read_csv_tail_with_header_bytes(
-                            pth, max_bytes=watch_max_bytes
-                        )
-                    elif watch_read_mode == "head":
-                        raw = read_head_bytes(pth, max_bytes=watch_max_bytes)
-                    else:
-                        raw = read_tail_bytes(pth, max_bytes=watch_max_bytes)
+                    raw = read_watch_file_bytes(
+                        pth,
+                        read_mode=watch_read_mode,
+                        max_bytes=watch_max_bytes,
+                        watch_config=watch_config,
+                    )
                 except Exception as e:
+
                     publish_watch_payload(
                         host=host,
                         port=port,
@@ -466,7 +1057,7 @@ def start_watch_threads(
                         section=view_section,
                         kind="artifact",
                         artifact=f"[plotsrv watch] read error: {type(e).__name__}: {e}",
-                        artifact_kind="text",
+                        artifact_kind="watch_error",
                         update_limit_s=watch_config.update_limit_s,
                         force=watch_config.force,
                     )
@@ -475,107 +1066,27 @@ def start_watch_threads(
 
                 last_sig = sig
 
-                if watch_config.kind == "text":
-                    txt = raw.decode(watch_config.encoding, errors="replace")
-                    txt2 = with_text_anchor_header(txt, watch_read_mode)
-                    publish_watch_payload(
-                        host=host,
-                        port=port,
-                        label=view_label,
-                        section=view_section,
-                        kind="artifact",
-                        artifact=txt2,
-                        artifact_kind="text",
-                        update_limit_s=watch_config.update_limit_s,
-                        force=watch_config.force,
-                    )
-                    time.sleep(1.0)
-                    continue
+                payload = build_watch_publish_payload(
+                    path=pth,
+                    raw=raw,
+                    watch_config=watch_config,
+                    read_mode=watch_read_mode,
+                    max_bytes=watch_max_bytes,
+                    max_rows=config.get_table_truncate_rows(),
+                    max_columns=config.get_table_truncate_columns(),
+                )
 
-                if watch_config.kind == "json":
-                    try:
-                        txt = raw.decode(watch_config.encoding, errors="replace")
-                        obj = json.loads(txt)
-                        publish_watch_payload(
-                            host=host,
-                            port=port,
-                            label=view_label,
-                            section=view_section,
-                            kind="artifact",
-                            artifact=obj,
-                            artifact_kind="json",
-                            update_limit_s=watch_config.update_limit_s,
-                            force=watch_config.force,
-                        )
-                    except Exception as e:
-                        txt = raw.decode(watch_config.encoding, errors="replace")
-                        publish_watch_payload(
-                            host=host,
-                            port=port,
-                            label=view_label,
-                            section=view_section,
-                            kind="artifact",
-                            artifact=f"[plotsrv watch] JSON parse error: {type(e).__name__}: {e}\n\n{txt}",
-                            artifact_kind="text",
-                            update_limit_s=watch_config.update_limit_s,
-                            force=watch_config.force,
-                        )
-                    time.sleep(1.0)
-                    continue
-
-                try:
-                    coerced = coerce_file_to_publishable(
-                        pth,
-                        encoding=watch_config.encoding,
-                        max_bytes=watch_max_bytes,
-                        max_rows=config.get_max_table_rows_rich(),
-                        raw=raw,
-                    )
-
-                    if coerced.publish_kind == "table":
-                        publish_watch_payload(
-                            host=host,
-                            port=port,
-                            label=view_label,
-                            section=view_section,
-                            kind="table",
-                            table_df=coerced.obj,
-                            update_limit_s=watch_config.update_limit_s,
-                            force=watch_config.force,
-                        )
-                    else:
-                        obj_to_publish = coerced.obj
-                        ak = coerced.artifact_kind or "text"
-
-                        if ak == "text":
-                            obj_to_publish = with_text_anchor_header(
-                                str(coerced.obj), watch_read_mode
-                            )
-
-                        publish_watch_payload(
-                            host=host,
-                            port=port,
-                            label=view_label,
-                            section=view_section,
-                            kind="artifact",
-                            artifact=obj_to_publish,
-                            artifact_kind=ak,
-                            update_limit_s=watch_config.update_limit_s,
-                            force=watch_config.force,
-                        )
-                except Exception as e:
-                    txt = raw.decode(watch_config.encoding, errors="replace")
-                    publish_watch_payload(
-                        host=host,
-                        port=port,
-                        label=view_label,
-                        section=view_section,
-                        kind="artifact",
-                        artifact=f"[plotsrv watch] parse error: {type(e).__name__}: {e}\n\n{txt}",
-                        artifact_kind="text",
-                        update_limit_s=watch_config.update_limit_s,
-                        force=watch_config.force,
-                    )
+                publish_prepared_watch_payload(
+                    host=host,
+                    port=port,
+                    label=view_label,
+                    section=view_section,
+                    payload=payload,
+                    update_limit_s=watch_config.update_limit_s,
+                    force=watch_config.force,
+                    path=pth,
+                    read_mode=watch_read_mode,
+                )
 
                 time.sleep(1.0)
 

@@ -243,7 +243,12 @@ Edit `plotsrv.yaml` and enable storage and freshness:
 ```yaml title="plotsrv.yaml"
 storage-settings:
   enabled: true
+  watch_enabled: false
   root_dir: .plotsrv/store
+  latest:
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
   default_keep_last: 5
   default_min_store_interval: 1h
   max_snapshot_size_mb: 20
@@ -272,7 +277,7 @@ python quickstart_plot.py
 
 Storage allows plotsrv to keep recent history and restore the latest view after restart.
 
-Freshness helps show whether a view has updated recently enough.
+Freshness helps show whether normal Python-published views have updated recently enough. Watched-file views are source-aware and are not marked stale by global freshness settings unless they are explicitly configured.
 
 ## What to try next
 

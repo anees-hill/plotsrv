@@ -93,33 +93,167 @@ def _container_item_count(obj: Any) -> int:
     return 0
 
 
-def _validate_artifact_size(obj: Any) -> None:
+def _is_watch_publish_source(publish_source: str | None) -> bool:
+    return (publish_source or "").strip().lower() == "watch"
+
+
+def _publish_source_label(publish_source: str | None) -> str:
+    return (publish_source or "normal").strip().lower()
+
+
+def _http_detail_to_text(detail: Any) -> str:
+    if isinstance(detail, str):
+        return detail
+    try:
+        return str(detail)
+    except Exception:
+        return "Unknown publish error"
+
+
+def _publish_rejection_artifact_text(
+    *,
+    status_code: int,
+    detail: Any,
+    view_id: str,
+    kind: str,
+    publish_source: str | None,
+) -> str:
+    detail_text = _http_detail_to_text(detail)
+
+    return (
+        "plotsrv publish rejected\n"
+        "\n"
+        f"Status: {status_code}\n"
+        f"View: {view_id}\n"
+        f"Kind: {kind}\n"
+        f"Publish source: {_publish_source_label(publish_source)}\n"
+        "\n"
+        "What failed:\n"
+        f"{detail_text}\n"
+        "\n"
+        "Adjust the config key mentioned above, or publish a smaller/truncated object.\n"
+    )
+
+
+def _record_publish_rejection_artifact(
+    *,
+    exc: HTTPException,
+    view_id: str,
+    section: Any,
+    label: Any,
+    kind: str,
+    publish_source: str | None,
+) -> None:
+    """
+    Make rejected normal Python publishes visible in the UI.
+
+    Watch publishes have their own fallback path in runtime.py, so avoid
+    duplicating that behaviour here.
+    """
+    if _is_watch_publish_source(publish_source):
+        return
+
+    msg = _publish_rejection_artifact_text(
+        status_code=int(exc.status_code),
+        detail=exc.detail,
+        view_id=view_id,
+        kind=kind,
+        publish_source=publish_source,
+    )
+
+    try:
+        store.set_artifact(
+            obj=msg,
+            kind="publish_error",
+            label=label if isinstance(label, str) else None,
+            section=section if isinstance(section, str) else None,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
+        store.mark_error(msg, view_id=view_id)
+    except Exception:
+        # Never hide the original publish rejection.
+        return
+
+
+def _raise_publish_rejection(
+    *,
+    status_code: int,
+    detail: str,
+    view_id: str,
+    section: Any,
+    label: Any,
+    kind: str,
+    publish_source: str | None,
+) -> None:
+    exc = HTTPException(status_code=status_code, detail=detail)
+    _record_publish_rejection_artifact(
+        exc=exc,
+        view_id=view_id,
+        section=section,
+        label=label,
+        kind=kind,
+        publish_source=publish_source,
+    )
+    raise exc
+
+
+def _validate_artifact_size(
+    obj: Any,
+    *,
+    publish_source: str | None = None,
+) -> None:
+    """
+        Validate normal /publish artifact payloads.
+
+
+    Watched files are source-aware: by the time they reach /publish, they should
+    already have been controlled by limits.watched_files and limits.truncate_after.*.
+    They should not also be rejected by limits.published_objects.*.
+    """
+    if _is_watch_publish_source(publish_source):
+        return
+
+    source = _publish_source_label(publish_source)
     max_text = config.get_publish_max_artifact_text_chars()
     max_items = config.get_publish_max_json_container_items()
 
     if isinstance(obj, str):
-        if len(obj) > max_text:
+        actual = len(obj)
+        if actual > max_text:
             raise HTTPException(
                 status_code=413,
-                detail=f"publish: artifact text too large (>{max_text} chars)",
+                detail=(
+                    f"Artifact text payload has {actual} characters, exceeding "
+                    f"limits.published_objects.max_artifact_text_chars={max_text}. "
+                    f"publish_source={source}"
+                ),
             )
         return
 
     if isinstance(obj, (dict, list, tuple, set)):
-        item_count = _container_item_count(obj)
-        if item_count > max_items:
+        actual = _container_item_count(obj)
+        if actual > max_items:
             raise HTTPException(
                 status_code=413,
-                detail=f"publish: artifact JSON/container too large (>{max_items} items)",
+                detail=(
+                    f"Artifact JSON/container payload has {actual} items, exceeding "
+                    f"limits.published_objects.max_json_container_items={max_items}. "
+                    f"publish_source={source}"
+                ),
             )
         return
 
-    # repr-like fallback
     s = repr(obj)
-    if len(s) > max_text:
+    actual = len(s)
+    if actual > max_text:
         raise HTTPException(
             status_code=413,
-            detail=f"publish: artifact representation too large (>{max_text} chars)",
+            detail=(
+                f"Artifact representation has {actual} characters, exceeding "
+                f"limits.published_objects.max_artifact_text_chars={max_text}. "
+                f"publish_source={source}"
+            ),
         )
 
 
@@ -358,9 +492,36 @@ def get_plot(
     return Response(bytes(png), media_type="image/png", headers=headers)
 
 
+def _table_response_limits(limit: int | None) -> tuple[int | None, int | None]:
+    row_limit = config.get_table_truncate_rows()
+    col_limit = config.get_table_truncate_columns()
+
+    if limit is not None:
+        if row_limit is None:
+            row_limit = limit
+        else:
+            row_limit = min(row_limit, limit)
+
+    return row_limit, col_limit
+
+
+def _table_response_df(df: pd.DataFrame, *, limit: int | None) -> pd.DataFrame:
+    row_limit, col_limit = _table_response_limits(limit)
+
+    out = df
+
+    if col_limit is not None:
+        out = out.iloc[:, : max(1, int(col_limit))]
+
+    if row_limit is not None:
+        out = out.head(max(1, int(row_limit)))
+
+    return out
+
+
 @app.get("/table/data")
 def get_table_data(
-    limit: int = Query(default=config.get_max_table_rows_rich(), ge=1),
+    limit: int | None = Query(default=None, ge=1),
     view: str | None = None,
     snapshot: str | None = None,
 ) -> dict[str, Any]:
@@ -380,8 +541,7 @@ def get_table_data(
                 detail="Stored table snapshot payload was not a DataFrame.",
             )
 
-        max_rows = min(limit, config.get_max_table_rows_rich())
-        rows_df = df.head(max_rows)
+        rows_df = _table_response_df(df, limit=limit)
         columns = list(rows_df.columns)
         rows = rows_df.to_dict(orient="records")
 
@@ -408,9 +568,8 @@ def get_table_data(
         raise HTTPException(status_code=404, detail="No table has been published yet.")
 
     df = store.get_table_df(view_id=vid)
-    max_rows = min(limit, config.get_max_table_rows_rich())
 
-    rows_df = df.head(max_rows)
+    rows_df = _table_response_df(df, limit=limit)
     columns = list(rows_df.columns)
     rows = rows_df.to_dict(orient="records")
 
@@ -552,27 +711,55 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     if kind == "plot":
         b64 = payload.get("plot_png_b64")
         if not b64:
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=422,
                 detail="publish: plot_png_b64 is required for kind='plot'",
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="plot",
+                publish_source=publish_source,
             )
 
         try:
             png_bytes = base64.b64decode(b64.encode("utf-8"))
         except Exception:
-            raise HTTPException(
-                status_code=422, detail="publish: plot_png_b64 was not valid base64"
+            _raise_publish_rejection(
+                status_code=422,
+                detail="publish: plot_png_b64 was not valid base64",
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="plot",
+                publish_source=publish_source,
             )
 
         max_plot_bytes = config.get_publish_max_plot_bytes()
         if len(png_bytes) > max_plot_bytes:
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=413,
-                detail=f"publish: decoded plot too large (>{max_plot_bytes} bytes)",
+                detail=(
+                    f"Decoded plot payload has {len(png_bytes)} bytes, exceeding "
+                    f"limits.published_objects.max_plot_bytes={max_plot_bytes}. "
+                    f"publish_source={_publish_source_label(publish_source)}"
+                ),
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="plot",
+                publish_source=publish_source,
             )
 
-        store.set_plot(png_bytes, view_id=view_id)
-        store.mark_success(duration_s=None, view_id=view_id)
+        store.set_plot(
+            png_bytes,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
+        store.mark_success(
+            duration_s=None,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
         store.note_publish(view_id, now_s=now_s)
 
         enqueue_snapshot(
@@ -602,16 +789,35 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 "view_id": view_id,
             }
 
-        _validate_artifact_size(artifact_obj)
+        try:
+            _validate_artifact_size(
+                artifact_obj,
+                publish_source=publish_source,
+            )
+        except HTTPException as e:
+            _record_publish_rejection_artifact(
+                exc=e,
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="artifact",
+                publish_source=publish_source,
+            )
+            raise
 
         store.set_artifact(
             obj=artifact_obj,
-            kind=artifact_kind,  # type: ignore[arg-type]
-            label=label,
+            kind=artifact_kind,
             section=section,
+            label=label,
             view_id=view_id,
+            publish_source=publish_source,
         )
-        store.mark_success(duration_s=None, view_id=view_id)
+        store.mark_success(
+            duration_s=None,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
         store.note_publish(view_id, now_s=now_s)
 
         enqueue_snapshot(
@@ -628,39 +834,76 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     elif kind == "table":
         table = payload.get("table")
         if not isinstance(table, dict):
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=422,
                 detail="publish: table dict is required for kind='table'",
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="table",
+                publish_source=publish_source,
             )
 
         cols = table.get("columns")
         rows = table.get("rows")
         if not isinstance(cols, list) or not isinstance(rows, list):
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=422,
                 detail="publish: table must include columns(list) and rows(list)",
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="table",
+                publish_source=publish_source,
             )
 
         max_rows = config.get_publish_max_table_rows()
         max_cols = config.get_publish_max_table_columns()
 
         if len(cols) > max_cols:
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=413,
-                detail=f"publish: table has too many columns (>{max_cols})",
+                detail=(
+                    f"Table payload has {len(cols)} columns, exceeding "
+                    f"limits.published_objects.max_table_columns={max_cols}. "
+                    f"publish_source={_publish_source_label(publish_source)}"
+                ),
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="table",
+                publish_source=publish_source,
             )
 
         if len(rows) > max_rows:
-            raise HTTPException(
+            _raise_publish_rejection(
                 status_code=413,
-                detail=f"publish: table has too many rows (>{max_rows})",
+                detail=(
+                    f"Table payload has {len(rows)} rows, exceeding "
+                    f"limits.published_objects.max_table_rows={max_rows}. "
+                    f"publish_source={_publish_source_label(publish_source)}"
+                ),
+                view_id=view_id,
+                section=section,
+                label=label,
+                kind="table",
+                publish_source=publish_source,
             )
 
         for i, row in enumerate(rows[:50]):
             if isinstance(row, dict) and len(row) > max_cols:
-                raise HTTPException(
+                _raise_publish_rejection(
                     status_code=413,
-                    detail=f"publish: table row {i} has too many fields (>{max_cols})",
+                    detail=(
+                        f"Table row {i} has {len(row)} fields, exceeding "
+                        f"limits.published_objects.max_table_columns={max_cols}. "
+                        f"publish_source={_publish_source_label(publish_source)}"
+                    ),
+                    view_id=view_id,
+                    section=section,
+                    label=label,
+                    kind="table",
+                    publish_source=publish_source,
                 )
 
         total_rows = table.get("total_rows")
@@ -679,12 +922,17 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
         store.set_table(
             df,
-            html_simple=html_simple,
+            html_simple,
             view_id=view_id,
             total_rows=total_rows,
             returned_rows=returned_rows,
+            publish_source=publish_source,
         )
-        store.mark_success(duration_s=None, view_id=view_id)
+        store.mark_success(
+            duration_s=None,
+            view_id=view_id,
+            publish_source=publish_source,
+        )
         store.note_publish(view_id, now_s=now_s)
 
         enqueue_snapshot(
@@ -741,7 +989,8 @@ def index(view: str | None = None) -> HTMLResponse:
         table_view_mode=config.get_table_view_mode(),
         table_html_simple=table_html_simple,
         max_table_rows_simple=config.get_max_table_rows_simple(),
-        max_table_rows_rich=config.get_max_table_rows_rich(),
+        max_table_rows_rich=config.get_table_truncate_rows()
+        or config.get_max_table_rows_rich(),
         ui_settings=ui,
         views=views,
         view_freshness=view_freshness,

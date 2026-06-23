@@ -156,7 +156,7 @@ def test_render_index_escapes_view_labels_and_header_text() -> None:
     assert "&quot; onclick=&quot;alert(1)" in html
 
 
-def test_render_index_empty_state_mentions_publish_view_and_refresh_view() -> None:
+def test_render_index_empty_state_mentions_python_outputs_and_watched_files() -> None:
     ui = UISettings(
         logo_url="/static/x.png",
         header_text="",
@@ -187,6 +187,7 @@ def test_render_index_empty_state_mentions_publish_view_and_refresh_view() -> No
         active_view_id="default",
     )
 
-    assert "Waiting for views" in html
+    assert "Waiting for content" in html
     assert "plotsrv is running" in html
-    assert "from Python" in html
+    assert "Python outputs" in html
+    assert "watched file updates" in html

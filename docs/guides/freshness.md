@@ -36,6 +36,38 @@ This means:
 | `warn_after` | when the view should be considered stale |
 | `overdue_after` | when the view should be considered overdue |
 
+
+## Source-aware freshness
+
+Freshness is source-aware.
+
+Global freshness settings apply to normal Python publishes, such as `publish_view()` and `@view` outputs.
+
+Watched-file views are different. A watched file may be static for a long time and still be valid, so global freshness does **not** mark watched-file views stale by default.
+
+To apply freshness to a watched file, add an explicit per-view freshness entry:
+
+```yaml title="plotsrv.yaml"
+freshness-settings:
+  enabled: true
+  expected_every: 1h
+  warn_after: 90m
+  overdue_after: 2h
+
+  views:
+    "files:job log":
+      enabled: true
+      expected_every: 5m
+      warn_after: 10m
+      overdue_after: 30m
+```
+
+With this pattern:
+
+- normal Python views use the global freshness settings
+- watched-file views ignore global freshness unless they have a matching entry in `freshness-settings.views`
+- a per-view entry can also set `enabled: false` to opt a normal view out
+
 ## What appears in the UI
 
 When freshness is enabled, plotsrv can show whether a view is:

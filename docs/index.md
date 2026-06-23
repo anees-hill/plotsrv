@@ -7,9 +7,12 @@
 # plotsrv
 
 <div class="plotsrv-hero-logo">
-  <img src="assets/images/brand/plotsrv_brush_stroke_logo.png" alt="plotsrv">
+  <img src="assets/images/brand/plotsrv_icon_logo.png" alt="plotsrv">
 </div>
 
+<div class="plotsrv-title-logo">
+  <img src="assets/images/brand/plotsrv_title_logo.png" alt="plotsrv">
+</div>
 plotsrv turns Python objects into live browser views with minimal code.
 
 Tables, plots, JSON, HTML, logs, images, tracebacks, and files can be surfaced through a browser UI designed for scripts, pipelines, experiments, batch jobs, and long-running processes.

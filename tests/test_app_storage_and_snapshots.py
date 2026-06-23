@@ -408,13 +408,14 @@ def test_publish_table_non_string_html_simple_becomes_none(
     orig_set_table = app_mod.store.set_table
 
     def fake_set_table(
-        df: pd.DataFrame,
-        html_simple: str | None,
+        df,
+        html_simple,
         *,
-        view_id: str | None = None,
-        total_rows: int | None = None,
-        returned_rows: int | None = None,
-    ) -> None:
+        view_id=None,
+        total_rows=None,
+        returned_rows=None,
+        publish_source=None,
+    ):
         captured.append(
             {
                 "df": df,

@@ -17,33 +17,48 @@ PopulateMode = Literal["merge", "replace"]
 DEFAULT_CONFIG_TEXT = """# plotsrv.yml
 #
 # Starter configuration for plotsrv.
-# Use this file to control limits, rendering, storage, freshness, and security.
+#
+# This file includes the most commonly adjusted options.
+# More options are available in the configuration reference:
+# https://docs.plotsrv.com/guides/configuration-reference
 
 limits:
+  published_objects:
+    # Hard safety limits for objects sent to the plotsrv server.
+    # If these are exceeded, the publish request is rejected with an actionable error.
+    max_plot_bytes: 5242880          # 5 MiB
+    max_table_rows: 100000
+    max_table_columns: 200
+    max_artifact_text_chars: 200000
+    max_json_container_items: 20000
+
   watched_files:
-    # Maximum bytes read from watched files.
-    # Use "off" to read whole files.
-    max_bytes: 5000000
+    # Maximum amount plotsrv reads from each watched file.
+    # Use "off" to allow full-file reads, but this can use a lot of memory.
+    max_mb: 500
 
-  render:
-    # Display limits for text-like rendered views.
-    # Use "off" to disable render truncation.
+  truncate_after:
+    # Preparation/display limits.
+    # These should truncate what plotsrv prepares for display, not reject the view.
     text: 1000000
+    markdown: 100000
     html: off
-    markdown: off
+    table_rows: 100000
+    table_columns: 200
 
-  tables:
-    max_rows: 10000
-    max_columns: 200
+storage-settings:
+  enabled: false
+  watch_enabled: false
+  root_dir: .plotsrv/store
+  max_snapshot_size_mb: 20.0
+  default_keep_last: 3
+  default_min_store_interval: off
 
-table-settings:
-  table_view_mode: rich
-  max_table_rows_simple: 200
-  max_table_rows_rich: 1000
-
-artifact-render-settings:
-  html_sanitize: false
-  markdown_sanitize: true
+freshness-settings:
+  enabled: false
+  expected_every: 60s
+  warn_after: 2m
+  overdue_after: 10m
 
 render-settings:
   default:
@@ -51,27 +66,11 @@ render-settings:
     plot_default_figsize_in: "12,6"
     plot_bbox_tight: true
     plot_pad_inches: 0.10
-
-storage-settings:
-  enabled: false
-  root_dir: .plotsrv/store
-
-  # Latest live-state persistence.
-  # When enabled, plotsrv can restore the most recent live view after restart.
-  latest:
-    enabled: true
-    restore_on_startup: true
-    restore_scope: discovered
-
-  # Historical snapshots.
-  default_keep_last: 2
-  max_snapshot_size_mb: 20
-
-freshness-settings:
-  enabled: false
-  expected_every: 60s
-  warn_after: 90s
-  overdue_after: 180s
+    table_view_mode: rich
+    html_sanitize: false
+    markdown_sanitize: true
+    html_sandbox: ""
+    markdown_sandbox: ""
 
 security-settings:
   tracebacks_enabled: false
@@ -312,34 +311,50 @@ def populate_limits(
     mode: PopulateMode = "merge",
     text: str | int | None = "1000000",
     html: str | int | None = "off",
-    markdown: str | int | None = "off",
+    markdown: str | int | None = "100000",
+    max_mb: str | int | float | None = 500,
+    table_rows: str | int | None = 100000,
+    table_columns: str | int | None = 200,
 ) -> ConfigPopulateResult:
     def ensure(data: dict[str, Any]) -> dict[str, Any]:
         sec = _ensure_mapping(data, "limits")
 
+        published = _ensure_mapping(sec, "published_objects")
+        published.setdefault("max_plot_bytes", 5 * 1024 * 1024)
+        published.setdefault("max_table_rows", 100000)
+        published.setdefault("max_table_columns", 200)
+        published.setdefault("max_artifact_text_chars", 200000)
+        published.setdefault("max_json_container_items", 20000)
+
         watched = _ensure_mapping(sec, "watched_files")
-        watched.setdefault("max_bytes", 5_000_000)
+        if max_mb is not None:
+            watched.setdefault("max_mb", max_mb)
 
-        render = _ensure_mapping(sec, "render")
-        render.setdefault("text", 1_000_000)
-        render.setdefault("html", "off")
-        render.setdefault("markdown", "off")
-
-        tables = _ensure_mapping(sec, "tables")
-        tables.setdefault("max_rows", 10_000)
-        tables.setdefault("max_columns", 200)
+        truncate_after = _ensure_mapping(sec, "truncate_after")
+        if text is not None:
+            truncate_after.setdefault("text", text)
+        if markdown is not None:
+            truncate_after.setdefault("markdown", markdown)
+        if html is not None:
+            truncate_after.setdefault("html", html)
+        if table_rows is not None:
+            truncate_after.setdefault("table_rows", table_rows)
+        if table_columns is not None:
+            truncate_after.setdefault("table_columns", table_columns)
 
         return sec
 
     def make_entry(_view_id: str) -> dict[str, Any]:
-        render: dict[str, Any] = {}
+        truncate_after: dict[str, Any] = {}
+
         if text is not None:
-            render["text"] = text
-        if html is not None:
-            render["html"] = html
+            truncate_after["text"] = text
         if markdown is not None:
-            render["markdown"] = markdown
-        return {"render": render}
+            truncate_after["markdown"] = markdown
+        if html is not None:
+            truncate_after["html"] = html
+
+        return {"truncate_after": truncate_after}
 
     return _populate_view_section(
         path=path,

@@ -427,6 +427,7 @@ def test_start_server_starts_watch_threads(monkeypatch):
     import plotsrv.server as srv
 
     watch_calls = []
+    register_calls = []
 
     monkeypatch.setattr(
         "plotsrv.runtime.apply_runtime_options",
@@ -435,24 +436,55 @@ def test_start_server_starts_watch_threads(monkeypatch):
     monkeypatch.setattr(srv, "_ensure_server_running", lambda *a, **k: None)
     monkeypatch.setattr(srv, "_patch_matplotlib_show", lambda: None)
     monkeypatch.setattr(srv, "restore_latest_views_from_storage", lambda: 0)
+    monkeypatch.setattr(srv, "_wait_for_server_ready", lambda *a, **k: True)
 
-    def fake_start_watch_threads(watches, *, host, port):
-        watch_calls.append({"watches": watches, "host": host, "port": port})
+    def fake_register_watch_views(watches, **kwargs):
+        register_calls.append({"watches": watches, **kwargs})
         return []
 
+    def fake_start_watch_threads(
+        watches,
+        *,
+        host,
+        port,
+        register_views=True,
+    ):
+        watch_calls.append(
+            {
+                "watches": watches,
+                "host": host,
+                "port": port,
+                "register_views": register_views,
+            }
+        )
+        return []
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.register_watch_views",
+        fake_register_watch_views,
+    )
     monkeypatch.setattr(
         "plotsrv.runtime.start_watch_threads",
         fake_start_watch_threads,
     )
 
     watches = [{"path": "README.md", "label": "readme"}]
+
     srv.start_server(host="0.0.0.0", port=8123, watches=watches)
+
+    assert register_calls == [
+        {
+            "watches": watches,
+            "activate_first_if_none": True,
+        }
+    ]
 
     assert watch_calls == [
         {
             "watches": watches,
-            "host": "0.0.0.0",
+            "host": "127.0.0.1",
             "port": 8123,
+            "register_views": False,
         }
     ]
 

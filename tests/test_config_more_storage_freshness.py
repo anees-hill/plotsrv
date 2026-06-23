@@ -437,3 +437,55 @@ storage-settings:
 
     assert cfg.get_storage_restore_latest_on_startup() is False
     assert cfg.get_storage_latest_restore_scope() == "none"
+
+
+def test_has_freshness_view_config(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+freshness-settings:
+  enabled: true
+  views:
+    watch:log:
+      expected_every: "30s"
+    normal:view:
+      enabled: false
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.has_freshness_view_config("watch:log") is True
+    assert cfg.has_freshness_view_config("normal:view") is True
+    assert cfg.has_freshness_view_config("missing:view") is False
+    assert cfg.has_freshness_view_config(None) is False
+
+
+def test_freshness_view_enabled_defaults_true_and_honours_override(
+    tmp_path: Path,
+) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+freshness-settings:
+  enabled: true
+  views:
+    enabled:view:
+      expected_every: "30s"
+    disabled:view:
+      enabled: false
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_freshness_view_enabled("enabled:view") is True
+    assert cfg.get_freshness_view_enabled("disabled:view") is False
+    assert cfg.get_freshness_view_enabled("missing:view") is True
+    assert cfg.get_freshness_view_enabled(None) is True

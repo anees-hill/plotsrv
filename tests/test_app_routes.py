@@ -72,9 +72,11 @@ def test_index_none_shows_empty_state(client: TestClient) -> None:
     store.reset()
     resp = client.get("/")
     text = resp.text
-    assert "Waiting for views" in text
+
+    assert "Waiting for content" in text
     assert "plotsrv is running" in text
-    assert "from Python" in text
+    assert "Python outputs" in text
+    assert "watched file updates" in text
 
 
 def test_index_plot_embeds_image(client: TestClient) -> None:
@@ -238,3 +240,396 @@ def test_status_includes_restored_fields(client: TestClient) -> None:
     assert data["restored_from_storage"] is True
     assert data["restored_at"] == "2026-01-02T00:00:00+00:00"
     assert data["restore_source"] == "latest"
+
+
+def test_publish_normal_large_text_artifact_still_rejected(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "limits",
+        "label": "normal-large-text",
+        "artifact": "x" * 20,
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "limits.published_objects.max_artifact_text_chars=5" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_publish_watch_large_text_artifact_bypasses_publish_text_limit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "limits",
+        "label": "watch-large-text",
+        "artifact": "x" * 20,
+        "publish_source": "watch",
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert resp.json()["ignored"] is False
+
+
+def test_publish_watch_source_is_case_and_space_insensitive(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "limits",
+        "label": "watch-source-normalised",
+        "artifact": "x" * 20,
+        "publish_source": "  WATCH  ",
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_publish_normal_large_json_artifact_still_rejected(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_json_container_items", lambda: 2)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "json",
+        "section": "limits",
+        "label": "normal-large-json",
+        "artifact": {"a": [1, 2, 3]},
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "limits.published_objects.max_json_container_items=2" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_publish_watch_large_json_artifact_bypasses_publish_json_limit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_json_container_items", lambda: 2)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "json",
+        "section": "limits",
+        "label": "watch-large-json",
+        "artifact": {"a": [1, 2, 3]},
+        "publish_source": "watch",
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+
+
+def test_publish_normal_large_text_artifact_413_is_actionable(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    resp = client.post(
+        "/publish",
+        json={
+            "kind": "artifact",
+            "artifact_kind": "text",
+            "section": "limits",
+            "label": "normal-large-text",
+            "artifact": "x" * 20,
+        },
+    )
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "20 characters" in detail
+    assert "limits.published_objects.max_artifact_text_chars=5" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_publish_table_too_many_rows_413_is_actionable(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 1)
+
+    resp = client.post(
+        "/publish",
+        json={
+            "kind": "table",
+            "section": "limits",
+            "label": "too-many-rows",
+            "table": {
+                "columns": ["a"],
+                "rows": [{"a": 1}, {"a": 2}],
+            },
+        },
+    )
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "2 rows" in detail
+    assert "limits.published_objects.max_table_rows=1" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_publish_table_too_many_columns_413_is_actionable(
+    client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_columns", lambda: 1)
+
+    resp = client.post(
+        "/publish",
+        json={
+            "kind": "table",
+            "section": "limits",
+            "label": "too-many-columns",
+            "table": {
+                "columns": ["a", "b"],
+                "rows": [{"a": 1, "b": 2}],
+            },
+        },
+    )
+
+    assert resp.status_code == 413
+    detail = resp.json()["detail"]
+    assert "2 columns" in detail
+    assert "limits.published_objects.max_table_columns=1" in detail
+    assert "publish_source=normal" in detail
+
+
+def test_table_data_uses_table_truncate_limits(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_table_truncate_rows", lambda: 2)
+    monkeypatch.setattr(config, "get_table_truncate_columns", lambda: 2)
+
+    df = pd.DataFrame(
+        {
+            "a": [1, 2, 3],
+            "b": [4, 5, 6],
+            "c": [7, 8, 9],
+        }
+    )
+    store.set_table(df, html_simple="<table>dummy</table>")
+
+    resp = client.get("/table/data")
+    assert resp.status_code == 200
+
+    data = resp.json()
+
+    assert data["columns"] == ["a", "b"]
+    assert data["rows"] == [
+        {"a": 1, "b": 4},
+        {"a": 2, "b": 5},
+    ]
+    assert data["total_rows"] == 3
+    assert data["returned_rows"] == 2
+
+
+def test_table_data_query_limit_can_reduce_below_table_truncate_limit(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_table_truncate_rows", lambda: 3)
+    monkeypatch.setattr(config, "get_table_truncate_columns", lambda: 10)
+
+    df = pd.DataFrame({"a": [1, 2, 3]})
+    store.set_table(df, html_simple="<table>dummy</table>")
+
+    resp = client.get("/table/data?limit=1")
+    assert resp.status_code == 200
+
+    data = resp.json()
+
+    assert data["rows"] == [{"a": 1}]
+    assert data["total_rows"] == 3
+    assert data["returned_rows"] == 1
+
+
+def test_rejected_python_artifact_publish_creates_visible_error_artifact(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "tests",
+        "label": "too-big",
+        "artifact": "x" * 20,
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+
+    vid = store.normalize_view_id(None, section="tests", label="too-big")
+    art = store.get_artifact(view_id=vid)
+
+    assert art.kind == "publish_error"
+    assert "plotsrv publish rejected" in art.obj
+    assert "Status: 413" in art.obj
+    assert "View: tests:too-big" in art.obj
+    assert "Kind: artifact" in art.obj
+    assert "limits.published_objects.max_artifact_text_chars=5" in art.obj
+
+    status = store.get_status(view_id=vid)
+    assert status["last_error"]
+
+
+def test_rejected_python_table_publish_creates_visible_error_artifact(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 1)
+
+    payload = {
+        "kind": "table",
+        "section": "tests",
+        "label": "too-many-rows",
+        "table": {
+            "columns": ["a"],
+            "rows": [{"a": 1}, {"a": 2}],
+            "total_rows": 2,
+            "returned_rows": 2,
+        },
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+
+    vid = store.normalize_view_id(None, section="tests", label="too-many-rows")
+    art = store.get_artifact(view_id=vid)
+
+    assert art.kind == "publish_error"
+    assert "plotsrv publish rejected" in art.obj
+    assert "Status: 413" in art.obj
+    assert "Kind: table" in art.obj
+    assert "limits.published_objects.max_table_rows=1" in art.obj
+
+    status = store.get_status(view_id=vid)
+    assert status["last_error"]
+
+
+def test_rejected_python_plot_publish_creates_visible_error_artifact(
+    client: TestClient,
+) -> None:
+    payload = {
+        "kind": "plot",
+        "section": "tests",
+        "label": "bad-plot",
+        "plot_png_b64": "not valid base64",
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 422
+
+    vid = store.normalize_view_id(None, section="tests", label="bad-plot")
+    art = store.get_artifact(view_id=vid)
+
+    assert art.kind == "publish_error"
+    assert "plotsrv publish rejected" in art.obj
+    assert "Status: 422" in art.obj
+    assert "Kind: plot" in art.obj
+    assert "plot_png_b64 was not valid base64" in art.obj
+
+    status = store.get_status(view_id=vid)
+    assert status["last_error"]
+
+
+def test_rejected_watch_publish_does_not_create_app_level_error_artifact(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 1)
+
+    payload = {
+        "kind": "table",
+        "section": "watch",
+        "label": "too-many-rows",
+        "publish_source": "watch",
+        "table": {
+            "columns": ["a"],
+            "rows": [{"a": 1}, {"a": 2}],
+            "total_rows": 2,
+            "returned_rows": 2,
+        },
+    }
+
+    resp = client.post("/publish", json=payload)
+
+    assert resp.status_code == 413
+
+    vid = store.normalize_view_id(None, section="watch", label="too-many-rows")
+
+    with pytest.raises(LookupError):
+        store.get_artifact(view_id=vid)
+
+
+def test_publish_error_artifact_renders_without_text_truncation(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_artifact_text_chars", lambda: 5)
+    monkeypatch.setattr(
+        config, "get_truncation_max_chars", lambda kind, view_id=None: 10
+    )
+
+    payload = {
+        "kind": "artifact",
+        "artifact_kind": "text",
+        "section": "tests",
+        "label": "too-big-untruncated-error",
+        "artifact": "x" * 20,
+    }
+
+    resp = client.post("/publish", json=payload)
+    assert resp.status_code == 413
+
+    vid = store.normalize_view_id(
+        None,
+        section="tests",
+        label="too-big-untruncated-error",
+    )
+
+    rendered = client.get(f"/artifact?view={vid}")
+    assert rendered.status_code == 200
+
+    data = rendered.json()
+    assert data["kind"] == "publish_error"
+    assert data["truncation"]["truncated"] is False
+    assert "plotsrv publish rejected" in data["html"]
+    assert "limits.published_objects.max_artifact_text_chars=5" in data["html"]

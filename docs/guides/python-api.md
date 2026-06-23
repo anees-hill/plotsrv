@@ -119,6 +119,38 @@ With `host` and `port`, `publish_view()` sends the object to an existing plotsrv
 
 It does not start a server.
 
+## Rejected publishes
+
+When a normal Python publish is rejected by the server, for example because it exceeds a hard publish limit, plotsrv keeps the HTTP error behaviour and also creates a visible error artifact in the target view.
+
+This means the Python caller still sees the failed request, while the browser UI shows an actionable message explaining what failed and which config key to adjust.
+
+Hard publish limits are configured under:
+
+```yaml title="plotsrv.yaml"
+limits:
+  published_objects:
+    max_plot_bytes: 5242880
+    max_table_rows: 100000
+    max_table_columns: 200
+    max_artifact_text_chars: 200000
+    max_json_container_items: 20000
+```
+
+Display/preparation truncation is separate:
+
+```yaml title="plotsrv.yaml"
+limits:
+  truncate_after:
+    text: 1000000
+    markdown: 100000
+    html: off
+    table_rows: 100000
+    table_columns: 200
+```
+
+Generated plotsrv error artifacts use internal text-like artifact kinds such as `publish_error` and `watch_error`. They are not truncated by normal text truncation settings, so the useful error message remains visible.
+
 ## Common parameters
 
 | Parameter | Meaning |
@@ -131,7 +163,7 @@ It does not start a server.
 | `host` | server host for HTTP publishing |
 | `port` | server port for HTTP publishing |
 | `kind` | force broad view kind: `plot`, `table`, or `artifact` |
-| `artifact_kind` | force artifact renderer, such as `markdown`, `html`, `json`, or `text` |
+| `artifact_kind` | force artifact renderer, such as `markdown`, `html`, `json`, or `text`; `watch_error` and `publish_error` are internal error artifact kinds |
 | `update_limit_s` | limit how often a view should update |
 | `force` | force an update even when an update limit applies |
 
@@ -611,6 +643,8 @@ ps.start_server(
     ]
 )
 ```
+
+Watched-file publishes are source-aware. Global freshness does not mark watched-file views stale by default, and storage snapshots for watched files are disabled unless `storage-settings.watch_enabled` or a per-view `watch_enabled` override opts them in.
 
 ## `set_table_view_mode()`
 

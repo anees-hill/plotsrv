@@ -99,19 +99,42 @@ plotsrv also chooses sensible defaults based on the file type.
 
 ## Limit large files
 
-Large files can be limited with `--max-bytes`.
+Large watched files can be limited in megabytes with `--max-mb`.
 
 ```bash
-plotsrv watch ./logs/job.log --max-bytes 5000000
+plotsrv watch ./logs/job.log --max-mb 25
 ```
 
 To read the full file:
 
 ```bash
-plotsrv watch ./logs/job.log --max-bytes off
+plotsrv watch ./logs/job.log --max-mb off
 ```
 
-For large logs, keeping a byte limit is usually better. It keeps the UI responsive and avoids reading too much from disk.
+`--max-bytes` is still available as a legacy/advanced option when byte-level precision is needed:
+
+```bash
+plotsrv watch ./logs/job.log --max-bytes 5000000
+```
+
+For large logs, keeping a read limit is usually better. It keeps the UI responsive and avoids reading too much from disk.
+
+The equivalent config key is:
+
+```yaml title="plotsrv.yaml"
+limits:
+  watched_files:
+    max_mb: 500
+```
+
+Watched CSV files also use table preparation limits:
+
+```yaml title="plotsrv.yaml"
+limits:
+  truncate_after:
+    table_rows: 100000
+    table_columns: 200
+```
 
 ## File types
 
@@ -148,6 +171,33 @@ ps.publish_view(
 ```
 
 But if a process already writes `results.csv`, watching that file is a simple way to expose it.
+
+## Freshness and storage defaults for watched files
+
+Watched files are source-aware.
+
+Global freshness settings do not mark watched-file views stale by default. A watched file might be static for a long time and still be valid.
+
+To apply freshness to a watched file, opt that specific view in:
+
+```yaml title="plotsrv.yaml"
+freshness-settings:
+  enabled: true
+  views:
+    "files:job log":
+      enabled: true
+      expected_every: 5m
+      warn_after: 10m
+      overdue_after: 30m
+```
+
+Storage is source-aware too. Historical snapshots for watched files are disabled by default unless `storage-settings.watch_enabled` or a per-view `watch_enabled` override is enabled.
+
+```yaml title="plotsrv.yaml"
+storage-settings:
+  enabled: true
+  watch_enabled: false
+```
 
 ## Next step
 

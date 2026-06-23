@@ -358,3 +358,47 @@ def test_publish_view_launch_server_conflicting_port_raises(
             port=8999,
             label="Data",
         )
+
+
+def test_publish_view_table_uses_table_truncate_limits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(req: urllib.request.Request, timeout: float):
+        captured["data"] = req.data
+        return DummyResp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr("plotsrv.publisher.config.get_table_truncate_rows", lambda: 2)
+    monkeypatch.setattr(
+        "plotsrv.publisher.config.get_table_truncate_columns",
+        lambda: 2,
+    )
+
+    df = pd.DataFrame(
+        {
+            "a": [1, 2, 3],
+            "b": [4, 5, 6],
+            "c": [7, 8, 9],
+        }
+    )
+
+    publish_view(
+        df,
+        host="127.0.0.1",
+        port=8000,
+        label="table",
+        section="tests",
+    )
+
+    payload = json.loads(captured["data"].decode("utf-8"))
+
+    assert payload["kind"] == "table"
+    assert payload["table"]["columns"] == ["a", "b"]
+    assert payload["table"]["rows"] == [
+        {"a": 1, "b": 4},
+        {"a": 2, "b": 5},
+    ]
+    assert payload["table"]["total_rows"] == 3
+    assert payload["table"]["returned_rows"] == 2

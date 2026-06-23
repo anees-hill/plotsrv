@@ -1,7 +1,3 @@
----
-icon: lucide/flask-conical
----
-
 # Examples
 
 These examples show small, copy-pasteable ways to use plotsrv.

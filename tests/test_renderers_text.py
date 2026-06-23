@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from plotsrv.renderers.text import (
     ANCHOR_PREFIX,
+    ErrorTextRenderer,
     TextPayload,
     TextRenderer,
     _strip_anchor_header,
@@ -94,3 +95,33 @@ def test_text_renderer_passes_view_id_to_truncation_config(monkeypatch) -> None:
     assert calls == [("text", "logs:api")]
     assert out.truncation is not None
     assert out.truncation.truncated is True
+
+
+def test_error_text_renderer_does_not_truncate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "plotsrv.config.get_truncation_max_chars",
+        lambda kind, view_id=None: 5,
+    )
+
+    msg = "abcdefghijk"
+    out = ErrorTextRenderer(kind="publish_error").render(msg, view_id="v1")
+
+    assert out.kind == "publish_error"
+    assert "abcdefghijk" in out.html
+    assert out.truncation is not None
+    assert out.truncation.truncated is False
+
+
+def test_watch_error_text_renderer_does_not_truncate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "plotsrv.config.get_truncation_max_chars",
+        lambda kind, view_id=None: 5,
+    )
+
+    msg = "watch error message that must remain visible"
+    out = ErrorTextRenderer(kind="watch_error").render(msg, view_id="v1")
+
+    assert out.kind == "watch_error"
+    assert "watch error message that must remain visible" in out.html
+    assert out.truncation is not None
+    assert out.truncation.truncated is False

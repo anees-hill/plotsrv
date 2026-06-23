@@ -128,6 +128,9 @@ def test_run_watch_mode_text_path_publishes_then_keyboardinterrupt_exits(
     monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
     monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
 
+    # New after A0: readiness is tested elsewhere, so bypass it here.
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *args, **kwargs: True)
+
     def fake_sleep(_s: float) -> None:
         raise KeyboardInterrupt()
 
@@ -149,11 +152,11 @@ def test_run_watch_mode_text_path_publishes_then_keyboardinterrupt_exits(
         quiet=True,
         read_mode="head",
     )
+
     assert rc == 0
-    assert calls
-    assert calls[0]["kind"] == "artifact"
-    assert calls[0]["artifact_kind"] == "text"
+    assert len(calls) == 1
     assert calls[0]["artifact"] == "hello"
+    assert calls[0]["artifact_kind"] == "text"
 
 
 def test_run_watch_mode_json_parse_error_publishes_text_error(
@@ -174,12 +177,13 @@ def test_run_watch_mode_json_parse_error_publishes_text_error(
         cli_mod.json, "loads", lambda _s: (_ for _ in ()).throw(ValueError("boom"))
     )
 
+    monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *args, **kwargs: True)
+
     monkeypatch.setattr(
         cli_mod.time, "sleep", lambda _s: (_ for _ in ()).throw(KeyboardInterrupt())
     )
-
-    monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
-    monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
 
     rc = cli_mod._run_watch_mode(
         str(p),
@@ -197,10 +201,11 @@ def test_run_watch_mode_json_parse_error_publishes_text_error(
         quiet=True,
         read_mode="head",
     )
+
     assert rc == 0
     assert calls, "expected _publish_watch_payload to be called"
     assert calls[0]["kind"] == "artifact"
-    assert calls[0]["artifact_kind"] == "text"
+    assert calls[0]["artifact_kind"] == "watch_error"
     assert "JSON parse error" in str(calls[0]["artifact"])
 
 
@@ -219,16 +224,17 @@ def test_run_watch_mode_auto_parse_error_branch(
     monkeypatch.setattr(cli_mod, "_publish_watch_payload", fake_publish_watch_payload)
 
     monkeypatch.setattr(
-        cli_mod,
-        "coerce_file_to_publishable",
+        "plotsrv.runtime.coerce_file_to_publishable",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("nope")),
     )
+
+    monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
+    monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *args, **kwargs: True)
 
     monkeypatch.setattr(
         cli_mod.time, "sleep", lambda _s: (_ for _ in ()).throw(KeyboardInterrupt())
     )
-    monkeypatch.setattr(cli_mod, "start_server", lambda **kwargs: None, raising=False)
-    monkeypatch.setattr(cli_mod, "stop_server", lambda **kwargs: None, raising=False)
 
     rc = cli_mod._run_watch_mode(
         str(p),
@@ -246,8 +252,9 @@ def test_run_watch_mode_auto_parse_error_branch(
         quiet=True,
         read_mode="head",
     )
+
     assert rc == 0
     assert calls
     assert calls[0]["kind"] == "artifact"
-    assert calls[0]["artifact_kind"] == "text"
+    assert calls[0]["artifact_kind"] == "watch_error"
     assert "parse error" in str(calls[0]["artifact"])

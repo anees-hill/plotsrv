@@ -139,6 +139,8 @@ freshness-settings:
 
 Freshness is useful when a view should not just exist, but should be recent.
 
+Freshness is source-aware. Global freshness applies to normal Python publishes, but does not mark watched-file views stale by default. To apply freshness to a watched file, add an explicit per-view entry under `freshness-settings.views`.
+
 For example:
 
 - an hourly import
@@ -173,6 +175,7 @@ A basic storage section looks like this:
 ```yaml title="plotsrv.yaml"
 storage-settings:
   enabled: true
+  watch_enabled: false
   root_dir: .plotsrv/store
   latest:
     enabled: true
@@ -186,6 +189,8 @@ storage-settings:
 `storage-settings.enabled` is the master switch.
 
 Even if `latest.enabled` is present in the config, storage remains off unless `storage-settings.enabled` is `true`.
+
+Watched-file snapshots are source-aware. They are disabled by default unless `storage-settings.watch_enabled` or a per-view `watch_enabled` override opts them in.
 
 ## Populate limits
 
@@ -206,16 +211,31 @@ For example:
 - an HTML or markdown report might need different render limits
 - a noisy view might need stricter limits than the default
 
-Global limit settings look like this:
+Global limit settings now separate hard publish safety limits from display/preparation truncation:
 
 ```yaml title="plotsrv.yaml"
 limits:
-  watched_files:
-    max_bytes: 5000000
+  published_objects:
+    # Hard safety limits for objects sent to the plotsrv server.
+    max_plot_bytes: 5242880
+    max_table_rows: 100000
+    max_table_columns: 200
+    max_artifact_text_chars: 200000
+    max_json_container_items: 20000
 
-  tables:
-    max_rows: 10000
-    max_columns: 200
+  watched_files:
+    # Maximum amount plotsrv reads from each watched file.
+    # Use "off" to allow full-file reads.
+    max_mb: 500
+
+  truncate_after:
+    # Preparation/display limits.
+    # These truncate what plotsrv prepares for display.
+    text: 1000000
+    markdown: 100000
+    html: off
+    table_rows: 100000
+    table_columns: 200
 ```
 
 For first use, the defaults are usually enough. Populate limits once there are several views with different size expectations.
@@ -315,7 +335,7 @@ Watched-file limits control how much of a file plotsrv reads from disk.
 ```yaml title="plotsrv.yaml"
 limits:
   watched_files:
-    max_bytes: 5000000
+    max_mb: 500
 ```
 
 To read the whole watched file:
@@ -323,10 +343,12 @@ To read the whole watched file:
 ```yaml
 limits:
   watched_files:
-    max_bytes: off
+    max_mb: off
 ```
 
 Keeping a limit is usually better for logs and large files.
+
+`max_bytes` is still accepted as a legacy alias, but new configs should use `max_mb`.
 
 ## UI settings
 
@@ -365,11 +387,20 @@ freshness-settings:
   overdue_after: 2h
 
 limits:
+  published_objects:
+    max_plot_bytes: 5242880
+    max_table_rows: 100000
+    max_table_columns: 200
+    max_artifact_text_chars: 200000
+    max_json_container_items: 20000
   watched_files:
-    max_bytes: 5000000
-  tables:
-    max_rows: 10000
-    max_columns: 200
+    max_mb: 500
+  truncate_after:
+    text: 1000000
+    markdown: 100000
+    html: off
+    table_rows: 100000
+    table_columns: 200
 ```
 
 Then populate per-view entries from discovered views:
