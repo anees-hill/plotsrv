@@ -7,7 +7,7 @@
   >
   &nbsp;&nbsp;&nbsp;&nbsp;
   <img
-    src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_title_logo.png"
+    src="https://raw.githubusercontent.com/anees-hill/plotsrv/main/src/plotsrv/static/plotsrv_title_logo_ui-white-bk.png"
     width="300"
     align="middle"
     style="position: relative; top: -20px;"
