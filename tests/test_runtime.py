@@ -259,6 +259,11 @@ def test_register_watch_views_registers_text_artifact(
     monkeypatch.setattr("plotsrv.runtime.store.get_active_view_id", lambda: None)
     monkeypatch.setattr("plotsrv.runtime.store.set_active_view", active.append)
 
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "memory",
+    )
+
     out = register_watch_views([WatchConfig(path=p)])
 
     assert len(out) == 1
@@ -267,6 +272,8 @@ def test_register_watch_views_registers_text_artifact(
     assert out[0].label == "README.md"
     assert out[0].kind == "artifact"
     assert out[0].read_mode == "head"
+    assert out[0].materialization in ("memory", "file")
+    assert out[0].materialization == "memory"
 
     assert calls == [
         {
@@ -614,3 +621,78 @@ def test_resolve_watch_materialization_uses_config_default(
     )
 
     assert resolve_watch_materialization(p) == "file"
+
+
+def test_register_watch_views_stores_memory_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "memory",
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_max_bytes",
+        lambda view_id=None: 123,
+    )
+
+    import plotsrv.store as store
+
+    store.reset()
+    try:
+        out = register_watch_views(
+            [WatchConfig(path=p, label="api", section="logs", read_mode="tail")]
+        )
+
+        assert len(out) == 1
+        assert out[0].materialization == "memory"
+
+        meta = store.get_watched_file_meta(view_id="logs:api")
+
+        assert meta.view_id == "logs:api"
+        assert meta.path == str(p.resolve())
+        assert meta.read_mode == "tail"
+        assert meta.materialization == "memory"
+        assert meta.max_bytes == 123
+        assert meta.size_bytes == len("hello\n".encode("utf-8"))
+        assert meta.last_error is None
+    finally:
+        store.reset()
+
+
+def test_register_watch_views_stores_file_backed_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "large.log"
+    p.write_text("x" * 20, encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_max_bytes",
+        lambda view_id=None: 456,
+    )
+
+    import plotsrv.store as store
+
+    store.reset()
+    try:
+        out = register_watch_views([WatchConfig(path=p)])
+
+        assert out[0].view_id == "watch:large.log"
+        assert out[0].materialization == "file"
+
+        meta = store.get_watched_file_meta(view_id="watch:large.log")
+
+        assert meta.materialization == "file"
+        assert meta.path == str(p.resolve())
+        assert meta.max_bytes == 456
+        assert meta.size_bytes == 20
+    finally:
+        store.reset()

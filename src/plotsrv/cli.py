@@ -32,11 +32,13 @@ from .storage.latest import (
 )
 from .runtime import (
     WatchConfig,
+    RegisteredWatchView,
     apply_runtime_options,
     build_watch_publish_payload,
     build_watch_publish_error_artifact,
     read_watch_file_bytes,
     register_watch_views,
+    register_watched_file_meta,
     default_watch_read_mode,
     parse_truncate_arg,
     resolve_watch_cli_max_bytes,
@@ -1394,6 +1396,33 @@ def _run_watch_mode(
             kind=preregister_kind,
             activate_if_first=False,
         )
+
+        watch_config = WatchConfig(
+            path=p,
+            label=view_label,
+            section=section,
+            kind=kind,  # type: ignore[arg-type]
+            read_mode=mode,
+            max_bytes=max_bytes,
+            encoding=encoding,
+            update_limit_s=update_limit_s,
+            force=force,
+        )
+
+        registered = RegisteredWatchView(
+            path=p,
+            view_id=vid,
+            section=section,
+            label=view_label,
+            kind=preregister_kind,  # type: ignore[arg-type]
+            read_mode=mode,
+        )
+
+        register_watched_file_meta(
+            registered=registered,
+            spec=watch_config,
+        )
+
         store.set_active_view(vid)
 
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)

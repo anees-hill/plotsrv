@@ -29,6 +29,7 @@ class RegisteredWatchView:
     label: str
     kind: Literal["artifact", "table"]
     read_mode: WatchReadMode
+    materialization: WatchMaterialization = "memory"
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,6 +475,7 @@ def _watch_view_from_config(spec: WatchConfig) -> RegisteredWatchView:
     preregister_kind: Literal["artifact", "table"] = (
         "table" if fk == "csv" else "artifact"
     )
+    materialization = resolve_watch_materialization(p)
 
     return RegisteredWatchView(
         path=p,
@@ -482,6 +484,7 @@ def _watch_view_from_config(spec: WatchConfig) -> RegisteredWatchView:
         label=label,
         kind=preregister_kind,
         read_mode=read_mode,
+        materialization=materialization,
     )
 
 
@@ -526,6 +529,22 @@ def build_watched_file_meta(
     )
 
 
+def register_watched_file_meta(
+    *,
+    registered: RegisteredWatchView,
+    spec: WatchConfig,
+) -> store.WatchedFileMeta:
+    resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=registered.view_id)
+    meta = build_watched_file_meta(
+        registered=registered,
+        spec=spec,
+        materialization=registered.materialization,
+        max_bytes=resolved_max_bytes,
+    )
+    store.set_watched_file_meta(meta)
+    return meta
+
+
 def register_watch_views(
     watches: Sequence[WatchConfig | Mapping[str, Any]],
     *,
@@ -543,7 +562,7 @@ def register_watch_views(
 
     active_before = store.get_active_view_id()
 
-    for view in registered:
+    for spec, view in zip(configs, registered, strict=True):
         store.register_view(
             view_id=view.view_id,
             section=view.section,
@@ -551,6 +570,15 @@ def register_watch_views(
             kind=view.kind,
             activate_if_first=False,
         )
+
+        resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=view.view_id)
+        meta = build_watched_file_meta(
+            registered=view,
+            spec=spec,
+            materialization=view.materialization,
+            max_bytes=resolved_max_bytes,
+        )
+        store.set_watched_file_meta(meta)
 
     if activate_first_if_none and registered and active_before is None:
         store.set_active_view(registered[0].view_id)
