@@ -20,6 +20,8 @@ from plotsrv.runtime import (
     read_tail_bytes,
     register_watch_views,
     resolve_watch_max_bytes,
+    resolve_watch_materialization,
+    coerce_watch_materialization_request,
 )
 
 
@@ -514,3 +516,101 @@ def test_build_watched_file_meta_records_stat_error(tmp_path: Path) -> None:
     assert meta.mtime_ns is None
     assert meta.last_error is not None
     assert "FileNotFoundError" in meta.last_error
+
+
+def test_coerce_watch_materialization_request_valid_values() -> None:
+    assert coerce_watch_materialization_request("auto") == "auto"
+    assert coerce_watch_materialization_request("memory") == "memory"
+    assert coerce_watch_materialization_request("file") == "file"
+    assert coerce_watch_materialization_request(" FILE ") == "file"
+
+
+def test_coerce_watch_materialization_request_invalid_uses_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_materialization",
+        lambda: "auto",
+    )
+
+    assert coerce_watch_materialization_request(None) == "auto"
+    assert coerce_watch_materialization_request("") == "auto"
+    assert coerce_watch_materialization_request("banana") == "auto"
+
+
+def test_resolve_watch_materialization_explicit_memory(tmp_path: Path) -> None:
+    p = tmp_path / "big.log"
+    p.write_text("x" * 100, encoding="utf-8")
+
+    assert resolve_watch_materialization(p, requested="memory") == "memory"
+
+
+def test_resolve_watch_materialization_explicit_file_for_missing_path(
+    tmp_path: Path,
+) -> None:
+    p = tmp_path / "missing.log"
+
+    assert resolve_watch_materialization(p, requested="file") == "file"
+
+
+def test_resolve_watch_materialization_auto_small_file_uses_memory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "small.log"
+    p.write_text("small", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_file_threshold_bytes",
+        lambda: 10,
+    )
+
+    assert resolve_watch_materialization(p, requested="auto") == "memory"
+
+
+def test_resolve_watch_materialization_auto_large_file_uses_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "large.log"
+    p.write_text("x" * 10, encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_file_threshold_bytes",
+        lambda: 10,
+    )
+
+    assert resolve_watch_materialization(p, requested="auto") == "file"
+
+
+def test_resolve_watch_materialization_auto_missing_path_uses_memory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "missing.log"
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_file_threshold_bytes",
+        lambda: 10,
+    )
+
+    assert resolve_watch_materialization(p, requested="auto") == "memory"
+
+
+def test_resolve_watch_materialization_uses_config_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "large.log"
+    p.write_text("x" * 10, encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_materialization",
+        lambda: "auto",
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_file_threshold_bytes",
+        lambda: 10,
+    )
+
+    assert resolve_watch_materialization(p) == "file"

@@ -16,6 +16,7 @@ from .file_kinds import coerce_file_to_publishable, infer_file_kind
 WatchReadMode = Literal["head", "tail"]
 WatchKind = Literal["auto", "text", "json"]
 WatchMaterialization = Literal["memory", "file"]
+WatchMaterializationRequest = Literal["auto", "memory", "file"]
 
 _WATCH_MAX_BYTES_UNSET = object()
 
@@ -112,6 +113,70 @@ def resolve_watch_cli_max_bytes(
         return parse_watch_max_bytes(watch_max_bytes)
 
     return None
+
+
+def coerce_watch_materialization_request(
+    raw: str | None,
+) -> WatchMaterializationRequest:
+    """
+    Coerce a watch materialisation request.
+
+    Accepted values:
+      - auto
+      - memory
+      - file
+
+    Invalid/blank values fall back to the configured default.
+    """
+    if raw is None:
+        return config.get_watch_materialization()
+
+    value = str(raw).strip().lower()
+    if value in ("auto", "memory", "file"):
+        return value  # type: ignore[return-value]
+
+    return config.get_watch_materialization()
+
+
+def resolve_watch_materialization(
+    path: str | Path,
+    *,
+    requested: str | None = None,
+) -> WatchMaterialization:
+    """
+    Decide whether a watched file should be memory-backed or file-backed.
+
+    This only decides the representation mode. It does not read the file and it
+    does not register/update any store state.
+
+    Rules:
+      - memory -> memory
+      - file   -> file
+      - auto   -> file if file size is at/above the configured threshold,
+                  otherwise memory
+
+    If file size cannot be checked in auto mode, fall back to memory so existing
+    watch behaviour remains conservative and backwards-compatible.
+    """
+    mode = coerce_watch_materialization_request(requested)
+
+    if mode == "memory":
+        return "memory"
+
+    if mode == "file":
+        return "file"
+
+    threshold = config.get_watch_file_threshold_bytes()
+
+    try:
+        size = Path(path).expanduser().resolve().stat().st_size
+    except Exception:
+        return "memory"
+
+    if int(size) >= int(threshold):
+        return "file"
+
+    return "memory"
 
 
 def parse_truncate_arg(raw: int | str | None, *, no_truncate: bool) -> object:
