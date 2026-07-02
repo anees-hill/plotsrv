@@ -55,6 +55,7 @@ class ViewState:
     table_total_rows: int | None = None
     table_returned_rows: int | None = None
     artifact: Artifact | None = None
+    watched_file: WatchedFileMeta | None = None
 
     # publish throttling
     last_publish_at: float | None = None  # epoch seconds
@@ -70,6 +71,30 @@ class ViewState:
                 "restored_at": None,
                 "restore_source": None,
             }
+
+
+@dataclass(frozen=True, slots=True)
+class WatchedFileMeta:
+    """
+    Metadata for a watched file view.
+
+    This lets plotsrv represent a watched file without necessarily keeping the
+    full file contents in memory. v0.5.0 starts by storing this metadata only;
+    later steps will use it to serve file-backed previews on demand.
+    """
+
+    view_id: str
+    path: str
+    file_kind: str
+    read_mode: Literal["head", "tail"]
+    encoding: str
+    materialization: Literal["memory", "file"]
+    size_bytes: int | None = None
+    mtime_ns: int | None = None
+    max_bytes: int | None = None
+    last_checked_at: str | None = None
+    last_read_at: str | None = None
+    last_error: str | None = None
 
 
 def _icon_for_view_kind(
@@ -262,6 +287,37 @@ def get_active_view_id() -> str:
 def get_view_state(view_id: str | None = None) -> ViewState:
     vid = view_id or _ACTIVE_VIEW_ID
     return _ensure_view(vid)
+
+
+# Watched-file metadata API
+
+
+def set_watched_file_meta(meta: WatchedFileMeta) -> None:
+    """
+    Attach watched-file metadata to a view.
+
+    This does not publish file contents. It only records how the watched view is
+    backed so routes/runtime code can decide whether to read from memory or file.
+    """
+    st = get_view_state(meta.view_id)
+    st.watched_file = meta
+
+
+def has_watched_file_meta(*, view_id: str | None = None) -> bool:
+    st = get_view_state(view_id)
+    return st.watched_file is not None
+
+
+def get_watched_file_meta(*, view_id: str | None = None) -> WatchedFileMeta:
+    st = get_view_state(view_id)
+    if st.watched_file is None:
+        raise LookupError("No watched file metadata available")
+    return st.watched_file
+
+
+def clear_watched_file_meta(*, view_id: str | None = None) -> None:
+    st = get_view_state(view_id)
+    st.watched_file = None
 
 
 # Backwards-compatible single-view API (uses active view)

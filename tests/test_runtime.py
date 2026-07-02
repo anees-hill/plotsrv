@@ -9,6 +9,7 @@ from plotsrv.runtime import (
     WatchConfig,
     _WATCH_MAX_BYTES_UNSET,
     apply_runtime_options,
+    build_watched_file_meta,
     coerce_watch_config,
     coerce_watch_configs,
     default_watch_read_mode,
@@ -451,3 +452,65 @@ def test_start_watch_threads_registers_views_by_default(
     assert len(register_calls) == 1
     assert register_calls[0]["view_id"] == "watch:app.log"
     assert active_calls == ["watch:app.log"]
+
+
+def test_build_watched_file_meta_from_registered_view(tmp_path: Path) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    registered = register_watch_views(
+        [WatchConfig(path=p, label="api", section="logs", read_mode="tail")],
+        activate_first_if_none=False,
+    )[0]
+
+    meta = build_watched_file_meta(
+        registered=registered,
+        spec=WatchConfig(path=p, label="api", section="logs", read_mode="tail"),
+        materialization="file",
+        max_bytes=123,
+    )
+
+    assert meta.view_id == "logs:api"
+    assert meta.path == str(p.resolve())
+    assert meta.file_kind == "unknown"
+    assert meta.read_mode == "tail"
+    assert meta.encoding == "utf-8"
+    assert meta.materialization == "file"
+    assert meta.size_bytes == len("hello\n".encode("utf-8"))
+    assert isinstance(meta.mtime_ns, int)
+    assert meta.max_bytes == 123
+    assert meta.last_error is None
+
+
+def test_build_watched_file_meta_records_stat_error(tmp_path: Path) -> None:
+    p = tmp_path / "missing.log"
+
+    # Build a RegisteredWatchView directly so we do not require the path to
+    # exist during normal registration.
+    from plotsrv.runtime import RegisteredWatchView
+
+    registered = RegisteredWatchView(
+        path=p.resolve(),
+        view_id="logs:missing",
+        section="logs",
+        label="missing",
+        kind="artifact",
+        read_mode="tail",
+    )
+
+    spec = WatchConfig(path=p, label="missing", section="logs", read_mode="tail")
+
+    meta = build_watched_file_meta(
+        registered=registered,
+        spec=spec,
+        materialization="file",
+        max_bytes=None,
+    )
+
+    assert meta.view_id == "logs:missing"
+    assert meta.path == str(p.resolve())
+    assert meta.file_kind == "unknown"
+    assert meta.size_bytes is None
+    assert meta.mtime_ns is None
+    assert meta.last_error is not None
+    assert "FileNotFoundError" in meta.last_error

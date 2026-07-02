@@ -15,6 +15,7 @@ from .file_kinds import coerce_file_to_publishable, infer_file_kind
 
 WatchReadMode = Literal["head", "tail"]
 WatchKind = Literal["auto", "text", "json"]
+WatchMaterialization = Literal["memory", "file"]
 
 _WATCH_MAX_BYTES_UNSET = object()
 
@@ -416,6 +417,47 @@ def _watch_view_from_config(spec: WatchConfig) -> RegisteredWatchView:
         label=label,
         kind=preregister_kind,
         read_mode=read_mode,
+    )
+
+
+def build_watched_file_meta(
+    *,
+    registered: RegisteredWatchView,
+    spec: WatchConfig,
+    materialization: WatchMaterialization,
+    max_bytes: int | None,
+    error: str | None = None,
+) -> store.WatchedFileMeta:
+    """
+    Build watched-file metadata for a registered watch view.
+
+    This is intentionally side-effect free. Later v0.5.0 steps can call this
+    from registration or watch polling when file-backed views are introduced.
+    """
+    size_bytes: int | None = None
+    mtime_ns: int | None = None
+
+    try:
+        st = registered.path.stat()
+        size_bytes = int(st.st_size)
+        mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
+    except Exception as e:
+        if error is None:
+            error = f"{type(e).__name__}: {e}"
+
+    return store.WatchedFileMeta(
+        view_id=registered.view_id,
+        path=str(registered.path),
+        file_kind=infer_file_kind(registered.path),
+        read_mode=registered.read_mode,
+        encoding=spec.encoding,
+        materialization=materialization,
+        size_bytes=size_bytes,
+        mtime_ns=mtime_ns,
+        max_bytes=max_bytes,
+        last_checked_at=None,
+        last_read_at=None,
+        last_error=error,
     )
 
 

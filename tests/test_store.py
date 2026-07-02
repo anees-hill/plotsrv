@@ -78,6 +78,68 @@ def test_register_view_creates_meta_and_list_views_sorted() -> None:
     assert [m.label for m in metas] == ["a", "m", "z"]
 
 
+def test_watched_file_meta_round_trip() -> None:
+    meta = store.WatchedFileMeta(
+        view_id="watch:app.log",
+        path="/tmp/app.log",
+        file_kind="text",
+        read_mode="tail",
+        encoding="utf-8",
+        materialization="file",
+        size_bytes=123,
+        mtime_ns=456,
+        max_bytes=100,
+        last_checked_at="2026-01-01T00:00:00+00:00",
+        last_read_at=None,
+        last_error=None,
+    )
+
+    store.register_view(
+        view_id="watch:app.log",
+        section="watch",
+        label="app.log",
+        kind="artifact",
+    )
+
+    assert store.has_watched_file_meta(view_id="watch:app.log") is False
+
+    store.set_watched_file_meta(meta)
+
+    assert store.has_watched_file_meta(view_id="watch:app.log") is True
+    assert store.get_watched_file_meta(view_id="watch:app.log") == meta
+
+
+def test_get_watched_file_meta_raises_when_missing() -> None:
+    store.register_view(
+        view_id="watch:missing.log",
+        section="watch",
+        label="missing.log",
+        kind="artifact",
+    )
+
+    with pytest.raises(LookupError):
+        store.get_watched_file_meta(view_id="watch:missing.log")
+
+
+def test_clear_watched_file_meta() -> None:
+    meta = store.WatchedFileMeta(
+        view_id="watch:app.log",
+        path="/tmp/app.log",
+        file_kind="text",
+        read_mode="tail",
+        encoding="utf-8",
+        materialization="file",
+    )
+
+    store.set_watched_file_meta(meta)
+
+    assert store.has_watched_file_meta(view_id="watch:app.log") is True
+
+    store.clear_watched_file_meta(view_id="watch:app.log")
+
+    assert store.has_watched_file_meta(view_id="watch:app.log") is False
+
+
 def test_views_are_isolated_by_view_id() -> None:
     v1 = store.register_view(section="etl", label="import")
     v2 = store.register_view(section="etl", label="metrics")
