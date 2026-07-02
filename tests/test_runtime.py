@@ -16,12 +16,14 @@ from plotsrv.runtime import (
     parse_truncate_arg,
     parse_watch_max_bytes,
     read_csv_tail_with_header_bytes,
+    read_file_backed_artifact_preview,
     read_head_bytes,
     read_tail_bytes,
     register_watch_views,
     resolve_watch_max_bytes,
     resolve_watch_materialization,
     coerce_watch_materialization_request,
+    watch_config_from_meta,
 )
 
 
@@ -696,3 +698,172 @@ def test_register_watch_views_stores_file_backed_metadata(
         assert meta.size_bytes == 20
     finally:
         store.reset()
+
+
+def _watched_meta(
+    path: Path,
+    *,
+    file_kind: str = "unknown",
+    read_mode: str = "tail",
+    encoding: str = "utf-8",
+    max_bytes: int | None = None,
+) -> object:
+    import plotsrv.store as store
+
+    p = path.resolve()
+    size_bytes = None
+    mtime_ns = None
+
+    if p.exists():
+        st = p.stat()
+        size_bytes = int(st.st_size)
+        mtime_ns = int(st.st_mtime_ns)
+
+    return store.WatchedFileMeta(
+        view_id="watch:test",
+        path=str(p),
+        file_kind=file_kind,
+        read_mode=read_mode,  # type: ignore[arg-type]
+        encoding=encoding,
+        materialization="file",
+        size_bytes=size_bytes,
+        mtime_ns=mtime_ns,
+        max_bytes=max_bytes,
+    )
+
+
+def test_watch_config_from_meta_uses_json_kind(tmp_path: Path) -> None:
+    meta = _watched_meta(
+        tmp_path / "data.json",
+        file_kind="json",
+        read_mode="head",
+        max_bytes=123,
+    )
+
+    cfg = watch_config_from_meta(meta)  # type: ignore[arg-type]
+
+    assert cfg.path == meta.path
+    assert cfg.kind == "json"
+    assert cfg.read_mode == "head"
+    assert cfg.max_bytes == 123
+    assert cfg.encoding == "utf-8"
+
+
+def test_watch_config_from_meta_uses_auto_for_text_like_files(tmp_path: Path) -> None:
+    meta = _watched_meta(
+        tmp_path / "README.md",
+        file_kind="markdown",
+        read_mode="head",
+        max_bytes=456,
+    )
+
+    cfg = watch_config_from_meta(meta)  # type: ignore[arg-type]
+
+    assert cfg.kind == "auto"
+    assert cfg.read_mode == "head"
+    assert cfg.max_bytes == 456
+
+
+def test_read_file_backed_artifact_preview_unknown_tail_text(tmp_path: Path) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("first\nsecond\nthird\n", encoding="utf-8")
+
+    meta = _watched_meta(
+        p,
+        file_kind="unknown",
+        read_mode="tail",
+        max_bytes=12,
+    )
+
+    out = read_file_backed_artifact_preview(meta)  # type: ignore[arg-type]
+
+    assert out.artifact_kind == "text"
+    assert isinstance(out.artifact, str)
+    assert str(out.artifact).startswith("\ufeffPLOTSRV_ANCHOR=tail\n")
+    assert "third" in out.artifact
+    assert "first" not in out.artifact
+    assert out.raw == b"third\n"
+
+
+def test_read_file_backed_artifact_preview_markdown_head(tmp_path: Path) -> None:
+    p = tmp_path / "README.md"
+    p.write_text("# Title\n\nHello", encoding="utf-8")
+
+    meta = _watched_meta(
+        p,
+        file_kind="markdown",
+        read_mode="head",
+        max_bytes=100,
+    )
+
+    out = read_file_backed_artifact_preview(meta)  # type: ignore[arg-type]
+
+    assert out.artifact_kind == "markdown"
+    assert out.artifact == "# Title\n\nHello"
+    assert out.raw == b"# Title\n\nHello"
+
+
+def test_read_file_backed_artifact_preview_html_head(tmp_path: Path) -> None:
+    p = tmp_path / "page.html"
+    p.write_text("<h1>Hello</h1>", encoding="utf-8")
+
+    meta = _watched_meta(
+        p,
+        file_kind="html",
+        read_mode="head",
+        max_bytes=100,
+    )
+
+    out = read_file_backed_artifact_preview(meta)  # type: ignore[arg-type]
+
+    assert out.artifact_kind == "html"
+    assert out.artifact == "<h1>Hello</h1>"
+    assert out.raw == b"<h1>Hello</h1>"
+
+
+def test_read_file_backed_artifact_preview_json_head(tmp_path: Path) -> None:
+    p = tmp_path / "data.json"
+    p.write_text('{"a": 1}', encoding="utf-8")
+
+    meta = _watched_meta(
+        p,
+        file_kind="json",
+        read_mode="head",
+        max_bytes=100,
+    )
+
+    out = read_file_backed_artifact_preview(meta)  # type: ignore[arg-type]
+
+    assert out.artifact_kind == "json"
+    assert out.artifact == {"a": 1}
+    assert out.raw == b'{"a": 1}'
+
+
+def test_read_file_backed_artifact_preview_rejects_csv(tmp_path: Path) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a\n1\n", encoding="utf-8")
+
+    meta = _watched_meta(
+        p,
+        file_kind="csv",
+        read_mode="head",
+        max_bytes=100,
+    )
+
+    with pytest.raises(TypeError, match="CSV"):
+        read_file_backed_artifact_preview(meta)  # type: ignore[arg-type]
+
+
+def test_read_file_backed_artifact_preview_rejects_image(tmp_path: Path) -> None:
+    p = tmp_path / "image.png"
+    p.write_bytes(b"not really png")
+
+    meta = _watched_meta(
+        p,
+        file_kind="image",
+        read_mode="head",
+        max_bytes=100,
+    )
+
+    with pytest.raises(TypeError, match="image"):
+        read_file_backed_artifact_preview(meta)  # type: ignore[arg-type]

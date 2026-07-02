@@ -41,6 +41,13 @@ class WatchPublishPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class FileBackedArtifactPreview:
+    artifact: Any
+    artifact_kind: str
+    raw: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class WatchConfig:
     path: str | Path
     label: str | None = None
@@ -545,6 +552,84 @@ def register_watched_file_meta(
     return meta
 
 
+def watch_config_from_meta(meta: store.WatchedFileMeta) -> WatchConfig:
+    """
+    Rebuild the watch config needed to preview a file-backed watched artifact.
+
+    WatchedFileMeta stores the file/read details needed by app routes, but the
+    existing watch payload builder expects WatchConfig. This helper keeps that
+    conversion in one place.
+    """
+    kind: WatchKind = "auto"
+
+    if meta.file_kind == "json":
+        kind = "json"
+
+    return WatchConfig(
+        path=meta.path,
+        label=None,
+        section=None,
+        kind=kind,
+        read_mode=meta.read_mode,
+        max_bytes=meta.max_bytes,
+        encoding=meta.encoding,
+    )
+
+
+def read_file_backed_artifact_preview(
+    meta: store.WatchedFileMeta,
+) -> FileBackedArtifactPreview:
+    """
+    Read a bounded preview for a file-backed watched artifact.
+
+    This is for artifact-like watched files only. CSV/table previews are handled
+    separately in a later step.
+
+    The helper:
+      - reads only the effective watched preview window
+      - preserves tail/head semantics
+      - reuses existing watch coercion/render-limit behaviour
+      - returns an artifact object and artifact kind ready for rendering
+    """
+    p = Path(meta.path).expanduser().resolve()
+
+    if meta.file_kind == "csv":
+        raise TypeError("file-backed CSV previews are table previews, not artifacts")
+
+    if meta.file_kind == "image":
+        raise TypeError("file-backed image previews are not supported yet")
+
+    watch_config = watch_config_from_meta(meta)
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode=meta.read_mode,
+        max_bytes=meta.max_bytes,
+        watch_config=watch_config,
+    )
+
+    payload = build_watch_publish_payload(
+        path=p,
+        raw=raw,
+        watch_config=watch_config,
+        read_mode=meta.read_mode,
+        max_bytes=meta.max_bytes,
+        max_rows=config.get_table_truncate_rows(),
+        max_columns=config.get_table_truncate_columns(),
+    )
+
+    if payload.kind != "artifact":
+        raise TypeError(
+            f"file-backed artifact preview expected artifact payload, got {payload.kind!r}"
+        )
+
+    return FileBackedArtifactPreview(
+        artifact=payload.artifact,
+        artifact_kind=payload.artifact_kind or "text",
+        raw=raw,
+    )
+
+
 def register_watch_views(
     watches: Sequence[WatchConfig | Mapping[str, Any]],
     *,
@@ -571,14 +656,7 @@ def register_watch_views(
             activate_if_first=False,
         )
 
-        resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=view.view_id)
-        meta = build_watched_file_meta(
-            registered=view,
-            spec=spec,
-            materialization=view.materialization,
-            max_bytes=resolved_max_bytes,
-        )
-        store.set_watched_file_meta(meta)
+        register_watched_file_meta(registered=view, spec=spec)
 
     if activate_first_if_none and registered and active_before is None:
         store.set_active_view(registered[0].view_id)
