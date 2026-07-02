@@ -45,6 +45,11 @@ def test_default_limits_are_generous() -> None:
     assert config.get_truncation_max_chars("markdown") == 100_000
 
 
+def test_default_watch_materialisation_settings() -> None:
+    assert config.get_watch_materialization() == "auto"
+    assert config.get_watch_file_threshold_bytes() == 20 * 1024 * 1024
+
+
 def test_storage_latest_defaults_disabled() -> None:
     assert config.get_storage_enabled() is False
     assert config.get_storage_latest_enabled() is False
@@ -132,6 +137,55 @@ limits:
     assert config.get_publish_max_table_rows() == 100
     assert config.get_publish_max_table_columns() == 101
     assert config.get_publish_max_artifact_text_chars() == 102
+
+
+def test_watch_materialisation_settings_use_yaml(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+watch-settings:
+  materialization: file
+  file_threshold_mb: 7
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_watch_materialization() == "file"
+    assert config.get_watch_file_threshold_bytes() == 7 * 1024 * 1024
+
+
+def test_invalid_watch_materialisation_falls_back_to_auto(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+watch-settings:
+  materialization: banana
+  file_threshold_mb: nope
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_watch_materialization() == "auto"
+    assert config.get_watch_file_threshold_bytes() == 20 * 1024 * 1024
+
+
+def test_watch_file_threshold_off_falls_back_to_default(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+watch-settings:
+  file_threshold_mb: off
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_watch_file_threshold_bytes() == 20 * 1024 * 1024
 
 
 def test_legacy_publish_limits_still_work_without_new_section(tmp_path) -> None:

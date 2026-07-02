@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from . import settings
 
 TableViewMode = Literal["simple", "rich"]
+WatchMaterialization = Literal["auto", "memory", "file"]
+
 _RUNTIME_TABLE_VIEW_MODE: TableViewMode | None = None
 
 PLOTSRV_COLOURS = {
@@ -99,6 +101,10 @@ _DEFAULTS: dict[str, Any] = {
             "max_rows": 5_000,
             "max_columns": 200,
         },
+    },
+    "watch-settings": {
+        "materialization": "auto",
+        "file_threshold_mb": 20,
     },
     "storage-settings": {
         "enabled": False,
@@ -876,6 +882,51 @@ def get_watch_max_bytes(view_id: str | None = None) -> int | None:
         )
 
     return _parse_mb_to_bytes(default_mb, default_mb)
+
+
+def get_watch_materialization() -> WatchMaterialization:
+    """
+    How watched files should be represented.
+
+    Values:
+      - "memory": current behaviour; read/coerce/publish into memory.
+      - "file": file-backed watched views where supported.
+      - "auto": memory for small files, file-backed for larger files.
+
+    This does not control how much of a watched file is read for preview.
+    That remains limits.watched_files.max_mb.
+    """
+    sec = _merged_section("watch-settings")
+    raw = str(sec.get("materialization") or "auto").strip().lower()
+
+    if raw in ("auto", "memory", "file"):
+        return raw  # type: ignore[return-value]
+
+    return "auto"
+
+
+def get_watch_file_threshold_bytes() -> int:
+    """
+    File size threshold used when watch-settings.materialization is "auto".
+
+    Files smaller than this can use memory materialisation.
+    Files at or above this threshold can use file-backed materialisation.
+
+    Invalid/off/null values fall back to the default threshold.
+    """
+    sec = _merged_section("watch-settings")
+    default_mb = _DEFAULTS["watch-settings"]["file_threshold_mb"]
+
+    parsed = _parse_mb_to_bytes(
+        sec.get("file_threshold_mb"),
+        default_mb,
+        min_value=0.000001,
+    )
+
+    if parsed is None:
+        return int(float(default_mb) * _MB)
+
+    return parsed
 
 
 # ---- Storage settings ---------------------------------------------------------

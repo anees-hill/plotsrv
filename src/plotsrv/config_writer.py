@@ -46,6 +46,14 @@ limits:
     table_rows: 100000
     table_columns: 200
 
+watch-settings:
+  # Controls how watched files are represented internally.
+  # memory = read/coerce/publish watched files into memory.
+  # file   = keep file metadata and read preview slices on demand where supported.
+  # auto   = memory below file_threshold_mb, file-backed at/above it.
+  materialization: auto
+  file_threshold_mb: 20
+
 storage-settings:
   enabled: false
   watch_enabled: false

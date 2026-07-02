@@ -381,6 +381,10 @@ def test_default_config_text_uses_new_config_layout() -> None:
     assert "html_sanitize: false" in text
     assert "markdown_sanitize: true" in text
 
+    assert "watch-settings:" in text
+    assert "materialization: auto" in text
+    assert "file_threshold_mb: 20" in text
+
     assert "storage-settings:" in text
     assert "watch_enabled: false" in text
     assert "freshness-settings:" in text
@@ -430,6 +434,9 @@ def test_default_config_text_parses_as_yaml() -> None:
     assert data["render-settings"]["default"]["html_sanitize"] is False
     assert data["render-settings"]["default"]["markdown_sanitize"] is True
 
+    assert data["watch-settings"]["materialization"] == "auto"
+    assert data["watch-settings"]["file_threshold_mb"] == 20
+
     assert data["storage-settings"]["enabled"] is False
     assert data["storage-settings"]["watch_enabled"] is False
 
@@ -459,6 +466,10 @@ def test_create_config_file_writes_new_layout(tmp_path: Path) -> None:
     assert "published_objects" in data["limits"]
     assert "watched_files" in data["limits"]
     assert "truncate_after" in data["limits"]
+
+    assert "watch-settings" in data
+    assert data["watch-settings"]["materialization"] == "auto"
+    assert data["watch-settings"]["file_threshold_mb"] == 20
 
     assert "publish-limits" not in data
     assert "table-settings" not in data
