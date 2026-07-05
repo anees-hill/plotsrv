@@ -21,6 +21,7 @@ from .renderers import register_default_renderers
 from .renderers.registry import render_any
 from .storage.worker import enqueue_snapshot
 from .storage.backend import list_snapshots, load_snapshot
+from .runtime import read_file_backed_artifact_preview
 
 
 def _build_app() -> FastAPI:
@@ -405,6 +406,104 @@ def _render_table_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, 
             "snapshot": True,
         },
     }
+
+
+def _render_artifact_response(
+    *,
+    view_id: str,
+    obj: Any,
+    kind_hint: str,
+    meta: dict[str, Any] | None = None,
+    snapshot_id: str | None = None,
+) -> dict[str, Any]:
+    rr = render_any(obj, view_id=view_id, kind_hint=kind_hint)
+
+    out_meta: dict[str, Any] = {}
+    out_meta.update(rr.meta or {})
+
+    if meta:
+        out_meta.update(meta)
+
+    out: dict[str, Any] = {
+        "view_id": view_id,
+        "kind": rr.kind,
+        "html": rr.html,
+        "mime": rr.mime,
+        "truncation": (
+            None
+            if rr.truncation is None
+            else {
+                "truncated": rr.truncation.truncated,
+                "reason": rr.truncation.reason,
+                "details": rr.truncation.details,
+            }
+        ),
+        "meta": out_meta,
+    }
+
+    if snapshot_id is not None:
+        out["snapshot_id"] = snapshot_id
+
+    return out
+
+
+def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
+    try:
+        meta = store.get_watched_file_meta(view_id=view_id)
+    except LookupError:
+        raise HTTPException(
+            status_code=404,
+            detail="No file-backed watched artifact is available.",
+        )
+
+    if meta.materialization != "file":
+        raise HTTPException(
+            status_code=404,
+            detail="Watched file is not file-backed.",
+        )
+
+    if meta.file_kind == "csv":
+        raise HTTPException(
+            status_code=404,
+            detail="File-backed CSV views are served by /table/data.",
+        )
+
+    try:
+        preview = read_file_backed_artifact_preview(meta)
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Watched file not found: {e}",
+        )
+    except TypeError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read file-backed watched artifact: {type(e).__name__}: {e}",
+        )
+
+    return _render_artifact_response(
+        view_id=view_id,
+        obj=preview.artifact,
+        kind_hint=preview.artifact_kind,
+        meta={
+            "file_backed": True,
+            "watch": True,
+            "materialization": meta.materialization,
+            "path": meta.path,
+            "file_kind": meta.file_kind,
+            "read_mode": meta.read_mode,
+            "encoding": meta.encoding,
+            "size_bytes": meta.size_bytes,
+            "mtime_ns": meta.mtime_ns,
+            "max_bytes": meta.max_bytes,
+            "preview_bytes": len(preview.raw),
+        },
+    )
 
 
 @app.get("/status")
@@ -1019,28 +1118,22 @@ def get_artifact(
         if kind_hint == "table":
             return _render_table_snapshot_html(view_id=vid, snapshot_id=snapshot)
 
-        rr = render_any(loaded.obj, view_id=vid, kind_hint=kind_hint)
-        return {
-            "view_id": vid,
-            "snapshot_id": snapshot,
-            "kind": rr.kind,
-            "html": rr.html,
-            "mime": rr.mime,
-            "truncation": (
-                None
-                if rr.truncation is None
-                else {
-                    "truncated": rr.truncation.truncated,
-                    "reason": rr.truncation.reason,
-                    "details": rr.truncation.details,
-                }
-            ),
-            "meta": {
-                **(rr.meta or {}),
+        return _render_artifact_response(
+            view_id=vid,
+            snapshot_id=snapshot,
+            obj=loaded.obj,
+            kind_hint=kind_hint,
+            meta={
                 "snapshot": True,
                 "snapshot_meta": _snapshot_summary_dict(loaded.meta),
             },
-        }
+        )
+
+    if store.has_watched_file_meta(view_id=vid):
+        meta = store.get_watched_file_meta(view_id=vid)
+
+        if meta.materialization == "file" and meta.file_kind != "csv":
+            return _render_file_backed_artifact_response(view_id=vid)
 
     if not store.has_artifact(view_id=vid):
         raise HTTPException(
@@ -1048,24 +1141,12 @@ def get_artifact(
         )
 
     art = store.get_artifact(view_id=vid)
-    rr = render_any(art.obj, view_id=vid, kind_hint=art.kind)
 
-    return {
-        "view_id": vid,
-        "kind": rr.kind,
-        "html": rr.html,
-        "mime": rr.mime,
-        "truncation": (
-            None
-            if rr.truncation is None
-            else {
-                "truncated": rr.truncation.truncated,
-                "reason": rr.truncation.reason,
-                "details": rr.truncation.details,
-            }
-        ),
-        "meta": rr.meta or {},
-    }
+    return _render_artifact_response(
+        view_id=vid,
+        obj=art.obj,
+        kind_hint=art.kind,
+    )
 
 
 @app.get("/views")
