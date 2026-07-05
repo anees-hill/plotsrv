@@ -48,6 +48,18 @@ class FileBackedArtifactPreview:
 
 
 @dataclass(frozen=True, slots=True)
+class FileBackedTablePreview:
+    table_df: Any
+    raw: bytes
+    total_rows: int | None
+    returned_rows: int
+    total_columns: int | None
+    returned_columns: int
+    truncated: bool
+    source: str = "file_backed_csv"
+
+
+@dataclass(frozen=True, slots=True)
 class WatchConfig:
     path: str | Path
     label: str | None = None
@@ -692,6 +704,136 @@ def read_file_backed_artifact_preview(
         artifact=payload.artifact,
         artifact_kind=payload.artifact_kind or "text",
         raw=raw,
+    )
+
+
+def count_csv_data_rows(
+    path: str | Path,
+    *,
+    encoding: str = "utf-8",
+) -> int | None:
+    """
+    Best-effort CSV data-row count.
+
+    Returns the number of rows after the header. If counting fails, returns None.
+    This is metadata only; callers should not rely on it for correctness.
+    """
+    p = Path(path).expanduser().resolve()
+
+    try:
+        with p.open("r", encoding=encoding, errors="replace", newline="") as f:
+            n = sum(1 for _ in f)
+    except Exception:
+        return None
+
+    if n <= 0:
+        return 0
+
+    return max(0, n - 1)
+
+
+def read_file_backed_csv_preview(
+    meta: store.WatchedFileMeta,
+) -> FileBackedTablePreview:
+    """
+    Read a bounded preview for a file-backed watched CSV table.
+
+    This is the table equivalent of read_file_backed_artifact_preview().
+    It reads only the configured watch preview window, preserves head/tail
+    semantics, and returns a DataFrame plus lightweight preview metadata.
+    """
+    if meta.file_kind != "csv":
+        raise TypeError(
+            f"file-backed CSV preview expected csv metadata, got {meta.file_kind!r}"
+        )
+
+    if meta.materialization != "file":
+        raise TypeError("file-backed CSV preview requires file materialization")
+
+    p = Path(meta.path).expanduser().resolve()
+
+    watch_config = WatchConfig(
+        path=meta.path,
+        label=None,
+        section=None,
+        kind="auto",
+        read_mode=meta.read_mode,
+        max_bytes=meta.max_bytes,
+        encoding=meta.encoding,
+        materialization="file",
+    )
+
+    raw = read_watch_file_bytes(
+        p,
+        read_mode=meta.read_mode,
+        max_bytes=meta.max_bytes,
+        watch_config=watch_config,
+    )
+
+    payload = build_watch_publish_payload(
+        path=p,
+        raw=raw,
+        watch_config=watch_config,
+        read_mode=meta.read_mode,
+        max_bytes=meta.max_bytes,
+        max_rows=config.get_table_truncate_rows(),
+        max_columns=config.get_table_truncate_columns(),
+    )
+
+    if payload.kind != "table":
+        raise TypeError(
+            f"file-backed CSV preview expected table payload, got {payload.kind!r}"
+        )
+
+    df = payload.table_df
+
+    try:
+        returned_rows = int(len(df))
+    except Exception:
+        returned_rows = 0
+
+    try:
+        returned_columns = int(len(df.columns))
+    except Exception:
+        returned_columns = 0
+
+    total_rows = count_csv_data_rows(p, encoding=meta.encoding)
+
+    total_columns: int | None = None
+    try:
+        import pandas as pd
+
+        header_df = pd.read_csv(
+            p,
+            nrows=0,
+            encoding=meta.encoding,
+            engine="python",
+            on_bad_lines="skip",
+        )
+        total_columns = int(len(header_df.columns))
+    except Exception:
+        total_columns = returned_columns if returned_columns else None
+
+    truncated = False
+
+    if total_rows is not None and returned_rows < total_rows:
+        truncated = True
+
+    if total_columns is not None and returned_columns < total_columns:
+        truncated = True
+
+    if meta.size_bytes is not None and meta.max_bytes is not None:
+        if int(meta.size_bytes) > int(meta.max_bytes):
+            truncated = True
+
+    return FileBackedTablePreview(
+        table_df=df,
+        raw=raw,
+        total_rows=total_rows,
+        returned_rows=returned_rows,
+        total_columns=total_columns,
+        returned_columns=returned_columns,
+        truncated=truncated,
     )
 
 

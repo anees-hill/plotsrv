@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from plotsrv import settings
+import plotsrv.store as store
 from plotsrv.runtime import (
     WatchConfig,
     _WATCH_MAX_BYTES_UNSET,
@@ -26,6 +27,8 @@ from plotsrv.runtime import (
     watch_config_from_meta,
     note_file_backed_watch_change,
     refresh_watched_file_meta,
+    count_csv_data_rows,
+    read_file_backed_csv_preview,
     start_watch_threads,
 )
 
@@ -710,7 +713,7 @@ def _watched_meta(
     read_mode: str = "tail",
     encoding: str = "utf-8",
     max_bytes: int | None = None,
-) -> object:
+) -> store.WatchFileMeta:
     import plotsrv.store as store
 
     p = path.resolve()
@@ -1131,3 +1134,164 @@ def test_register_watch_views_uses_materialization_override(
         assert meta.materialization == "file"
     finally:
         store.reset()
+
+
+def test_count_csv_data_rows_counts_rows_after_header(tmp_path: Path) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a,b\n1,one\n2,two\n", encoding="utf-8")
+
+    assert count_csv_data_rows(p) == 2
+
+
+def test_count_csv_data_rows_empty_file_returns_zero(tmp_path: Path) -> None:
+    p = tmp_path / "empty.csv"
+    p.write_text("", encoding="utf-8")
+
+    assert count_csv_data_rows(p) == 0
+
+
+def test_read_file_backed_csv_preview_head(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text(
+        "a,b\n" "1,one\n" "2,two\n" "3,three\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_table_truncate_rows",
+        lambda: 2,
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_table_truncate_columns",
+        lambda: 10,
+    )
+
+    meta = _watched_meta(
+        p,
+        file_kind="csv",
+        read_mode="head",
+        max_bytes=1000,
+    )
+
+    out = read_file_backed_csv_preview(meta)  # type: ignore[arg-type]
+
+    assert out.source == "file_backed_csv"
+    assert out.returned_rows == 2
+    assert out.total_rows == 3
+    assert out.returned_columns == 2
+    assert out.total_columns == 2
+    assert out.truncated is True
+    assert list(out.table_df["a"]) == [1, 2]
+    assert b"3,three" in out.raw
+
+
+def test_read_file_backed_csv_preview_tail_preserves_header(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text(
+        "a,b\n" "1,one\n" "2,two\n" "3,three\n" "4,four\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_table_truncate_rows",
+        lambda: 10,
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_table_truncate_columns",
+        lambda: 10,
+    )
+
+    meta = _watched_meta(
+        p,
+        file_kind="csv",
+        read_mode="tail",
+        max_bytes=12,
+    )
+
+    out = read_file_backed_csv_preview(meta)  # type: ignore[arg-type]
+
+    assert out.total_rows == 4
+    assert out.returned_rows >= 1
+    assert "4" in {str(x) for x in out.table_df["a"].tolist()}
+    assert out.raw.startswith(b"a,b\n")
+    assert b"4,four" in out.raw
+    assert out.truncated is True
+
+
+def test_read_file_backed_csv_preview_records_column_truncation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "wide.csv"
+    p.write_text(
+        "a,b,c\n" "1,2,3\n" "4,5,6\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_table_truncate_rows",
+        lambda: 10,
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_table_truncate_columns",
+        lambda: 2,
+    )
+
+    meta = _watched_meta(
+        p,
+        file_kind="csv",
+        read_mode="head",
+        max_bytes=1000,
+    )
+
+    out = read_file_backed_csv_preview(meta)  # type: ignore[arg-type]
+
+    assert out.total_columns == 3
+    assert out.returned_columns == 2
+    assert list(out.table_df.columns) == ["a", "b"]
+    assert out.truncated is True
+
+
+def test_read_file_backed_csv_preview_rejects_non_csv(tmp_path: Path) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    meta = _watched_meta(
+        p,
+        file_kind="unknown",
+        read_mode="tail",
+        max_bytes=100,
+    )
+
+    with pytest.raises(TypeError, match="csv"):
+        read_file_backed_csv_preview(meta)  # type: ignore[arg-type]
+
+
+def test_read_file_backed_csv_preview_rejects_memory_backed_meta(
+    tmp_path: Path,
+) -> None:
+    import plotsrv.store as store
+
+    p = tmp_path / "data.csv"
+    p.write_text("a\n1\n", encoding="utf-8")
+
+    meta = store.WatchedFileMeta(
+        view_id="watch:data",
+        path=str(p.resolve()),
+        file_kind="csv",
+        read_mode="head",
+        encoding="utf-8",
+        materialization="memory",
+        size_bytes=p.stat().st_size,
+        mtime_ns=p.stat().st_mtime_ns,
+        max_bytes=100,
+    )
+
+    with pytest.raises(TypeError, match="file materialization"):
+        read_file_backed_csv_preview(meta)
