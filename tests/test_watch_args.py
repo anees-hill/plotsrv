@@ -96,8 +96,20 @@ def test_coerce_watch_specs_defaults() -> None:
     )
 
     assert specs == [
-        cli_mod.WatchSpec(path="a.log", label=None, section="watch", read_mode=None),
-        cli_mod.WatchSpec(path="b.log", label=None, section="watch", read_mode=None),
+        cli_mod.WatchSpec(
+            path="a.log",
+            label=None,
+            section="watch",
+            read_mode=None,
+            materialization=None,
+        ),
+        cli_mod.WatchSpec(
+            path="b.log",
+            label=None,
+            section="watch",
+            read_mode=None,
+            materialization=None,
+        ),
     ]
 
 
@@ -110,10 +122,18 @@ def test_coerce_watch_specs_one_section_applies_to_all() -> None:
     )
 
     assert specs[0] == cli_mod.WatchSpec(
-        path="a.log", label="A", section="logs", read_mode="tail"
+        path="a.log",
+        label="A",
+        section="logs",
+        read_mode="tail",
+        materialization=None,
     )
     assert specs[1] == cli_mod.WatchSpec(
-        path="b.log", label="B", section="logs", read_mode=None
+        path="b.log",
+        label="B",
+        section="logs",
+        read_mode=None,
+        materialization=None,
     )
 
 
@@ -126,8 +146,20 @@ def test_coerce_watch_specs_per_watch_sections_and_modes() -> None:
     )
 
     assert specs == [
-        cli_mod.WatchSpec(path="a.log", label="A", section="s1", read_mode="head"),
-        cli_mod.WatchSpec(path="b.log", label="B", section="s2", read_mode="tail"),
+        cli_mod.WatchSpec(
+            path="a.log",
+            label="A",
+            section="s1",
+            read_mode="head",
+            materialization=None,
+        ),
+        cli_mod.WatchSpec(
+            path="b.log",
+            label="B",
+            section="s2",
+            read_mode="tail",
+            materialization=None,
+        ),
     ]
 
 
@@ -314,4 +346,27 @@ def test_resolve_watch_cli_max_bytes_rejects_both_mb_and_bytes() -> None:
         resolve_watch_cli_max_bytes(
             watch_max_bytes="1234",
             watch_max_mb="5",
+        )
+
+
+def test_coerce_watch_specs_applies_materialization_override_to_all() -> None:
+    specs = cli_mod._coerce_watch_specs(
+        ["a.log", "b.log"],
+        labels=[],
+        sections=[],
+        read_modes=[],
+        materialization="file",
+    )
+
+    assert [s.materialization for s in specs] == ["file", "file"]
+
+
+def test_coerce_watch_specs_rejects_bad_materialization_override() -> None:
+    with pytest.raises(ValueError, match="watch-materialization"):
+        cli_mod._coerce_watch_specs(
+            ["a.log"],
+            labels=[],
+            sections=[],
+            read_modes=[],
+            materialization="disk",
         )

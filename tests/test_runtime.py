@@ -1087,3 +1087,47 @@ def test_start_watch_threads_memory_backed_still_reads_and_publishes(
     assert len(read_calls) == 1
     assert len(publish_calls) == 1
     assert note_calls == []
+
+
+def test_watch_config_mapping_accepts_materialization() -> None:
+    from plotsrv.runtime import coerce_watch_config
+
+    cfg = coerce_watch_config(
+        {
+            "path": "app.log",
+            "materialization": "file",
+        }
+    )
+
+    assert cfg.materialization == "file"
+
+
+def test_register_watch_views_uses_materialization_override(
+    tmp_path: Path,
+) -> None:
+    import plotsrv.store as store
+    from plotsrv.runtime import WatchConfig, register_watch_views
+
+    p = tmp_path / "small.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    store.reset()
+    try:
+        registered = register_watch_views(
+            [
+                WatchConfig(
+                    path=p,
+                    label="small",
+                    section="logs",
+                    materialization="file",
+                )
+            ],
+            activate_first_if_none=True,
+        )
+
+        assert registered[0].materialization == "file"
+
+        meta = store.get_watched_file_meta(view_id="logs:small")
+        assert meta.materialization == "file"
+    finally:
+        store.reset()

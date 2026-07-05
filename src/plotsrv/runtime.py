@@ -58,6 +58,7 @@ class WatchConfig:
     encoding: str = "utf-8"
     update_limit_s: int | None = None
     force: bool = False
+    materialization: WatchMaterializationRequest | None = None
 
 
 def parse_watch_max_mb(raw: int | float | str | None) -> int | None:
@@ -422,6 +423,13 @@ def coerce_watch_config(value: WatchConfig | Mapping[str, Any]) -> WatchConfig:
     else:
         max_bytes = _WATCH_MAX_BYTES_UNSET
 
+    raw_materialization = value.get("materialization", None)
+    materialization = (
+        None
+        if raw_materialization is None or str(raw_materialization).strip() == ""
+        else coerce_watch_materialization_request(str(raw_materialization))
+    )
+
     return WatchConfig(
         path=value["path"],  # type: ignore[arg-type]
         label=(None if value.get("label") is None else str(value.get("label"))),
@@ -436,6 +444,7 @@ def coerce_watch_config(value: WatchConfig | Mapping[str, Any]) -> WatchConfig:
             else int(value.get("update_limit_s"))
         ),
         force=bool(value.get("force", False)),
+        materialization=materialization,
     )
 
 
@@ -482,7 +491,10 @@ def _watch_view_from_config(spec: WatchConfig) -> RegisteredWatchView:
     preregister_kind: Literal["artifact", "table"] = (
         "table" if fk == "csv" else "artifact"
     )
-    materialization = resolve_watch_materialization(p)
+    materialization = resolve_watch_materialization(
+        p,
+        requested=spec.materialization,
+    )
 
     return RegisteredWatchView(
         path=p,
