@@ -24,6 +24,9 @@ from plotsrv.runtime import (
     resolve_watch_materialization,
     coerce_watch_materialization_request,
     watch_config_from_meta,
+    note_file_backed_watch_change,
+    refresh_watched_file_meta,
+    start_watch_threads,
 )
 
 
@@ -867,3 +870,220 @@ def test_read_file_backed_artifact_preview_rejects_image(tmp_path: Path) -> None
 
     with pytest.raises(TypeError, match="image"):
         read_file_backed_artifact_preview(meta)  # type: ignore[arg-type]
+
+
+def test_refresh_watched_file_meta_updates_size(
+    tmp_path: Path,
+) -> None:
+    import plotsrv.store as store
+    from plotsrv.runtime import RegisteredWatchView
+
+    p = tmp_path / "app.log"
+    p.write_text("one\n", encoding="utf-8")
+
+    registered = RegisteredWatchView(
+        path=p.resolve(),
+        view_id="logs:api",
+        section="logs",
+        label="api",
+        kind="artifact",
+        read_mode="tail",
+        materialization="file",
+    )
+    spec = WatchConfig(path=p, label="api", section="logs", read_mode="tail")
+
+    store.reset()
+    try:
+        meta1 = refresh_watched_file_meta(registered=registered, spec=spec)
+        assert meta1.size_bytes == len("one\n".encode("utf-8"))
+
+        p.write_text("one\ntwo\n", encoding="utf-8")
+
+        meta2 = refresh_watched_file_meta(registered=registered, spec=spec)
+        assert meta2.size_bytes == len("one\ntwo\n".encode("utf-8"))
+
+        stored = store.get_watched_file_meta(view_id="logs:api")
+        assert stored.size_bytes == meta2.size_bytes
+        assert stored.materialization == "file"
+    finally:
+        store.reset()
+
+
+def test_note_file_backed_watch_change_marks_success(
+    tmp_path: Path,
+) -> None:
+    import plotsrv.store as store
+    from plotsrv.runtime import RegisteredWatchView
+
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    registered = RegisteredWatchView(
+        path=p.resolve(),
+        view_id="logs:api",
+        section="logs",
+        label="api",
+        kind="artifact",
+        read_mode="tail",
+        materialization="file",
+    )
+    spec = WatchConfig(path=p, label="api", section="logs", read_mode="tail")
+
+    store.reset()
+    try:
+        store.register_view(
+            view_id="logs:api",
+            section="logs",
+            label="api",
+            kind="artifact",
+            activate_if_first=False,
+        )
+
+        note_file_backed_watch_change(registered=registered, spec=spec)
+
+        status = store.get_status(view_id="logs:api")
+        assert status["last_error"] is None
+        assert status["publish_source"] == "watch"
+
+        meta = store.get_watched_file_meta(view_id="logs:api")
+        assert meta.materialization == "file"
+        assert meta.size_bytes == len("hello\n".encode("utf-8"))
+    finally:
+        store.reset()
+
+
+def test_start_watch_threads_file_backed_does_not_read_or_publish(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "large.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+
+    read_calls: list[object] = []
+    publish_calls: list[object] = []
+    note_calls: list[object] = []
+
+    def fake_read_watch_file_bytes(*args: object, **kwargs: object) -> bytes:
+        read_calls.append((args, kwargs))
+        return b"should-not-read"
+
+    def fake_publish_prepared_watch_payload(*args: object, **kwargs: object) -> bool:
+        publish_calls.append((args, kwargs))
+        return True
+
+    def fake_note_file_backed_watch_change(**kwargs: object) -> None:
+        note_calls.append(kwargs)
+
+    class FakeThread:
+        def __init__(self, *, target, **kwargs: object) -> None:
+            self.target = target
+
+        def start(self) -> None:
+            # Run once. Stop the infinite loop after the first sleep.
+            self.target()
+
+    sleep_calls: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.read_watch_file_bytes",
+        fake_read_watch_file_bytes,
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.publish_prepared_watch_payload",
+        fake_publish_prepared_watch_payload,
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.note_file_backed_watch_change",
+        fake_note_file_backed_watch_change,
+    )
+    monkeypatch.setattr("plotsrv.runtime.threading.Thread", FakeThread)
+    monkeypatch.setattr("plotsrv.runtime.time.sleep", fake_sleep)
+
+    with pytest.raises(KeyboardInterrupt):
+        start_watch_threads(
+            [WatchConfig(path=p, label="large", section="logs")],
+            host="127.0.0.1",
+            port=8000,
+            register_views=True,
+        )
+
+    assert len(note_calls) == 1
+    assert read_calls == []
+    assert publish_calls == []
+
+
+def test_start_watch_threads_memory_backed_still_reads_and_publishes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "small.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "memory",
+    )
+
+    read_calls: list[object] = []
+    publish_calls: list[object] = []
+    note_calls: list[object] = []
+
+    def fake_read_watch_file_bytes(*args: object, **kwargs: object) -> bytes:
+        read_calls.append((args, kwargs))
+        return b"hello\n"
+
+    def fake_publish_prepared_watch_payload(*args: object, **kwargs: object) -> bool:
+        publish_calls.append((args, kwargs))
+        return True
+
+    def fake_note_file_backed_watch_change(**kwargs: object) -> None:
+        note_calls.append(kwargs)
+
+    class FakeThread:
+        def __init__(self, *, target, **kwargs: object) -> None:
+            self.target = target
+
+        def start(self) -> None:
+            self.target()
+
+    sleep_calls: list[float] = []
+
+    def fake_sleep(seconds: float) -> None:
+        sleep_calls.append(seconds)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.read_watch_file_bytes",
+        fake_read_watch_file_bytes,
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.publish_prepared_watch_payload",
+        fake_publish_prepared_watch_payload,
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.note_file_backed_watch_change",
+        fake_note_file_backed_watch_change,
+    )
+    monkeypatch.setattr("plotsrv.runtime.threading.Thread", FakeThread)
+    monkeypatch.setattr("plotsrv.runtime.time.sleep", fake_sleep)
+
+    with pytest.raises(KeyboardInterrupt):
+        start_watch_threads(
+            [WatchConfig(path=p, label="small", section="logs")],
+            host="127.0.0.1",
+            port=8000,
+            register_views=True,
+        )
+
+    assert len(read_calls) == 1
+    assert len(publish_calls) == 1
+    assert note_calls == []

@@ -552,6 +552,59 @@ def register_watched_file_meta(
     return meta
 
 
+def refresh_watched_file_meta(
+    *,
+    registered: RegisteredWatchView,
+    spec: WatchConfig,
+    error: str | None = None,
+) -> store.WatchedFileMeta:
+    """
+    Refresh watched-file metadata without publishing file contents.
+
+    File-backed watched views use this in the polling loop so the UI can read
+    a fresh preview on demand from /artifact without storing the file contents
+    in memory.
+    """
+    resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=registered.view_id)
+    meta = build_watched_file_meta(
+        registered=registered,
+        spec=spec,
+        materialization=registered.materialization,
+        max_bytes=resolved_max_bytes,
+        error=error,
+    )
+    store.set_watched_file_meta(meta)
+    return meta
+
+
+def note_file_backed_watch_change(
+    *,
+    registered: RegisteredWatchView,
+    spec: WatchConfig,
+    error: str | None = None,
+) -> None:
+    """
+    Record that a file-backed watched file changed.
+
+    This deliberately does not read/publish file contents. The actual preview is
+    loaded on demand by /artifact.
+    """
+    refresh_watched_file_meta(
+        registered=registered,
+        spec=spec,
+        error=error,
+    )
+
+    if error is None:
+        store.mark_success(
+            duration_s=None,
+            view_id=registered.view_id,
+            publish_source="watch",
+        )
+    else:
+        store.mark_error(error, view_id=registered.view_id)
+
+
 def watch_config_from_meta(meta: store.WatchedFileMeta) -> WatchConfig:
     """
     Rebuild the watch config needed to preview a file-backed watched artifact.
@@ -1237,6 +1290,7 @@ def start_watch_threads(
             watch_config: WatchConfig = spec,
             watch_read_mode: WatchReadMode = read_mode,
             watch_max_bytes: int | None = resolved_max_bytes,
+            registered_view: RegisteredWatchView = registered,
         ) -> None:
             last_sig: tuple[int, int] | None = None
 
@@ -1251,6 +1305,20 @@ def start_watch_threads(
                     sig = None
 
                 if sig is not None and sig == last_sig:
+                    time.sleep(1.0)
+                    continue
+
+                last_sig = sig
+
+                if registered_view.materialization == "file":
+                    error = None if sig is not None else "Watched file stat failed"
+
+                    note_file_backed_watch_change(
+                        registered=registered_view,
+                        spec=watch_config,
+                        error=error,
+                    )
+
                     time.sleep(1.0)
                     continue
 
@@ -1276,8 +1344,6 @@ def start_watch_threads(
                     )
                     time.sleep(1.0)
                     continue
-
-                last_sig = sig
 
                 payload = build_watch_publish_payload(
                     path=pth,

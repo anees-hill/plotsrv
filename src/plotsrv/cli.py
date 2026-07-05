@@ -46,6 +46,7 @@ from .runtime import (
     read_head_bytes,
     read_tail_bytes,
     start_watch_threads,
+    note_file_backed_watch_change,
 )
 from .config_writer import (
     create_config_file,
@@ -1366,6 +1367,8 @@ def _run_watch_mode(
     mode: WatchReadMode = read_mode or _default_watch_read_mode(p)
     view_label = label or p.name
 
+    registered_view: RegisteredWatchView
+
     if view_id is None:
         registered = register_watch_views(
             [
@@ -1384,6 +1387,7 @@ def _run_watch_mode(
             activate_first_if_none=True,
         )
         vid = registered[0].view_id
+        registered_view = registered[0]
     else:
         fk = infer_file_kind(p)
         preregister_kind = "table" if fk == "csv" else "artifact"
@@ -1409,7 +1413,7 @@ def _run_watch_mode(
             force=force,
         )
 
-        registered = RegisteredWatchView(
+        registered_view = RegisteredWatchView(
             path=p,
             view_id=vid,
             section=section,
@@ -1419,7 +1423,7 @@ def _run_watch_mode(
         )
 
         register_watched_file_meta(
-            registered=registered,
+            registered=registered_view,
             spec=watch_config,
         )
 
@@ -1465,6 +1469,18 @@ def _run_watch_mode(
                 update_limit_s=update_limit_s,
                 force=force,
             )
+
+            if registered_view.materialization == "file":
+                error = None if sig is not None else "Watched file stat failed"
+
+                note_file_backed_watch_change(
+                    registered=registered_view,
+                    spec=watch_config,
+                    error=error,
+                )
+
+                time.sleep(max(0.05, float(every)))
+                continue
 
             raw = read_watch_file_bytes(
                 p,
