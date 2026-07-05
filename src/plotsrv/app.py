@@ -506,6 +506,30 @@ def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
     )
 
 
+def _watched_file_meta_dict(view_id: str) -> dict[str, Any] | None:
+    if not store.has_watched_file_meta(view_id=view_id):
+        return None
+
+    try:
+        meta = store.get_watched_file_meta(view_id=view_id)
+    except LookupError:
+        return None
+
+    return {
+        "path": meta.path,
+        "file_kind": meta.file_kind,
+        "read_mode": meta.read_mode,
+        "encoding": meta.encoding,
+        "materialization": meta.materialization,
+        "size_bytes": meta.size_bytes,
+        "mtime_ns": meta.mtime_ns,
+        "max_bytes": meta.max_bytes,
+        "last_checked_at": meta.last_checked_at,
+        "last_read_at": meta.last_read_at,
+        "last_error": meta.last_error,
+    }
+
+
 @app.get("/status")
 def status(request: Request, view: str | None = None) -> dict[str, object]:
     if config.get_status_local_only():
@@ -516,6 +540,14 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     s.update(store.get_service_info())
     s["view_id"] = vid
     s["freshness"] = store.get_freshness(view_id=vid)
+
+    watched_file = _watched_file_meta_dict(vid)
+    s["watched_file"] = watched_file
+    s["is_watched_file"] = watched_file is not None
+    s["materialization"] = (
+        watched_file.get("materialization") if watched_file is not None else None
+    )
+
     return s
 
 
@@ -1156,6 +1188,8 @@ def get_views(request: Request) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for v in store.list_views():
+        watched_file = _watched_file_meta_dict(v.view_id)
+
         out.append(
             {
                 "view_id": v.view_id,
@@ -1164,6 +1198,13 @@ def get_views(request: Request) -> list[dict[str, Any]]:
                 "kind": v.kind,
                 "icon_key": v.icon_key,
                 "freshness": store.get_freshness(view_id=v.view_id),
+                "is_watched_file": watched_file is not None,
+                "materialization": (
+                    watched_file.get("materialization")
+                    if watched_file is not None
+                    else None
+                ),
+                "watched_file": watched_file,
             }
         )
     return out

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from plotsrv.app import app
 from plotsrv import store, config
+from plotsrv.runtime import WatchConfig, register_watch_views
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +18,7 @@ def reset_state(monkeypatch: pytest.MonkeyPatch) -> None:
     config.set_table_view_mode("simple")
     monkeypatch.setattr(config, "get_control_local_only", lambda: False)
     monkeypatch.setattr(config, "get_internal_read_local_only", lambda: False)
+    monkeypatch.setattr(config, "get_views_local_only", lambda: False)
     yield
     store.reset()
     config.set_table_view_mode("simple")
@@ -125,6 +127,153 @@ def test_status_includes_service_fields(client: TestClient) -> None:
     assert "service_mode" in data
     assert "service_target" in data
     assert "service_refresh_rate_s" in data
+
+
+def test_status_includes_file_backed_watch_metadata(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="api",
+                section="logs",
+                read_mode="tail",
+                max_bytes=123,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    resp = client.get("/status?view=logs:api")
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["view_id"] == "logs:api"
+    assert data["is_watched_file"] is True
+    assert data["materialization"] == "file"
+
+    watched = data["watched_file"]
+    assert watched["materialization"] == "file"
+    assert watched["path"] == str(p.resolve())
+    assert watched["file_kind"] == "unknown"
+    assert watched["read_mode"] == "tail"
+    assert watched["encoding"] == "utf-8"
+    assert watched["size_bytes"] == len("hello\n".encode("utf-8"))
+    assert watched["max_bytes"] == 123
+
+
+def test_status_non_watch_has_no_watched_file_metadata(
+    client: TestClient,
+) -> None:
+    vid = store.register_view(section="demo", label="normal", kind="artifact")
+    store.set_artifact(
+        obj="hello",
+        kind="text",
+        section="demo",
+        label="normal",
+        view_id=vid,
+    )
+
+    resp = client.get(f"/status?view={vid}")
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["is_watched_file"] is False
+    assert data["materialization"] is None
+    assert data["watched_file"] is None
+
+
+def test_views_include_file_backed_watch_metadata(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="api",
+                section="logs",
+                read_mode="tail",
+                max_bytes=123,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    resp = client.get("/views")
+
+    assert resp.status_code == 200
+    views = resp.json()
+
+    item = next(v for v in views if v["view_id"] == "logs:api")
+
+    assert item["is_watched_file"] is True
+    assert item["materialization"] == "file"
+    assert item["watched_file"]["materialization"] == "file"
+    assert item["watched_file"]["path"] == str(p.resolve())
+    assert item["watched_file"]["read_mode"] == "tail"
+    assert item["watched_file"]["size_bytes"] == len("hello\n".encode("utf-8"))
+
+
+def test_views_include_memory_backed_watch_metadata(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "small.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "memory",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="small",
+                section="logs",
+                read_mode="tail",
+                max_bytes=123,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    resp = client.get("/views")
+
+    assert resp.status_code == 200
+    views = resp.json()
+
+    item = next(v for v in views if v["view_id"] == "logs:small")
+
+    assert item["is_watched_file"] is True
+    assert item["materialization"] == "memory"
+    assert item["watched_file"]["materialization"] == "memory"
+    assert item["watched_file"]["path"] == str(p.resolve())
 
 
 def _mk_view(section: str = "default", label: str = "titanic") -> str:
