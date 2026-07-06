@@ -782,3 +782,216 @@ def test_publish_error_artifact_renders_without_text_truncation(
     assert data["truncation"]["truncated"] is False
     assert "plotsrv publish rejected" in data["html"]
     assert "limits.published_objects.max_artifact_text_chars=5" in data["html"]
+
+
+def test_table_data_serves_file_backed_csv_watch(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text(
+        "a,b\n" "1,one\n" "2,two\n" "3,three\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+    monkeypatch.setattr(config, "get_table_truncate_rows", lambda: 10)
+    monkeypatch.setattr(config, "get_table_truncate_columns", lambda: 10)
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="data",
+                section="watch",
+                read_mode="head",
+                max_bytes=1000,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    resp = client.get("/table/data?view=watch:data")
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["columns"] == ["a", "b"]
+    assert data["rows"] == [
+        {"a": 1, "b": "one"},
+        {"a": 2, "b": "two"},
+        {"a": 3, "b": "three"},
+    ]
+    assert data["total_rows"] == 3
+    assert data["returned_rows"] == 3
+
+    meta = data["meta"]
+    assert meta["file_backed"] is True
+    assert meta["watch"] is True
+    assert meta["materialization"] == "file"
+    assert meta["file_kind"] == "csv"
+    assert meta["path"] == str(p.resolve())
+    assert meta["source"] == "file_backed_csv"
+    assert meta["truncated"] is False
+
+
+def test_table_data_file_backed_csv_respects_query_limit(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text(
+        "a,b\n" "1,one\n" "2,two\n" "3,three\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+    monkeypatch.setattr(config, "get_table_truncate_rows", lambda: 10)
+    monkeypatch.setattr(config, "get_table_truncate_columns", lambda: 10)
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="data",
+                section="watch",
+                read_mode="head",
+                max_bytes=1000,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    resp = client.get("/table/data?view=watch:data&limit=2")
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["rows"] == [
+        {"a": 1, "b": "one"},
+        {"a": 2, "b": "two"},
+    ]
+    assert data["total_rows"] == 3
+    assert data["returned_rows"] == 2
+    assert data["meta"]["file_backed"] is True
+
+
+def test_table_data_file_backed_csv_tail_mode(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text(
+        "a,b\n" "1,one\n" "2,two\n" "3,three\n" "4,four\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+    monkeypatch.setattr(config, "get_table_truncate_rows", lambda: 10)
+    monkeypatch.setattr(config, "get_table_truncate_columns", lambda: 10)
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="data",
+                section="watch",
+                read_mode="tail",
+                max_bytes=12,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    resp = client.get("/table/data?view=watch:data")
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["columns"] == ["a", "b"]
+    assert {"a": 4, "b": "four"} in data["rows"]
+    assert data["total_rows"] == 4
+    assert data["meta"]["truncated"] is True
+    assert data["meta"]["preview_bytes"] <= p.stat().st_size
+
+
+def test_table_data_file_backed_csv_without_store_table(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a\n1\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="data",
+                section="watch",
+                read_mode="head",
+                max_bytes=100,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    assert store.has_table(view_id="watch:data") is False
+
+    resp = client.get("/table/data?view=watch:data")
+
+    assert resp.status_code == 200
+    assert resp.json()["rows"] == [{"a": 1}]
+
+
+def test_table_data_file_backed_csv_missing_file_returns_404(
+    client: TestClient,
+    tmp_path,
+) -> None:
+    import plotsrv.store as store
+
+    p = tmp_path / "missing.csv"
+
+    store.register_view(
+        view_id="watch:missing",
+        section="watch",
+        label="missing",
+        kind="table",
+        activate_if_first=False,
+    )
+    store.set_watched_file_meta(
+        store.WatchedFileMeta(
+            view_id="watch:missing",
+            path=str(p.resolve()),
+            file_kind="csv",
+            read_mode="head",
+            encoding="utf-8",
+            materialization="file",
+            size_bytes=None,
+            mtime_ns=None,
+            max_bytes=100,
+            last_error="FileNotFoundError",
+        )
+    )
+
+    resp = client.get("/table/data?view=watch:missing")
+
+    assert resp.status_code == 404
+    assert "Watched CSV file not found" in resp.json()["detail"]

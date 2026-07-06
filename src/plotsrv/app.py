@@ -21,7 +21,7 @@ from .renderers import register_default_renderers
 from .renderers.registry import render_any
 from .storage.worker import enqueue_snapshot
 from .storage.backend import list_snapshots, load_snapshot
-from .runtime import read_file_backed_artifact_preview
+from .runtime import read_file_backed_artifact_preview, read_file_backed_csv_preview
 
 
 def _build_app() -> FastAPI:
@@ -650,6 +650,109 @@ def _table_response_df(df: pd.DataFrame, *, limit: int | None) -> pd.DataFrame:
     return out
 
 
+def _table_data_response_from_df(
+    df: pd.DataFrame,
+    *,
+    limit: int | None,
+    total_rows: int | None = None,
+    returned_rows: int | None = None,
+    meta: dict[str, Any] | None = None,
+    snapshot_id: str | None = None,
+) -> dict[str, Any]:
+    rows_df = _table_response_df(df, limit=limit)
+    columns = list(rows_df.columns)
+    rows = rows_df.to_dict(orient="records")
+
+    resolved_total_rows = total_rows if total_rows is not None else len(df)
+    resolved_returned_rows = returned_rows if returned_rows is not None else len(rows)
+
+    out: dict[str, Any] = {
+        "columns": columns,
+        "rows": rows,
+        "total_rows": resolved_total_rows,
+        "returned_rows": resolved_returned_rows,
+    }
+
+    if meta:
+        out["meta"] = meta
+
+    if snapshot_id is not None:
+        out["snapshot_id"] = snapshot_id
+
+    return out
+
+
+def _file_backed_csv_table_data_response(
+    *,
+    view_id: str,
+    limit: int | None,
+) -> dict[str, Any]:
+    try:
+        meta = store.get_watched_file_meta(view_id=view_id)
+    except LookupError:
+        raise HTTPException(
+            status_code=404,
+            detail="No file-backed watched CSV metadata is available.",
+        )
+
+    if meta.materialization != "file":
+        raise HTTPException(
+            status_code=404,
+            detail="Watched CSV is not file-backed.",
+        )
+
+    if meta.file_kind != "csv":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Watched file is not CSV: {meta.file_kind!r}",
+        )
+
+    try:
+        preview = read_file_backed_csv_preview(meta)
+    except FileNotFoundError as e:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Watched CSV file not found: {e}",
+        )
+    except TypeError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to read file-backed watched CSV: {type(e).__name__}: {e}",
+        )
+
+    return _table_data_response_from_df(
+        preview.table_df,
+        limit=limit,
+        total_rows=preview.total_rows,
+        returned_rows=min(
+            preview.returned_rows,
+            len(_table_response_df(preview.table_df, limit=limit)),
+        ),
+        meta={
+            "file_backed": True,
+            "watch": True,
+            "materialization": meta.materialization,
+            "path": meta.path,
+            "file_kind": meta.file_kind,
+            "read_mode": meta.read_mode,
+            "encoding": meta.encoding,
+            "size_bytes": meta.size_bytes,
+            "mtime_ns": meta.mtime_ns,
+            "max_bytes": meta.max_bytes,
+            "preview_bytes": len(preview.raw),
+            "source": preview.source,
+            "total_columns": preview.total_columns,
+            "returned_columns": preview.returned_columns,
+            "truncated": preview.truncated,
+        },
+    )
+
+
 @app.get("/table/data")
 def get_table_data(
     limit: int | None = Query(default=None, ge=1),
@@ -672,10 +775,6 @@ def get_table_data(
                 detail="Stored table snapshot payload was not a DataFrame.",
             )
 
-        rows_df = _table_response_df(df, limit=limit)
-        columns = list(rows_df.columns)
-        rows = rows_df.to_dict(orient="records")
-
         total_rows = None
         returned_rows = None
         if isinstance(loaded.meta.extra, dict):
@@ -684,37 +783,36 @@ def get_table_data(
             total_rows = raw_total if isinstance(raw_total, int) else None
             returned_rows = raw_returned if isinstance(raw_returned, int) else None
 
-        total_rows = total_rows if total_rows is not None else len(df)
-        returned_rows = returned_rows if returned_rows is not None else len(rows)
+        return _table_data_response_from_df(
+            df,
+            limit=limit,
+            total_rows=total_rows,
+            returned_rows=returned_rows,
+            snapshot_id=snapshot,
+        )
 
-        return {
-            "columns": columns,
-            "rows": rows,
-            "total_rows": total_rows,
-            "returned_rows": returned_rows,
-            "snapshot_id": snapshot,
-        }
+    if store.has_watched_file_meta(view_id=vid):
+        meta = store.get_watched_file_meta(view_id=vid)
+
+        if meta.materialization == "file" and meta.file_kind == "csv":
+            return _file_backed_csv_table_data_response(
+                view_id=vid,
+                limit=limit,
+            )
 
     if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")
 
     df = store.get_table_df(view_id=vid)
 
-    rows_df = _table_response_df(df, limit=limit)
-    columns = list(rows_df.columns)
-    rows = rows_df.to_dict(orient="records")
-
     total_rows, returned_rows = store.get_table_counts(view_id=vid)
 
-    total_rows = total_rows if total_rows is not None else len(df)
-    returned_rows = returned_rows if returned_rows is not None else len(rows)
-
-    return {
-        "columns": columns,
-        "rows": rows,
-        "total_rows": total_rows,
-        "returned_rows": returned_rows,
-    }
+    return _table_data_response_from_df(
+        df,
+        limit=limit,
+        total_rows=total_rows,
+        returned_rows=returned_rows,
+    )
 
 
 @app.get("/table/export")
