@@ -18,6 +18,52 @@ class AdmissionDecision:
     max_snapshot_size_bytes: int
 
 
+def is_file_backed_watch_storage_task(
+    *,
+    source: str | None,
+    extra: dict[str, Any] | None = None,
+) -> bool:
+    """
+    Return true when a storage task represents a file-backed watched view.
+
+    File-backed watched views are not normal published payloads. Their data
+    remains on disk and is previewed on demand, so persistence should not write
+    latest-state payloads or historical snapshots for them.
+    """
+    source_norm = (source or "").strip().lower().replace("-", "_")
+
+    if source_norm in {
+        "file_backed_watch",
+        "watch_file_backed",
+        "watch:file_backed",
+        "watch/file_backed",
+    }:
+        return True
+
+    if source_norm != "watch":
+        return False
+
+    if not isinstance(extra, dict):
+        return False
+
+    materialization = str(extra.get("materialization") or "").strip().lower()
+    if materialization == "file":
+        return True
+
+    if extra.get("file_backed") is True:
+        return True
+
+    watched_file = extra.get("watched_file")
+    if isinstance(watched_file, dict):
+        watched_materialization = (
+            str(watched_file.get("materialization") or "").strip().lower()
+        )
+        if watched_materialization == "file":
+            return True
+
+    return False
+
+
 def should_store_snapshot(
     *,
     view_id: str,

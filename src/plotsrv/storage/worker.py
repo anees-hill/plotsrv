@@ -9,7 +9,11 @@ from typing import Any
 from .. import config
 from .backend import list_snapshots, write_snapshot_and_prune
 from .latest import FileLatestStateBackend
-from .policy import estimate_payload_size_bytes, should_store_snapshot
+from .policy import (
+    estimate_payload_size_bytes,
+    is_file_backed_watch_storage_task,
+    should_store_snapshot,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +127,12 @@ class StorageWorker:
                 self._queue.task_done()
 
     def _process_task(self, task: StorageTask) -> None:
+        if is_file_backed_watch_storage_task(
+            source=task.source,
+            extra=task.extra,
+        ):
+            return
+
         root_dir = config.get_storage_root_dir()
 
         if config.get_storage_latest_enabled():
