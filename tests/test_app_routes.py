@@ -995,3 +995,129 @@ def test_table_data_file_backed_csv_missing_file_returns_404(
 
     assert resp.status_code == 404
     assert "Watched CSV file not found" in resp.json()["detail"]
+
+
+def test_table_export_file_backed_csv_returns_409(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a,b\n1,one\n2,two\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="data",
+                section="watch",
+                read_mode="head",
+                max_bytes=100,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    assert store.has_table(view_id="watch:data") is False
+
+    resp = client.get("/table/export?view=watch:data")
+
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert "File-backed CSV export is not supported yet" in detail
+    assert "/table/data" in detail
+    assert "original CSV file" in detail
+
+
+def test_table_export_rejection_does_not_break_file_backed_csv_data(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a\n1\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="data",
+                section="watch",
+                read_mode="head",
+                max_bytes=100,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    export_resp = client.get("/table/export?view=watch:data")
+    assert export_resp.status_code == 409
+
+    data_resp = client.get("/table/data?view=watch:data")
+    assert data_resp.status_code == 200
+    assert data_resp.json()["rows"] == [{"a": 1}]
+
+
+def test_table_export_memory_table_still_works(
+    client: TestClient,
+) -> None:
+    df = pd.DataFrame({"a": [1, 2]})
+    store.set_table(df, html_simple="<table>dummy</table>")
+
+    resp = client.get("/table/export")
+
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    assert "attachment" in resp.headers.get("content-disposition", "").lower()
+    assert resp.content.decode("utf-8") == "a\n1\n2\n"
+
+
+def test_table_export_memory_backed_watch_csv_uses_store_table(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a\n1\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "memory",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="data",
+                section="watch",
+                read_mode="head",
+                max_bytes=100,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    store.set_table(
+        pd.DataFrame({"a": [1]}),
+        html_simple=None,
+        view_id="watch:data",
+        total_rows=1,
+        returned_rows=1,
+        publish_source="watch",
+    )
+
+    resp = client.get("/table/export?view=watch:data")
+
+    assert resp.status_code == 200
+    assert resp.content.decode("utf-8") == "a\n1\n"

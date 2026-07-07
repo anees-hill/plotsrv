@@ -506,6 +506,29 @@ def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
     )
 
 
+def _reject_file_backed_table_export(*, view_id: str) -> None:
+    try:
+        meta = store.get_watched_file_meta(view_id=view_id)
+    except LookupError:
+        return
+
+    if meta.materialization != "file":
+        return
+
+    if meta.file_kind != "csv":
+        return
+
+    raise HTTPException(
+        status_code=409,
+        detail=(
+            "File-backed CSV export is not supported yet. "
+            "This view is served as a bounded preview from disk via /table/data, "
+            "not as an in-memory table. Exporting the full watched file safely "
+            "will be added separately. Use the original CSV file directly for now."
+        ),
+    )
+
+
 def _watched_file_meta_dict(view_id: str) -> dict[str, Any] | None:
     if not store.has_watched_file_meta(view_id=view_id):
         return None
@@ -851,6 +874,8 @@ def export_table(
             "Content-Disposition": f'attachment; filename="plotsrv_table_{snapshot}.csv"',
         }
         return Response(csv_bytes, media_type="text/csv", headers=headers)
+
+    _reject_file_backed_table_export(view_id=vid)
 
     if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")
