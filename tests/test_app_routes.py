@@ -961,7 +961,7 @@ def test_table_data_file_backed_csv_without_store_table(
     assert resp.json()["rows"] == [{"a": 1}]
 
 
-def test_table_data_file_backed_csv_missing_file_returns_404(
+def test_table_data_file_backed_csv_missing_file_returns_visible_error_row(
     client: TestClient,
     tmp_path,
 ) -> None:
@@ -993,8 +993,23 @@ def test_table_data_file_backed_csv_missing_file_returns_404(
 
     resp = client.get("/table/data?view=watch:missing")
 
-    assert resp.status_code == 404
-    assert "Watched CSV file not found" in resp.json()["detail"]
+    assert resp.status_code == 200
+    data = resp.json()
+
+    assert data["columns"] == ["plotsrv_error"]
+    assert data["total_rows"] == 1
+    assert data["returned_rows"] == 1
+    assert data["meta"]["error"] is True
+    assert data["meta"]["artifact_kind"] == "watch_error"
+    assert data["meta"]["status_code"] == 404
+
+    error_text = data["rows"][0]["plotsrv_error"]
+    assert "file-backed CSV read failed" in error_text
+    assert "FileNotFoundError" in error_text
+    assert str(p.resolve()) in error_text
+
+    status = store.get_status(view_id="watch:missing")
+    assert status["last_error"]
 
 
 def test_table_export_file_backed_csv_returns_409(
@@ -1121,3 +1136,57 @@ def test_table_export_memory_backed_watch_csv_uses_store_table(
 
     assert resp.status_code == 200
     assert resp.content.decode("utf-8") == "a\n1\n"
+
+
+def test_file_backed_csv_error_row_contains_full_actionable_message(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plotsrv.store as store
+
+    p = tmp_path / "missing.csv"
+
+    monkeypatch.setattr(
+        config,
+        "get_table_truncate_columns",
+        lambda: 1,
+    )
+    monkeypatch.setattr(
+        config,
+        "get_table_truncate_rows",
+        lambda: 1,
+    )
+
+    store.register_view(
+        view_id="watch:missing",
+        section="watch",
+        label="missing",
+        kind="table",
+        activate_if_first=False,
+    )
+    store.set_watched_file_meta(
+        store.WatchedFileMeta(
+            view_id="watch:missing",
+            path=str(p.resolve()),
+            file_kind="csv",
+            read_mode="head",
+            encoding="utf-8",
+            materialization="file",
+            size_bytes=None,
+            mtime_ns=None,
+            max_bytes=100,
+            last_error="FileNotFoundError",
+        )
+    )
+
+    resp = client.get("/table/data?view=watch:missing")
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    error_text = data["rows"][0]["plotsrv_error"]
+    assert "Config keys to check" in error_text
+    assert "limits.watched_files.max_mb" in error_text
+    assert "limits.truncate_after.table_rows" in error_text
+    assert "limits.truncate_after.table_columns" in error_text

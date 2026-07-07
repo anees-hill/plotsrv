@@ -447,6 +447,97 @@ def _render_artifact_response(
     return out
 
 
+def _file_backed_error_text(
+    *,
+    title: str,
+    error: BaseException | str,
+    view_id: str,
+    meta: store.WatchedFileMeta | None,
+) -> str:
+    if isinstance(error, BaseException):
+        error_text = f"{type(error).__name__}: {error}"
+    else:
+        error_text = str(error)
+
+    path = meta.path if meta is not None else "unknown"
+    file_kind = meta.file_kind if meta is not None else "unknown"
+    materialization = meta.materialization if meta is not None else "unknown"
+    read_mode = meta.read_mode if meta is not None else "unknown"
+    max_bytes = meta.max_bytes if meta is not None else None
+    last_error = meta.last_error if meta is not None else None
+
+    return (
+        f"[plotsrv watch] {title}\n"
+        "\n"
+        "What failed:\n"
+        f"  {error_text}\n"
+        "\n"
+        "View:\n"
+        f"  {view_id}\n"
+        "\n"
+        "Watched file:\n"
+        f"  {path}\n"
+        "\n"
+        "File-backed metadata:\n"
+        f"  file_kind={file_kind!r}\n"
+        f"  materialization={materialization!r}\n"
+        f"  read_mode={read_mode!r}\n"
+        f"  max_bytes={max_bytes!r}\n"
+        f"  last_error={last_error!r}\n"
+        "\n"
+        "Config keys to check:\n"
+        "  - limits.watched_files.max_mb\n"
+        "  - limits.truncate_after.text\n"
+        "  - limits.truncate_after.table_rows\n"
+        "  - limits.truncate_after.table_columns\n"
+    )
+
+
+def _render_file_backed_error_response(
+    *,
+    view_id: str,
+    title: str,
+    error: BaseException | str,
+    meta: store.WatchedFileMeta | None,
+    status_code: int | None = None,
+) -> dict[str, Any]:
+    error_text = _file_backed_error_text(
+        title=title,
+        error=error,
+        view_id=view_id,
+        meta=meta,
+    )
+
+    if meta is not None:
+        try:
+            store.mark_error(error_text, view_id=view_id)
+        except Exception:
+            pass
+
+    out = _render_artifact_response(
+        view_id=view_id,
+        obj=error_text,
+        kind_hint="watch_error",
+        meta={
+            "file_backed": True,
+            "watch": True,
+            "error": True,
+            "status_code": status_code,
+            "materialization": None if meta is None else meta.materialization,
+            "path": None if meta is None else meta.path,
+            "file_kind": None if meta is None else meta.file_kind,
+            "read_mode": None if meta is None else meta.read_mode,
+            "encoding": None if meta is None else meta.encoding,
+            "size_bytes": None if meta is None else meta.size_bytes,
+            "mtime_ns": None if meta is None else meta.mtime_ns,
+            "max_bytes": None if meta is None else meta.max_bytes,
+            "last_error": None if meta is None else meta.last_error,
+        },
+    )
+    out["status_code"] = status_code
+    return out
+
+
 def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
     try:
         meta = store.get_watched_file_meta(view_id=view_id)
@@ -471,19 +562,28 @@ def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
     try:
         preview = read_file_backed_artifact_preview(meta)
     except FileNotFoundError as e:
-        raise HTTPException(
+        return _render_file_backed_error_response(
+            view_id=view_id,
+            title="file-backed artifact read failed",
+            error=e,
+            meta=meta,
             status_code=404,
-            detail=f"Watched file not found: {e}",
         )
     except TypeError as e:
-        raise HTTPException(
+        return _render_file_backed_error_response(
+            view_id=view_id,
+            title="file-backed artifact preview failed",
+            error=e,
+            meta=meta,
             status_code=400,
-            detail=str(e),
         )
     except Exception as e:
-        raise HTTPException(
+        return _render_file_backed_error_response(
+            view_id=view_id,
+            title="file-backed artifact preview failed",
+            error=e,
+            meta=meta,
             status_code=500,
-            detail=f"Failed to read file-backed watched artifact: {type(e).__name__}: {e}",
         )
 
     return _render_artifact_response(
@@ -705,6 +805,51 @@ def _table_data_response_from_df(
     return out
 
 
+def _file_backed_table_error_response(
+    *,
+    view_id: str,
+    title: str,
+    error: BaseException | str,
+    meta: store.WatchedFileMeta | None,
+    status_code: int | None = None,
+) -> dict[str, Any]:
+    error_text = _file_backed_error_text(
+        title=title,
+        error=error,
+        view_id=view_id,
+        meta=meta,
+    )
+
+    if meta is not None:
+        try:
+            store.mark_error(error_text, view_id=view_id)
+        except Exception:
+            pass
+
+    return {
+        "columns": ["plotsrv_error"],
+        "rows": [{"plotsrv_error": error_text}],
+        "total_rows": 1,
+        "returned_rows": 1,
+        "meta": {
+            "file_backed": True,
+            "watch": True,
+            "error": True,
+            "artifact_kind": "watch_error",
+            "status_code": status_code,
+            "materialization": None if meta is None else meta.materialization,
+            "path": None if meta is None else meta.path,
+            "file_kind": None if meta is None else meta.file_kind,
+            "read_mode": None if meta is None else meta.read_mode,
+            "encoding": None if meta is None else meta.encoding,
+            "size_bytes": None if meta is None else meta.size_bytes,
+            "mtime_ns": None if meta is None else meta.mtime_ns,
+            "max_bytes": None if meta is None else meta.max_bytes,
+            "last_error": None if meta is None else meta.last_error,
+        },
+    }
+
+
 def _file_backed_csv_table_data_response(
     *,
     view_id: str,
@@ -733,19 +878,28 @@ def _file_backed_csv_table_data_response(
     try:
         preview = read_file_backed_csv_preview(meta)
     except FileNotFoundError as e:
-        raise HTTPException(
+        return _file_backed_table_error_response(
+            view_id=view_id,
+            title="file-backed CSV read failed",
+            error=e,
+            meta=meta,
             status_code=404,
-            detail=f"Watched CSV file not found: {e}",
         )
     except TypeError as e:
-        raise HTTPException(
+        return _file_backed_table_error_response(
+            view_id=view_id,
+            title="file-backed CSV preview failed",
+            error=e,
+            meta=meta,
             status_code=400,
-            detail=str(e),
         )
     except Exception as e:
-        raise HTTPException(
+        return _file_backed_table_error_response(
+            view_id=view_id,
+            title="file-backed CSV preview failed",
+            error=e,
+            meta=meta,
             status_code=500,
-            detail=f"Failed to read file-backed watched CSV: {type(e).__name__}: {e}",
         )
 
     return _table_data_response_from_df(

@@ -125,7 +125,7 @@ def test_artifact_route_serves_file_backed_markdown_watch(
     assert data["meta"]["file_kind"] == "markdown"
 
 
-def test_artifact_route_file_backed_missing_file_returns_404(
+def test_artifact_route_file_backed_missing_file_returns_visible_watch_error(
     tmp_path,
     monkeypatch,
 ) -> None:
@@ -154,8 +154,19 @@ def test_artifact_route_file_backed_missing_file_returns_404(
 
     r = client.get("/artifact?view=logs:missing")
 
-    assert r.status_code == 404
-    assert "Watched file not found" in r.json()["detail"]
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["kind"] == "watch_error"
+    assert data["status_code"] == 404
+    assert data["meta"]["error"] is True
+    assert data["meta"]["file_backed"] is True
+    assert "file-backed artifact read failed" in data["html"]
+    assert "FileNotFoundError" in data["html"]
+    assert str(p.resolve()) in data["html"]
+
+    status = store.get_status(view_id="logs:missing")
+    assert status["last_error"]
 
 
 def test_artifact_route_file_backed_csv_does_not_render_as_artifact(
@@ -190,3 +201,46 @@ def test_artifact_route_file_backed_csv_does_not_render_as_artifact(
 
     assert r.status_code == 404
     assert "No artifact has been published yet" in r.json()["detail"]
+
+
+def test_file_backed_artifact_error_is_not_truncated(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store.reset()
+    client = TestClient(app)
+
+    p = tmp_path / "missing.log"
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+    monkeypatch.setattr(
+        config,
+        "get_truncation_max_chars",
+        lambda kind, view_id=None: 20,
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="missing",
+                section="logs",
+                read_mode="tail",
+                max_bytes=100,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    r = client.get("/artifact?view=logs:missing")
+
+    assert r.status_code == 200
+    data = r.json()
+
+    assert data["kind"] == "watch_error"
+    assert data["truncation"]["truncated"] is False
+    assert "Config keys to check" in data["html"]
+    assert "limits.watched_files.max_mb" in data["html"]
