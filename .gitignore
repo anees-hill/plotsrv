@@ -29,3 +29,5 @@ STEP
 
 # Reproducible operational benchmark output
 benchmark-results/
+benchmark_results/
+benchmarks/helpers/

@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from benchmarks.pipeline_profile.models import RunSpec, TableSpec, WorkloadSpec
+from benchmarks.pipeline_profile.models import (
+    PlotsrvConfigSpec,
+    RunSpec,
+    TableSpec,
+    WorkloadSpec,
+)
 from benchmarks.pipeline_profile.runner import compare_runs
 from benchmarks.pipeline_profile.workload import write_watched_csv
 
@@ -70,5 +75,63 @@ def test_compare_runs_reports_deltas(tmp_path: Path) -> None:
 
     wall = result["metrics"]["wall_time_s"]
     memory = result["metrics"]["summary.max_rss_bytes"]
-    assert wall == {"baseline": 10.0, "candidate": 12.5, "delta": 2.5, "percent_change": 25.0}
-    assert memory == {"baseline": 100, "candidate": 125, "delta": 25, "percent_change": 25.0}
+    assert wall == {
+        "baseline": 10.0,
+        "candidate": 12.5,
+        "delta": 2.5,
+        "percent_change": 25.0,
+    }
+    assert memory == {
+        "baseline": 100,
+        "candidate": 125,
+        "delta": 25,
+        "percent_change": 25.0,
+    }
+
+
+def test_plotsrv_config_spec_serialises_round_trip() -> None:
+    spec = PlotsrvConfigSpec(
+        publish_max_plot_bytes=10,
+        publish_max_table_rows=20,
+        publish_max_table_columns=30,
+        publish_max_artifact_text_chars=40,
+        publish_max_json_container_items=50,
+        truncate_table_rows=None,
+        truncate_table_columns=60,
+        watch_active_max_concurrent=3,
+        watch_active_wait_timeout_s=0.25,
+        storage_enabled=True,
+        storage_watch_enabled=True,
+    )
+
+    assert PlotsrvConfigSpec.from_dict(spec.to_dict()) == spec
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"publish_max_table_rows": 0},
+        {"publish_max_table_columns": 0},
+        {"publish_max_artifact_text_chars": 0},
+        {"publish_max_json_container_items": 0},
+        {"truncate_table_rows": 0},
+        {"truncate_table_columns": 0},
+        {"watch_active_max_concurrent": 0},
+        {"watch_active_wait_timeout_s": -1},
+    ],
+)
+def test_plotsrv_config_spec_rejects_invalid_values(kwargs: dict[str, object]) -> None:
+    with pytest.raises(ValueError):
+        PlotsrvConfigSpec(**kwargs)
+
+
+def test_run_spec_preserves_config() -> None:
+    config = PlotsrvConfigSpec(publish_max_table_rows=500_000)
+    spec = RunSpec(
+        scenario="baseline",
+        workload=WorkloadSpec(),
+        output_dir=Path("out"),
+        config=config,
+    )
+
+    assert RunSpec.from_dict(spec.to_dict()).config.publish_max_table_rows == 500_000

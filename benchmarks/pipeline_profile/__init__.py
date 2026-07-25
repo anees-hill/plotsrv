@@ -5,6 +5,6 @@ plotsrv as a user would: a pipeline process, optionally a separately hosted
 server, watched files, and concurrent HTTP clients.
 """
 
-from .models import RunSpec, TableSpec, WorkloadSpec
+from .models import PlotsrvConfigSpec, RunSpec, TableSpec, WorkloadSpec
 
-__all__ = ["RunSpec", "TableSpec", "WorkloadSpec"]
+__all__ = ["PlotsrvConfigSpec", "RunSpec", "TableSpec", "WorkloadSpec"]

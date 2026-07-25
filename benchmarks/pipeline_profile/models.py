@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-
 Scenario = Literal[
     "baseline",
     "attached",
@@ -31,13 +30,14 @@ class TableSpec:
     def parse(cls, value: str) -> TableSpec:
         raw = value.strip().lower().replace(" ", "")
         if "x" not in raw:
-            raise ValueError(
-                f"table dimensions must use ROWSxCOLUMNS, got {value!r}"
-            )
+            raise ValueError(f"table dimensions must use ROWSxCOLUMNS, got {value!r}")
 
         rows_text, columns_text = raw.split("x", maxsplit=1)
         try:
-            return cls(rows=int(rows_text.replace("_", "")), columns=int(columns_text.replace("_", "")))
+            return cls(
+                rows=int(rows_text.replace("_", "")),
+                columns=int(columns_text.replace("_", "")),
+            )
         except ValueError as exc:
             raise ValueError(
                 f"table dimensions must use positive integers, got {value!r}"
@@ -114,6 +114,90 @@ class WorkloadSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class PlotsrvConfigSpec:
+    """plotsrv runtime config values generated for one benchmark run."""
+
+    publish_max_plot_bytes: int = 5_242_880
+    publish_max_table_rows: int = 100_000
+    publish_max_table_columns: int = 200
+    publish_max_artifact_text_chars: int = 200_000
+    publish_max_json_container_items: int = 20_000
+    truncate_table_rows: int | None = 1_000
+    truncate_table_columns: int | None = 200
+    watch_active_max_concurrent: int = 2
+    watch_active_wait_timeout_s: float = 1.0
+    storage_enabled: bool = False
+    storage_watch_enabled: bool = False
+
+    def __post_init__(self) -> None:
+        if self.publish_max_plot_bytes < 1:
+            raise ValueError("publish_max_plot_bytes must be at least 1")
+        if self.publish_max_table_rows < 1:
+            raise ValueError("publish_max_table_rows must be at least 1")
+        if self.publish_max_table_columns < 1:
+            raise ValueError("publish_max_table_columns must be at least 1")
+        if self.publish_max_artifact_text_chars < 1:
+            raise ValueError("publish_max_artifact_text_chars must be at least 1")
+        if self.publish_max_json_container_items < 1:
+            raise ValueError("publish_max_json_container_items must be at least 1")
+        if self.truncate_table_rows is not None and self.truncate_table_rows < 1:
+            raise ValueError("truncate_table_rows must be at least 1 or omitted")
+        if self.truncate_table_columns is not None and self.truncate_table_columns < 1:
+            raise ValueError("truncate_table_columns must be at least 1 or omitted")
+        if self.watch_active_max_concurrent < 1:
+            raise ValueError("watch_active_max_concurrent must be at least 1")
+        if self.watch_active_wait_timeout_s < 0:
+            raise ValueError("watch_active_wait_timeout_s cannot be negative")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "publish_max_plot_bytes": self.publish_max_plot_bytes,
+            "publish_max_table_rows": self.publish_max_table_rows,
+            "publish_max_table_columns": self.publish_max_table_columns,
+            "publish_max_artifact_text_chars": self.publish_max_artifact_text_chars,
+            "publish_max_json_container_items": self.publish_max_json_container_items,
+            "truncate_table_rows": self.truncate_table_rows,
+            "truncate_table_columns": self.truncate_table_columns,
+            "watch_active_max_concurrent": self.watch_active_max_concurrent,
+            "watch_active_wait_timeout_s": self.watch_active_wait_timeout_s,
+            "storage_enabled": self.storage_enabled,
+            "storage_watch_enabled": self.storage_watch_enabled,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any] | None) -> PlotsrvConfigSpec:
+        if not isinstance(raw, dict):
+            return cls()
+        return cls(
+            publish_max_plot_bytes=int(raw.get("publish_max_plot_bytes", 5_242_880)),
+            publish_max_table_rows=int(raw.get("publish_max_table_rows", 100_000)),
+            publish_max_table_columns=int(raw.get("publish_max_table_columns", 200)),
+            publish_max_artifact_text_chars=int(
+                raw.get("publish_max_artifact_text_chars", 200_000)
+            ),
+            publish_max_json_container_items=int(
+                raw.get("publish_max_json_container_items", 20_000)
+            ),
+            truncate_table_rows=(
+                None
+                if raw.get("truncate_table_rows") is None
+                else int(raw.get("truncate_table_rows"))
+            ),
+            truncate_table_columns=(
+                None
+                if raw.get("truncate_table_columns") is None
+                else int(raw.get("truncate_table_columns"))
+            ),
+            watch_active_max_concurrent=int(raw.get("watch_active_max_concurrent", 2)),
+            watch_active_wait_timeout_s=float(
+                raw.get("watch_active_wait_timeout_s", 1.0)
+            ),
+            storage_enabled=bool(raw.get("storage_enabled", False)),
+            storage_watch_enabled=bool(raw.get("storage_watch_enabled", False)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class RunSpec:
     """One independently reproducible operational benchmark run."""
 
@@ -130,6 +214,7 @@ class RunSpec:
     requests_per_client: int = 1
     client_interval_s: float = 0.0
     table_limit: int = 1_000
+    config: PlotsrvConfigSpec = PlotsrvConfigSpec()
 
     def __post_init__(self) -> None:
         if self.sample_interval_s <= 0:
@@ -172,6 +257,7 @@ class RunSpec:
             "requests_per_client": self.requests_per_client,
             "client_interval_s": self.client_interval_s,
             "table_limit": self.table_limit,
+            "config": self.config.to_dict(),
         }
 
     @classmethod
@@ -180,7 +266,9 @@ class RunSpec:
         watch_csv = (
             None
             if watch_raw is None
-            else TableSpec(rows=int(watch_raw["rows"]), columns=int(watch_raw["columns"]))
+            else TableSpec(
+                rows=int(watch_raw["rows"]), columns=int(watch_raw["columns"])
+            )
         )
         return cls(
             scenario=raw["scenario"],
@@ -200,4 +288,5 @@ class RunSpec:
             requests_per_client=int(raw.get("requests_per_client", 1)),
             client_interval_s=float(raw.get("client_interval_s", 0.0)),
             table_limit=int(raw.get("table_limit", 1_000)),
+            config=PlotsrvConfigSpec.from_dict(raw.get("config")),
         )

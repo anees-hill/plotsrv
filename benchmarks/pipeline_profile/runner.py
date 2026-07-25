@@ -15,9 +15,15 @@ from typing import Any
 import yaml
 
 from .models import RunSpec
-from .support import free_local_port, read_json, read_json_lines, utc_now, write_csv, write_json
+from .support import (
+    free_local_port,
+    read_json,
+    read_json_lines,
+    utc_now,
+    write_csv,
+    write_json,
+)
 from .workload import write_watched_csv
-
 
 SAMPLE_FIELDS = [
     "timestamp_utc",
@@ -208,7 +214,9 @@ class ProcessMonitor:
                 "elapsed_s": round(elapsed, 6),
                 "role": "aggregate",
                 **aggregate,
-                "cpu_percent": round(sum(float(row["cpu_percent"]) for row in roles), 3),
+                "cpu_percent": round(
+                    sum(float(row["cpu_percent"]) for row in roles), 3
+                ),
             }
             self.samples.append(aggregate_row)
             if (
@@ -286,7 +294,9 @@ def _spawn(
         )
 
 
-def _wait_for_file(path: Path, child: subprocess.Popen[Any], *, timeout_s: float = 20.0) -> None:
+def _wait_for_file(
+    path: Path, child: subprocess.Popen[Any], *, timeout_s: float = 20.0
+) -> None:
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if path.exists():
@@ -299,24 +309,43 @@ def _wait_for_file(path: Path, child: subprocess.Popen[Any], *, timeout_s: float
     raise RuntimeError(f"Timed out waiting for server worker ready file: {path}")
 
 
+def _yaml_limit(value: int | float | None) -> int | float | str:
+    return "off" if value is None else value
+
+
 def _write_run_config(spec: RunSpec, path: Path) -> None:
+    cfg = spec.config
     config: dict[str, Any] = {
         "benchmark": spec.to_dict(),
         "plotsrv": {
             "limits": {
+                "published_objects": {
+                    "max_plot_bytes": cfg.publish_max_plot_bytes,
+                    "max_table_rows": cfg.publish_max_table_rows,
+                    "max_table_columns": cfg.publish_max_table_columns,
+                    "max_artifact_text_chars": cfg.publish_max_artifact_text_chars,
+                    "max_json_container_items": cfg.publish_max_json_container_items,
+                },
                 "watched_files": {
                     "max_mb": "off" if spec.watch_max_mb is None else spec.watch_max_mb,
                 },
                 "truncate_after": {
-                    "table_rows": spec.table_limit,
-                    "table_columns": 200,
+                    "table_rows": _yaml_limit(cfg.truncate_table_rows),
+                    "table_columns": _yaml_limit(cfg.truncate_table_columns),
                 },
             },
             "watch-settings": {
                 "materialization": spec.watch_materialization,
                 "file_threshold_mb": 1,
+                "active_loads": {
+                    "max_concurrent": cfg.watch_active_max_concurrent,
+                    "wait_timeout_s": cfg.watch_active_wait_timeout_s,
+                },
             },
-            "storage-settings": {"enabled": False, "watch_enabled": False},
+            "storage-settings": {
+                "enabled": cfg.storage_enabled,
+                "watch_enabled": cfg.storage_watch_enabled,
+            },
         },
     }
     with path.open("w", encoding="utf-8") as f:
@@ -366,8 +395,12 @@ def _summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "read_bytes_delta": int(delta("read_bytes")),
         "write_bytes_delta": int(delta("write_bytes")),
         "peak_by_role": {
-            role: int(max(float(row["rss_bytes"]) for row in samples if row["role"] == role))
-            for role in sorted({str(row["role"]) for row in samples if row["role"] != "aggregate"})
+            role: int(
+                max(float(row["rss_bytes"]) for row in samples if row["role"] == role)
+            )
+            for role in sorted(
+                {str(row["role"]) for row in samples if row["role"] != "aggregate"}
+            )
         },
     }
 
@@ -448,7 +481,9 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
             ]
             if watch_csv_path is not None:
                 server_args.extend(["--watch-csv", str(watch_csv_path)])
-                server_args.extend(["--watch-materialization", spec.watch_materialization])
+                server_args.extend(
+                    ["--watch-materialization", spec.watch_materialization]
+                )
                 if spec.watch_max_bytes is not None:
                     server_args.extend(["--watch-max-bytes", str(spec.watch_max_bytes)])
             server = _spawn(
@@ -489,7 +524,9 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
             roots["pipeline"] = pipeline
             monitor.wait_for([pipeline])
             if pipeline.returncode not in (0, None):
-                raise RuntimeError(f"Pipeline worker failed with exit code {pipeline.returncode}")
+                raise RuntimeError(
+                    f"Pipeline worker failed with exit code {pipeline.returncode}"
+                )
 
         if spec.scenario == "watch-clients" and not monitor.watchdog_triggered:
             clients: list[subprocess.Popen[Any]] = []
@@ -522,7 +559,9 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
                 roots[f"client-{client_id}"] = client
                 clients.append(client)
             monitor.wait_for(clients)
-            failed_clients = [client for client in clients if client.returncode not in (0, None)]
+            failed_clients = [
+                client for client in clients if client.returncode not in (0, None)
+            ]
             if failed_clients:
                 raise RuntimeError(f"{len(failed_clients)} client worker(s) failed")
 
@@ -535,9 +574,7 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
     finally:
         if monitor.watchdog_triggered:
             status = "watchdog_terminated"
-            failure = (
-                f"Aggregate RSS exceeded the configured {spec.max_rss_mb} MiB watchdog limit."
-            )
+            failure = f"Aggregate RSS exceeded the configured {spec.max_rss_mb} MiB watchdog limit."
         monitor.terminate_all()
         monitor.sample()
 
@@ -552,6 +589,7 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
         "finished_at": utc_now(),
         "wall_time_s": round(time.monotonic() - started_wall, 6),
         "workload": spec.workload.to_dict(),
+        "config": spec.config.to_dict(),
         "watch": {
             "csv": None if spec.watch_csv is None else spec.watch_csv.to_dict(),
             "materialization": spec.watch_materialization if spec.watch_csv else None,
