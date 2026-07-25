@@ -27,7 +27,6 @@ from plotsrv.runtime import (
     watch_config_from_meta,
     note_file_backed_watch_change,
     refresh_watched_file_meta,
-    count_csv_data_rows,
     read_file_backed_csv_preview,
     start_watch_threads,
 )
@@ -1136,20 +1135,6 @@ def test_register_watch_views_uses_materialization_override(
         store.reset()
 
 
-def test_count_csv_data_rows_counts_rows_after_header(tmp_path: Path) -> None:
-    p = tmp_path / "data.csv"
-    p.write_text("a,b\n1,one\n2,two\n", encoding="utf-8")
-
-    assert count_csv_data_rows(p) == 2
-
-
-def test_count_csv_data_rows_empty_file_returns_zero(tmp_path: Path) -> None:
-    p = tmp_path / "empty.csv"
-    p.write_text("", encoding="utf-8")
-
-    assert count_csv_data_rows(p) == 0
-
-
 def test_read_file_backed_csv_preview_head(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1180,12 +1165,14 @@ def test_read_file_backed_csv_preview_head(
 
     assert out.source == "file_backed_csv"
     assert out.returned_rows == 2
-    assert out.total_rows == 3
+    assert out.total_rows is None
+    assert out.total_rows_known is False
+    assert out.loaded_rows == 2
     assert out.returned_columns == 2
     assert out.total_columns == 2
     assert out.truncated is True
     assert list(out.table_df["a"]) == [1, 2]
-    assert b"3,three" in out.raw
+    assert out.preview_bytes <= 1000
 
 
 def test_read_file_backed_csv_preview_tail_preserves_header(
@@ -1216,11 +1203,11 @@ def test_read_file_backed_csv_preview_tail_preserves_header(
 
     out = read_file_backed_csv_preview(meta)  # type: ignore[arg-type]
 
-    assert out.total_rows == 4
+    assert out.total_rows is None
+    assert out.total_rows_known is False
     assert out.returned_rows >= 1
     assert "4" in {str(x) for x in out.table_df["a"].tolist()}
-    assert out.raw.startswith(b"a,b\n")
-    assert b"4,four" in out.raw
+    assert out.preview_bytes <= p.stat().st_size
     assert out.truncated is True
 
 

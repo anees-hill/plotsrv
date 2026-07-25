@@ -1,13 +1,17 @@
 # src/plotsrv/runtime.py
 from __future__ import annotations
 
+import csv
+import io
 import json
 import threading
 import time
 import urllib.request
+from collections import deque
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Iterator, Literal
 from collections.abc import Mapping, Sequence
 
 from . import config, settings, store
@@ -50,13 +54,72 @@ class FileBackedArtifactPreview:
 @dataclass(frozen=True, slots=True)
 class FileBackedTablePreview:
     table_df: Any
-    raw: bytes
+    preview_bytes: int
     total_rows: int | None
+    total_rows_known: bool
+    loaded_rows: int
     returned_rows: int
     total_columns: int | None
     returned_columns: int
     truncated: bool
     source: str = "file_backed_csv"
+
+
+class FileBackedLoadBusyError(RuntimeError):
+    """Raised when every configured file-backed preview slot is occupied."""
+
+
+class _FileBackedLoadController:
+    """
+    Process-wide admission controller for expensive file-backed previews.
+
+    FastAPI runs normal ``def`` endpoints in a thread pool, so a plain global
+    counter would race. This controller intentionally has no payload cache: a
+    completed request releases all request-only Python objects before another
+    client starts materialising a large CSV.
+    """
+
+    def __init__(self) -> None:
+        self._condition = threading.Condition()
+        self._in_flight = 0
+
+    @contextmanager
+    def slot(self) -> Iterator[None]:
+        limit = config.get_watch_active_load_max_concurrent()
+        timeout_s = config.get_watch_active_load_wait_timeout_s()
+        deadline = time.monotonic() + timeout_s
+
+        with self._condition:
+            while self._in_flight >= limit:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise FileBackedLoadBusyError(
+                        "File-backed watch preview is busy. Try again in a moment."
+                    )
+                self._condition.wait(timeout=remaining)
+            self._in_flight += 1
+
+        try:
+            yield
+        finally:
+            with self._condition:
+                self._in_flight = max(0, self._in_flight - 1)
+                self._condition.notify()
+
+    def reset_for_tests(self) -> None:
+        with self._condition:
+            self._in_flight = 0
+            self._condition.notify_all()
+
+
+_FILE_BACKED_LOADS = _FileBackedLoadController()
+
+
+@contextmanager
+def file_backed_load_slot() -> Iterator[None]:
+    """Acquire one bounded file-backed materialisation slot."""
+    with _FILE_BACKED_LOADS.slot():
+        yield
 
 
 @dataclass(frozen=True, slots=True)
@@ -707,130 +770,254 @@ def read_file_backed_artifact_preview(
     )
 
 
-def count_csv_data_rows(
-    path: str | Path,
+class _LimitedBinaryReader(io.RawIOBase):
+    """A streaming binary reader that never returns more than ``max_bytes``."""
+
+    def __init__(self, raw: io.BufferedReader, max_bytes: int | None) -> None:
+        super().__init__()
+        self._raw = raw
+        self._remaining = None if max_bytes is None else max(0, int(max_bytes))
+        self.bytes_read = 0
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, buffer: bytearray | memoryview) -> int:
+        if self._remaining is not None and self._remaining <= 0:
+            return 0
+
+        requested = len(buffer)
+        if self._remaining is not None:
+            requested = min(requested, self._remaining)
+
+        data = self._raw.read(requested)
+        if not data:
+            return 0
+
+        buffer[: len(data)] = data
+        self.bytes_read += len(data)
+        if self._remaining is not None:
+            self._remaining -= len(data)
+        return len(data)
+
+
+def _normalise_csv_columns(header: list[str]) -> list[str]:
+    """Give blank and duplicate CSV headers stable DataFrame-compatible names."""
+    seen: dict[str, int] = {}
+    out: list[str] = []
+    for i, raw in enumerate(header):
+        base = str(raw).strip() or f"Unnamed: {i}"
+        count = seen.get(base, 0)
+        seen[base] = count + 1
+        out.append(base if count == 0 else f"{base}.{count}")
+    return out
+
+
+def _normalise_csv_row(row: list[str], width: int) -> list[str | None]:
+    values: list[str | None] = list(row[:width])
+    if len(values) < width:
+        values.extend([None] * (width - len(values)))
+    return values
+
+
+def _coerce_csv_dataframe(
     *,
-    encoding: str = "utf-8",
-) -> int | None:
-    """
-    Best-effort CSV data-row count.
+    header: list[str],
+    rows: list[list[str | None]],
+    max_columns: int | None,
+) -> tuple[Any, int, int]:
+    """Build a small DataFrame without creating a second CSV text buffer."""
+    import pandas as pd
 
-    Returns the number of rows after the header. If counting fails, returns None.
-    This is metadata only; callers should not rely on it for correctness.
-    """
-    p = Path(path).expanduser().resolve()
+    total_columns = len(header)
+    visible_width = total_columns
+    if max_columns is not None:
+        visible_width = min(visible_width, max(1, int(max_columns)))
 
-    try:
-        with p.open("r", encoding=encoding, errors="replace", newline="") as f:
-            n = sum(1 for _ in f)
-    except Exception:
-        return None
+    columns = _normalise_csv_columns(header[:visible_width])
+    df = pd.DataFrame(rows, columns=columns)
 
-    if n <= 0:
-        return 0
+    # csv.reader yields strings. Preserve the useful numeric behaviour callers
+    # get from pandas.read_csv without reparsing a second in-memory text copy.
+    for column in columns:
+        values = df[column]
+        non_empty = values.dropna().astype(str).str.strip()
+        non_empty = non_empty[non_empty != ""]
+        if non_empty.empty:
+            continue
+        converted = pd.to_numeric(non_empty, errors="coerce")
+        if converted.notna().all():
+            df[column] = pd.to_numeric(values.replace("", None), errors="coerce")
 
-    return max(0, n - 1)
+    return df, total_columns, visible_width
+
+
+def _read_csv_header(path: Path, *, encoding: str) -> list[str]:
+    with path.open("rb") as raw:
+        text = io.TextIOWrapper(raw, encoding=encoding, errors="replace", newline="")
+        try:
+            return next(csv.reader(text), [])
+        finally:
+            text.detach()
+
+
+def _discard_partial_tail_row(raw: io.BufferedReader) -> None:
+    """Advance to the next line without ever materialising an unbounded line."""
+    while True:
+        start = raw.tell()
+        chunk = raw.read(64 * 1024)
+        if not chunk:
+            return
+        newline = chunk.find(b"\n")
+        if newline >= 0:
+            raw.seek(start + newline + 1)
+            return
+
+
+def _read_csv_head_rows(
+    path: Path,
+    *,
+    encoding: str,
+    max_bytes: int | None,
+    max_rows: int | None,
+    max_columns: int | None,
+) -> tuple[list[str], list[list[str | None]], int, bool]:
+    """Read at most the requested head rows and byte window from a CSV."""
+    with path.open("rb") as raw:
+        limited = _LimitedBinaryReader(raw, max_bytes)
+        buffered = io.BufferedReader(limited)
+        text = io.TextIOWrapper(buffered, encoding=encoding, errors="replace", newline="")
+        try:
+            reader = csv.reader(text)
+            header = next(reader, [])
+            width = len(header)
+            if max_columns is not None:
+                width = min(width, max(1, int(max_columns)))
+
+            rows: list[list[str | None]] = []
+            has_more_rows = False
+            for row in reader:
+                if max_rows is not None and len(rows) >= max_rows:
+                    has_more_rows = True
+                    break
+                rows.append(_normalise_csv_row(row, width))
+
+            return header, rows, limited.bytes_read, has_more_rows
+        finally:
+            # TextIOWrapper would otherwise close the raw file a second time
+            # while the enclosing context manager exits.
+            text.detach()
+
+
+def _read_csv_tail_rows(
+    path: Path,
+    *,
+    encoding: str,
+    max_bytes: int | None,
+    max_rows: int | None,
+    max_columns: int | None,
+) -> tuple[list[str], list[list[str | None]], int, bool]:
+    """Scan a tail window while retaining only the newest configured row window."""
+    header = _read_csv_header(path, encoding=encoding)
+    width = len(header)
+    if max_columns is not None:
+        width = min(width, max(1, int(max_columns)))
+
+    size_bytes = path.stat().st_size
+    start = 0 if max_bytes is None else max(0, size_bytes - max(1, int(max_bytes)))
+
+    # deque(maxlen=N) is the key memory bound for tail mode: all selected input
+    # may be scanned, but no more than N rows are retained before DataFrame
+    # construction. An explicit table_rows: off remains an intentional opt-out.
+    retained: deque[list[str | None]] = (
+        deque(maxlen=max_rows) if max_rows is not None else deque()
+    )
+    has_more_rows = False
+
+    with path.open("rb") as raw:
+        raw.seek(start)
+        if start > 0:
+            _discard_partial_tail_row(raw)
+
+        text = io.TextIOWrapper(raw, encoding=encoding, errors="replace", newline="")
+        try:
+            reader = csv.reader(text)
+            if start == 0:
+                next(reader, None)
+
+            for row in reader:
+                if max_rows is not None and len(retained) >= max_rows:
+                    has_more_rows = True
+                retained.append(_normalise_csv_row(row, width))
+        finally:
+            text.detach()
+
+    return header, list(retained), max(0, size_bytes - start), has_more_rows
 
 
 def read_file_backed_csv_preview(
     meta: store.WatchedFileMeta,
 ) -> FileBackedTablePreview:
     """
-    Read a bounded preview for a file-backed watched CSV table.
+    Materialise a bounded CSV table preview directly from disk.
 
-    This is the table equivalent of read_file_backed_artifact_preview().
-    It reads only the configured watch preview window, preserves head/tail
-    semantics, and returns a DataFrame plus lightweight preview metadata.
+    Unlike the v0.5.0 path this does not keep a raw byte window, decoded text,
+    DataFrame and row dictionary representation alive together. It also never
+    scans the whole CSV merely to report a total row count. Head mode stops as
+    soon as it has the configured rows; tail mode may scan its selected window,
+    but keeps only the newest configured rows.
     """
     if meta.file_kind != "csv":
         raise TypeError(
             f"file-backed CSV preview expected csv metadata, got {meta.file_kind!r}"
         )
-
     if meta.materialization != "file":
         raise TypeError("file-backed CSV preview requires file materialization")
 
-    p = Path(meta.path).expanduser().resolve()
+    path = Path(meta.path).expanduser().resolve()
+    row_limit = config.get_table_truncate_rows()
+    column_limit = config.get_table_truncate_columns()
 
-    watch_config = WatchConfig(
-        path=meta.path,
-        label=None,
-        section=None,
-        kind="auto",
-        read_mode=meta.read_mode,
-        max_bytes=meta.max_bytes,
-        encoding=meta.encoding,
-        materialization="file",
-    )
-
-    raw = read_watch_file_bytes(
-        p,
-        read_mode=meta.read_mode,
-        max_bytes=meta.max_bytes,
-        watch_config=watch_config,
-    )
-
-    payload = build_watch_publish_payload(
-        path=p,
-        raw=raw,
-        watch_config=watch_config,
-        read_mode=meta.read_mode,
-        max_bytes=meta.max_bytes,
-        max_rows=config.get_table_truncate_rows(),
-        max_columns=config.get_table_truncate_columns(),
-    )
-
-    if payload.kind != "table":
-        raise TypeError(
-            f"file-backed CSV preview expected table payload, got {payload.kind!r}"
-        )
-
-    df = payload.table_df
-
-    try:
-        returned_rows = int(len(df))
-    except Exception:
-        returned_rows = 0
-
-    try:
-        returned_columns = int(len(df.columns))
-    except Exception:
-        returned_columns = 0
-
-    total_rows = count_csv_data_rows(p, encoding=meta.encoding)
-
-    total_columns: int | None = None
-    try:
-        import pandas as pd
-
-        header_df = pd.read_csv(
-            p,
-            nrows=0,
+    if meta.read_mode == "tail":
+        header, rows, preview_bytes, has_more_rows = _read_csv_tail_rows(
+            path,
             encoding=meta.encoding,
-            engine="python",
-            on_bad_lines="skip",
+            max_bytes=meta.max_bytes,
+            max_rows=row_limit,
+            max_columns=column_limit,
         )
-        total_columns = int(len(header_df.columns))
-    except Exception:
-        total_columns = returned_columns if returned_columns else None
+    else:
+        header, rows, preview_bytes, has_more_rows = _read_csv_head_rows(
+            path,
+            encoding=meta.encoding,
+            max_bytes=meta.max_bytes,
+            max_rows=row_limit,
+            max_columns=column_limit,
+        )
 
-    truncated = False
+    df, total_columns, returned_columns = _coerce_csv_dataframe(
+        header=header,
+        rows=rows,
+        max_columns=column_limit,
+    )
+    loaded_rows = len(df)
 
-    if total_rows is not None and returned_rows < total_rows:
-        truncated = True
-
-    if total_columns is not None and returned_columns < total_columns:
-        truncated = True
-
-    if meta.size_bytes is not None and meta.max_bytes is not None:
-        if int(meta.size_bytes) > int(meta.max_bytes):
-            truncated = True
+    input_window_truncated = (
+        meta.max_bytes is not None and path.stat().st_size > int(meta.max_bytes)
+    )
+    truncated = (
+        has_more_rows
+        or input_window_truncated
+        or returned_columns < total_columns
+    )
 
     return FileBackedTablePreview(
         table_df=df,
-        raw=raw,
-        total_rows=total_rows,
-        returned_rows=returned_rows,
+        preview_bytes=preview_bytes,
+        total_rows=None,
+        total_rows_known=False,
+        loaded_rows=loaded_rows,
+        returned_rows=loaded_rows,
         total_columns=total_columns,
         returned_columns=returned_columns,
         truncated=truncated,
