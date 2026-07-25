@@ -29,9 +29,15 @@ limits:
     max_json_container_items: 20000
 
   watched_files:
-    # Maximum amount plotsrv reads from each watched file.
+    # Maximum amount plotsrv reads from each watched file preview.
     # Use "off" to allow full-file reads.
     max_mb: 500
+
+    # auto = file-backed when the watched file is at/above file_threshold_mb.
+    # memory = always publish watched-file content into memory.
+    # file = always keep watched files file-backed and preview from disk on demand.
+    materialization: auto
+    file_threshold_mb: 50
 
   truncate_after:
     # Preparation/display limits.
@@ -110,13 +116,21 @@ limits:
 
 ### `limits.watched_files`
 
-Controls how much plotsrv reads from watched files.
+Controls how plotsrv reads and represents watched files.
 
 ```yaml
 limits:
   watched_files:
     max_mb: 500
+    materialization: auto
+    file_threshold_mb: 50
 ```
+
+| Key | Meaning |
+|---|---|
+| `max_mb` | maximum amount read for each watched-file preview |
+| `materialization` | `auto`, `memory`, or `file` |
+| `file_threshold_mb` | file size threshold used by `auto` mode |
 
 Use `off` to allow full-file reads:
 
@@ -135,6 +149,41 @@ plotsrv watch ./logs/job.log --max-mb 25
 ```
 
 `--max-bytes` remains available as a legacy/advanced CLI option.
+
+#### Watched-file materialization
+
+Watched files can be memory-backed or file-backed.
+
+| Mode | Behaviour |
+|---|---|
+| `memory` | reads watched-file content and publishes a normal in-memory view |
+| `file` | stores watched-file metadata and reads bounded previews from disk on demand |
+| `auto` | uses `file_threshold_mb` to choose between `memory` and `file` |
+
+In `auto` mode, files at or above `file_threshold_mb` become file-backed.
+
+```yaml
+limits:
+  watched_files:
+    materialization: auto
+    file_threshold_mb: 50
+```
+
+You can force a mode from the CLI:
+
+```bash
+plotsrv watch ./logs/job.log --materialization file
+```
+
+or for watched files attached to `plotsrv run`:
+
+```bash
+plotsrv run . \
+  --watch ./logs/job.log \
+  --watch-materialization file
+```
+
+File-backed watched views are useful for large logs and CSVs because plotsrv does not retain the full file content in server memory.
 
 ### `limits.truncate_after`
 
@@ -218,13 +267,15 @@ storage-settings:
 
 Watched-file snapshots are disabled by default.
 
+File-backed watched files are always skipped by storage. They are represented by metadata and previewed from the source file on demand, so plotsrv does not write latest-state payloads or snapshots for them.
+
 ```yaml
 storage-settings:
   enabled: true
   watch_enabled: false
 ```
 
-To snapshot watched files globally:
+To snapshot memory-backed watched files globally:
 
 ```yaml
 storage-settings:
@@ -232,7 +283,7 @@ storage-settings:
   watch_enabled: true
 ```
 
-To opt in one watched view:
+To opt in one memory-backed watched view:
 
 ```yaml
 storage-settings:
@@ -323,6 +374,8 @@ limits:
     max_json_container_items: 20000
   watched_files:
     max_mb: 500
+    materialization: auto
+    file_threshold_mb: 50
   truncate_after:
     text: 1000000
     markdown: 100000

@@ -1,5 +1,13 @@
 # Release notes
 
+## v0.5.0
+
+v0.5.0 improves watched-file resource safety.
+
+* added memory-backed and file-backed watched-file materialisation
+* large watched files can now be represented by metadata and previewed from disk on demand
+* file-backed CSV files are served through bounded table previews
+
 ## v0.4.0
 
 v0.4.0 configuration clarity and watched-file reliability.

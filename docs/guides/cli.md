@@ -200,15 +200,19 @@ Force a watched file to be file-backed:
 plotsrv watch ./logs/job.log --materialization file
 ```
 
-Force watched files attached to plotsrv run to be file-backed:
+Force watched files attached to `plotsrv run` to be file-backed:
 
-```
+```bash
 plotsrv run . \
   --watch ./logs/job.log \
   --watch-materialization file
 ```
 
-Use auto to let plotsrv choose based on the configured file-size threshold.
+`memory` publishes watched-file content into the plotsrv server as a normal view.
+
+`file` keeps the watched file on disk and serves bounded previews on demand.
+
+`auto` lets plotsrv choose based on the configured file-size threshold.
 
 ## Create config
 
