@@ -26,3 +26,6 @@ site/
 
 # Helper files
 STEP
+
+# Reproducible operational benchmark output
+benchmark-results/

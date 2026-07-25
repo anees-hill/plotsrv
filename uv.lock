@@ -1122,7 +1122,7 @@ wheels = [
 
 [[package]]
 name = "plotsrv"
-version = "0.4.0"
+version = "0.5.0"
 source = { editable = "." }
 dependencies = [
     { name = "bleach" },
@@ -1136,6 +1136,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+benchmark = [
+    { name = "psutil" },
+]
 dev = [
     { name = "debugpy" },
     { name = "ipython" },
@@ -1166,6 +1169,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+benchmark = [{ name = "psutil", specifier = ">=5.9,<8" }]
 dev = [
     { name = "debugpy" },
     { name = "ipython" },
