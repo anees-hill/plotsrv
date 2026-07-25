@@ -207,6 +207,25 @@
     dot.title = label + age;
   }
 
+  function setFileBackedIndicator(statusPayload, isHistory) {
+    const marker = document.getElementById("status-file-backed");
+    if (!marker) return;
+
+    marker.hidden = true;
+
+    if (isHistory) return;
+    if (!statusPayload) return;
+
+    const isWatched = statusPayload.is_watched_file === true;
+    const materialization = String(statusPayload.materialization || "").toLowerCase();
+
+    if (!isWatched || materialization !== "file") {
+      return;
+    }
+
+    marker.hidden = false;
+  }
+
   async function refreshStatus() {
     try {
       const res = await fetch(
@@ -256,6 +275,8 @@
         setFreshnessDot(s.freshness || null, isHistory);
       }
 
+      setFileBackedIndicator(s, isHistory);
+
       if (errWrap && err) {
         if (s.last_error) {
           err.textContent = s.last_error;
@@ -294,5 +315,6 @@
   core.setStatusMessage = setStatusMessage;
   core.clearPlotObjectUrl = clearPlotObjectUrl;
   core.refreshViewIcons = refreshViewIcons;
+  core.setFileBackedIndicator = setFileBackedIndicator;
   core.refreshStatus = refreshStatus;
 })();

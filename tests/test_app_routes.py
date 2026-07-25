@@ -1190,3 +1190,90 @@ def test_file_backed_csv_error_row_contains_full_actionable_message(
     assert "limits.watched_files.max_mb" in error_text
     assert "limits.truncate_after.table_rows" in error_text
     assert "limits.truncate_after.table_columns" in error_text
+
+
+def test_views_file_backed_csv_watch_uses_table_icon(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "data.csv"
+    p.write_text("a\n1\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="data",
+                section="watch",
+                read_mode="head",
+                max_bytes=100,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    resp = client.get("/views")
+
+    assert resp.status_code == 200
+    item = next(v for v in resp.json() if v["view_id"] == "watch:data")
+
+    assert item["is_watched_file"] is True
+    assert item["materialization"] == "file"
+    assert item["watched_file"]["file_kind"] == "csv"
+    assert item["icon_key"] == "table"
+
+
+def test_views_file_backed_unknown_watch_uses_text_icon(
+    client: TestClient,
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "app.log"
+    p.write_text("hello\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+
+    register_watch_views(
+        [
+            WatchConfig(
+                path=p,
+                label="api",
+                section="logs",
+                read_mode="tail",
+                max_bytes=100,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    resp = client.get("/views")
+
+    assert resp.status_code == 200
+    item = next(v for v in resp.json() if v["view_id"] == "logs:api")
+
+    assert item["is_watched_file"] is True
+    assert item["materialization"] == "file"
+    assert item["watched_file"]["file_kind"] == "unknown"
+    assert item["icon_key"] == "text"
+
+
+def test_index_includes_file_backed_status_indicator_markup(
+    client: TestClient,
+) -> None:
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    text = resp.text
+
+    assert 'id="status-file-backed"' in text
+    assert "/static/logo_on_disk.png" in text
+    assert "ps-statusline__disk-icon" in text

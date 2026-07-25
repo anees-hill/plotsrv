@@ -121,6 +121,27 @@ def _icon_for_view_kind(
     return "unknown"
 
 
+def _icon_for_watched_file_kind(file_kind: str) -> IconKey:
+    fk = (file_kind or "unknown").strip().lower()
+
+    if fk == "csv":
+        return "table"
+
+    if fk == "json":
+        return "json"
+
+    if fk == "markdown":
+        return "markdown"
+
+    if fk == "html":
+        return "html"
+
+    if fk == "image":
+        return "image"
+
+    return "text"
+
+
 # Global store: multi-view
 
 _VIEWS: dict[str, ViewState] = {}
@@ -301,6 +322,19 @@ def set_watched_file_meta(meta: WatchedFileMeta) -> None:
     """
     st = get_view_state(meta.view_id)
     st.watched_file = meta
+
+    if st.icon_key == "unknown":
+        st.icon_key = _icon_for_watched_file_kind(meta.file_kind)
+
+    if meta.view_id in _VIEW_META:
+        existing = _VIEW_META[meta.view_id]
+        _VIEW_META[meta.view_id] = ViewMeta(
+            view_id=existing.view_id,
+            kind=existing.kind,
+            label=existing.label,
+            section=existing.section,
+            icon_key=st.icon_key,
+        )
 
 
 def has_watched_file_meta(*, view_id: str | None = None) -> bool:
