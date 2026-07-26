@@ -227,6 +227,35 @@ Generated plotsrv error artifacts use `watch_error` or `publish_error` and are n
 
 Legacy `limits.render`, `limits.tables`, and top-level `truncation` settings are still accepted where possible, but new configs should use `limits.truncate_after`.
 
+## `publish-settings`
+
+Live publishing is synchronous by default. This preserves existing behaviour
+and needs no configuration for ordinary scripts.
+
+For high-frequency live status/table/plot updates, this optional section makes
+the bounded latest-wins worker the default when callers leave `async_` unset:
+
+```yaml
+publish-settings:
+  live:
+    async_enabled: true
+    max_pending_views: 32
+    max_pending_mb: 64
+    flush_timeout_s: 1.0
+```
+
+| Key | Meaning |
+|---|---|
+| `async_enabled` | default for `publish_view(..., async_=None)`; `false` by default |
+| `max_pending_views` | maximum distinct destination/view updates retained before processing |
+| `max_pending_mb` | maximum estimated memory retained by pending source objects |
+| `flush_timeout_s` | short default timeout used by `flush_views()` and attached-server shutdown |
+
+The queue is for replaceable live views only. For one destination/view, a newer
+pending update replaces the older one. New views are rejected once either budget
+is full. Inspect `/status` for `publish_queue` counters rather than assuming
+that a high-volume update was delivered.
+
 ## `render-settings`
 
 `render-settings.default` controls renderer behaviour.
@@ -275,9 +304,16 @@ storage-settings:
   default_keep_last: 3
   default_min_store_interval: off
   max_snapshot_size_mb: 20.0
+  max_pending_tasks: 32
+  max_pending_mb: 64
 ```
 
 `storage-settings.enabled` is the master switch. If it is `false`, storage is off even if nested settings are present.
+
+`max_pending_tasks` and `max_pending_mb` bound best-effort latest/snapshot
+serialisation work. Rejections are exposed as `storage_queue` counters in
+`/status`; they never affect the in-memory live view that has already been
+accepted.
 
 ### Source-aware storage
 
