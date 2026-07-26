@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import wraps
+import threading
 from typing import Any, Callable, Literal
 
 import pandas as pd
@@ -158,6 +160,11 @@ _SERVICE_INFO: dict[str, Any] = {
 }
 
 _SERVICE_STOP_HOOK: Callable[[], None] | None = None
+
+# The FastAPI request handlers and PublishWorker can both touch the module-level
+# store. Keep each API operation atomic; RLock permits the existing public
+# helpers to call one another without changing their shape.
+_STORE_LOCK = threading.RLock()
 
 
 # Helpers
@@ -786,3 +793,51 @@ def reset() -> None:
         "service_refresh_rate_s": None,
     }
     _SERVICE_STOP_HOOK = None
+
+
+def _synchronise_store_api(func: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(func)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        with _STORE_LOCK:
+            return func(*args, **kwargs)
+
+    return wrapped
+
+
+for _store_api_name in (
+    "register_view",
+    "list_views",
+    "set_active_view",
+    "get_active_view_id",
+    "get_view_state",
+    "set_watched_file_meta",
+    "has_watched_file_meta",
+    "get_watched_file_meta",
+    "clear_watched_file_meta",
+    "get_kind",
+    "set_plot",
+    "get_plot",
+    "has_plot",
+    "set_table",
+    "set_artifact",
+    "has_table",
+    "has_artifact",
+    "get_artifact",
+    "get_table_df",
+    "get_table_html_simple",
+    "get_table_counts",
+    "mark_success",
+    "mark_error",
+    "mark_restored",
+    "get_status",
+    "get_freshness",
+    "should_accept_publish",
+    "note_publish",
+    "set_service_info",
+    "get_service_info",
+    "set_service_stop_hook",
+    "clear_service_stop_request",
+    "request_service_stop",
+    "reset",
+):
+    globals()[_store_api_name] = _synchronise_store_api(globals()[_store_api_name])
