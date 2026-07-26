@@ -52,6 +52,34 @@ def test_default_watch_materialisation_settings() -> None:
     assert config.get_watch_active_load_wait_timeout_s() == 1.0
 
 
+def test_default_live_publish_settings_are_safe_and_synchronous() -> None:
+    assert config.get_publish_async_enabled() is False
+    assert config.get_publish_max_pending_views() == 32
+    assert config.get_publish_max_pending_bytes() == 64 * 1024 * 1024
+    assert config.get_publish_flush_timeout_s() == 1.0
+
+
+def test_live_publish_settings_use_yaml(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+publish-settings:
+  live:
+    async_enabled: true
+    max_pending_views: 7
+    max_pending_mb: 3
+    flush_timeout_s: 0.25
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_publish_async_enabled() is True
+    assert config.get_publish_max_pending_views() == 7
+    assert config.get_publish_max_pending_bytes() == 3 * 1024 * 1024
+    assert config.get_publish_flush_timeout_s() == 0.25
+
+
 def test_storage_latest_defaults_disabled() -> None:
     assert config.get_storage_enabled() is False
     assert config.get_storage_latest_enabled() is False
