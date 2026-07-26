@@ -48,6 +48,8 @@ def test_default_limits_are_generous() -> None:
 def test_default_watch_materialisation_settings() -> None:
     assert config.get_watch_materialization() == "auto"
     assert config.get_watch_file_threshold_bytes() == 20 * 1024 * 1024
+    assert config.get_watch_active_load_max_concurrent() == 2
+    assert config.get_watch_active_load_wait_timeout_s() == 1.0
 
 
 def test_storage_latest_defaults_disabled() -> None:
@@ -146,6 +148,9 @@ def test_watch_materialisation_settings_use_yaml(tmp_path) -> None:
 watch-settings:
   materialization: file
   file_threshold_mb: 7
+  active-loads:
+    max-concurrent: 3
+    wait-timeout-s: 0.25
 """.strip(),
         encoding="utf-8",
     )
@@ -154,6 +159,8 @@ watch-settings:
 
     assert config.get_watch_materialization() == "file"
     assert config.get_watch_file_threshold_bytes() == 7 * 1024 * 1024
+    assert config.get_watch_active_load_max_concurrent() == 3
+    assert config.get_watch_active_load_wait_timeout_s() == 0.25
 
 
 def test_invalid_watch_materialisation_falls_back_to_auto(tmp_path) -> None:

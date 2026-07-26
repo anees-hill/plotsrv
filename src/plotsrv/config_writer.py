@@ -54,6 +54,12 @@ watch-settings:
   materialization: auto
   file_threshold_mb: 20
 
+  # Bound simultaneous on-demand file-backed preview loads. This protects the
+  # server when several browser clients open a large watched CSV at once.
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+
 storage-settings:
   enabled: false
   watch_enabled: false

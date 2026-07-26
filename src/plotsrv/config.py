@@ -105,6 +105,14 @@ _DEFAULTS: dict[str, Any] = {
     "watch-settings": {
         "materialization": "auto",
         "file_threshold_mb": 20,
+        # File-backed previews are parsed on request. Keep expensive table
+        # materialisation bounded even when several browser clients refresh at
+        # once. Existing limits.truncate_after.* values remain the limits that
+        # control how much is prepared for display.
+        "active_loads": {
+            "max_concurrent": 2,
+            "wait_timeout_s": 1.0,
+        },
     },
     "storage-settings": {
         "enabled": False,
@@ -927,6 +935,64 @@ def get_watch_file_threshold_bytes() -> int:
         return int(float(default_mb) * _MB)
 
     return parsed
+
+
+def _get_watch_active_load_setting(*keys: str, default: Any) -> Any:
+    """
+    Look up a file-backed request-load setting.
+
+    ``active_loads`` is the documented spelling. Hyphenated spellings are
+    accepted too, so the setting remains pleasant to use in hand-written YAML.
+    """
+    # Check the unmerged user section first. Otherwise the default
+    # ``active_loads`` mapping would mask a user's hyphenated ``active-loads``
+    # spelling during the later merged lookup.
+    raw_sec = settings.get_section("watch-settings")
+    active = raw_sec.get("active_loads")
+    if not isinstance(active, Mapping):
+        active = raw_sec.get("active-loads")
+    if not isinstance(active, Mapping):
+        sec = _merged_section("watch-settings")
+        active = sec.get("active_loads")
+    if not isinstance(active, Mapping):
+        active = _merged_section("watch-settings").get("active-loads")
+    if not isinstance(active, Mapping):
+        return default
+
+    for key in keys:
+        if key in active:
+            return active[key]
+    return default
+
+
+def get_watch_active_load_max_concurrent() -> int:
+    """Maximum concurrent file-backed preview materialisations."""
+    default = int(_DEFAULTS["watch-settings"]["active_loads"]["max_concurrent"])
+    raw = _get_watch_active_load_setting(
+        "max_concurrent",
+        "max-concurrent",
+        default=default,
+    )
+    try:
+        value = int(float(raw))
+    except Exception:
+        return default
+    return value if value >= 1 else default
+
+
+def get_watch_active_load_wait_timeout_s() -> float:
+    """How long a request may wait for a file-backed preview slot."""
+    default = float(_DEFAULTS["watch-settings"]["active_loads"]["wait_timeout_s"])
+    raw = _get_watch_active_load_setting(
+        "wait_timeout_s",
+        "wait-timeout-s",
+        default=default,
+    )
+    try:
+        value = float(raw)
+    except Exception:
+        return default
+    return value if value >= 0 else default
 
 
 # ---- Storage settings ---------------------------------------------------------
