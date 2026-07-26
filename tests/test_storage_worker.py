@@ -84,6 +84,21 @@ def test_submit_returns_false_when_queue_full(monkeypatch: pytest.MonkeyPatch) -
     assert ok is False
 
 
+def test_submit_rejects_when_storage_byte_budget_is_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    w = worker_mod.StorageWorker(max_queue_size=2, max_pending_bytes=5)
+    monkeypatch.setattr(worker_mod.config, "get_storage_enabled", lambda: True)
+    monkeypatch.setattr(w, "start", lambda: None)
+
+    ok = w.submit(view_id="v1", kind="text", obj="six-bytes")
+
+    assert ok is False
+    stats = w.stats()
+    assert stats["rejected"] == 1
+    assert "max_pending_mb" in (stats["last_error"] or "")
+
+
 def test_start_is_idempotent_when_thread_alive(monkeypatch: pytest.MonkeyPatch) -> None:
     w = worker_mod.StorageWorker()
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import queue
+import sys
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -25,6 +26,7 @@ class StorageTask:
     label: str | None = None
     extra: dict[str, Any] | None = None
     source: str | None = None
+    estimated_bytes: int = 0
 
 
 class StorageWorker:
@@ -36,10 +38,34 @@ class StorageWorker:
     - historical snapshots
     """
 
-    def __init__(self, *, max_queue_size: int = 1000) -> None:
-        self._queue: queue.Queue[StorageTask | None] = queue.Queue(
-            maxsize=max_queue_size
+    def __init__(
+        self,
+        *,
+        max_queue_size: int | None = None,
+        max_pending_bytes: int | None = None,
+    ) -> None:
+        queue_size = (
+            config.get_storage_max_pending_tasks()
+            if max_queue_size is None
+            else max_queue_size
         )
+        self._queue: queue.Queue[StorageTask | None] = queue.Queue(
+            maxsize=max(1, int(queue_size))
+        )
+        self._max_pending_bytes = max(
+            1,
+            int(
+                config.get_storage_max_pending_bytes()
+                if max_pending_bytes is None
+                else max_pending_bytes
+            ),
+        )
+        self._pending_bytes = 0
+        self._submitted = 0
+        self._processed = 0
+        self._rejected = 0
+        self._failed = 0
+        self._last_error: str | None = None
         self._thread: threading.Thread | None = None
         self._started = False
         self._lock = threading.Lock()
@@ -99,12 +125,32 @@ class StorageWorker:
             label=label,
             extra=extra,
             source=source,
+            estimated_bytes=_estimate_storage_task_bytes(obj),
         )
+
+        estimate = max(1, task.estimated_bytes)
+        with self._lock:
+            self._submitted += 1
+            if estimate > self._max_pending_bytes:
+                self._rejected += 1
+                self._last_error = (
+                    "storage task exceeds storage-settings.max_pending_mb"
+                )
+                return False
+            if self._pending_bytes + estimate > self._max_pending_bytes:
+                self._rejected += 1
+                self._last_error = "storage queue byte budget reached"
+                return False
+            self._pending_bytes += estimate
 
         try:
             self._queue.put_nowait(task)
             return True
         except queue.Full:
+            with self._lock:
+                self._pending_bytes = max(0, self._pending_bytes - estimate)
+                self._rejected += 1
+                self._last_error = "storage queue task budget reached"
             return False
 
     def _run(self) -> None:
@@ -118,13 +164,40 @@ class StorageWorker:
                 self._queue.task_done()
                 break
 
+            with self._lock:
+                self._pending_bytes = max(
+                    0,
+                    self._pending_bytes - max(0, item.estimated_bytes),
+                )
+
             try:
                 self._process_task(item)
-            except Exception:
+                with self._lock:
+                    self._processed += 1
+            except Exception as exc:
                 # Best-effort persistence only in this 0.0.5 version for now.
-                pass
+                with self._lock:
+                    self._failed += 1
+                    self._last_error = f"{type(exc).__name__}: {exc}"
             finally:
                 self._queue.task_done()
+
+    def stats(self) -> dict[str, Any]:
+        """Return inspectable admission and processing counters."""
+        with self._lock:
+            thread = self._thread
+            return {
+                "queued": self._queue.qsize(),
+                "pending_bytes": self._pending_bytes,
+                "max_pending_tasks": self._queue.maxsize,
+                "max_pending_bytes": self._max_pending_bytes,
+                "submitted": self._submitted,
+                "processed": self._processed,
+                "rejected": self._rejected,
+                "failed": self._failed,
+                "last_error": self._last_error,
+                "running": bool(thread is not None and thread.is_alive()),
+            }
 
     def _process_task(self, task: StorageTask) -> None:
         if is_file_backed_watch_storage_task(
@@ -209,3 +282,28 @@ def enqueue_snapshot(
         extra=extra,
         source=source,
     )
+
+
+def get_storage_queue_stats() -> dict[str, Any]:
+    return get_storage_worker().stats()
+
+
+def _estimate_storage_task_bytes(obj: Any) -> int:
+    """Estimate retained source memory without serialising or copying it."""
+    if isinstance(obj, (bytes, bytearray)):
+        return max(1, len(obj))
+    if isinstance(obj, str):
+        return max(1, len(obj) * 4)
+
+    try:
+        import pandas as pd
+
+        if isinstance(obj, pd.DataFrame):
+            return max(1, int(obj.memory_usage(index=True, deep=True).sum()))
+    except Exception:
+        pass
+
+    try:
+        return max(1, int(sys.getsizeof(obj)))
+    except Exception:
+        return 1
