@@ -13,7 +13,7 @@ from .decorators import (
     get_plotsrv_spec,
     PlotsrvSpec,
 )
-from .publisher import publish_view
+from .publisher import flush_views, publish_view
 from .capture import capture_exceptions
 from .tracebacks import publish_traceback, TracebackPublishOptions
 from .runtime import WatchConfig
@@ -22,6 +22,7 @@ __all__ = [
     # Core public API
     "view",
     "publish_view",
+    "flush_views",
     # Server/session API
     "start_server",
     "stop_server",
