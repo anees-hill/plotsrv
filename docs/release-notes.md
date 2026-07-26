@@ -1,5 +1,15 @@
 # Release notes
 
+## v0.5.1
+
+v0.5.1 makes on-demand file-backed watched-file serving bounded and measurable.
+
+* file-backed CSV previews are parsed incrementally from disk instead of holding a raw byte window and then scanning the full file for a row count
+* CSV responses report loaded rows separately and mark a full row total as unknown when it has not been calculated
+* file-backed preview loads are concurrency-bounded with a clear temporary-busy response
+* watched-file source downloads, images, and unsanitised HTML use streaming routes instead of loading source bytes into JSON responses
+* added the operational benchmark harness for comparing pipeline and watched-file resource use
+
 ## v0.5.0
 
 v0.5.0 improves watched-file resource safety.
