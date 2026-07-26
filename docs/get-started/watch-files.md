@@ -174,10 +174,9 @@ plotsrv run . \
 The equivalent config is:
 
 ```yaml title="plotsrv.yaml"
-limits:
-  watched_files:
-    materialization: auto
-    file_threshold_mb: 50
+watch-settings:
+  materialization: auto
+  file_threshold_mb: 50
 ```
 
 Use `file` for large watched files when you want predictable memory use.
@@ -196,9 +195,36 @@ For file-backed text, markdown, HTML, JSON-like, and log files:
 For file-backed CSV files:
 
 - the view appears as a table
-- `/table/data` reads a bounded CSV preview from disk when the browser requests it
-- the full CSV is not loaded into server memory
-- export is intentionally blocked for now, because exporting a file-backed CSV safely has different semantics from exporting an in-memory table
+- `/table/data` incrementally parses only the configured table rows and columns when the browser requests it
+- the server does not keep the raw CSV window or a full-file row count in memory
+- the UI reports loaded rows and says when the full row count is unknown, rather than scanning the full file just to display a total
+- export downloads the original live CSV source
+
+The current source is streamed only from registered watched-file metadata, so a
+browser never supplies a filesystem path. Historical snapshots remain
+snapshot-based; they never fall through to the current source file.
+
+## Concurrent file-backed requests
+
+File-backed previews use the same table limits as memory-backed tables. To
+prevent several browser clients materialising a large preview at once, plotsrv
+also bounds active disk loads:
+
+```yaml title="plotsrv.yaml"
+watch-settings:
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+```
+
+The default allows two active loads. A short-lived busy response is retried by
+the browser; it is visible rather than silently building an unbounded queue.
+This setting controls concurrency only. `limits.truncate_after.table_rows` and
+`limits.truncate_after.table_columns` remain the controls for the data shown.
+
+If you explicitly set either table truncation limit to `off`, plotsrv honours
+that choice, but a file-backed request may then need to retain a very large
+table before it can return it to the browser.
 
 If a file-backed watched file cannot be read, plotsrv shows a visible error view instead of hiding the failure behind a server error.
 

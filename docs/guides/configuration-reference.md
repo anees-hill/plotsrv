@@ -33,12 +33,6 @@ limits:
     # Use "off" to allow full-file reads.
     max_mb: 500
 
-    # auto = file-backed when the watched file is at/above file_threshold_mb.
-    # memory = always publish watched-file content into memory.
-    # file = always keep watched files file-backed and preview from disk on demand.
-    materialization: auto
-    file_threshold_mb: 50
-
   truncate_after:
     # Preparation/display limits.
     # These truncate what plotsrv prepares for display.
@@ -55,6 +49,16 @@ storage-settings:
   max_snapshot_size_mb: 20.0
   default_keep_last: 3
   default_min_store_interval: off
+
+watch-settings:
+  # auto = file-backed when the watched file is at/above file_threshold_mb.
+  # memory = always publish watched-file content into memory.
+  # file = always keep watched files file-backed and preview from disk on demand.
+  materialization: auto
+  file_threshold_mb: 50
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
 
 freshness-settings:
   enabled: false
@@ -116,21 +120,17 @@ limits:
 
 ### `limits.watched_files`
 
-Controls how plotsrv reads and represents watched files.
+Controls how much plotsrv reads for watched-file previews.
 
 ```yaml
 limits:
   watched_files:
     max_mb: 500
-    materialization: auto
-    file_threshold_mb: 50
 ```
 
 | Key | Meaning |
 |---|---|
 | `max_mb` | maximum amount read for each watched-file preview |
-| `materialization` | `auto`, `memory`, or `file` |
-| `file_threshold_mb` | file size threshold used by `auto` mode |
 
 Use `off` to allow full-file reads:
 
@@ -163,10 +163,9 @@ Watched files can be memory-backed or file-backed.
 In `auto` mode, files at or above `file_threshold_mb` become file-backed.
 
 ```yaml
-limits:
-  watched_files:
-    materialization: auto
-    file_threshold_mb: 50
+watch-settings:
+  materialization: auto
+  file_threshold_mb: 50
 ```
 
 You can force a mode from the CLI:
@@ -184,6 +183,23 @@ plotsrv run . \
 ```
 
 File-backed watched views are useful for large logs and CSVs because plotsrv does not retain the full file content in server memory.
+
+#### File-backed active loads
+
+`watch-settings.active_loads` bounds concurrent on-demand preview work for
+file-backed views. It does not change what users may see: table display limits
+remain under `limits.truncate_after`.
+
+```yaml
+watch-settings:
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+```
+
+When all slots are active, plotsrv responds with a temporary `503` and
+`Retry-After` header. The browser retries briefly; API clients can make the
+same decision explicitly.
 
 ### `limits.truncate_after`
 
@@ -374,8 +390,6 @@ limits:
     max_json_container_items: 20000
   watched_files:
     max_mb: 500
-    materialization: auto
-    file_threshold_mb: 50
   truncate_after:
     text: 1000000
     markdown: 100000
