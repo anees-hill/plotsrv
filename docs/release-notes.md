@@ -1,33 +1,15 @@
 # Release notes
 
-## v0.6.0
+## v0.5.0
 
-v0.6.0 makes replaceable live publishing bounded and inspectable.
+v0.5.0 is a perf-based update introducing bounded async live publishing and file-backed watched-file serving.
 
 * added `async_=True` to `publish_view()` and `@view(...)` for attached and remote live publishing
 * added a bounded latest-wins `PublishWorker`, with count and estimated-byte budgets
-* added `flush_views()` and short publish-worker flushing during `stop_server()`
-* exposed publish and storage queue counters through `/status`
 * guarded the global in-memory view store against concurrent request/worker mutation
-* bounded queued storage work by task count and estimated retained bytes
-
-## v0.5.1
-
-v0.5.1 makes on-demand file-backed watched-file serving bounded and measurable.
-
-* file-backed CSV previews are parsed incrementally from disk instead of holding a raw byte window and then scanning the full file for a row count
-* CSV responses report loaded rows separately and mark a full row total as unknown when it has not been calculated
-* file-backed preview loads are concurrency-bounded with a clear temporary-busy response
-* watched-file source downloads, images, and unsanitised HTML use streaming routes instead of loading source bytes into JSON responses
-* added the operational benchmark harness for comparing pipeline and watched-file resource use
-
-## v0.5.0
-
-v0.5.0 improves watched-file resource safety.
-
 * added memory-backed and file-backed watched-file materialisation
+* file-backed CSV previews are parsed incrementally from disk instead of holding a raw byte window and then scanning the full file for a row count
 * large watched files can now be represented by metadata and previewed from disk on demand
-* file-backed CSV files are served through bounded table previews
 
 ## v0.4.0
 
