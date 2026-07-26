@@ -1,5 +1,16 @@
 # Release notes
 
+## v0.6.0
+
+v0.6.0 makes replaceable live publishing bounded and inspectable.
+
+* added `async_=True` to `publish_view()` and `@view(...)` for attached and remote live publishing
+* added a bounded latest-wins `PublishWorker`, with count and estimated-byte budgets
+* added `flush_views()` and short publish-worker flushing during `stop_server()`
+* exposed publish and storage queue counters through `/status`
+* guarded the global in-memory view store against concurrent request/worker mutation
+* bounded queued storage work by task count and estimated retained bytes
+
 ## v0.5.1
 
 v0.5.1 makes on-demand file-backed watched-file serving bounded and measurable.
