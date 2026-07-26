@@ -66,6 +66,8 @@ def test_table_data_returns_json_sample(client: TestClient) -> None:
     data = resp.json()
     assert data["columns"] == ["a", "b"]
     assert data["total_rows"] == 3
+    assert data["total_rows_known"] is True
+    assert data["loaded_rows"] == 3
     assert data["returned_rows"] == 2
     assert len(data["rows"]) == 2
 
@@ -602,6 +604,8 @@ def test_table_data_uses_table_truncate_limits(
         {"a": 2, "b": 5},
     ]
     assert data["total_rows"] == 3
+    assert data["total_rows_known"] is True
+    assert data["loaded_rows"] == 3
     assert data["returned_rows"] == 2
 
 
@@ -826,7 +830,9 @@ def test_table_data_serves_file_backed_csv_watch(
         {"a": 2, "b": "two"},
         {"a": 3, "b": "three"},
     ]
-    assert data["total_rows"] == 3
+    assert data["total_rows"] is None
+    assert data["total_rows_known"] is False
+    assert data["loaded_rows"] == 3
     assert data["returned_rows"] == 3
 
     meta = data["meta"]
@@ -879,7 +885,9 @@ def test_table_data_file_backed_csv_respects_query_limit(
         {"a": 1, "b": "one"},
         {"a": 2, "b": "two"},
     ]
-    assert data["total_rows"] == 3
+    assert data["total_rows"] is None
+    assert data["total_rows_known"] is False
+    assert data["loaded_rows"] == 3
     assert data["returned_rows"] == 2
     assert data["meta"]["file_backed"] is True
 
@@ -922,7 +930,8 @@ def test_table_data_file_backed_csv_tail_mode(
 
     assert data["columns"] == ["a", "b"]
     assert {"a": 4, "b": "four"} in data["rows"]
-    assert data["total_rows"] == 4
+    assert data["total_rows"] is None
+    assert data["total_rows_known"] is False
     assert data["meta"]["truncated"] is True
     assert data["meta"]["preview_bytes"] <= p.stat().st_size
 
@@ -1012,7 +1021,7 @@ def test_table_data_file_backed_csv_missing_file_returns_visible_error_row(
     assert status["last_error"]
 
 
-def test_table_export_file_backed_csv_returns_409(
+def test_table_export_file_backed_csv_streams_original_source(
     client: TestClient,
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1042,14 +1051,13 @@ def test_table_export_file_backed_csv_returns_409(
 
     resp = client.get("/table/export?view=watch:data")
 
-    assert resp.status_code == 409
-    detail = resp.json()["detail"]
-    assert "File-backed CSV export is not supported yet" in detail
-    assert "/table/data" in detail
-    assert "original CSV file" in detail
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/csv")
+    assert "attachment" in resp.headers["content-disposition"]
+    assert resp.content == p.read_bytes()
 
 
-def test_table_export_rejection_does_not_break_file_backed_csv_data(
+def test_table_export_source_does_not_break_file_backed_csv_data(
     client: TestClient,
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1076,7 +1084,8 @@ def test_table_export_rejection_does_not_break_file_backed_csv_data(
     )
 
     export_resp = client.get("/table/export?view=watch:data")
-    assert export_resp.status_code == 409
+    assert export_resp.status_code == 200
+    assert export_resp.content == p.read_bytes()
 
     data_resp = client.get("/table/data?view=watch:data")
     assert data_resp.status_code == 200

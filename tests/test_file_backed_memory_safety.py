@@ -312,7 +312,7 @@ def test_memory_backed_watch_thread_still_reads_and_publishes(
     assert meta.materialization == "memory"
 
 
-def test_file_backed_csv_contract_blocks_export_and_storage(
+def test_file_backed_csv_contract_streams_source_and_skips_storage(
     client: TestClient,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -345,7 +345,8 @@ def test_file_backed_csv_contract_blocks_export_and_storage(
     assert data_resp.json()["meta"]["file_backed"] is True
 
     export_resp = client.get("/table/export?view=csv:large")
-    assert export_resp.status_code == 409
+    assert export_resp.status_code == 200
+    assert export_resp.content == p.read_bytes()
 
     latest_calls: list[dict[str, Any]] = []
     snapshot_calls: list[dict[str, Any]] = []
