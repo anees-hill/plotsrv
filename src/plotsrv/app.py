@@ -22,8 +22,9 @@ from . import html as html_mod
 from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
-from .storage.worker import enqueue_snapshot
+from .storage.worker import enqueue_snapshot, get_storage_queue_stats
 from .storage.backend import list_snapshots, load_snapshot
+from .publishing.worker import get_publish_queue_stats
 from .runtime import (
     FileBackedLoadBusyError,
     file_backed_load_slot,
@@ -807,6 +808,8 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     vid = view or store.get_active_view_id()
     s = store.get_status(view_id=vid)
     s.update(store.get_service_info())
+    s["publish_queue"] = get_publish_queue_stats()
+    s["storage_queue"] = get_storage_queue_stats()
     s["view_id"] = vid
     s["freshness"] = store.get_freshness(view_id=vid)
 
