@@ -124,6 +124,11 @@ def run_command(args: argparse.Namespace) -> int:
         sample_interval_s=args.sample_interval_s,
         idle_s=args.idle_s,
         max_rss_mb=args.max_rss_mb,
+        publish_behaviour=args.publish_behaviour,
+        flush_async=args.flush_async,
+        flush_timeout_s=args.flush_timeout_s,
+        publish_max_pending_views=args.publish_max_pending_views,
+        publish_max_pending_mb=args.publish_max_pending_mb,
         watch_csv=watch_csv,
         watch_materialization=args.watch_materialization,
         watch_max_mb=(
@@ -189,6 +194,36 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--temporary-memory-mb", type=int)
     run.add_argument("--iterations", type=int)
     run.add_argument("--publish-every", type=int)
+    run.add_argument(
+        "--publish-behaviour",
+        choices=["sync", "async"],
+        default="sync",
+        help="Use synchronous or bounded asynchronous plotsrv publishing.",
+    )
+    run.add_argument(
+        "--flush-async",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Flush queued asynchronous views when pipeline work completes.",
+    )
+    run.add_argument(
+        "--flush-timeout-s",
+        type=float,
+        default=30.0,
+        help="Maximum seconds to wait for asynchronous publishes.",
+    )
+    run.add_argument(
+        "--publish-max-pending-views",
+        type=int,
+        default=32,
+        help="Maximum distinct destination/view updates retained by async publishing.",
+    )
+    run.add_argument(
+        "--publish-max-pending-mb",
+        type=float,
+        default=64.0,
+        help="Approximate MiB budget for pending async source objects.",
+    )
     run.add_argument("--sample-interval-s", type=float, default=0.2)
     run.add_argument("--idle-s", type=float, default=3.0)
     run.add_argument(

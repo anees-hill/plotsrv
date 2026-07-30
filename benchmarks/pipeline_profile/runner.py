@@ -342,6 +342,16 @@ def _write_run_config(spec: RunSpec, path: Path) -> None:
                     "wait_timeout_s": cfg.watch_active_wait_timeout_s,
                 },
             },
+            "publish-settings": {
+                "live": {
+                    # Benchmark calls pass async_= explicitly so that every run
+                    # remains self-describing.
+                    "async_enabled": False,
+                    "max_pending_views": spec.publish_max_pending_views,
+                    "max_pending_mb": spec.publish_max_pending_mb,
+                    "flush_timeout_s": spec.flush_timeout_s,
+                },
+            },
             "storage-settings": {
                 "enabled": cfg.storage_enabled,
                 "watch_enabled": cfg.storage_watch_enabled,
@@ -590,6 +600,13 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
         "wall_time_s": round(time.monotonic() - started_wall, 6),
         "workload": spec.workload.to_dict(),
         "config": spec.config.to_dict(),
+        "publishing": {
+            "behaviour": spec.publish_behaviour,
+            "flush_async": spec.flush_async,
+            "flush_timeout_s": spec.flush_timeout_s,
+            "max_pending_views": spec.publish_max_pending_views,
+            "max_pending_mb": spec.publish_max_pending_mb,
+        },
         "watch": {
             "csv": None if spec.watch_csv is None else spec.watch_csv.to_dict(),
             "materialization": spec.watch_materialization if spec.watch_csv else None,

@@ -12,6 +12,8 @@ Scenario = Literal[
     "watch-clients",
 ]
 
+PublishBehaviour = Literal["sync", "async"]
+
 
 @dataclass(frozen=True, slots=True)
 class TableSpec:
@@ -207,6 +209,14 @@ class RunSpec:
     sample_interval_s: float = 0.2
     idle_s: float = 3.0
     max_rss_mb: int | None = None
+
+    # Pipeline publishing behaviour.
+    publish_behaviour: PublishBehaviour = "sync"
+    flush_async: bool = True
+    flush_timeout_s: float = 30.0
+    publish_max_pending_views: int = 32
+    publish_max_pending_mb: float = 64.0
+
     watch_csv: TableSpec | None = None
     watch_materialization: Literal["memory", "file"] = "file"
     watch_max_mb: float | None = 16.0
@@ -223,6 +233,12 @@ class RunSpec:
             raise ValueError("idle_s cannot be negative")
         if self.max_rss_mb is not None and self.max_rss_mb < 1:
             raise ValueError("max_rss_mb must be at least 1 when set")
+        if self.flush_timeout_s < 0:
+            raise ValueError("flush_timeout_s cannot be negative")
+        if self.publish_max_pending_views < 1:
+            raise ValueError("publish_max_pending_views must be at least 1")
+        if self.publish_max_pending_mb <= 0:
+            raise ValueError("publish_max_pending_mb must be greater than zero")
         if self.watch_max_mb is not None and self.watch_max_mb <= 0:
             raise ValueError("watch_max_mb must be greater than zero or omitted")
         if self.clients < 1:
@@ -250,6 +266,11 @@ class RunSpec:
             "sample_interval_s": self.sample_interval_s,
             "idle_s": self.idle_s,
             "max_rss_mb": self.max_rss_mb,
+            "publish_behaviour": self.publish_behaviour,
+            "flush_async": self.flush_async,
+            "flush_timeout_s": self.flush_timeout_s,
+            "publish_max_pending_views": self.publish_max_pending_views,
+            "publish_max_pending_mb": self.publish_max_pending_mb,
             "watch_csv": None if self.watch_csv is None else self.watch_csv.to_dict(),
             "watch_materialization": self.watch_materialization,
             "watch_max_mb": self.watch_max_mb,
@@ -278,6 +299,15 @@ class RunSpec:
             idle_s=float(raw.get("idle_s", 3.0)),
             max_rss_mb=(
                 None if raw.get("max_rss_mb") is None else int(raw["max_rss_mb"])
+            ),
+            publish_behaviour=raw.get("publish_behaviour", "sync"),
+            flush_async=bool(raw.get("flush_async", True)),
+            flush_timeout_s=float(raw.get("flush_timeout_s", 30.0)),
+            publish_max_pending_views=int(
+                raw.get("publish_max_pending_views", 32)
+            ),
+            publish_max_pending_mb=float(
+                raw.get("publish_max_pending_mb", 64.0)
             ),
             watch_csv=watch_csv,
             watch_materialization=raw.get("watch_materialization", "file"),

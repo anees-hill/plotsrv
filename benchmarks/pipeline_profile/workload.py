@@ -106,7 +106,14 @@ def _temporary_memory(size_mb: int) -> bytearray | None:
     return value
 
 
-def _publish(item: PublishItem, *, mode: PublishMode, host: str, port: int) -> None:
+def _publish(
+    item: PublishItem,
+    *,
+    mode: PublishMode,
+    host: str,
+    port: int,
+    async_publish: bool,
+) -> None:
     if mode == "none":
         return
 
@@ -123,6 +130,7 @@ def _publish(item: PublishItem, *, mode: PublishMode, host: str, port: int) -> N
         kind=item.kind,
         artifact_kind=item.artifact_kind,
         force=True,
+        async_=async_publish,
     )
 
 
@@ -133,6 +141,7 @@ def run_workload(
     host: str,
     port: int,
     event: EventCallback,
+    async_publish: bool = False,
 ) -> None:
     """Build a configurable workload and optionally surface its outputs in plotsrv."""
     for iteration in range(spec.iterations):
@@ -215,7 +224,13 @@ def run_workload(
                     None,
                 )
                 if should_publish:
-                    _publish(item, mode=mode, host=host, port=port)
+                    _publish(
+                        item,
+                        mode=mode,
+                        host=host,
+                        port=port,
+                        async_publish=async_publish,
+                    )
                 event(
                     "publish_finished",
                     {"view_id": item.view_id, "kind": item.kind, "published": should_publish},

@@ -107,7 +107,44 @@ def run_pipeline(args: argparse.Namespace) -> int:
             host="127.0.0.1",
             port=args.port,
             event=event,
+            async_publish=(spec.publish_behaviour == "async"),
         )
+
+        # This marks when the user's pipeline work has finished, before any
+        # final async flush. It lets the benchmark distinguish responsiveness
+        # from total delivery completion.
+        event(
+            "pipeline_work_finished",
+            {
+                "publish_behaviour": spec.publish_behaviour,
+            },
+            time.perf_counter() - started,
+        )
+
+        if (
+            spec.publish_behaviour == "async"
+            and spec.flush_async
+            and args.mode != "none"
+        ):
+            from plotsrv import flush_views
+
+            flush_started = time.perf_counter()
+            flushed = flush_views(timeout=spec.flush_timeout_s)
+
+            event(
+                "publish_flush_finished",
+                {
+                    "flushed": flushed,
+                    "timeout_s": spec.flush_timeout_s,
+                },
+                time.perf_counter() - flush_started,
+            )
+
+            if not flushed:
+                raise RuntimeError(
+                    "Async publishing did not flush within "
+                    f"{spec.flush_timeout_s:.1f} seconds"
+                )
     except Exception as exc:
         event("pipeline_failed", {"error": f"{type(exc).__name__}: {exc}"}, None)
         raise
