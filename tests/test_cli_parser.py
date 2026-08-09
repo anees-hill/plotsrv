@@ -287,3 +287,63 @@ def test_cli_run_accepts_watch_max_mb() -> None:
     )
 
     assert args.watch_max_mb == "25"
+
+
+def test_cli_run_accepts_watch_materialization_override() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "run",
+            "my.module",
+            "--watch",
+            "app.log",
+            "--watch-materialization",
+            "file",
+        ]
+    )
+
+    assert args.watch_materialization == "file"
+
+
+def test_cli_run_accepts_watch_materialisation_alias() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "run",
+            "my.module",
+            "--watch",
+            "app.log",
+            "--watch-materialisation",
+            "memory",
+        ]
+    )
+
+    assert args.watch_materialization == "memory"
+
+
+def test_cli_watch_accepts_materialization_override() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "watch",
+            "app.log",
+            "--materialization",
+            "file",
+        ]
+    )
+
+    assert args.materialization == "file"
+
+
+def test_cli_watch_accepts_materialisation_alias() -> None:
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "watch",
+            "app.log",
+            "--materialisation",
+            "memory",
+        ]
+    )
+
+    assert args.materialization == "memory"

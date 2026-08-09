@@ -119,6 +119,63 @@ With `host` and `port`, `publish_view()` sends the object to an existing plotsrv
 
 It does not start a server.
 
+## Bounded asynchronous live publishing
+
+For a repeated status, table, or plot where the pipeline should not wait for
+rendering, serialisation, or HTTP delivery, opt into asynchronous live
+publishing:
+
+```python
+ps.publish_view(
+    latest_status,
+    label="status",
+    section="pipeline",
+    host="127.0.0.1",
+    port=8000,
+    async_=True,
+)
+```
+
+`async_=True` is deliberately for **live views**, whose meaning is “show the
+newest useful state”. Pending updates are bounded and latest-wins per
+destination/view: an older pending update may be coalesced or rejected under
+pressure. The function returning therefore means “accepted for best-effort
+queue admission was attempted”, not “already visible in the browser”. Use the
+queue counters below to distinguish accepted, coalesced, rejected, and failed
+delivery work.
+
+The default remains synchronous. To make the bounded worker the default for a
+process, use the optional configuration below; `async_=False` always keeps one
+call synchronous.
+
+At the end of a short script or batch job, give accepted updates a bounded
+opportunity to finish:
+
+```python
+ps.flush_views(timeout=1.0)
+```
+
+`flush_views()` returns `True` when the queue drained and `False` on timeout.
+`stop_server()` performs the same short flush before stopping its workers.
+
+The decorator accepts the same explicit option:
+
+```python
+@ps.view(
+    label="status",
+    section="pipeline",
+    host="127.0.0.1",
+    port=8000,
+    async_=True,
+)
+def status() -> dict[str, object]:
+    return {"state": "running"}
+```
+
+Queue counters and the last delivery error are available from the server's
+`/status` response under `publish_queue`. They make coalescing, rejection, and
+remote delivery failures visible without storing large response payloads.
+
 ## Rejected publishes
 
 When a normal Python publish is rejected by the server, for example because it exceeds a hard publish limit, plotsrv keeps the HTTP error behaviour and also creates a visible error artifact in the target view.

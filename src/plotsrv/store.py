@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import wraps
+import threading
 from typing import Any, Callable, Literal
 
 import pandas as pd
@@ -55,6 +57,7 @@ class ViewState:
     table_total_rows: int | None = None
     table_returned_rows: int | None = None
     artifact: Artifact | None = None
+    watched_file: WatchedFileMeta | None = None
 
     # publish throttling
     last_publish_at: float | None = None  # epoch seconds
@@ -70,6 +73,30 @@ class ViewState:
                 "restored_at": None,
                 "restore_source": None,
             }
+
+
+@dataclass(frozen=True, slots=True)
+class WatchedFileMeta:
+    """
+    Metadata for a watched file view.
+
+    This lets plotsrv represent a watched file without necessarily keeping the
+    full file contents in memory. v0.5.0 starts by storing this metadata only;
+    later steps will use it to serve file-backed previews on demand.
+    """
+
+    view_id: str
+    path: str
+    file_kind: str
+    read_mode: Literal["head", "tail"]
+    encoding: str
+    materialization: Literal["memory", "file"]
+    size_bytes: int | None = None
+    mtime_ns: int | None = None
+    max_bytes: int | None = None
+    last_checked_at: str | None = None
+    last_read_at: str | None = None
+    last_error: str | None = None
 
 
 def _icon_for_view_kind(
@@ -96,6 +123,27 @@ def _icon_for_view_kind(
     return "unknown"
 
 
+def _icon_for_watched_file_kind(file_kind: str) -> IconKey:
+    fk = (file_kind or "unknown").strip().lower()
+
+    if fk == "csv":
+        return "table"
+
+    if fk == "json":
+        return "json"
+
+    if fk == "markdown":
+        return "markdown"
+
+    if fk == "html":
+        return "html"
+
+    if fk == "image":
+        return "image"
+
+    return "text"
+
+
 # Global store: multi-view
 
 _VIEWS: dict[str, ViewState] = {}
@@ -112,6 +160,11 @@ _SERVICE_INFO: dict[str, Any] = {
 }
 
 _SERVICE_STOP_HOOK: Callable[[], None] | None = None
+
+# The FastAPI request handlers and PublishWorker can both touch the module-level
+# store. Keep each API operation atomic; RLock permits the existing public
+# helpers to call one another without changing their shape.
+_STORE_LOCK = threading.RLock()
 
 
 # Helpers
@@ -262,6 +315,50 @@ def get_active_view_id() -> str:
 def get_view_state(view_id: str | None = None) -> ViewState:
     vid = view_id or _ACTIVE_VIEW_ID
     return _ensure_view(vid)
+
+
+# Watched-file metadata API
+
+
+def set_watched_file_meta(meta: WatchedFileMeta) -> None:
+    """
+    Attach watched-file metadata to a view.
+
+    This does not publish file contents. It only records how the watched view is
+    backed so routes/runtime code can decide whether to read from memory or file.
+    """
+    st = get_view_state(meta.view_id)
+    st.watched_file = meta
+
+    if st.icon_key == "unknown":
+        st.icon_key = _icon_for_watched_file_kind(meta.file_kind)
+
+    if meta.view_id in _VIEW_META:
+        existing = _VIEW_META[meta.view_id]
+        _VIEW_META[meta.view_id] = ViewMeta(
+            view_id=existing.view_id,
+            kind=existing.kind,
+            label=existing.label,
+            section=existing.section,
+            icon_key=st.icon_key,
+        )
+
+
+def has_watched_file_meta(*, view_id: str | None = None) -> bool:
+    st = get_view_state(view_id)
+    return st.watched_file is not None
+
+
+def get_watched_file_meta(*, view_id: str | None = None) -> WatchedFileMeta:
+    st = get_view_state(view_id)
+    if st.watched_file is None:
+        raise LookupError("No watched file metadata available")
+    return st.watched_file
+
+
+def clear_watched_file_meta(*, view_id: str | None = None) -> None:
+    st = get_view_state(view_id)
+    st.watched_file = None
 
 
 # Backwards-compatible single-view API (uses active view)
@@ -696,3 +793,51 @@ def reset() -> None:
         "service_refresh_rate_s": None,
     }
     _SERVICE_STOP_HOOK = None
+
+
+def _synchronise_store_api(func: Callable[..., Any]) -> Callable[..., Any]:
+    @wraps(func)
+    def wrapped(*args: Any, **kwargs: Any) -> Any:
+        with _STORE_LOCK:
+            return func(*args, **kwargs)
+
+    return wrapped
+
+
+for _store_api_name in (
+    "register_view",
+    "list_views",
+    "set_active_view",
+    "get_active_view_id",
+    "get_view_state",
+    "set_watched_file_meta",
+    "has_watched_file_meta",
+    "get_watched_file_meta",
+    "clear_watched_file_meta",
+    "get_kind",
+    "set_plot",
+    "get_plot",
+    "has_plot",
+    "set_table",
+    "set_artifact",
+    "has_table",
+    "has_artifact",
+    "get_artifact",
+    "get_table_df",
+    "get_table_html_simple",
+    "get_table_counts",
+    "mark_success",
+    "mark_error",
+    "mark_restored",
+    "get_status",
+    "get_freshness",
+    "should_accept_publish",
+    "note_publish",
+    "set_service_info",
+    "get_service_info",
+    "set_service_stop_hook",
+    "clear_service_stop_request",
+    "request_service_stop",
+    "reset",
+):
+    globals()[_store_api_name] = _synchronise_store_api(globals()[_store_api_name])

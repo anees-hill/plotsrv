@@ -183,14 +183,36 @@ Common watch options:
 | `--watch-section SECTION` | set the section for a watched file |
 | `--watch-head` | read from the start of the file |
 | `--watch-tail` | read from the end of the file |
-| `--watch-max-bytes N` | limit how much of the file is read |
+| `--watch-max-mb N` | limit how much of the file is read, in MB |
+| `--watch-max-bytes N` | legacy/advanced byte-level read limit |
 | `--watch-kind auto/text/json` | control file interpretation |
+| `--watch-materialization auto/memory/file` | override whether watched files are memory-backed or file-backed |
 
 For standalone `plotsrv watch`, the equivalent options are:
 
 ```bash
 plotsrv watch ./logs/job.log --label "job log" --section "files" --tail
 ```
+
+Force a watched file to be file-backed:
+
+```bash
+plotsrv watch ./logs/job.log --materialization file
+```
+
+Force watched files attached to `plotsrv run` to be file-backed:
+
+```bash
+plotsrv run . \
+  --watch ./logs/job.log \
+  --watch-materialization file
+```
+
+`memory` publishes watched-file content into the plotsrv server as a normal view.
+
+`file` keeps the watched file on disk and serves bounded previews on demand.
+
+`auto` lets plotsrv choose based on the configured file-size threshold.
 
 ## Create config
 

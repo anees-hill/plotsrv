@@ -5,6 +5,7 @@ import base64
 import json
 import math
 import os
+import sys
 import urllib.error
 import urllib.request
 from datetime import date, datetime
@@ -17,6 +18,8 @@ from . import config
 from .backends import df_to_html_simple, fig_to_png_bytes
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
+from .publishing.models import PublishTarget, PublishTask
+from .publishing.worker import flush_publish_views, get_publish_worker
 
 PublishMode = Literal["auto", "local", "remote"]
 
@@ -295,7 +298,7 @@ def _post_publish_payload(
     host: str,
     port: int,
     debug: bool,
-) -> None:
+) -> bool:
     payload = _json_safe(payload)
 
     url = f"http://{host}:{port}/publish"
@@ -304,7 +307,7 @@ def _post_publish_payload(
     except Exception:
         if debug:
             raise
-        return
+        return False
 
     req = urllib.request.Request(
         url,
@@ -316,6 +319,7 @@ def _post_publish_payload(
     try:
         with urllib.request.urlopen(req, timeout=2.0) as resp:
             _ = resp.read()
+        return True
     except urllib.error.HTTPError as e:
         if debug:
             body = ""
@@ -326,11 +330,11 @@ def _post_publish_payload(
             raise RuntimeError(
                 f"plotsrv publish failed: {e.code} {e.reason}\n{body}"
             ) from e
-        return
+        return False
     except Exception:
         if debug:
             raise
-        return
+        return False
 
 
 def _to_publish_payload(
@@ -448,6 +452,7 @@ def _try_publish_pathlike_view(
     update_limit_s: int | None,
     force: bool,
     debug: bool,
+    async_: bool,
 ) -> bool:
     """
     Publish a Path-like object if obj is a real filesystem path.
@@ -487,6 +492,7 @@ def _try_publish_pathlike_view(
                 update_limit_s=update_limit_s,
                 force=force,
                 kind="table",
+                async_=async_,
             )
             return True
 
@@ -505,6 +511,7 @@ def _try_publish_pathlike_view(
                 update_limit_s=update_limit_s,
                 force=force,
                 kind="artifact",
+                async_=async_,
             )
             return True
 
@@ -532,6 +539,7 @@ def _try_publish_pathlike_view(
                 update_limit_s=update_limit_s,
                 force=force,
                 kind="artifact",
+                async_=async_,
             )
             return True
 
@@ -547,6 +555,7 @@ def _try_publish_pathlike_view(
             update_limit_s=update_limit_s,
             force=force,
             kind="artifact",
+            async_=async_,
         )
         return True
 
@@ -566,6 +575,7 @@ def _try_publish_pathlike_view(
             update_limit_s=update_limit_s,
             force=force,
             kind="artifact",
+            async_=async_,
         )
         return True
 
@@ -676,55 +686,71 @@ def _publish_view_local(
     )
 
 
-def publish_view(
-    obj: Any,
+def _coalesce_view_id(
     *,
-    launch_server: bool | None = None,
-    mode: PublishMode | str | None = None,
-    host: str | None = None,
-    port: int | None = None,
-    label: str | None = None,
-    section: str | None = None,
-    view_id: str | None = None,
-    update_limit_s: int | None = None,
-    force: bool = False,
-    kind: str | None = None,
-    artifact_kind: str | None = None,
-) -> None:
-    """
-    Publish an object as a plotsrv browser view.
+    view_id: str | None,
+    section: str | None,
+    label: str | None,
+) -> str:
+    """Give anonymous publishes a stable queue key without changing routing."""
+    if view_id is not None:
+        return str(view_id)
+    if section is not None or label is not None:
+        sec = (section or "default").strip() or "default"
+        lab = (label or "default").strip() or "default"
+        return f"{sec}:{lab}"
+    return "__active__"
 
-    Default behaviour is compatibility/auto mode:
-      - host/port omitted  -> start/use an attached local server
-      - host/port supplied -> publish over HTTP to an existing server
 
-    Preferred explicit behaviour:
-      - launch_server=True  -> start/use an attached local server
-      - launch_server=False -> publish over HTTP to an existing server
+def _estimate_publish_task_bytes(obj: Any) -> int:
+    """Cheap estimate of the source object reference retained in the queue."""
+    if isinstance(obj, (bytes, bytearray)):
+        return max(1, len(obj))
+    if isinstance(obj, str):
+        # Avoid creating a second encoded copy merely to estimate the queue.
+        return max(1, len(obj) * 4)
 
-    Legacy mode= is still accepted:
-      - mode="local"  -> attached local server
-      - mode="remote" -> HTTP publish
-      - mode="auto"   -> compatibility/auto behaviour
+    if isinstance(obj, pd.DataFrame):
+        try:
+            return max(1, int(obj.memory_usage(index=True, deep=True).sum()))
+        except Exception:
+            return max(1, int(sys.getsizeof(obj)))
 
-    This accepts anything plotsrv knows how to display: plots, tables, text,
-    JSON-like objects, markdown, HTML payloads, images, path-like files, and
-    generic Python objects.
-    """
-    debug = _debug_enabled()
+    if pl is not None and isinstance(obj, pl.DataFrame):  # type: ignore[arg-type]
+        try:
+            return max(1, int(obj.estimated_size()))
+        except Exception:
+            return max(1, int(sys.getsizeof(obj)))
 
     try:
-        launch = _resolve_launch_server(
-            launch_server=launch_server,
-            mode=mode,
-            host=host,
-            port=port,
-        )
+        return max(1, int(sys.getsizeof(obj)))
     except Exception:
-        if debug:
-            raise
-        return
+        return 1
 
+
+def _resolve_async_publish(async_: bool | None) -> bool:
+    if async_ is None:
+        return config.get_publish_async_enabled()
+    if isinstance(async_, bool):
+        return async_
+    raise TypeError("publish_view async_ must be True, False, or None")
+
+
+def _publish_view_now(
+    obj: Any,
+    *,
+    launch: bool,
+    host: str | None,
+    port: int | None,
+    label: str | None,
+    section: str | None,
+    view_id: str | None,
+    update_limit_s: int | None,
+    force: bool,
+    kind: str | None,
+    artifact_kind: str | None,
+    debug: bool,
+) -> bool:
     remote_host, remote_port = _normalise_remote_target(host=host, port=port)
 
     if _try_publish_pathlike_view(
@@ -739,8 +765,9 @@ def publish_view(
         update_limit_s=update_limit_s,
         force=force,
         debug=debug,
+        async_=False,
     ):
-        return
+        return True
 
     if launch:
         try:
@@ -754,15 +781,17 @@ def publish_view(
                 kind=kind,
                 artifact_kind=artifact_kind,
             )
-        except RuntimeError as e:
-            if "plotsrv server already running" in str(e):
+            return True
+        except RuntimeError as exc:
+            if "plotsrv server already running" in str(exc):
                 raise
             if debug:
                 raise
+            return False
         except Exception:
             if debug:
                 raise
-        return
+            return False
 
     if kind is None:
         if _is_dataframe(obj):
@@ -788,11 +817,147 @@ def publish_view(
     except Exception:
         if debug:
             raise
-        return
+        return False
 
-    _post_publish_payload(
+    return _post_publish_payload(
         payload=payload,
         host=remote_host,
         port=remote_port,
         debug=debug,
     )
+
+
+def _run_publish_task(task: PublishTask) -> bool:
+    """Worker entrypoint. Async failures are visible in queue stats, not callers."""
+    return _publish_view_now(
+        task.obj,
+        launch=task.target.kind == "local",
+        host=task.target.host,
+        port=task.target.port,
+        label=task.label,
+        section=task.section,
+        view_id=task.view_id,
+        update_limit_s=task.update_limit_s,
+        force=task.force,
+        kind=task.kind,
+        artifact_kind=task.artifact_kind,
+        debug=False,
+    )
+
+
+def publish_view(
+    obj: Any,
+    *,
+    launch_server: bool | None = None,
+    mode: PublishMode | str | None = None,
+    host: str | None = None,
+    port: int | None = None,
+    label: str | None = None,
+    section: str | None = None,
+    view_id: str | None = None,
+    update_limit_s: int | None = None,
+    force: bool = False,
+    kind: str | None = None,
+    artifact_kind: str | None = None,
+    async_: bool | None = None,
+) -> None:
+    """
+    Publish an object as a plotsrv browser view.
+
+    Default behaviour is compatibility/auto mode:
+      - host/port omitted  -> start/use an attached local server
+      - host/port supplied -> publish over HTTP to an existing server
+
+    Preferred explicit behaviour:
+      - launch_server=True  -> start/use an attached local server
+      - launch_server=False -> publish over HTTP to an existing server
+
+    Legacy mode= is still accepted:
+      - mode="local"  -> attached local server
+      - mode="remote" -> HTTP publish
+      - mode="auto"   -> compatibility/auto behaviour
+
+    This accepts anything plotsrv knows how to display: plots, tables, text,
+    JSON-like objects, markdown, HTML payloads, images, path-like files, and
+    generic Python objects.
+
+    ``async_=True`` retains the newest pending update per destination/view in a
+    bounded worker and returns before rendering/serialisation/network delivery.
+    ``async_=None`` uses ``publish-settings.live.async_enabled`` (off by
+    default); ``async_=False`` preserves synchronous behaviour.
+    """
+    debug = _debug_enabled()
+
+    try:
+        launch = _resolve_launch_server(
+            launch_server=launch_server,
+            mode=mode,
+            host=host,
+            port=port,
+        )
+    except Exception:
+        if debug:
+            raise
+        return
+
+    try:
+        async_enabled = _resolve_async_publish(async_)
+    except Exception:
+        if debug:
+            raise
+        return
+
+    if async_enabled:
+        target_host, target_port = (
+            _normalise_local_target(host=host, port=port)
+            if launch
+            else _normalise_remote_target(host=host, port=port)
+        )
+        task = PublishTask(
+            obj=obj,
+            target=PublishTarget(
+                kind="local" if launch else "remote",
+                host=target_host,
+                port=target_port,
+            ),
+            coalesce_view_id=_coalesce_view_id(
+                view_id=view_id,
+                section=section,
+                label=label,
+            ),
+            label=label,
+            section=section,
+            view_id=view_id,
+            update_limit_s=update_limit_s,
+            force=force,
+            kind=kind,
+            artifact_kind=artifact_kind,
+            estimated_bytes=_estimate_publish_task_bytes(obj),
+        )
+        get_publish_worker().submit(task)
+        return
+
+    _publish_view_now(
+        obj,
+        launch=launch,
+        host=host,
+        port=port,
+        label=label,
+        section=section,
+        view_id=view_id,
+        update_limit_s=update_limit_s,
+        force=force,
+        kind=kind,
+        artifact_kind=artifact_kind,
+        debug=debug,
+    )
+
+
+def flush_views(timeout: float | None = None) -> bool:
+    """Wait briefly for accepted asynchronous live-view updates.
+
+    Returns ``False`` on timeout. It never waits forever and does not affect
+    durable records, which intentionally use a separate future API.
+    """
+    timeout_s = config.get_publish_flush_timeout_s() if timeout is None else timeout
+    return flush_publish_views(timeout=max(0.0, float(timeout_s)))

@@ -616,3 +616,41 @@ artifact-render-settings:
     assert cfg.get_html_sandbox() == "legacy-html"
     assert cfg.get_markdown_sanitize() is False
     assert cfg.get_markdown_sandbox() == "legacy-md"
+
+
+def test_watch_settings_from_yaml(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+watch-settings:
+  materialization: memory
+  file_threshold_mb: 12.5
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_watch_materialization() == "memory"
+    assert cfg.get_watch_file_threshold_bytes() == int(12.5 * 1024 * 1024)
+
+
+def test_invalid_watch_settings_from_yaml_fall_back(tmp_path: Path) -> None:
+    _reset_runtime()
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+watch-settings:
+  materialization: invalid
+  file_threshold_mb: off
+""".strip(),
+        encoding="utf-8",
+    )
+
+    settings.set_runtime_context(config_path=yml)
+
+    assert cfg.get_watch_materialization() == "auto"
+    assert cfg.get_watch_file_threshold_bytes() == 20 * 1024 * 1024

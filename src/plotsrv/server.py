@@ -30,6 +30,7 @@ from .storage.worker import stop_storage_worker, enqueue_snapshot
 from .storage.latest import FileLatestStateBackend
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
+from .publishing.worker import stop_publish_worker
 
 # plotnine support (optional)
 try:  # pragma: no cover
@@ -845,6 +846,18 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
     If join=True, wait (up to `timeout` seconds) for the thread to exit.
     """
     global _SERVER, _SERVER_THREAD, _SERVER_RUNNING, _SERVER_STARTING
+
+    # Best-effort live views are intentionally separate from durable records.
+    # Give accepted pending work a short opportunity to finish, then discard any
+    # remaining references before the server/storage workers stop.
+    from .publisher import flush_views
+
+    flush_timeout = min(
+        max(0.0, float(timeout)),
+        config.get_publish_flush_timeout_s(),
+    )
+    flush_views(timeout=flush_timeout)
+    stop_publish_worker(join=join, timeout=flush_timeout)
 
     with _SERVER_LOCK:
         server = _SERVER

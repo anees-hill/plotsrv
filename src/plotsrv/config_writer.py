@@ -46,6 +46,43 @@ limits:
     table_rows: 100000
     table_columns: 200
 
+watch-settings:
+  # Controls how watched files are represented internally.
+  # memory = read/coerce/publish watched files into memory.
+  # file   = keep file metadata and read preview slices on demand where supported.
+  # auto   = memory below file_threshold_mb, file-backed at/above it.
+  materialization: auto
+  file_threshold_mb: 20
+
+  # Bound simultaneous on-demand file-backed preview loads. This protects the
+  # server when several browser clients open a large watched CSV at once.
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+
+publish-settings:
+  live:
+    # Keep existing synchronous behaviour by default.
+    #
+    # false:
+    #   publish_view() is synchronous unless async_=True is passed.
+    #
+    # true:
+    #   publish_view() uses the bounded background worker unless
+    #   async_=False is passed.
+    async_enabled: false
+
+    # Maximum number of distinct destination/view updates retained while
+    # waiting to publish. Repeated updates to the same view are coalesced so
+    # that only the latest pending value is retained.
+    max_pending_views: 32
+
+    # Approximate maximum source-object memory retained by pending updates.
+    max_pending_mb: 64
+
+    # Default bounded wait used by flush_views() and normal server shutdown.
+    flush_timeout_s: 1.0
+
 storage-settings:
   enabled: false
   watch_enabled: false
@@ -53,6 +90,10 @@ storage-settings:
   max_snapshot_size_mb: 20.0
   default_keep_last: 3
   default_min_store_interval: off
+
+  # Bound best-effort snapshot work waiting to be serialised.
+  max_pending_tasks: 32
+  max_pending_mb: 64
 
 freshness-settings:
   enabled: false

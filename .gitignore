@@ -21,6 +21,13 @@ plotsrv.yaml
 plotsrv.yml
 plotsrv.ini
 
-
-
+# Docs/zensical
 site/
+
+# Helper files
+STEP
+
+# Reproducible operational benchmark output
+benchmark-results/
+benchmark_results/
+benchmarks/helpers/

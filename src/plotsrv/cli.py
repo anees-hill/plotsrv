@@ -32,11 +32,13 @@ from .storage.latest import (
 )
 from .runtime import (
     WatchConfig,
+    RegisteredWatchView,
     apply_runtime_options,
     build_watch_publish_payload,
     build_watch_publish_error_artifact,
     read_watch_file_bytes,
     register_watch_views,
+    register_watched_file_meta,
     default_watch_read_mode,
     parse_truncate_arg,
     resolve_watch_cli_max_bytes,
@@ -44,6 +46,8 @@ from .runtime import (
     read_head_bytes,
     read_tail_bytes,
     start_watch_threads,
+    resolve_watch_materialization,
+    note_file_backed_watch_change,
 )
 from .config_writer import (
     create_config_file,
@@ -53,6 +57,7 @@ from .config_writer import (
 )
 
 WatchReadMode = Literal["head", "tail"]
+WatchMaterializationOverride = Literal["auto", "memory", "file"]
 RunMode = Literal["passive", "callable"]
 
 
@@ -62,6 +67,7 @@ class WatchSpec:
     label: str | None = None
     section: str | None = None
     read_mode: WatchReadMode | None = None
+    materialization: WatchMaterializationOverride | None = None
 
 
 class _WatchPathAction(argparse.Action):
@@ -312,6 +318,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Bypass server throttling for watched publishes.",
     )
     run_p.add_argument(
+        "--watch-materialization",
+        "--watch-materialisation",
+        choices=["auto", "memory", "file"],
+        default=None,
+        help=(
+            "Override watched-file materialization for all --watch files. "
+            "auto uses config threshold; memory publishes contents; file reads previews on demand."
+        ),
+    )
+    run_p.add_argument(
         "--watch-head",
         action=_WatchReadModeAction,
         nargs=0,
@@ -386,6 +402,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     watch_p.add_argument(
         "--force", action="store_true", help="Bypass server throttling"
+    )
+    watch_p.add_argument(
+        "--materialization",
+        "--materialisation",
+        choices=["auto", "memory", "file"],
+        default=None,
+        help=(
+            "Override watched-file materialization. "
+            "auto uses config threshold; memory publishes contents; file reads previews on demand."
+        ),
     )
     watch_p.add_argument(
         "--quiet", action="store_true", help="Reduce uvicorn logging noise"
@@ -775,6 +801,7 @@ def _coerce_watch_specs(
     labels: list[str] | None,
     sections: list[str] | None,
     read_modes: list[str] | None,
+    materialization: str | None = None,
 ) -> list[WatchSpec]:
     paths = [p for p in (paths or []) if str(p).strip()]
     n = len(paths)
@@ -827,11 +854,30 @@ def _coerce_watch_specs(
             f"--watch-head/--watch-tail provided too many times (expected at most {n}, got {len(rm_list)})."
         )
 
+    materialization_override: WatchMaterializationOverride | None
+    if materialization is None or str(materialization).strip() == "":
+        materialization_override = None
+    else:
+        raw_materialization = str(materialization).strip().lower()
+        if raw_materialization not in {"auto", "memory", "file"}:
+            raise ValueError(
+                "--watch-materialization must be one of: auto, memory, file"
+            )
+        materialization_override = raw_materialization  # type: ignore[assignment]
+
     specs: list[WatchSpec] = []
     for raw_path, lab, sec, rm in zip(
         paths, per_labels, per_sections, per_modes, strict=True
     ):
-        specs.append(WatchSpec(path=raw_path, label=lab, section=sec, read_mode=rm))
+        specs.append(
+            WatchSpec(
+                path=raw_path,
+                label=lab,
+                section=sec,
+                read_mode=rm,
+                materialization=materialization_override,
+            )
+        )
     return specs
 
 
@@ -858,6 +904,7 @@ def _watch_configs_from_cli_specs(
                 encoding=encoding,
                 update_limit_s=update_limit_s,
                 force=force,
+                materialization=spec.materialization,
             )
         )
 
@@ -1351,6 +1398,7 @@ def _run_watch_mode(
     force: bool,
     quiet: bool,
     read_mode: WatchReadMode | None,
+    materialization: WatchMaterializationOverride | None = None,
 ) -> int:
 
     start_server, stop_server = _get_server_hooks()
@@ -1364,6 +1412,8 @@ def _run_watch_mode(
     mode: WatchReadMode = read_mode or _default_watch_read_mode(p)
     view_label = label or p.name
 
+    registered_view: RegisteredWatchView
+
     if view_id is None:
         registered = register_watch_views(
             [
@@ -1376,12 +1426,14 @@ def _run_watch_mode(
                     max_bytes=max_bytes,
                     encoding=encoding,
                     update_limit_s=update_limit_s,
+                    materialization=materialization,
                     force=force,
                 )
             ],
             activate_first_if_none=True,
         )
         vid = registered[0].view_id
+        registered_view = registered[0]
     else:
         fk = infer_file_kind(p)
         preregister_kind = "table" if fk == "csv" else "artifact"
@@ -1394,6 +1446,38 @@ def _run_watch_mode(
             kind=preregister_kind,
             activate_if_first=False,
         )
+
+        watch_config = WatchConfig(
+            path=p,
+            label=view_label,
+            section=section,
+            kind=kind,  # type: ignore[arg-type]
+            read_mode=mode,
+            max_bytes=max_bytes,
+            encoding=encoding,
+            update_limit_s=update_limit_s,
+            materialization=materialization,
+            force=force,
+        )
+
+        registered_view = RegisteredWatchView(
+            path=p,
+            view_id=vid,
+            section=section,
+            label=view_label,
+            kind=preregister_kind,  # type: ignore[arg-type]
+            read_mode=mode,
+            materialization=resolve_watch_materialization(
+                p,
+                requested=materialization,
+            ),
+        )
+
+        register_watched_file_meta(
+            registered=registered_view,
+            spec=watch_config,
+        )
+
         store.set_active_view(vid)
 
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
@@ -1434,8 +1518,21 @@ def _run_watch_mode(
                 max_bytes=max_bytes,
                 encoding=encoding,
                 update_limit_s=update_limit_s,
+                materialization=materialization,
                 force=force,
             )
+
+            if registered_view.materialization == "file":
+                error = None if sig is not None else "Watched file stat failed"
+
+                note_file_backed_watch_change(
+                    registered=registered_view,
+                    spec=watch_config,
+                    error=error,
+                )
+
+                time.sleep(max(0.05, float(every)))
+                continue
 
             raw = read_watch_file_bytes(
                 p,
@@ -1616,6 +1713,7 @@ def main(argv: list[str] | None = None) -> int:
             encoding=args.encoding,
             update_limit_s=args.update_limit_s,
             force=args.force,
+            materialization=getattr(args, "materialization", None),
             quiet=args.quiet,
             read_mode=read_mode,
         )
@@ -1646,6 +1744,7 @@ def main(argv: list[str] | None = None) -> int:
             labels=getattr(args, "watch_label", []) or [],
             sections=getattr(args, "watch_section", []) or [],
             read_modes=getattr(args, "watch_read_mode", []) or [],
+            materialization=getattr(args, "watch_materialization", None),
         )
     except ValueError as e:
         return _die(str(e))

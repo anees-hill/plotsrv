@@ -501,3 +501,36 @@ def test_build_watch_publish_payload_csv_uses_table_truncate_limits(
     assert out.table_df is not None
     assert len(out.table_df) == 2
     assert list(out.table_df.columns) == ["a", "b"]
+
+
+def test_file_backed_artifact_preview_uses_render_truncation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import plotsrv.store as store
+    from plotsrv.runtime import read_file_backed_artifact_preview
+
+    p = tmp_path / "app.log"
+    p.write_text("x" * 100, encoding="utf-8")
+
+    monkeypatch.setattr("plotsrv.runtime.get_watch_render_limit", lambda ak: 20)
+
+    meta = store.WatchedFileMeta(
+        view_id="watch:app.log",
+        path=str(p.resolve()),
+        file_kind="unknown",
+        read_mode="head",
+        encoding="utf-8",
+        materialization="file",
+        size_bytes=100,
+        mtime_ns=p.stat().st_mtime_ns,
+        max_bytes=100,
+    )
+
+    out = read_file_backed_artifact_preview(meta)
+
+    assert out.artifact_kind == "text"
+    assert isinstance(out.artifact, str)
+    assert out.artifact.startswith("x" * 20)
+    assert "truncated 80 characters" in out.artifact
+    assert "limits.truncate_after.text" in out.artifact

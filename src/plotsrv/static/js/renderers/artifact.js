@@ -58,13 +58,19 @@
       typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "";
 
     try {
-      const res = await fetch(
+      const url =
         "/artifact?view=" +
-          encodeURIComponent(config.activeViewId) +
-          snapshotQuery +
-          "&_ts=" +
-          Date.now()
-      );
+        encodeURIComponent(config.activeViewId) +
+        snapshotQuery +
+        "&_ts=" +
+        Date.now();
+      let res = await fetch(url);
+      for (let attempt = 0; res.status === 503 && attempt < 2; attempt += 1) {
+        await new Promise(function (resolve) {
+          window.setTimeout(resolve, 250 * (attempt + 1));
+        });
+        res = await fetch(url);
+      }
 
       if (!res.ok) {
         if (
@@ -84,6 +90,10 @@
       }
 
       const data = await res.json();
+      root.dataset.plotsrvSourceDownloadUrl =
+        data.meta && typeof data.meta.source_download_url === "string"
+          ? data.meta.source_download_url
+          : "";
       
         if (document.body) {
           document.body.classList.remove(
@@ -216,6 +226,18 @@
   }
 
   function exportArtifact() {
+    const isHistory =
+      typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
+    const root = document.getElementById("artifact-root");
+    const sourceDownload = root && root.dataset
+      ? root.dataset.plotsrvSourceDownloadUrl
+      : "";
+
+    if (!isHistory && sourceDownload) {
+      window.location.href = sourceDownload + "&_ts=" + Date.now();
+      return;
+    }
+
     const text = getArtifactExportText();
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const base = String(config.activeViewId || "artifact").replace(/[^\w.-]+/g, "_");

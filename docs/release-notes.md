@@ -1,5 +1,16 @@
 # Release notes
 
+## v0.5.0
+
+v0.5.0 is a perf-based update introducing bounded async live publishing and file-backed watched-file serving.
+
+* added `async_=True` to `publish_view()` and `@view(...)` for attached and remote live publishing
+* added a bounded latest-wins `PublishWorker`, with count and estimated-byte budgets
+* guarded the global in-memory view store against concurrent request/worker mutation
+* added memory-backed and file-backed watched-file materialisation
+* file-backed CSV previews are parsed incrementally from disk instead of holding a raw byte window and then scanning the full file for a row count
+* large watched files can now be represented by metadata and previewed from disk on demand
+
 ## v0.4.0
 
 v0.4.0 configuration clarity and watched-file reliability.

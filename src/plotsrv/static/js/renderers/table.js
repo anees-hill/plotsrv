@@ -230,7 +230,9 @@
     const targetEls = [status, inline].filter(Boolean);
     if (!targetEls.length) return;
 
-    const total = Number(data.total_rows ?? 0);
+    const totalKnown = data.total_rows_known !== false;
+    const total = totalKnown ? Number(data.total_rows ?? 0) : null;
+    const loaded = Number(data.loaded_rows ?? data.returned_rows ?? 0);
     const returned = Number(data.returned_rows ?? (data.rows ? data.rows.length : 0));
 
     let html = "";
@@ -238,7 +240,9 @@
     if (total <= 0 && returned <= 0) {
       html = "";
     } else {
-      const isTrunc = returned < total;
+      const isTrunc =
+        !!(data.meta && data.meta.truncated) ||
+        (totalKnown && returned < total);
       const hasFilter = typeof activeCount === "number" && activeCount !== returned;
 
       if (hasFilter) {
@@ -248,11 +252,19 @@
           " filtered rows of " +
           returned +
           " loaded";
-        if (total > returned) {
+        if (totalKnown && total > returned) {
           html += " (" + total + " total)";
+        } else if (!totalKnown) {
+          html += " (" + loaded + " loaded; full count unknown)";
         } else {
           html += ".";
         }
+      } else if (!totalKnown) {
+        html =
+          "Showing " +
+          returned +
+          (loaded > returned ? " of " + loaded : "") +
+          " loaded rows (full count unknown).";
       } else {
         html =
           "Showing " +
@@ -1167,13 +1179,23 @@
     const snapshotQuery =
       typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "";
 
-    const res = await fetch(
+    const url =
       "/table/data?view=" +
       encodeURIComponent(config.activeViewId) +
       snapshotQuery +
       "&_ts=" +
-      Date.now()
-    );
+      Date.now();
+
+    let res = await fetch(url);
+    // A file-backed server admits only a bounded number of expensive CSV
+    // loads. A short retry keeps normal refreshes smooth without hiding a
+    // persistent failure behind an endless client loop.
+    for (let attempt = 0; res.status === 503 && attempt < 2; attempt += 1) {
+      await new Promise(function (resolve) {
+        window.setTimeout(resolve, 250 * (attempt + 1));
+      });
+      res = await fetch(url);
+    }
 
     if (!res.ok) {
       if (
@@ -1237,6 +1259,18 @@
   }
 
   function exportTable() {
+    const isHistory =
+      typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
+    const sourceDownload =
+      state.tableLastPayload &&
+      state.tableLastPayload.meta &&
+      state.tableLastPayload.meta.source_download_url;
+
+    if (!isHistory && typeof sourceDownload === "string" && sourceDownload) {
+      window.location.href = sourceDownload + "&_ts=" + Date.now();
+      return;
+    }
+
     if (state.tabulatorInstance) {
       const ok = exportFilteredRichTable();
       if (ok) return;

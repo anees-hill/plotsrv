@@ -245,3 +245,81 @@ def test_latest_snapshot_and_seconds_between_ids_helpers() -> None:
     )
     assert policy._parse_snapshot_id("bad") is None
     assert isinstance(policy._new_snapshot_id_like_now(), str)
+
+
+def test_is_file_backed_watch_storage_task_detects_source_aliases() -> None:
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="watch:file_backed",
+            extra=None,
+        )
+        is True
+    )
+
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="watch_file_backed",
+            extra=None,
+        )
+        is True
+    )
+
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="file-backed-watch",
+            extra=None,
+        )
+        is True
+    )
+
+
+def test_is_file_backed_watch_storage_task_detects_extra_flags() -> None:
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="watch",
+            extra={"file_backed": True},
+        )
+        is True
+    )
+
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="watch",
+            extra={"materialization": "file"},
+        )
+        is True
+    )
+
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="watch",
+            extra={"watched_file": {"materialization": "file"}},
+        )
+        is True
+    )
+
+
+def test_is_file_backed_watch_storage_task_does_not_reject_normal_watch() -> None:
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="watch",
+            extra=None,
+        )
+        is False
+    )
+
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="watch",
+            extra={"materialization": "memory"},
+        )
+        is False
+    )
+
+    assert (
+        policy.is_file_backed_watch_storage_task(
+            source="normal",
+            extra={"materialization": "file"},
+        )
+        is False
+    )

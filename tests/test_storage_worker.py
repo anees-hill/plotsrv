@@ -84,6 +84,21 @@ def test_submit_returns_false_when_queue_full(monkeypatch: pytest.MonkeyPatch) -
     assert ok is False
 
 
+def test_submit_rejects_when_storage_byte_budget_is_exceeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    w = worker_mod.StorageWorker(max_queue_size=2, max_pending_bytes=5)
+    monkeypatch.setattr(worker_mod.config, "get_storage_enabled", lambda: True)
+    monkeypatch.setattr(w, "start", lambda: None)
+
+    ok = w.submit(view_id="v1", kind="text", obj="six-bytes")
+
+    assert ok is False
+    stats = w.stats()
+    assert stats["rejected"] == 1
+    assert "max_pending_mb" in (stats["last_error"] or "")
+
+
 def test_start_is_idempotent_when_thread_alive(monkeypatch: pytest.MonkeyPatch) -> None:
     w = worker_mod.StorageWorker()
 
@@ -150,6 +165,140 @@ def test_stop_tolerates_queue_put_failure(monkeypatch: pytest.MonkeyPatch) -> No
 
     w._queue = FakeQueue()  # type: ignore[assignment]
     w.stop(join=False)
+
+
+def test_process_task_skips_file_backed_watch_before_latest_or_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    w = worker_mod.StorageWorker()
+
+    monkeypatch.setattr(worker_mod.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(worker_mod.config, "get_storage_latest_enabled", lambda: True)
+
+    latest_calls: list[dict[str, Any]] = []
+
+    class FakeLatestBackend:
+        def __init__(self, *, root_dir: Path) -> None:
+            latest_calls.append({"root_dir": root_dir})
+
+        def write_latest(self, **kwargs: Any) -> object:
+            latest_calls.append(kwargs)
+            return object()
+
+    monkeypatch.setattr(worker_mod, "FileLatestStateBackend", FakeLatestBackend)
+
+    snapshot_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        worker_mod,
+        "write_snapshot_and_prune",
+        lambda **kwargs: snapshot_calls.append(kwargs),
+    )
+
+    list_calls = {"n": 0}
+
+    def fake_list_snapshots(**kwargs: Any) -> list[SnapshotMeta]:
+        list_calls["n"] += 1
+        return []
+
+    monkeypatch.setattr(worker_mod, "list_snapshots", fake_list_snapshots)
+
+    task = worker_mod.StorageTask(
+        view_id="watch:data",
+        kind="table",
+        obj="should-not-store",
+        section="watch",
+        label="data",
+        source="watch",
+        extra={
+            "file_backed": True,
+            "materialization": "file",
+        },
+    )
+
+    w._process_task(task)
+
+    assert latest_calls == []
+    assert snapshot_calls == []
+    assert list_calls["n"] == 0
+
+
+def test_process_task_does_not_skip_memory_backed_watch(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    w = worker_mod.StorageWorker()
+
+    monkeypatch.setattr(worker_mod.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(worker_mod.config, "get_storage_latest_enabled", lambda: False)
+    monkeypatch.setattr(worker_mod, "list_snapshots", lambda **kwargs: [])
+    monkeypatch.setattr(worker_mod, "estimate_payload_size_bytes", lambda **kwargs: 10)
+
+    class Decision:
+        accepted = True
+        keep_last = 2
+
+    monkeypatch.setattr(
+        worker_mod,
+        "should_store_snapshot",
+        lambda **kwargs: Decision(),
+    )
+
+    snapshot_calls: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        worker_mod,
+        "write_snapshot_and_prune",
+        lambda **kwargs: snapshot_calls.append(kwargs),
+    )
+
+    task = worker_mod.StorageTask(
+        view_id="watch:data",
+        kind="table",
+        obj="store-me",
+        section="watch",
+        label="data",
+        source="watch",
+        extra={
+            "materialization": "memory",
+        },
+    )
+
+    w._process_task(task)
+
+    assert snapshot_calls
+    assert snapshot_calls[0]["view_id"] == "watch:data"
+    assert snapshot_calls[0]["obj"] == "store-me"
+
+
+def test_enqueue_snapshot_preserves_file_backed_watch_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    class FakeWorker:
+        def submit(self, **kwargs: Any) -> bool:
+            calls.append(kwargs)
+            return True
+
+    monkeypatch.setattr(worker_mod, "get_storage_worker", lambda: FakeWorker())
+
+    ok = worker_mod.enqueue_snapshot(
+        view_id="watch:data",
+        kind="table",
+        obj="preview",
+        section="watch",
+        label="data",
+        source="watch",
+        extra={
+            "file_backed": True,
+            "materialization": "file",
+        },
+    )
+
+    assert ok is True
+    assert calls[0]["source"] == "watch"
+    assert calls[0]["extra"]["file_backed"] is True
+    assert calls[0]["extra"]["materialization"] == "file"
 
 
 def test_process_task_returns_early_when_decision_rejected(

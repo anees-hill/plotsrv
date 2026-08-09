@@ -25,6 +25,7 @@ class PlotsrvSpec:
     update_limit_s: int | None = None
     on_error: OnErrorMode = "raise"
     launch_server: bool = False
+    async_: bool | None = None
 
 
 _PLOTSRV_ATTR = "__plotsrv__"
@@ -96,7 +97,12 @@ def _should_publish(spec: PlotsrvSpec) -> bool:
         @ps.view(launch_server=True)
         def f(): ...
     """
-    return bool(spec.launch_server or spec.host is not None or spec.port is not None)
+    return bool(
+        spec.launch_server
+        or spec.host is not None
+        or spec.port is not None
+        or spec.async_ is True
+    )
 
 
 def _publish_host(spec: PlotsrvSpec) -> str | None:
@@ -107,12 +113,33 @@ def _publish_port(spec: PlotsrvSpec) -> int | None:
     return int(spec.port) if spec.port is not None else None
 
 
+def _publish_launch_server(spec: PlotsrvSpec) -> bool | None:
+    if spec.async_ is True and not spec.launch_server and spec.host is None and spec.port is None:
+        return None
+    return spec.launch_server
+
+
 def _traceback_host(spec: PlotsrvSpec) -> str:
     return spec.host or "127.0.0.1"
 
 
 def _traceback_port(spec: PlotsrvSpec) -> int:
     return int(spec.port) if spec.port is not None else 8000
+
+
+def _publish_result(obj: Any, *, spec: PlotsrvSpec, label: str) -> None:
+    kwargs: dict[str, Any] = {
+        "label": label,
+        "section": spec.section,
+        "host": _publish_host(spec),
+        "port": _publish_port(spec),
+        "launch_server": _publish_launch_server(spec),
+        "update_limit_s": spec.update_limit_s,
+        "force": False,
+    }
+    if spec.async_ is not None:
+        kwargs["async_"] = spec.async_
+    publish_view(obj, **kwargs)
 
 
 def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
@@ -128,17 +155,19 @@ def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
         orig_init(self, *args, **kwargs)
 
         try:
-            publish_view(
-                _inspect_instance(self),
-                label=spec.label or cls.__name__,
-                section=spec.section,
-                host=_publish_host(spec),
-                port=_publish_port(spec),
-                launch_server=spec.launch_server,
-                artifact_kind="json",
-                update_limit_s=spec.update_limit_s,
-                force=False,
-            )
+            kwargs: dict[str, Any] = {
+                "label": spec.label or cls.__name__,
+                "section": spec.section,
+                "host": _publish_host(spec),
+                "port": _publish_port(spec),
+                "launch_server": _publish_launch_server(spec),
+                "artifact_kind": "json",
+                "update_limit_s": spec.update_limit_s,
+                "force": False,
+            }
+            if spec.async_ is not None:
+                kwargs["async_"] = spec.async_
+            publish_view(_inspect_instance(self), **kwargs)
         except Exception:
             if os.environ.get("PLOTSRV_DEBUG", "").strip() == "1":
                 raise
@@ -194,16 +223,7 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
 
         # success path: publish result
         try:
-            publish_view(
-                out,
-                label=spec.label or func.__name__,
-                section=spec.section,
-                host=_publish_host(spec),
-                port=_publish_port(spec),
-                launch_server=spec.launch_server,
-                update_limit_s=spec.update_limit_s,
-                force=False,
-            )
+            _publish_result(out, spec=spec, label=spec.label or func.__name__)
         except Exception:
             if os.environ.get("PLOTSRV_DEBUG", "").strip() == "1":
                 raise
@@ -223,6 +243,7 @@ def view(
     update_limit_s: int | None = None,
     on_error: OnErrorMode = "raise",
     launch_server: bool = False,
+    async_: bool | None = None,
 ) -> Callable[[F], F]: ...
 
 
@@ -236,6 +257,7 @@ def view(
     update_limit_s: int | None = None,
     on_error: OnErrorMode = "raise",
     launch_server: bool = False,
+    async_: bool | None = None,
 ) -> Callable[[type[Any]], type[Any]]: ...
 
 
@@ -248,6 +270,7 @@ def view(
     update_limit_s: int | None = None,
     on_error: OnErrorMode = "raise",
     launch_server: bool = False,
+    async_: bool | None = None,
 ) -> Callable[[Any], Any]:
     """
     Decorator: marks a function OR class as a plotsrv view producer.
@@ -286,6 +309,7 @@ def view(
             update_limit_s=update_limit_s,
             on_error=on_error,
             launch_server=launch_server,
+            async_=async_,
         )
 
         o2 = _attach_spec(obj, spec)

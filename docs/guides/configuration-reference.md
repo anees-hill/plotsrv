@@ -29,7 +29,7 @@ limits:
     max_json_container_items: 20000
 
   watched_files:
-    # Maximum amount plotsrv reads from each watched file.
+    # Maximum amount plotsrv reads from each watched file preview.
     # Use "off" to allow full-file reads.
     max_mb: 500
 
@@ -49,6 +49,16 @@ storage-settings:
   max_snapshot_size_mb: 20.0
   default_keep_last: 3
   default_min_store_interval: off
+
+watch-settings:
+  # auto = file-backed when the watched file is at/above file_threshold_mb.
+  # memory = always publish watched-file content into memory.
+  # file = always keep watched files file-backed and preview from disk on demand.
+  materialization: auto
+  file_threshold_mb: 50
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
 
 freshness-settings:
   enabled: false
@@ -110,13 +120,17 @@ limits:
 
 ### `limits.watched_files`
 
-Controls how much plotsrv reads from watched files.
+Controls how much plotsrv reads for watched-file previews.
 
 ```yaml
 limits:
   watched_files:
     max_mb: 500
 ```
+
+| Key | Meaning |
+|---|---|
+| `max_mb` | maximum amount read for each watched-file preview |
 
 Use `off` to allow full-file reads:
 
@@ -135,6 +149,57 @@ plotsrv watch ./logs/job.log --max-mb 25
 ```
 
 `--max-bytes` remains available as a legacy/advanced CLI option.
+
+#### Watched-file materialization
+
+Watched files can be memory-backed or file-backed.
+
+| Mode | Behaviour |
+|---|---|
+| `memory` | reads watched-file content and publishes a normal in-memory view |
+| `file` | stores watched-file metadata and reads bounded previews from disk on demand |
+| `auto` | uses `file_threshold_mb` to choose between `memory` and `file` |
+
+In `auto` mode, files at or above `file_threshold_mb` become file-backed.
+
+```yaml
+watch-settings:
+  materialization: auto
+  file_threshold_mb: 50
+```
+
+You can force a mode from the CLI:
+
+```bash
+plotsrv watch ./logs/job.log --materialization file
+```
+
+or for watched files attached to `plotsrv run`:
+
+```bash
+plotsrv run . \
+  --watch ./logs/job.log \
+  --watch-materialization file
+```
+
+File-backed watched views are useful for large logs and CSVs because plotsrv does not retain the full file content in server memory.
+
+#### File-backed active loads
+
+`watch-settings.active_loads` bounds concurrent on-demand preview work for
+file-backed views. It does not change what users may see: table display limits
+remain under `limits.truncate_after`.
+
+```yaml
+watch-settings:
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+```
+
+When all slots are active, plotsrv responds with a temporary `503` and
+`Retry-After` header. The browser retries briefly; API clients can make the
+same decision explicitly.
 
 ### `limits.truncate_after`
 
@@ -161,6 +226,35 @@ limits:
 Generated plotsrv error artifacts use `watch_error` or `publish_error` and are not truncated by normal text limits. This keeps actionable error messages visible even when `text` truncation is low.
 
 Legacy `limits.render`, `limits.tables`, and top-level `truncation` settings are still accepted where possible, but new configs should use `limits.truncate_after`.
+
+## `publish-settings`
+
+Live publishing is synchronous by default. This preserves existing behaviour
+and needs no configuration for ordinary scripts.
+
+For high-frequency live status/table/plot updates, this optional section makes
+the bounded latest-wins worker the default when callers leave `async_` unset:
+
+```yaml
+publish-settings:
+  live:
+    async_enabled: true
+    max_pending_views: 32
+    max_pending_mb: 64
+    flush_timeout_s: 1.0
+```
+
+| Key | Meaning |
+|---|---|
+| `async_enabled` | default for `publish_view(..., async_=None)`; `false` by default |
+| `max_pending_views` | maximum distinct destination/view updates retained before processing |
+| `max_pending_mb` | maximum estimated memory retained by pending source objects |
+| `flush_timeout_s` | short default timeout used by `flush_views()` and attached-server shutdown |
+
+The queue is for replaceable live views only. For one destination/view, a newer
+pending update replaces the older one. New views are rejected once either budget
+is full. Inspect `/status` for `publish_queue` counters rather than assuming
+that a high-volume update was delivered.
 
 ## `render-settings`
 
@@ -210,13 +304,22 @@ storage-settings:
   default_keep_last: 3
   default_min_store_interval: off
   max_snapshot_size_mb: 20.0
+  max_pending_tasks: 32
+  max_pending_mb: 64
 ```
 
 `storage-settings.enabled` is the master switch. If it is `false`, storage is off even if nested settings are present.
 
+`max_pending_tasks` and `max_pending_mb` bound best-effort latest/snapshot
+serialisation work. Rejections are exposed as `storage_queue` counters in
+`/status`; they never affect the in-memory live view that has already been
+accepted.
+
 ### Source-aware storage
 
 Watched-file snapshots are disabled by default.
+
+File-backed watched files are always skipped by storage. They are represented by metadata and previewed from the source file on demand, so plotsrv does not write latest-state payloads or snapshots for them.
 
 ```yaml
 storage-settings:
@@ -224,7 +327,7 @@ storage-settings:
   watch_enabled: false
 ```
 
-To snapshot watched files globally:
+To snapshot memory-backed watched files globally:
 
 ```yaml
 storage-settings:
@@ -232,7 +335,7 @@ storage-settings:
   watch_enabled: true
 ```
 
-To opt in one watched view:
+To opt in one memory-backed watched view:
 
 ```yaml
 storage-settings:

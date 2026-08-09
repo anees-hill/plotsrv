@@ -95,6 +95,7 @@ Tail mode reads from the end of the file.
 ```bash
 plotsrv watch ./logs/job.log --tail
 ```
+
 plotsrv also chooses sensible defaults based on the file type.
 
 ## Limit large files
@@ -135,6 +136,97 @@ limits:
     table_rows: 100000
     table_columns: 200
 ```
+
+## Memory-backed and file-backed watched files
+
+Watched files can be represented in two ways.
+
+| Mode | Meaning | Best for |
+|---|---|---|
+| `memory` | plotsrv reads the watched file content and publishes a normal in-memory view | small files, simple local workflows |
+| `file` | plotsrv keeps file metadata in memory and reads bounded previews from disk only when the browser asks for them | large logs, large CSV files, long-running servers |
+| `auto` | plotsrv chooses based on file size and config | most workflows |
+
+The default is `auto`.
+
+In `auto` mode, small watched files behave like normal published objects. Larger files become file-backed views, so plotsrv does not keep the full file content in server memory.
+
+Force file-backed mode:
+
+```bash
+plotsrv watch ./logs/job.log --materialization file
+```
+
+Force memory-backed mode:
+
+```bash
+plotsrv watch ./logs/job.log --materialization memory
+```
+
+For files attached to `plotsrv run`:
+
+```bash
+plotsrv run . \
+  --watch ./logs/job.log \
+  --watch-materialization file
+```
+
+The equivalent config is:
+
+```yaml title="plotsrv.yaml"
+watch-settings:
+  materialization: auto
+  file_threshold_mb: 50
+```
+
+Use `file` for large watched files when you want predictable memory use.
+
+## File-backed behaviour
+
+File-backed watched files are designed to protect the plotsrv server from large in-memory payloads.
+
+For file-backed text, markdown, HTML, JSON-like, and log files:
+
+- the view is registered immediately
+- plotsrv stores metadata such as path, file type, size, and read mode
+- `/artifact` reads a bounded preview from disk when the browser requests it
+- preview errors are shown in the UI as `watch_error` messages
+
+For file-backed CSV files:
+
+- the view appears as a table
+- `/table/data` incrementally parses only the configured table rows and columns when the browser requests it
+- the server does not keep the raw CSV window or a full-file row count in memory
+- the UI reports loaded rows and says when the full row count is unknown, rather than scanning the full file just to display a total
+- export downloads the original live CSV source
+
+The current source is streamed only from registered watched-file metadata, so a
+browser never supplies a filesystem path. Historical snapshots remain
+snapshot-based; they never fall through to the current source file.
+
+## Concurrent file-backed requests
+
+File-backed previews use the same table limits as memory-backed tables. To
+prevent several browser clients materialising a large preview at once, plotsrv
+also bounds active disk loads:
+
+```yaml title="plotsrv.yaml"
+watch-settings:
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+```
+
+The default allows two active loads. A short-lived busy response is retried by
+the browser; it is visible rather than silently building an unbounded queue.
+This setting controls concurrency only. `limits.truncate_after.table_rows` and
+`limits.truncate_after.table_columns` remain the controls for the data shown.
+
+If you explicitly set either table truncation limit to `off`, plotsrv honours
+that choice, but a file-backed request may then need to retain a very large
+table before it can return it to the browser.
+
+If a file-backed watched file cannot be read, plotsrv shows a visible error view instead of hiding the failure behind a server error.
 
 ## File types
 
@@ -191,7 +283,11 @@ freshness-settings:
       overdue_after: 30m
 ```
 
-Storage is source-aware too. Historical snapshots for watched files are disabled by default unless `storage-settings.watch_enabled` or a per-view `watch_enabled` override is enabled.
+Storage is source-aware too.
+
+Memory-backed watched-file publishes can be snapshotted only if watched storage is enabled with `storage-settings.watch_enabled` or a per-view `watch_enabled` override.
+
+File-backed watched files are not stored as latest-state payloads or historical snapshots. Their data already lives on disk and is previewed from the source file.
 
 ```yaml title="plotsrv.yaml"
 storage-settings:

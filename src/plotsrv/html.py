@@ -90,15 +90,28 @@ def render_index(
 
         statusline_html = f"""
         <div class="note ps-note ps-statusline" id="statusline">
-          <span class="ps-statusline__item">
-            <strong>Last updated:</strong> <span id="status-updated">—</span>
-            <span id="status-updated-ago"></span>
+          <span class="ps-statusline__main">
+            <span class="ps-statusline__item">
+              <strong>Last updated:</strong> <span id="status-updated">—</span>
+              <span id="status-updated-ago"></span>
+            </span>
+            {freshness_html}
+            <span id="status-error-wrap" class="ps-statusline__error" style="display:none;">
+              &nbsp;|&nbsp;
+              <strong style="color:#792424;">Error:</strong>
+              <span id="status-error" style="color:#792424;"></span>
+            </span>
           </span>
-          {freshness_html}
-          <span id="status-error-wrap" class="ps-statusline__error" style="display:none;">
-            &nbsp;|&nbsp;
-            <strong style="color:#792424;">Error:</strong>
-            <span id="status-error" style="color:#792424;"></span>
+
+          <span
+            id="status-file-backed"
+            class="ps-statusline__disk"
+            title="File-backed watched view. Data preview is retrieved from the source file on disk."
+            hidden>
+            <img
+              class="ps-statusline__disk-icon"
+              src="/static/logo_on_disk.png"
+              alt="File-backed watched view" />
           </span>
         </div>
         """

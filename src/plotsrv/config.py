@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from . import settings
 
 TableViewMode = Literal["simple", "rich"]
+WatchMaterialization = Literal["auto", "memory", "file"]
+
 _RUNTIME_TABLE_VIEW_MODE: TableViewMode | None = None
 
 PLOTSRV_COLOURS = {
@@ -100,6 +102,29 @@ _DEFAULTS: dict[str, Any] = {
             "max_columns": 200,
         },
     },
+    "watch-settings": {
+        "materialization": "auto",
+        "file_threshold_mb": 20,
+        # File-backed previews are parsed on request. Keep expensive table
+        # materialisation bounded even when several browser clients refresh at
+        # once. Existing limits.truncate_after.* values remain the limits that
+        # control how much is prepared for display.
+        "active_loads": {
+            "max_concurrent": 2,
+            "wait_timeout_s": 1.0,
+        },
+    },
+    "publish-settings": {
+        "live": {
+            # Keep the established synchronous behaviour unless a caller opts
+            # in with async_=True or enables this setting explicitly.
+            "async_enabled": False,
+            # Bound retained source objects, not the eventual rendered payload.
+            "max_pending_views": 32,
+            "max_pending_mb": 64,
+            "flush_timeout_s": 1.0,
+        },
+    },
     "storage-settings": {
         "enabled": False,
         "watch_enabled": False,
@@ -107,6 +132,10 @@ _DEFAULTS: dict[str, Any] = {
         "max_snapshot_size_mb": 20.0,
         "default_keep_last": 2,
         "default_min_store_interval": None,
+        # Storage is best-effort live-state persistence. Bound objects waiting
+        # to be serialised so a busy producer cannot retain an arbitrary queue.
+        "max_pending_tasks": 32,
+        "max_pending_mb": 64,
         "latest": {
             "enabled": False,
             "restore_on_startup": True,
@@ -878,12 +907,183 @@ def get_watch_max_bytes(view_id: str | None = None) -> int | None:
     return _parse_mb_to_bytes(default_mb, default_mb)
 
 
+def get_watch_materialization() -> WatchMaterialization:
+    """
+    How watched files should be represented.
+
+    Values:
+      - "memory": current behaviour; read/coerce/publish into memory.
+      - "file": file-backed watched views where supported.
+      - "auto": memory for small files, file-backed for larger files.
+
+    This does not control how much of a watched file is read for preview.
+    That remains limits.watched_files.max_mb.
+    """
+    sec = _merged_section("watch-settings")
+    raw = str(sec.get("materialization") or "auto").strip().lower()
+
+    if raw in ("auto", "memory", "file"):
+        return raw  # type: ignore[return-value]
+
+    return "auto"
+
+
+def get_watch_file_threshold_bytes() -> int:
+    """
+    File size threshold used when watch-settings.materialization is "auto".
+
+    Files smaller than this can use memory materialisation.
+    Files at or above this threshold can use file-backed materialisation.
+
+    Invalid/off/null values fall back to the default threshold.
+    """
+    sec = _merged_section("watch-settings")
+    default_mb = _DEFAULTS["watch-settings"]["file_threshold_mb"]
+
+    parsed = _parse_mb_to_bytes(
+        sec.get("file_threshold_mb"),
+        default_mb,
+        min_value=0.000001,
+    )
+
+    if parsed is None:
+        return int(float(default_mb) * _MB)
+
+    return parsed
+
+
+def _get_watch_active_load_setting(*keys: str, default: Any) -> Any:
+    """
+    Look up a file-backed request-load setting.
+
+    ``active_loads`` is the documented spelling. Hyphenated spellings are
+    accepted too, so the setting remains pleasant to use in hand-written YAML.
+    """
+    # Check the unmerged user section first. Otherwise the default
+    # ``active_loads`` mapping would mask a user's hyphenated ``active-loads``
+    # spelling during the later merged lookup.
+    raw_sec = settings.get_section("watch-settings")
+    active = raw_sec.get("active_loads")
+    if not isinstance(active, Mapping):
+        active = raw_sec.get("active-loads")
+    if not isinstance(active, Mapping):
+        sec = _merged_section("watch-settings")
+        active = sec.get("active_loads")
+    if not isinstance(active, Mapping):
+        active = _merged_section("watch-settings").get("active-loads")
+    if not isinstance(active, Mapping):
+        return default
+
+    for key in keys:
+        if key in active:
+            return active[key]
+    return default
+
+
+def get_watch_active_load_max_concurrent() -> int:
+    """Maximum concurrent file-backed preview materialisations."""
+    default = int(_DEFAULTS["watch-settings"]["active_loads"]["max_concurrent"])
+    raw = _get_watch_active_load_setting(
+        "max_concurrent",
+        "max-concurrent",
+        default=default,
+    )
+    try:
+        value = int(float(raw))
+    except Exception:
+        return default
+    return value if value >= 1 else default
+
+
+def get_watch_active_load_wait_timeout_s() -> float:
+    """How long a request may wait for a file-backed preview slot."""
+    default = float(_DEFAULTS["watch-settings"]["active_loads"]["wait_timeout_s"])
+    raw = _get_watch_active_load_setting(
+        "wait_timeout_s",
+        "wait-timeout-s",
+        default=default,
+    )
+    try:
+        value = float(raw)
+    except Exception:
+        return default
+    return value if value >= 0 else default
+
+
+# ---- Live publish settings ---------------------------------------------------
+
+
+def _publish_live_settings() -> dict[str, Any]:
+    sec = _merged_section("publish-settings")
+    live = sec.get("live")
+    default_live = _DEFAULTS["publish-settings"]["live"]
+    if not isinstance(live, Mapping):
+        return dict(default_live)
+    return _deep_merge_dicts(dict(default_live), dict(live))
+
+
+def get_publish_async_enabled() -> bool:
+    """Whether live publish calls use the bounded worker by default."""
+    live = _publish_live_settings()
+    return _as_bool(live.get("async_enabled"), False)
+
+
+def get_publish_max_pending_views() -> int:
+    """Maximum distinct destination/view updates retained by PublishWorker."""
+    default = int(_DEFAULTS["publish-settings"]["live"]["max_pending_views"])
+    raw = _publish_live_settings().get("max_pending_views")
+    value = _as_int_or_inf(raw, default, min_value=1)
+    return max(1, value)
+
+
+def get_publish_max_pending_bytes() -> int:
+    """Maximum estimated bytes retained by pending live publish tasks."""
+    default_mb = float(_DEFAULTS["publish-settings"]["live"]["max_pending_mb"])
+    value = _parse_mb_to_bytes(
+        _publish_live_settings().get("max_pending_mb"),
+        default_mb,
+    )
+    if value is None or value < 1:
+        return int(default_mb * 1024 * 1024)
+    return value
+
+
+def get_publish_flush_timeout_s() -> float:
+    """Default short timeout used when stopping an attached plotsrv server."""
+    default = float(_DEFAULTS["publish-settings"]["live"]["flush_timeout_s"])
+    value = _as_float(_publish_live_settings().get("flush_timeout_s"), default)
+    return value if value >= 0 else default
+
+
 # ---- Storage settings ---------------------------------------------------------
 
 
 def get_storage_enabled() -> bool:
     sec = _merged_section("storage-settings")
     return _as_bool(sec.get("enabled"), False)
+
+
+def get_storage_max_pending_tasks() -> int:
+    """Maximum best-effort storage tasks retained before serialisation."""
+    default = int(_DEFAULTS["storage-settings"]["max_pending_tasks"])
+    value = _as_int_or_inf(
+        _merged_section("storage-settings").get("max_pending_tasks"),
+        default,
+        min_value=1,
+    )
+    return max(1, value)
+
+
+def get_storage_max_pending_bytes() -> int:
+    """Maximum estimated bytes held by queued storage tasks."""
+    default_mb = float(_DEFAULTS["storage-settings"]["max_pending_mb"])
+    value = _parse_mb_to_bytes(
+        _merged_section("storage-settings").get("max_pending_mb"),
+        default_mb,
+    )
+    if value is None or value < 1:
+        return int(default_mb * 1024 * 1024)
+    return value
 
 
 def get_storage_root_dir() -> Path:

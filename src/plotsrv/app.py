@@ -4,14 +4,17 @@ from __future__ import annotations
 import base64
 import shutil
 import ipaddress
+import stat
 import time
+from html import escape as escape_html
 from pathlib import Path
 from typing import Any
 from datetime import datetime, timezone
+from urllib.parse import urlencode
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import Response, HTMLResponse
+from fastapi.responses import Response, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import store, config
@@ -19,8 +22,15 @@ from . import html as html_mod
 from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
-from .storage.worker import enqueue_snapshot
+from .storage.worker import enqueue_snapshot, get_storage_queue_stats
 from .storage.backend import list_snapshots, load_snapshot
+from .publishing.worker import get_publish_queue_stats
+from .runtime import (
+    FileBackedLoadBusyError,
+    file_backed_load_slot,
+    read_file_backed_artifact_preview,
+    read_file_backed_csv_preview,
+)
 
 
 def _build_app() -> FastAPI:
@@ -407,6 +417,389 @@ def _render_table_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, 
     }
 
 
+def _render_artifact_response(
+    *,
+    view_id: str,
+    obj: Any,
+    kind_hint: str,
+    meta: dict[str, Any] | None = None,
+    snapshot_id: str | None = None,
+) -> dict[str, Any]:
+    rr = render_any(obj, view_id=view_id, kind_hint=kind_hint)
+
+    out_meta: dict[str, Any] = {}
+    out_meta.update(rr.meta or {})
+
+    if meta:
+        out_meta.update(meta)
+
+    out: dict[str, Any] = {
+        "view_id": view_id,
+        "kind": rr.kind,
+        "html": rr.html,
+        "mime": rr.mime,
+        "truncation": (
+            None
+            if rr.truncation is None
+            else {
+                "truncated": rr.truncation.truncated,
+                "reason": rr.truncation.reason,
+                "details": rr.truncation.details,
+            }
+        ),
+        "meta": out_meta,
+    }
+
+    if snapshot_id is not None:
+        out["snapshot_id"] = snapshot_id
+
+    return out
+
+
+def _watched_file_raw_url(*, view_id: str, download: bool = False) -> str:
+    query = urlencode({"view": view_id, "download": "1" if download else "0"})
+    return f"/watched-file/raw?{query}"
+
+
+def _watched_file_source_meta(*, view_id: str) -> dict[str, str]:
+    return {
+        "source_url": _watched_file_raw_url(view_id=view_id),
+        "source_download_url": _watched_file_raw_url(view_id=view_id, download=True),
+    }
+
+
+def _watched_file_media_type(meta: store.WatchedFileMeta) -> str:
+    kind = meta.file_kind
+    return {
+        "csv": "text/csv",
+        "json": "application/json",
+        "markdown": "text/markdown",
+        "ini": "text/plain",
+        "toml": "application/toml",
+        "yaml": "application/yaml",
+        "html": "text/html",
+        "image": {
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".bmp": "image/bmp",
+            ".svg": "image/svg+xml",
+        }.get(Path(meta.path).suffix.lower(), "application/octet-stream"),
+    }.get(kind, "text/plain")
+
+
+def _registered_watched_file_or_404(*, view_id: str) -> tuple[store.WatchedFileMeta, Path]:
+    """Resolve a raw source only from registered watch metadata."""
+    try:
+        meta = store.get_watched_file_meta(view_id=view_id)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail="No watched file is registered for this view.") from e
+
+    path = Path(meta.path).expanduser()
+    try:
+        info = path.lstat()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="The watched source file no longer exists.") from e
+    except OSError as e:
+        raise HTTPException(status_code=404, detail="The watched source file cannot be read.") from e
+
+    if not stat.S_ISREG(info.st_mode):
+        raise HTTPException(status_code=409, detail="The watched source is no longer a regular file.")
+
+    return meta, path
+
+
+def _watched_file_raw_response(
+    *,
+    view_id: str,
+    download: bool,
+) -> FileResponse:
+    meta, path = _registered_watched_file_or_404(view_id=view_id)
+    headers = {
+        "Cache-Control": "no-store, max-age=0",
+        "Pragma": "no-cache",
+        "X-Content-Type-Options": "nosniff",
+    }
+    return FileResponse(
+        path,
+        media_type=_watched_file_media_type(meta),
+        filename=path.name if download else None,
+        content_disposition_type="attachment" if download else "inline",
+        headers=headers,
+    )
+
+
+def _file_backed_load_busy_http_exception() -> HTTPException:
+    retry_after = max(1, int(config.get_watch_active_load_wait_timeout_s()) + 1)
+    return HTTPException(
+        status_code=503,
+        detail="This file-backed preview is temporarily busy. Retry shortly.",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _render_file_backed_image_response(
+    *,
+    view_id: str,
+    meta: store.WatchedFileMeta,
+) -> dict[str, Any]:
+    source_url = _watched_file_raw_url(view_id=view_id)
+    html = (
+        "<div class='plotsrv-file-image'>"
+        f"<img src='{escape_html(source_url, quote=True)}' "
+        "style='max-width:100%;height:auto' alt='Watched image' />"
+        "</div>"
+    )
+    return {
+        "view_id": view_id,
+        "kind": "image",
+        "html": html,
+        "mime": "text/html",
+        "truncation": None,
+        "meta": {
+            "file_backed": True,
+            "watch": True,
+            "materialization": meta.materialization,
+            "path": meta.path,
+            "file_kind": meta.file_kind,
+            "source": "file_backed_stream",
+            **_watched_file_source_meta(view_id=view_id),
+        },
+    }
+
+
+def _render_file_backed_html_stream_response(
+    *,
+    view_id: str,
+    meta: store.WatchedFileMeta,
+) -> dict[str, Any]:
+    """Render unsanitised file-backed HTML without putting the file in JSON."""
+    source_url = _watched_file_raw_url(view_id=view_id)
+    # An empty sandbox is deliberately stronger than the normal in-memory HTML
+    # iframe default: no scripts, forms, popups, or same-origin access are
+    # granted to a raw on-disk report.
+    sandbox = config.get_html_sandbox().strip()
+    html = (
+        "<div class='plotsrv-html-iframe-wrap' data-plotsrv-html-frame='file-backed'>"
+        f"<iframe class='plotsrv-html-iframe' sandbox='{escape_html(sandbox, quote=True)}' "
+        f"src='{escape_html(source_url, quote=True)}' referrerpolicy='no-referrer'></iframe>"
+        "</div>"
+    )
+    return {
+        "view_id": view_id,
+        "kind": "html",
+        "html": html,
+        "mime": "text/html",
+        "truncation": None,
+        "meta": {
+            "file_backed": True,
+            "watch": True,
+            "materialization": meta.materialization,
+            "path": meta.path,
+            "file_kind": meta.file_kind,
+            "mode": "file_backed_sandboxed_iframe",
+            "sandbox": sandbox,
+            "source": "file_backed_stream",
+            **_watched_file_source_meta(view_id=view_id),
+        },
+    }
+
+
+def _file_backed_error_text(
+    *,
+    title: str,
+    error: BaseException | str,
+    view_id: str,
+    meta: store.WatchedFileMeta | None,
+) -> str:
+    if isinstance(error, BaseException):
+        error_text = f"{type(error).__name__}: {error}"
+    else:
+        error_text = str(error)
+
+    path = meta.path if meta is not None else "unknown"
+    file_kind = meta.file_kind if meta is not None else "unknown"
+    materialization = meta.materialization if meta is not None else "unknown"
+    read_mode = meta.read_mode if meta is not None else "unknown"
+    max_bytes = meta.max_bytes if meta is not None else None
+    last_error = meta.last_error if meta is not None else None
+
+    return (
+        f"[plotsrv watch] {title}\n"
+        "\n"
+        "What failed:\n"
+        f"  {error_text}\n"
+        "\n"
+        "View:\n"
+        f"  {view_id}\n"
+        "\n"
+        "Watched file:\n"
+        f"  {path}\n"
+        "\n"
+        "File-backed metadata:\n"
+        f"  file_kind={file_kind!r}\n"
+        f"  materialization={materialization!r}\n"
+        f"  read_mode={read_mode!r}\n"
+        f"  max_bytes={max_bytes!r}\n"
+        f"  last_error={last_error!r}\n"
+        "\n"
+        "Config keys to check:\n"
+        "  - limits.watched_files.max_mb\n"
+        "  - limits.truncate_after.text\n"
+        "  - limits.truncate_after.table_rows\n"
+        "  - limits.truncate_after.table_columns\n"
+    )
+
+
+def _render_file_backed_error_response(
+    *,
+    view_id: str,
+    title: str,
+    error: BaseException | str,
+    meta: store.WatchedFileMeta | None,
+    status_code: int | None = None,
+) -> dict[str, Any]:
+    error_text = _file_backed_error_text(
+        title=title,
+        error=error,
+        view_id=view_id,
+        meta=meta,
+    )
+
+    if meta is not None:
+        try:
+            store.mark_error(error_text, view_id=view_id)
+        except Exception:
+            pass
+
+    out = _render_artifact_response(
+        view_id=view_id,
+        obj=error_text,
+        kind_hint="watch_error",
+        meta={
+            "file_backed": True,
+            "watch": True,
+            "error": True,
+            "status_code": status_code,
+            "materialization": None if meta is None else meta.materialization,
+            "path": None if meta is None else meta.path,
+            "file_kind": None if meta is None else meta.file_kind,
+            "read_mode": None if meta is None else meta.read_mode,
+            "encoding": None if meta is None else meta.encoding,
+            "size_bytes": None if meta is None else meta.size_bytes,
+            "mtime_ns": None if meta is None else meta.mtime_ns,
+            "max_bytes": None if meta is None else meta.max_bytes,
+            "last_error": None if meta is None else meta.last_error,
+        },
+    )
+    out["status_code"] = status_code
+    return out
+
+
+def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
+    try:
+        meta = store.get_watched_file_meta(view_id=view_id)
+    except LookupError:
+        raise HTTPException(
+            status_code=404,
+            detail="No file-backed watched artifact is available.",
+        )
+
+    if meta.materialization != "file":
+        raise HTTPException(
+            status_code=404,
+            detail="Watched file is not file-backed.",
+        )
+
+    if meta.file_kind == "csv":
+        raise HTTPException(
+            status_code=404,
+            detail="File-backed CSV views are served by /table/data.",
+        )
+
+    if meta.file_kind == "image":
+        return _render_file_backed_image_response(view_id=view_id, meta=meta)
+
+    if meta.file_kind == "html" and not config.get_html_sanitize():
+        return _render_file_backed_html_stream_response(view_id=view_id, meta=meta)
+
+    try:
+        with file_backed_load_slot():
+            preview = read_file_backed_artifact_preview(meta)
+    except FileBackedLoadBusyError:
+        raise _file_backed_load_busy_http_exception()
+    except FileNotFoundError as e:
+        return _render_file_backed_error_response(
+            view_id=view_id,
+            title="file-backed artifact read failed",
+            error=e,
+            meta=meta,
+            status_code=404,
+        )
+    except TypeError as e:
+        return _render_file_backed_error_response(
+            view_id=view_id,
+            title="file-backed artifact preview failed",
+            error=e,
+            meta=meta,
+            status_code=400,
+        )
+    except Exception as e:
+        return _render_file_backed_error_response(
+            view_id=view_id,
+            title="file-backed artifact preview failed",
+            error=e,
+            meta=meta,
+            status_code=500,
+        )
+
+    return _render_artifact_response(
+        view_id=view_id,
+        obj=preview.artifact,
+        kind_hint=preview.artifact_kind,
+        meta={
+            "file_backed": True,
+            "watch": True,
+            "materialization": meta.materialization,
+            "path": meta.path,
+            "file_kind": meta.file_kind,
+            "read_mode": meta.read_mode,
+            "encoding": meta.encoding,
+            "size_bytes": meta.size_bytes,
+            "mtime_ns": meta.mtime_ns,
+            "max_bytes": meta.max_bytes,
+            "preview_bytes": len(preview.raw),
+            **_watched_file_source_meta(view_id=view_id),
+        },
+    )
+
+
+def _watched_file_meta_dict(view_id: str) -> dict[str, Any] | None:
+    if not store.has_watched_file_meta(view_id=view_id):
+        return None
+
+    try:
+        meta = store.get_watched_file_meta(view_id=view_id)
+    except LookupError:
+        return None
+
+    return {
+        "path": meta.path,
+        "file_kind": meta.file_kind,
+        "read_mode": meta.read_mode,
+        "encoding": meta.encoding,
+        "materialization": meta.materialization,
+        "size_bytes": meta.size_bytes,
+        "mtime_ns": meta.mtime_ns,
+        "max_bytes": meta.max_bytes,
+        "last_checked_at": meta.last_checked_at,
+        "last_read_at": meta.last_read_at,
+        "last_error": meta.last_error,
+    }
+
+
 @app.get("/status")
 def status(request: Request, view: str | None = None) -> dict[str, object]:
     if config.get_status_local_only():
@@ -415,8 +808,18 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     vid = view or store.get_active_view_id()
     s = store.get_status(view_id=vid)
     s.update(store.get_service_info())
+    s["publish_queue"] = get_publish_queue_stats()
+    s["storage_queue"] = get_storage_queue_stats()
     s["view_id"] = vid
     s["freshness"] = store.get_freshness(view_id=vid)
+
+    watched_file = _watched_file_meta_dict(vid)
+    s["watched_file"] = watched_file
+    s["is_watched_file"] = watched_file is not None
+    s["materialization"] = (
+        watched_file.get("materialization") if watched_file is not None else None
+    )
+
     return s
 
 
@@ -492,6 +895,25 @@ def get_plot(
     return Response(bytes(png), media_type="image/png", headers=headers)
 
 
+@app.get("/watched-file/raw")
+def get_watched_file_raw(
+    request: Request,
+    download: bool = False,
+    view: str | None = None,
+) -> FileResponse:
+    """
+    Stream the original source of a registered live watched-file view.
+
+    The route deliberately accepts a view id, never a filesystem path. It is
+    also intentionally live-only: historical exports remain snapshot-based.
+    """
+    if config.get_internal_read_local_only():
+        require_local_request(request)
+
+    view_id = view or store.get_active_view_id()
+    return _watched_file_raw_response(view_id=view_id, download=download)
+
+
 def _table_response_limits(limit: int | None) -> tuple[int | None, int | None]:
     row_limit = config.get_table_truncate_rows()
     col_limit = config.get_table_truncate_columns()
@@ -519,6 +941,176 @@ def _table_response_df(df: pd.DataFrame, *, limit: int | None) -> pd.DataFrame:
     return out
 
 
+def _table_data_response_from_df(
+    df: pd.DataFrame,
+    *,
+    limit: int | None,
+    total_rows: int | None = None,
+    total_rows_known: bool = True,
+    loaded_rows: int | None = None,
+    returned_rows: int | None = None,
+    meta: dict[str, Any] | None = None,
+    snapshot_id: str | None = None,
+) -> dict[str, Any]:
+    rows_df = _table_response_df(df, limit=limit)
+    columns = list(rows_df.columns)
+    rows = rows_df.to_dict(orient="records")
+
+    resolved_total_rows = total_rows if total_rows_known else None
+    if total_rows_known and resolved_total_rows is None:
+        resolved_total_rows = len(df)
+    resolved_loaded_rows = loaded_rows if loaded_rows is not None else len(df)
+    resolved_returned_rows = returned_rows if returned_rows is not None else len(rows)
+
+    out: dict[str, Any] = {
+        "columns": columns,
+        "rows": rows,
+        "total_rows": resolved_total_rows,
+        "total_rows_known": total_rows_known,
+        "loaded_rows": resolved_loaded_rows,
+        "returned_rows": resolved_returned_rows,
+    }
+
+    if meta:
+        out["meta"] = meta
+
+    if snapshot_id is not None:
+        out["snapshot_id"] = snapshot_id
+
+    return out
+
+
+def _file_backed_table_error_response(
+    *,
+    view_id: str,
+    title: str,
+    error: BaseException | str,
+    meta: store.WatchedFileMeta | None,
+    status_code: int | None = None,
+) -> dict[str, Any]:
+    error_text = _file_backed_error_text(
+        title=title,
+        error=error,
+        view_id=view_id,
+        meta=meta,
+    )
+
+    if meta is not None:
+        try:
+            store.mark_error(error_text, view_id=view_id)
+        except Exception:
+            pass
+
+    return {
+        "columns": ["plotsrv_error"],
+        "rows": [{"plotsrv_error": error_text}],
+        "total_rows": 1,
+        "returned_rows": 1,
+        "meta": {
+            "file_backed": True,
+            "watch": True,
+            "error": True,
+            "artifact_kind": "watch_error",
+            "status_code": status_code,
+            "materialization": None if meta is None else meta.materialization,
+            "path": None if meta is None else meta.path,
+            "file_kind": None if meta is None else meta.file_kind,
+            "read_mode": None if meta is None else meta.read_mode,
+            "encoding": None if meta is None else meta.encoding,
+            "size_bytes": None if meta is None else meta.size_bytes,
+            "mtime_ns": None if meta is None else meta.mtime_ns,
+            "max_bytes": None if meta is None else meta.max_bytes,
+            "last_error": None if meta is None else meta.last_error,
+        },
+    }
+
+
+def _file_backed_csv_table_data_response(
+    *,
+    view_id: str,
+    limit: int | None,
+) -> dict[str, Any]:
+    try:
+        meta = store.get_watched_file_meta(view_id=view_id)
+    except LookupError:
+        raise HTTPException(
+            status_code=404,
+            detail="No file-backed watched CSV metadata is available.",
+        )
+
+    if meta.materialization != "file":
+        raise HTTPException(
+            status_code=404,
+            detail="Watched CSV is not file-backed.",
+        )
+
+    if meta.file_kind != "csv":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Watched file is not CSV: {meta.file_kind!r}",
+        )
+
+    try:
+        with file_backed_load_slot():
+            preview = read_file_backed_csv_preview(meta)
+    except FileBackedLoadBusyError:
+        raise _file_backed_load_busy_http_exception()
+    except FileNotFoundError as e:
+        return _file_backed_table_error_response(
+            view_id=view_id,
+            title="file-backed CSV read failed",
+            error=e,
+            meta=meta,
+            status_code=404,
+        )
+    except TypeError as e:
+        return _file_backed_table_error_response(
+            view_id=view_id,
+            title="file-backed CSV preview failed",
+            error=e,
+            meta=meta,
+            status_code=400,
+        )
+    except Exception as e:
+        return _file_backed_table_error_response(
+            view_id=view_id,
+            title="file-backed CSV preview failed",
+            error=e,
+            meta=meta,
+            status_code=500,
+        )
+
+    return _table_data_response_from_df(
+        preview.table_df,
+        limit=limit,
+        total_rows=preview.total_rows,
+        total_rows_known=preview.total_rows_known,
+        loaded_rows=preview.loaded_rows,
+        returned_rows=min(
+            preview.returned_rows,
+            len(_table_response_df(preview.table_df, limit=limit)),
+        ),
+        meta={
+            "file_backed": True,
+            "watch": True,
+            "materialization": meta.materialization,
+            "path": meta.path,
+            "file_kind": meta.file_kind,
+            "read_mode": meta.read_mode,
+            "encoding": meta.encoding,
+            "size_bytes": meta.size_bytes,
+            "mtime_ns": meta.mtime_ns,
+            "max_bytes": meta.max_bytes,
+            "preview_bytes": preview.preview_bytes,
+            "source": preview.source,
+            "total_columns": preview.total_columns,
+            "returned_columns": preview.returned_columns,
+            "truncated": preview.truncated,
+            **_watched_file_source_meta(view_id=view_id),
+        },
+    )
+
+
 @app.get("/table/data")
 def get_table_data(
     limit: int | None = Query(default=None, ge=1),
@@ -541,10 +1133,6 @@ def get_table_data(
                 detail="Stored table snapshot payload was not a DataFrame.",
             )
 
-        rows_df = _table_response_df(df, limit=limit)
-        columns = list(rows_df.columns)
-        rows = rows_df.to_dict(orient="records")
-
         total_rows = None
         returned_rows = None
         if isinstance(loaded.meta.extra, dict):
@@ -553,41 +1141,46 @@ def get_table_data(
             total_rows = raw_total if isinstance(raw_total, int) else None
             returned_rows = raw_returned if isinstance(raw_returned, int) else None
 
-        total_rows = total_rows if total_rows is not None else len(df)
-        returned_rows = returned_rows if returned_rows is not None else len(rows)
+        return _table_data_response_from_df(
+            df,
+            limit=limit,
+            total_rows=total_rows,
+            returned_rows=returned_rows,
+            snapshot_id=snapshot,
+        )
 
-        return {
-            "columns": columns,
-            "rows": rows,
-            "total_rows": total_rows,
-            "returned_rows": returned_rows,
-            "snapshot_id": snapshot,
-        }
+    if store.has_watched_file_meta(view_id=vid):
+        meta = store.get_watched_file_meta(view_id=vid)
+
+        if meta.materialization == "file" and meta.file_kind == "csv":
+            return _file_backed_csv_table_data_response(
+                view_id=vid,
+                limit=limit,
+            )
 
     if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")
 
     df = store.get_table_df(view_id=vid)
 
-    rows_df = _table_response_df(df, limit=limit)
-    columns = list(rows_df.columns)
-    rows = rows_df.to_dict(orient="records")
-
     total_rows, returned_rows = store.get_table_counts(view_id=vid)
 
-    total_rows = total_rows if total_rows is not None else len(df)
-    returned_rows = returned_rows if returned_rows is not None else len(rows)
-
-    return {
-        "columns": columns,
-        "rows": rows,
-        "total_rows": total_rows,
-        "returned_rows": returned_rows,
-    }
+    return _table_data_response_from_df(
+        df,
+        limit=limit,
+        total_rows=total_rows,
+        returned_rows=returned_rows,
+        meta=(
+            _watched_file_source_meta(view_id=vid)
+            if store.has_watched_file_meta(view_id=vid)
+            else None
+        ),
+    )
 
 
 @app.get("/table/export")
 def export_table(
+    request: Request,
     format: str = "csv",
     view: str | None = None,
     snapshot: str | None = None,
@@ -622,6 +1215,13 @@ def export_table(
             "Content-Disposition": f'attachment; filename="plotsrv_table_{snapshot}.csv"',
         }
         return Response(csv_bytes, media_type="text/csv", headers=headers)
+
+    if store.has_watched_file_meta(view_id=vid):
+        meta = store.get_watched_file_meta(view_id=vid)
+        if meta.file_kind == "csv":
+            if config.get_internal_read_local_only():
+                require_local_request(request)
+            return _watched_file_raw_response(view_id=vid, download=True)
 
     if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")
@@ -1019,28 +1619,22 @@ def get_artifact(
         if kind_hint == "table":
             return _render_table_snapshot_html(view_id=vid, snapshot_id=snapshot)
 
-        rr = render_any(loaded.obj, view_id=vid, kind_hint=kind_hint)
-        return {
-            "view_id": vid,
-            "snapshot_id": snapshot,
-            "kind": rr.kind,
-            "html": rr.html,
-            "mime": rr.mime,
-            "truncation": (
-                None
-                if rr.truncation is None
-                else {
-                    "truncated": rr.truncation.truncated,
-                    "reason": rr.truncation.reason,
-                    "details": rr.truncation.details,
-                }
-            ),
-            "meta": {
-                **(rr.meta or {}),
+        return _render_artifact_response(
+            view_id=vid,
+            snapshot_id=snapshot,
+            obj=loaded.obj,
+            kind_hint=kind_hint,
+            meta={
                 "snapshot": True,
                 "snapshot_meta": _snapshot_summary_dict(loaded.meta),
             },
-        }
+        )
+
+    if store.has_watched_file_meta(view_id=vid):
+        meta = store.get_watched_file_meta(view_id=vid)
+
+        if meta.materialization == "file" and meta.file_kind != "csv":
+            return _render_file_backed_artifact_response(view_id=vid)
 
     if not store.has_artifact(view_id=vid):
         raise HTTPException(
@@ -1048,24 +1642,17 @@ def get_artifact(
         )
 
     art = store.get_artifact(view_id=vid)
-    rr = render_any(art.obj, view_id=vid, kind_hint=art.kind)
 
-    return {
-        "view_id": vid,
-        "kind": rr.kind,
-        "html": rr.html,
-        "mime": rr.mime,
-        "truncation": (
-            None
-            if rr.truncation is None
-            else {
-                "truncated": rr.truncation.truncated,
-                "reason": rr.truncation.reason,
-                "details": rr.truncation.details,
-            }
-        ),
-        "meta": rr.meta or {},
-    }
+    watched_meta: dict[str, Any] | None = None
+    if store.has_watched_file_meta(view_id=vid):
+        watched_meta = _watched_file_source_meta(view_id=vid)
+
+    return _render_artifact_response(
+        view_id=vid,
+        obj=art.obj,
+        kind_hint=art.kind,
+        meta=watched_meta,
+    )
 
 
 @app.get("/views")
@@ -1075,6 +1662,8 @@ def get_views(request: Request) -> list[dict[str, Any]]:
 
     out: list[dict[str, Any]] = []
     for v in store.list_views():
+        watched_file = _watched_file_meta_dict(v.view_id)
+
         out.append(
             {
                 "view_id": v.view_id,
@@ -1083,6 +1672,13 @@ def get_views(request: Request) -> list[dict[str, Any]]:
                 "kind": v.kind,
                 "icon_key": v.icon_key,
                 "freshness": store.get_freshness(view_id=v.view_id),
+                "is_watched_file": watched_file is not None,
+                "materialization": (
+                    watched_file.get("materialization")
+                    if watched_file is not None
+                    else None
+                ),
+                "watched_file": watched_file,
             }
         )
     return out

@@ -56,3 +56,33 @@
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+
+.ps-statusline {
+  --ps-statusline-disk-icon-size: 1em;
+
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ps-statusline__main {
+  min-width: 0;
+}
+
+.ps-statusline__disk {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+}
+
+.ps-statusline__disk[hidden] {
+  display: none;
+}
+
+.ps-statusline__disk-icon {
+  width: var(--ps-statusline-disk-icon-size);
+  height: var(--ps-statusline-disk-icon-size);
+  object-fit: contain;
+  display: block;
+}
