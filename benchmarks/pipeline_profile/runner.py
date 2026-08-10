@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import platform
 import signal
@@ -53,6 +54,7 @@ EVENT_FIELDS = [
     "status_code",
     "response_bytes",
     "error",
+    "accepted",
     "detail",
 ]
 
@@ -244,6 +246,26 @@ class ProcessMonitor:
             time.sleep(self.sample_interval_s)
         self.sample()
 
+    def checkpoint(self, label: str) -> dict[str, Any]:
+        """Take a labelled process-memory checkpoint for a long-running case."""
+        self.sample()
+        latest: dict[str, dict[str, Any]] = {}
+        for row in self.samples:
+            role = str(row["role"])
+            if role != "aggregate":
+                latest[role] = row
+        return {
+            "label": label,
+            "elapsed_s": round(time.monotonic() - self.started_at, 6),
+            "roles": {
+                role: {
+                    "rss_bytes": int(row["rss_bytes"]),
+                    "uss_bytes": int(row["uss_bytes"]),
+                }
+                for role, row in latest.items()
+            },
+        }
+
     def terminate_all(self) -> None:
         for child in self.roots.values():
             if child.poll() is not None:
@@ -427,6 +449,51 @@ def _write_events(output_dir: Path, *, paths: list[Path]) -> None:
     write_csv(output_dir / "events.csv", rows, EVENT_FIELDS)
 
 
+def _timing_and_queue(events: list[dict[str, Any]]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    timing: dict[str, Any] = {}
+    queue: dict[str, Any] | None = None
+    for event in events:
+        name = event.get("event")
+        duration = event.get("duration_s")
+        if name == "pipeline_work_finished" and isinstance(duration, (int, float)):
+            timing["pipeline_work_s"] = float(duration)
+        elif name == "publish_flush_finished" and isinstance(duration, (int, float)):
+            timing["async_flush_s"] = float(duration)
+        elif name == "publish_queue_after_work" and isinstance(event.get("queue"), dict):
+            queue = event["queue"]
+    return timing, queue
+
+
+def _watch_cycle_summary(checkpoints: list[dict[str, Any]]) -> dict[str, Any] | None:
+    server = [
+        checkpoint["roles"]["server"]
+        for checkpoint in checkpoints
+        if "server" in checkpoint.get("roles", {})
+    ]
+    if not server:
+        return None
+    first = server[0]
+    settled = server[1:] or server
+    last = settled[-1]
+    return {
+        "checkpoint_count": len(server),
+        "post_warmup_server_rss_growth_bytes": int(last["rss_bytes"] - settled[0]["rss_bytes"]),
+        "post_warmup_server_uss_growth_bytes": int(last["uss_bytes"] - settled[0]["uss_bytes"]),
+        "first_server_rss_bytes": int(first["rss_bytes"]),
+        "last_server_rss_bytes": int(last["rss_bytes"]),
+        "first_server_uss_bytes": int(first["uss_bytes"]),
+        "last_server_uss_bytes": int(last["uss_bytes"]),
+    }
+
+
+def _case_fingerprint(spec: RunSpec) -> str:
+    value = spec.to_dict()
+    value.pop("output_dir", None)
+    value.pop("case_id", None)
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def run_benchmark(spec: RunSpec) -> dict[str, Any]:
     """Execute one benchmark in fresh child process(es) and write its artefacts."""
     _assert_process_monitoring_available()
@@ -471,6 +538,7 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
     )
     status = "completed"
     failure: str | None = None
+    watch_checkpoints: list[dict[str, Any]] = []
 
     try:
         if spec.scenario in {"remote", "watch-idle", "watch-clients"}:
@@ -539,12 +607,12 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
                 )
 
         if spec.scenario == "watch-clients" and not monitor.watchdog_triggered:
-            clients: list[subprocess.Popen[Any]] = []
-            for client_id in range(1, spec.clients + 1):
-                client_events = work_dir / f"client-{client_id}-events.jsonl"
-                event_paths.append(client_events)
-                client = _spawn(
-                    [
+            for cycle in range(1, spec.cycles + 1):
+                clients: list[subprocess.Popen[Any]] = []
+                for client_id in range(1, spec.clients + 1):
+                    client_events = work_dir / f"cycle-{cycle}-client-{client_id}-events.jsonl"
+                    event_paths.append(client_events)
+                    args = [
                         *command_prefix,
                         "client",
                         "--port",
@@ -561,19 +629,26 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
                         str(client_id),
                         "--events",
                         str(client_events),
-                    ],
-                    project_root=project_root,
-                    environment=environment,
-                    log_path=logs_dir / f"client-{client_id}.log",
-                )
-                roots[f"client-{client_id}"] = client
-                clients.append(client)
-            monitor.wait_for(clients)
-            failed_clients = [
-                client for client in clients if client.returncode not in (0, None)
-            ]
-            if failed_clients:
-                raise RuntimeError(f"{len(failed_clients)} client worker(s) failed")
+                    ]
+                    for accepted_status in spec.accept_statuses:
+                        args.extend(["--accept-status", str(accepted_status)])
+                    client = _spawn(
+                        args,
+                        project_root=project_root,
+                        environment=environment,
+                        log_path=logs_dir / f"cycle-{cycle}-client-{client_id}.log",
+                    )
+                    roots[f"cycle-{cycle}-client-{client_id}"] = client
+                    clients.append(client)
+                monitor.wait_for(clients)
+                failed_clients = [
+                    client for client in clients if client.returncode not in (0, None)
+                ]
+                if failed_clients:
+                    raise RuntimeError(f"{len(failed_clients)} client worker(s) failed")
+                if spec.cycle_idle_s:
+                    monitor.observe_idle(spec.cycle_idle_s)
+                watch_checkpoints.append(monitor.checkpoint(f"cycle-{cycle}-post-idle"))
 
         if not monitor.watchdog_triggered:
             monitor.observe_idle(spec.idle_s)
@@ -588,13 +663,17 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
         monitor.terminate_all()
         monitor.sample()
 
+    events = read_json_lines(event_paths)
     write_csv(output_dir / "samples.csv", monitor.samples, SAMPLE_FIELDS)
     _write_events(output_dir, paths=event_paths)
+    timing, queue_after_work = _timing_and_queue(events)
     process_exit_codes = {role: child.returncode for role, child in roots.items()}
     result: dict[str, Any] = {
         "status": status,
         "failure": failure,
         "scenario": spec.scenario,
+        "case_id": spec.case_id,
+        "case_fingerprint": _case_fingerprint(spec),
         "started_at": started_at,
         "finished_at": utc_now(),
         "wall_time_s": round(time.monotonic() - started_wall, 6),
@@ -615,12 +694,19 @@ def run_benchmark(spec: RunSpec) -> dict[str, Any]:
             "requests_per_client": (
                 spec.requests_per_client if spec.scenario == "watch-clients" else 0
             ),
+            "cycles": spec.cycles if spec.scenario == "watch-clients" else 0,
+            "cycle_idle_s": spec.cycle_idle_s if spec.scenario == "watch-clients" else 0,
+            "accept_statuses": list(spec.accept_statuses),
         },
         "safety": {
             "max_rss_mb": spec.max_rss_mb,
             "watchdog_triggered": monitor.watchdog_triggered,
         },
         "summary": _summary(monitor.samples),
+        "timing": timing,
+        "publish_queue_after_work": queue_after_work,
+        "watch_cycle_checkpoints": watch_checkpoints,
+        "watch_cycle_summary": _watch_cycle_summary(watch_checkpoints),
         "process_exit_codes": process_exit_codes,
         "system": _system_metadata(project_root),
     }
@@ -635,6 +721,12 @@ COMPARISON_METRICS = [
     "summary.max_cpu_percent",
     "summary.read_bytes_delta",
     "summary.write_bytes_delta",
+    "timing.pipeline_work_s",
+    "timing.async_flush_s",
+    "watch_cycle_summary.post_warmup_server_rss_growth_bytes",
+    "watch_cycle_summary.post_warmup_server_uss_growth_bytes",
+    "publish_queue_after_work.coalesced",
+    "publish_queue_after_work.rejected",
 ]
 
 
@@ -669,5 +761,9 @@ def compare_runs(baseline_dir: Path, candidate_dir: Path) -> dict[str, Any]:
         "candidate": str(candidate_dir.resolve()),
         "baseline_status": baseline.get("status"),
         "candidate_status": candidate.get("status"),
+        "same_case": baseline.get("case_id") == candidate.get("case_id"),
+        "same_case_fingerprint": (
+            baseline.get("case_fingerprint") == candidate.get("case_fingerprint")
+        ),
         "metrics": metrics,
     }

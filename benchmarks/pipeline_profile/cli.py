@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .cases import apply_case_overrides, build_case, list_cases
 from .models import PlotsrvConfigSpec, RunSpec, TableSpec, WorkloadSpec
 from .runner import compare_runs, run_benchmark
 from .support import write_json
@@ -139,6 +140,9 @@ def run_command(args: argparse.Namespace) -> int:
         clients=args.clients,
         requests_per_client=args.requests_per_client,
         client_interval_s=args.client_interval_s,
+        cycles=args.cycles,
+        cycle_idle_s=args.cycle_idle_s,
+        accept_statuses=tuple(args.accept_status),
         table_limit=args.table_limit,
         config=_config_from_args(args),
     )
@@ -157,6 +161,24 @@ def compare_command(args: argparse.Namespace) -> int:
     write_json(output, comparison)
     print(f"Comparison written to {output}")
     return 0
+
+
+def case_list_command(_args: argparse.Namespace) -> int:
+    for case in list_cases():
+        print(f"{case.case_id}\n  {case.description}\n  profiles: {', '.join(case.profiles)}")
+    return 0
+
+
+def case_run_command(args: argparse.Namespace) -> int:
+    spec = build_case(
+        args.case_id,
+        profile=args.profile,
+        output_dir=None if args.output is None else Path(args.output),
+    )
+    spec = apply_case_overrides(spec, args.set)
+    result = run_benchmark(spec)
+    print(f"Benchmark {result['status']}: {spec.output_dir}")
+    return 0 if result["status"] == "completed" else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -245,6 +267,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--clients", type=int, default=1)
     run.add_argument("--requests-per-client", type=int, default=1)
     run.add_argument("--client-interval-s", type=float, default=0.0)
+    run.add_argument("--cycles", type=int, default=1)
+    run.add_argument("--cycle-idle-s", type=float, default=0.0)
+    run.add_argument(
+        "--accept-status",
+        type=int,
+        action="append",
+        default=[200],
+        help="Expected HTTP status for watched-file clients; repeatable (e.g. 200 and 503).",
+    )
     run.add_argument("--table-limit", type=int, default=1_000)
     run.add_argument(
         "--table-columns-limit",
@@ -283,6 +314,22 @@ def build_parser() -> argparse.ArgumentParser:
     compare.add_argument("--candidate", required=True)
     compare.add_argument("--output", help="Defaults to CANDIDATE/comparison.json")
     compare.set_defaults(func=compare_command)
+
+    case = sub.add_parser("case", help="run a named, repeatable release-gate benchmark")
+    case_sub = case.add_subparsers(dest="case_command", required=True)
+    case_list = case_sub.add_parser("list", help="list named benchmark cases")
+    case_list.set_defaults(func=case_list_command)
+    case_run = case_sub.add_parser("run", help="run one named benchmark case")
+    case_run.add_argument("case_id")
+    case_run.add_argument("--profile", choices=["quick", "standard", "soak"], default="standard")
+    case_run.add_argument("--output", help="New output directory. Defaults under benchmark-results/.")
+    case_run.add_argument(
+        "--set",
+        action="append",
+        default=[],
+        help="Override a case setting, e.g. cycles=10; repeatable.",
+    )
+    case_run.set_defaults(func=case_run_command)
     return parser
 
 

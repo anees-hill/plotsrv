@@ -63,6 +63,7 @@ class WorkloadSpec:
     temporary_memory_mb: int = 0
     iterations: int = 1
     publish_every: int = 1
+    distinct_view_ids: bool = False
 
     def __post_init__(self) -> None:
         if any(value < 1 for value in self.json_items):
@@ -92,6 +93,7 @@ class WorkloadSpec:
             "temporary_memory_mb": self.temporary_memory_mb,
             "iterations": self.iterations,
             "publish_every": self.publish_every,
+            "distinct_view_ids": self.distinct_view_ids,
         }
 
     @classmethod
@@ -112,6 +114,7 @@ class WorkloadSpec:
             temporary_memory_mb=int(raw.get("temporary_memory_mb", 0)),
             iterations=int(raw.get("iterations", 1)),
             publish_every=int(raw.get("publish_every", 1)),
+            distinct_view_ids=bool(raw.get("distinct_view_ids", False)),
         )
 
 
@@ -209,6 +212,7 @@ class RunSpec:
     sample_interval_s: float = 0.2
     idle_s: float = 3.0
     max_rss_mb: int | None = None
+    case_id: str | None = None
 
     # Pipeline publishing behaviour.
     publish_behaviour: PublishBehaviour = "sync"
@@ -223,6 +227,9 @@ class RunSpec:
     clients: int = 1
     requests_per_client: int = 1
     client_interval_s: float = 0.0
+    cycles: int = 1
+    cycle_idle_s: float = 0.0
+    accept_statuses: tuple[int, ...] = (200,)
     table_limit: int = 1_000
     config: PlotsrvConfigSpec = PlotsrvConfigSpec()
 
@@ -247,6 +254,14 @@ class RunSpec:
             raise ValueError("requests_per_client must be at least 1")
         if self.client_interval_s < 0:
             raise ValueError("client_interval_s cannot be negative")
+        if self.cycles < 1:
+            raise ValueError("cycles must be at least 1")
+        if self.cycle_idle_s < 0:
+            raise ValueError("cycle_idle_s cannot be negative")
+        if not self.accept_statuses or any(
+            status < 100 or status > 599 for status in self.accept_statuses
+        ):
+            raise ValueError("accept_statuses must contain valid HTTP statuses")
         if self.table_limit < 1:
             raise ValueError("table_limit must be at least 1")
         if self.scenario.startswith("watch") and self.watch_csv is None:
@@ -266,6 +281,7 @@ class RunSpec:
             "sample_interval_s": self.sample_interval_s,
             "idle_s": self.idle_s,
             "max_rss_mb": self.max_rss_mb,
+            "case_id": self.case_id,
             "publish_behaviour": self.publish_behaviour,
             "flush_async": self.flush_async,
             "flush_timeout_s": self.flush_timeout_s,
@@ -277,6 +293,9 @@ class RunSpec:
             "clients": self.clients,
             "requests_per_client": self.requests_per_client,
             "client_interval_s": self.client_interval_s,
+            "cycles": self.cycles,
+            "cycle_idle_s": self.cycle_idle_s,
+            "accept_statuses": list(self.accept_statuses),
             "table_limit": self.table_limit,
             "config": self.config.to_dict(),
         }
@@ -300,6 +319,7 @@ class RunSpec:
             max_rss_mb=(
                 None if raw.get("max_rss_mb") is None else int(raw["max_rss_mb"])
             ),
+            case_id=(None if raw.get("case_id") is None else str(raw["case_id"])),
             publish_behaviour=raw.get("publish_behaviour", "sync"),
             flush_async=bool(raw.get("flush_async", True)),
             flush_timeout_s=float(raw.get("flush_timeout_s", 30.0)),
@@ -317,6 +337,9 @@ class RunSpec:
             clients=int(raw.get("clients", 1)),
             requests_per_client=int(raw.get("requests_per_client", 1)),
             client_interval_s=float(raw.get("client_interval_s", 0.0)),
+            cycles=int(raw.get("cycles", 1)),
+            cycle_idle_s=float(raw.get("cycle_idle_s", 0.0)),
+            accept_statuses=tuple(int(status) for status in raw.get("accept_statuses", [200])),
             table_limit=int(raw.get("table_limit", 1_000)),
             config=PlotsrvConfigSpec.from_dict(raw.get("config")),
         )

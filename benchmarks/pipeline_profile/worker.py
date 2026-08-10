@@ -121,6 +121,15 @@ def run_pipeline(args: argparse.Namespace) -> int:
             time.perf_counter() - started,
         )
 
+        if args.mode != "none":
+            from plotsrv.publishing.worker import get_publish_queue_stats
+
+            event(
+                "publish_queue_after_work",
+                {"queue": get_publish_queue_stats()},
+                None,
+            )
+
         if (
             spec.publish_behaviour == "async"
             and spec.flush_async
@@ -167,6 +176,7 @@ def run_client(args: argparse.Namespace) -> int:
         + urllib.parse.urlencode({"view": args.view_id, "limit": args.table_limit})
     )
     failures = 0
+    accepted_statuses = set(args.accept_status)
     for request_number in range(1, args.requests + 1):
         started = time.perf_counter()
         status_code: int | None = None
@@ -180,10 +190,12 @@ def run_client(args: argparse.Namespace) -> int:
             status_code = int(exc.code)
             response_bytes = len(exc.read())
             error = str(exc)
-            failures += 1
+            if status_code not in accepted_statuses:
+                failures += 1
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             failures += 1
+        accepted = status_code in accepted_statuses
         event(
             "table_request",
             {
@@ -191,6 +203,7 @@ def run_client(args: argparse.Namespace) -> int:
                 "status_code": status_code,
                 "response_bytes": response_bytes,
                 "error": error,
+                "accepted": accepted,
             },
             time.perf_counter() - started,
         )
@@ -228,6 +241,13 @@ def build_parser() -> argparse.ArgumentParser:
     client.add_argument("--interval-s", type=float, default=0.0)
     client.add_argument("--timeout-s", type=float, default=30.0)
     client.add_argument("--client-id", type=int, required=True)
+    client.add_argument(
+        "--accept-status",
+        type=int,
+        action="append",
+        default=[200],
+        help="HTTP status considered a successful expected outcome; repeatable.",
+    )
     client.add_argument("--events", required=True)
     client.set_defaults(func=run_client)
     return parser

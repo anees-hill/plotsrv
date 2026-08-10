@@ -1,0 +1,57 @@
+# Optional ptop helpers.  plotsrv's benchmark runner remains independently
+# usable; these recipes only add durable process-resource history and comparison.
+
+[recipes.watch-file-large-cycles]
+description = "Large file-backed CSV visits with post-idle server memory checkpoints"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "watch.csv.file.large.repeated-clients", "--profile", "{profile}",
+  "--set", "cycles={cycles}", "--output", "{output}",
+]
+defaults = { profile = "standard", cycles = "4", output = "benchmark-results/{timestamp}-watch-file-cycles" }
+interval = 0.5
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "watch.csv.file.large.repeated-clients", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', client = 'pipeline_profile\.worker client' }
+
+[recipes.watch-file-overload]
+description = "Overload the file-backed admission limit; expected 503s are recorded, not treated as failures"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "watch.csv.file.overload", "--profile", "{profile}", "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-watch-file-overload" }
+interval = 0.5
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "watch.csv.file.overload", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', client = 'pipeline_profile\.worker client' }
+
+[recipes.publish-remote-sync]
+description = "Reference remote synchronous publishing run"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.sync.small", "--profile", "{profile}", "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-publish-sync" }
+interval = 0.5
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.sync.small", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+[recipes.publish-remote-async-high-frequency]
+description = "High-frequency async publishing to stable view IDs"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.async.latest-wins.high-frequency", "--profile", "{profile}", "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-publish-async" }
+interval = 0.5
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.async.latest-wins.high-frequency", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }

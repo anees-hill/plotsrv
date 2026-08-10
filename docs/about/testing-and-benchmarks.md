@@ -45,6 +45,49 @@ The run writes a self-contained directory containing:
 The runner refuses to reuse an existing output directory. This prevents an
 accidental overwrite of a useful comparison.
 
+## Named release-gate cases
+
+For the checks we expect to repeat across versions, use a named case rather
+than retyping a long command:
+
+```bash
+uv run --group benchmark python -m benchmarks.pipeline_profile case list
+uv run --group benchmark python -m benchmarks.pipeline_profile case run \
+  watch.csv.file.large.repeated-clients --profile standard
+```
+
+Profiles are `quick`, `standard`, and `soak`.  Watch cases run clients in
+separate cycles and write `watch_cycle_summary` into `run.json`.  Its
+post-warm-up RSS and USS growth values answer the important question: whether
+the server settles between visits, rather than merely recording its peak.
+
+`watch.csv.file.overload` deliberately permits `503` responses. They are
+evidence that plotsrv is applying bounded back-pressure, not an unexplained
+benchmark error.
+
+Async cases also write `timing.pipeline_work_s`, `timing.async_flush_s`, and
+queue coalescing/rejection counters. Compare the first value to assess caller
+interference; include the flush time when assessing eventual delivery.
+
+## Optional ptop history
+
+The benchmark harness does not depend on ptop. If ptop is installed, the
+project-local `ptop.toml` provides short recipe aliases that add process-tree
+history, Git/machine provenance and result JSONs:
+
+```bash
+ptop recipe run watch-file-large-cycles
+ptop recipe run watch-file-large-cycles --set cycles=10
+ptop trend --case watch.csv.file.large.repeated-clients
+```
+
+Use ptop comparisons only between runs with the same case fingerprint and
+machine identity:
+
+```bash
+ptop compare 41 52 --require-comparable
+```
+
 ## Core scenarios
 
 Run a no-plotsrv baseline first, then match it with a publishing mode:

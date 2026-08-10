@@ -11,6 +11,7 @@ from benchmarks.pipeline_profile.models import (
     TableSpec,
     WorkloadSpec,
 )
+from benchmarks.pipeline_profile.cases import apply_case_overrides, build_case
 from benchmarks.pipeline_profile.runner import compare_runs
 from benchmarks.pipeline_profile.workload import write_watched_csv
 
@@ -135,3 +136,24 @@ def test_run_spec_preserves_config() -> None:
     )
 
     assert RunSpec.from_dict(spec.to_dict()).config.publish_max_table_rows == 500_000
+
+
+def test_named_watch_case_has_cycles_and_post_idle_profile() -> None:
+    spec = build_case(
+        "watch.csv.file.large.repeated-clients",
+        profile="quick",
+    )
+
+    assert spec.case_id == "watch.csv.file.large.repeated-clients"
+    assert spec.cycles > 1
+    assert 503 in spec.accept_statuses
+
+
+def test_case_override_changes_only_supported_setting() -> None:
+    spec = build_case("watch.csv.file.large.repeated-clients", profile="quick")
+
+    changed = apply_case_overrides(spec, ["cycles=10", "clients=4"])
+
+    assert changed.cycles == 10
+    assert changed.clients == 4
+    assert changed.case_id == spec.case_id
