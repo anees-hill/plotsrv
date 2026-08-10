@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import shutil
 import ipaddress
 import stat
@@ -14,7 +15,7 @@ from urllib.parse import urlencode
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import Response, HTMLResponse, FileResponse
+from fastapi.responses import Response, HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import store, config
@@ -27,7 +28,9 @@ from .storage.backend import list_snapshots, load_snapshot
 from .publishing.worker import get_publish_queue_stats
 from .runtime import (
     FileBackedLoadBusyError,
+    acquire_file_backed_load_slot,
     file_backed_load_slot,
+    get_file_backed_load_stats,
     read_file_backed_artifact_preview,
     read_file_backed_csv_preview,
 )
@@ -810,6 +813,7 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     s.update(store.get_service_info())
     s["publish_queue"] = get_publish_queue_stats()
     s["storage_queue"] = get_storage_queue_stats()
+    s["file_backed_loads"] = get_file_backed_load_stats()
     s["view_id"] = vid
     s["freshness"] = store.get_freshness(view_id=vid)
 
@@ -1029,7 +1033,7 @@ def _file_backed_csv_table_data_response(
     *,
     view_id: str,
     limit: int | None,
-) -> dict[str, Any]:
+) -> Response:
     try:
         meta = store.get_watched_file_meta(view_id=view_id)
     except LookupError:
@@ -1051,11 +1055,17 @@ def _file_backed_csv_table_data_response(
         )
 
     try:
-        with file_backed_load_slot():
-            preview = read_file_backed_csv_preview(meta)
+        lease = acquire_file_backed_load_slot()
     except FileBackedLoadBusyError:
         raise _file_backed_load_busy_http_exception()
+
+    try:
+        preview = read_file_backed_csv_preview(
+            meta,
+            row_limit=_table_response_limits(limit)[0],
+        )
     except FileNotFoundError as e:
+        lease.release()
         return _file_backed_table_error_response(
             view_id=view_id,
             title="file-backed CSV read failed",
@@ -1064,6 +1074,7 @@ def _file_backed_csv_table_data_response(
             status_code=404,
         )
     except TypeError as e:
+        lease.release()
         return _file_backed_table_error_response(
             view_id=view_id,
             title="file-backed CSV preview failed",
@@ -1072,6 +1083,7 @@ def _file_backed_csv_table_data_response(
             status_code=400,
         )
     except Exception as e:
+        lease.release()
         return _file_backed_table_error_response(
             view_id=view_id,
             title="file-backed CSV preview failed",
@@ -1080,35 +1092,92 @@ def _file_backed_csv_table_data_response(
             status_code=500,
         )
 
-    return _table_data_response_from_df(
-        preview.table_df,
-        limit=limit,
-        total_rows=preview.total_rows,
-        total_rows_known=preview.total_rows_known,
-        loaded_rows=preview.loaded_rows,
-        returned_rows=min(
-            preview.returned_rows,
-            len(_table_response_df(preview.table_df, limit=limit)),
+    response_meta = {
+        "file_backed": True,
+        "watch": True,
+        "materialization": meta.materialization,
+        "path": meta.path,
+        "file_kind": meta.file_kind,
+        "read_mode": meta.read_mode,
+        "encoding": meta.encoding,
+        "size_bytes": meta.size_bytes,
+        "mtime_ns": meta.mtime_ns,
+        "max_bytes": meta.max_bytes,
+        "preview_bytes": preview.preview_bytes,
+        "source": preview.source,
+        "total_columns": preview.total_columns,
+        "returned_columns": preview.returned_columns,
+        "truncated": preview.truncated,
+        **_watched_file_source_meta(view_id=view_id),
+    }
+    return StreamingResponse(
+        _stream_file_backed_table_json(
+            columns=preview.columns,
+            rows=preview.rows,
+            total_rows=preview.total_rows,
+            total_rows_known=preview.total_rows_known,
+            loaded_rows=preview.loaded_rows,
+            returned_rows=preview.returned_rows,
+            meta=response_meta,
+            release=lease.release,
         ),
-        meta={
-            "file_backed": True,
-            "watch": True,
-            "materialization": meta.materialization,
-            "path": meta.path,
-            "file_kind": meta.file_kind,
-            "read_mode": meta.read_mode,
-            "encoding": meta.encoding,
-            "size_bytes": meta.size_bytes,
-            "mtime_ns": meta.mtime_ns,
-            "max_bytes": meta.max_bytes,
-            "preview_bytes": preview.preview_bytes,
-            "source": preview.source,
-            "total_columns": preview.total_columns,
-            "returned_columns": preview.returned_columns,
-            "truncated": preview.truncated,
-            **_watched_file_source_meta(view_id=view_id),
-        },
+        media_type="application/json",
     )
+
+
+def _stream_file_backed_table_json(
+    *,
+    columns: list[str],
+    rows: list[list[Any]],
+    total_rows: int | None,
+    total_rows_known: bool,
+    loaded_rows: int,
+    returned_rows: int,
+    meta: dict[str, Any],
+    release: Any,
+):
+    """Encode one CSV row at a time and release admission after delivery."""
+    buffer = bytearray()
+
+    def append(value: bytes) -> bytes | None:
+        buffer.extend(value)
+        if len(buffer) >= 64 * 1024:
+            chunk = bytes(buffer)
+            buffer.clear()
+            return chunk
+        return None
+
+    try:
+        chunk = append(b'{"columns":' + json.dumps(columns, separators=(",", ":")).encode("utf-8") + b',"rows":[')
+        if chunk is not None:
+            yield chunk
+        for index, row in enumerate(rows):
+            item = dict(zip(columns, row, strict=True))
+            encoded = json.dumps(item, separators=(",", ":"), default=str).encode("utf-8")
+            chunk = append((b"," if index else b"") + encoded)
+            if chunk is not None:
+                yield chunk
+        tail = {
+            "total_rows": total_rows if total_rows_known else None,
+            "total_rows_known": total_rows_known,
+            "loaded_rows": loaded_rows,
+            "returned_rows": returned_rows,
+            "meta": meta,
+        }
+        chunk = append(b'],"total_rows":' + json.dumps(tail["total_rows"]).encode("utf-8"))
+        if chunk is not None:
+            yield chunk
+        for key in ("total_rows_known", "loaded_rows", "returned_rows", "meta"):
+            chunk = append(
+                b',"' + key.encode("utf-8") + b'":' + json.dumps(tail[key], separators=(",", ":"), default=str).encode("utf-8")
+            )
+            if chunk is not None:
+                yield chunk
+        buffer.extend(b"}")
+        if buffer:
+            yield bytes(buffer)
+    finally:
+        release()
 
 
 @app.get("/table/data")

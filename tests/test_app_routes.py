@@ -887,7 +887,9 @@ def test_table_data_file_backed_csv_respects_query_limit(
     ]
     assert data["total_rows"] is None
     assert data["total_rows_known"] is False
-    assert data["loaded_rows"] == 3
+    # The request limit is applied while reading the file-backed source,
+    # rather than after constructing a larger in-memory preview.
+    assert data["loaded_rows"] == 2
     assert data["returned_rows"] == 2
     assert data["meta"]["file_backed"] is True
 

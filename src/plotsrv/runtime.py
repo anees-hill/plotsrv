@@ -53,7 +53,8 @@ class FileBackedArtifactPreview:
 
 @dataclass(frozen=True, slots=True)
 class FileBackedTablePreview:
-    table_df: Any
+    columns: list[str]
+    rows: list[list[Any]]
     preview_bytes: int
     total_rows: int | None
     total_rows_known: bool
@@ -63,6 +64,19 @@ class FileBackedTablePreview:
     returned_columns: int
     truncated: bool
     source: str = "file_backed_csv"
+
+    @property
+    def table_df(self) -> Any:
+        """Compatibility escape hatch for internal callers outside the route.
+
+        The file-backed HTTP route deliberately never accesses this property:
+        constructing a DataFrame is exactly the additional object graph it is
+        designed to avoid.  Keeping it lazy avoids a needless compatibility
+        break for integrations that still inspect previews directly.
+        """
+        import pandas as pd
+
+        return pd.DataFrame(self.rows, columns=self.columns)
 
 
 class FileBackedLoadBusyError(RuntimeError):
@@ -82,9 +96,12 @@ class _FileBackedLoadController:
     def __init__(self) -> None:
         self._condition = threading.Condition()
         self._in_flight = 0
+        self._admitted = 0
+        self._busy = 0
+        self._completed = 0
 
-    @contextmanager
-    def slot(self) -> Iterator[None]:
+    def acquire(self) -> _FileBackedLoadLease:
+        """Reserve one slot until a caller explicitly releases it."""
         limit = config.get_watch_active_load_max_concurrent()
         timeout_s = config.get_watch_active_load_wait_timeout_s()
         deadline = time.monotonic() + timeout_s
@@ -93,23 +110,62 @@ class _FileBackedLoadController:
             while self._in_flight >= limit:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
+                    self._busy += 1
                     raise FileBackedLoadBusyError(
                         "File-backed watch preview is busy. Try again in a moment."
                     )
                 self._condition.wait(timeout=remaining)
             self._in_flight += 1
+            self._admitted += 1
+        return _FileBackedLoadLease(self)
 
+    def _release(self) -> None:
+        with self._condition:
+            self._in_flight = max(0, self._in_flight - 1)
+            self._completed += 1
+            self._condition.notify()
+
+    @contextmanager
+    def slot(self) -> Iterator[None]:
+        lease = self.acquire()
         try:
             yield
         finally:
-            with self._condition:
-                self._in_flight = max(0, self._in_flight - 1)
-                self._condition.notify()
+            lease.release()
+
+    def stats(self) -> dict[str, int]:
+        with self._condition:
+            return {
+                "active": self._in_flight,
+                "max_concurrent": config.get_watch_active_load_max_concurrent(),
+                "admitted": self._admitted,
+                "busy": self._busy,
+                "completed": self._completed,
+            }
 
     def reset_for_tests(self) -> None:
         with self._condition:
             self._in_flight = 0
+            self._admitted = 0
+            self._busy = 0
+            self._completed = 0
             self._condition.notify_all()
+
+
+class _FileBackedLoadLease:
+    """An idempotent admission token for a streamed HTTP response."""
+
+    def __init__(self, controller: _FileBackedLoadController) -> None:
+        self._controller = controller
+        self._released = False
+        self._lock = threading.Lock()
+
+    def release(self) -> None:
+        with self._lock:
+            if self._released:
+                return
+            self._released = True
+        self._controller._release()
 
 
 _FILE_BACKED_LOADS = _FileBackedLoadController()
@@ -120,6 +176,16 @@ def file_backed_load_slot() -> Iterator[None]:
     """Acquire one bounded file-backed materialisation slot."""
     with _FILE_BACKED_LOADS.slot():
         yield
+
+
+def acquire_file_backed_load_slot() -> _FileBackedLoadLease:
+    """Reserve a file-backed load slot for the life of a streamed response."""
+    return _FILE_BACKED_LOADS.acquire()
+
+
+def get_file_backed_load_stats() -> dict[str, int]:
+    """Return small operational counters; no request payload is retained."""
+    return _FILE_BACKED_LOADS.stats()
 
 
 @dataclass(frozen=True, slots=True)
@@ -820,14 +886,18 @@ def _normalise_csv_row(row: list[str], width: int) -> list[str | None]:
     return values
 
 
-def _coerce_csv_dataframe(
+def _coerce_csv_rows(
     *,
     header: list[str],
     rows: list[list[str | None]],
     max_columns: int | None,
-) -> tuple[Any, int, int]:
-    """Build a small DataFrame without creating a second CSV text buffer."""
-    import pandas as pd
+) -> tuple[list[str], list[list[Any]], int, int]:
+    """Keep a bounded CSV row window without building a pandas object graph.
+
+    CSV values remain compact Python scalars.  The deliberately small numeric
+    inference here preserves the useful JSON shape of the prior pandas path,
+    without constructing pandas' indexes, columns and block managers.
+    """
 
     total_columns = len(header)
     visible_width = total_columns
@@ -835,21 +905,26 @@ def _coerce_csv_dataframe(
         visible_width = min(visible_width, max(1, int(max_columns)))
 
     columns = _normalise_csv_columns(header[:visible_width])
-    df = pd.DataFrame(rows, columns=columns)
-
-    # csv.reader yields strings. Preserve the useful numeric behaviour callers
-    # get from pandas.read_csv without reparsing a second in-memory text copy.
-    for column in columns:
-        values = df[column]
-        non_empty = values.dropna().astype(str).str.strip()
-        non_empty = non_empty[non_empty != ""]
-        if non_empty.empty:
+    output: list[list[Any]] = [list(row) for row in rows]
+    for index in range(visible_width):
+        values = [row[index] for row in output if row[index] not in (None, "")]
+        if not values:
             continue
-        converted = pd.to_numeric(non_empty, errors="coerce")
-        if converted.notna().all():
-            df[column] = pd.to_numeric(values.replace("", None), errors="coerce")
-
-    return df, total_columns, visible_width
+        try:
+            converted = [int(str(value).strip()) for value in values]
+        except (TypeError, ValueError):
+            try:
+                converted = [float(str(value).strip()) for value in values]
+            except (TypeError, ValueError):
+                continue
+        value_index = 0
+        for row in output:
+            if row[index] in (None, ""):
+                row[index] = None
+            else:
+                row[index] = converted[value_index]
+                value_index += 1
+    return columns, output, total_columns, visible_width
 
 
 def _read_csv_header(path: Path, *, encoding: str) -> list[str]:
@@ -957,6 +1032,8 @@ def _read_csv_tail_rows(
 
 def read_file_backed_csv_preview(
     meta: store.WatchedFileMeta,
+    *,
+    row_limit: int | None = None,
 ) -> FileBackedTablePreview:
     """
     Materialise a bounded CSV table preview directly from disk.
@@ -975,7 +1052,13 @@ def read_file_backed_csv_preview(
         raise TypeError("file-backed CSV preview requires file materialization")
 
     path = Path(meta.path).expanduser().resolve()
-    row_limit = config.get_table_truncate_rows()
+    configured_row_limit = config.get_table_truncate_rows()
+    if row_limit is None:
+        effective_row_limit = configured_row_limit
+    elif configured_row_limit is None:
+        effective_row_limit = row_limit
+    else:
+        effective_row_limit = min(configured_row_limit, row_limit)
     column_limit = config.get_table_truncate_columns()
 
     if meta.read_mode == "tail":
@@ -983,7 +1066,7 @@ def read_file_backed_csv_preview(
             path,
             encoding=meta.encoding,
             max_bytes=meta.max_bytes,
-            max_rows=row_limit,
+            max_rows=effective_row_limit,
             max_columns=column_limit,
         )
     else:
@@ -991,16 +1074,16 @@ def read_file_backed_csv_preview(
             path,
             encoding=meta.encoding,
             max_bytes=meta.max_bytes,
-            max_rows=row_limit,
+            max_rows=effective_row_limit,
             max_columns=column_limit,
         )
 
-    df, total_columns, returned_columns = _coerce_csv_dataframe(
+    columns, rows, total_columns, returned_columns = _coerce_csv_rows(
         header=header,
         rows=rows,
         max_columns=column_limit,
     )
-    loaded_rows = len(df)
+    loaded_rows = len(rows)
 
     input_window_truncated = (
         meta.max_bytes is not None and path.stat().st_size > int(meta.max_bytes)
@@ -1012,7 +1095,8 @@ def read_file_backed_csv_preview(
     )
 
     return FileBackedTablePreview(
-        table_df=df,
+        columns=columns,
+        rows=rows,
         preview_bytes=preview_bytes,
         total_rows=None,
         total_rows_known=False,
