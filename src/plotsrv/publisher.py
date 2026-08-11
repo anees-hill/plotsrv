@@ -712,7 +712,20 @@ def _estimate_publish_task_bytes(obj: Any) -> int:
 
     if isinstance(obj, pd.DataFrame):
         try:
-            return max(1, int(obj.memory_usage(index=True, deep=True).sum()))
+            # This runs on the caller's thread before the task is admitted.
+            # ``deep=True`` walks every object/string value and makes a high
+            # frequency async publish unexpectedly synchronous.  A structural
+            # estimate plus a conservative variable-width allowance preserves
+            # bounded-queue admission without scanning payload contents.
+            shallow = int(obj.memory_usage(index=True, deep=False).sum())
+            variable_columns = sum(
+                1
+                for dtype in obj.dtypes
+                if pd.api.types.is_object_dtype(dtype)
+                or pd.api.types.is_string_dtype(dtype)
+            )
+            allowance = len(obj) * variable_columns * 256
+            return max(1, shallow + allowance)
         except Exception:
             return max(1, int(sys.getsizeof(obj)))
 
