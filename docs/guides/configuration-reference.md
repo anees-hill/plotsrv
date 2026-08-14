@@ -46,6 +46,10 @@ storage-settings:
   enabled: false
   watch_enabled: false
   root_dir: .plotsrv/store
+  latest:
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
   max_snapshot_size_mb: 20.0
   default_keep_last: 3
   default_min_store_interval: off
@@ -55,7 +59,7 @@ watch-settings:
   # memory = always publish watched-file content into memory.
   # file = always keep watched files file-backed and preview from disk on demand.
   materialization: auto
-  file_threshold_mb: 50
+  file_threshold_mb: 10
   active_loads:
     max_concurrent: 2
     wait_timeout_s: 1.0
@@ -165,7 +169,7 @@ In `auto` mode, files at or above `file_threshold_mb` become file-backed.
 ```yaml
 watch-settings:
   materialization: auto
-  file_threshold_mb: 50
+  file_threshold_mb: 10
 ```
 
 You can force a mode from the CLI:

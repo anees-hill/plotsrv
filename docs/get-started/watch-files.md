@@ -176,7 +176,7 @@ The equivalent config is:
 ```yaml title="plotsrv.yaml"
 watch-settings:
   materialization: auto
-  file_threshold_mb: 50
+  file_threshold_mb: 10
 ```
 
 Use `file` for large watched files when you want predictable memory use.
