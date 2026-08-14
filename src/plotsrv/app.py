@@ -1155,6 +1155,10 @@ def _stream_file_backed_table_json(
             item = dict(zip(columns, row, strict=True))
             encoded = json.dumps(item, separators=(",", ":"), default=str).encode("utf-8")
             chunk = append((b"," if index else b"") + encoded)
+            # This preview belongs exclusively to the response.  Release each
+            # materialised row once encoded so the growing response buffer
+            # does not overlap the complete parsed table at peak memory.
+            row.clear()
             if chunk is not None:
                 yield chunk
         tail = {

@@ -8,11 +8,11 @@ import threading
 import time
 import urllib.request
 from collections import deque
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal
-from collections.abc import Mapping, Sequence
+from typing import Any, Literal, cast
 
 from . import config, settings, store
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
@@ -905,25 +905,51 @@ def _coerce_csv_rows(
         visible_width = min(visible_width, max(1, int(max_columns)))
 
     columns = _normalise_csv_columns(header[:visible_width])
-    output: list[list[Any]] = [list(row) for row in rows]
+    # The reader already owns these mutable row lists.  Reuse them so numeric
+    # conversion can release the original strings progressively instead of
+    # retaining a duplicate list graph until the whole column is converted.
+    output = cast(list[list[Any]], rows)
     for index in range(visible_width):
-        values = [row[index] for row in output if row[index] not in (None, "")]
-        if not values:
-            continue
-        try:
-            converted = [int(str(value).strip()) for value in values]
-        except (TypeError, ValueError):
-            try:
-                converted = [float(str(value).strip()) for value in values]
-            except (TypeError, ValueError):
+        has_value = False
+        all_int = True
+        for row in output:
+            value = row[index]
+            if value in (None, ""):
                 continue
-        value_index = 0
+            has_value = True
+            try:
+                int(value)
+            except (TypeError, ValueError):
+                all_int = False
+                break
+
+        if not has_value:
+            continue
+
+        convert: type[int] | type[float] | None = int if all_int else float
+        if not all_int:
+            for row in output:
+                value = row[index]
+                if value in (None, ""):
+                    continue
+                try:
+                    float(value)
+                except (TypeError, ValueError):
+                    convert = None
+                    break
+
+        if convert is None:
+            continue
+
+        # Convert directly into the bounded row window.  Building separate
+        # ``values`` and ``converted`` lists briefly retained both every CSV
+        # string and every numeric object, which inflated peak memory even
+        # though the final preview was bounded.
         for row in output:
             if row[index] in (None, ""):
                 row[index] = None
             else:
-                row[index] = converted[value_index]
-                value_index += 1
+                row[index] = convert(row[index])
     return columns, output, total_columns, visible_width
 
 
