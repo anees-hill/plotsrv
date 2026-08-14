@@ -55,3 +55,89 @@ interval = 0.5
 result_json = "{output}/ptop-result.json"
 tags = { case = "publish.remote.async.latest-wins.high-frequency", profile = "{profile}" }
 components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+# Final-release recipes.  These intentionally take longer than the standard
+# recipes and are intended to be run from plotsrv-final-release.toml on a
+# desktop-class machine before publishing a release.
+
+[recipes.watch-file-release-soak]
+description = "Release gate: repeated large file-backed CSV visits with long settling checks"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "watch.csv.file.large.repeated-clients", "--profile", "{profile}",
+  "--set", "cycles={cycles}", "--set", "clients={clients}",
+  "--set", "requests_per_client={requests_per_client}",
+  "--set", "table_limit={table_limit}", "--set", "cycle_idle_s={cycle_idle_s}",
+  "--set", "idle_s={idle_s}", "--set", "max_rss_mb={max_rss_mb}",
+  "--output", "{output}",
+]
+defaults = { profile = "soak", cycles = "24", clients = "9", requests_per_client = "3", table_limit = "20000", cycle_idle_s = "3", idle_s = "30", max_rss_mb = "6000", output = "benchmark-results/{timestamp}-release-watch-soak" }
+interval = 0.5
+max_tree_rss_mb = 6000
+result_json = "{output}/ptop-result.json"
+tags = { case = "watch.csv.file.large.repeated-clients", profile = "{profile}", release_gate = "file-settling" }
+components = { server = 'pipeline_profile\.worker server', client = 'pipeline_profile\.worker client' }
+
+[recipes.watch-file-release-overload]
+description = "Release gate: extended overload/recovery test for watched-file admission"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "watch.csv.file.overload", "--profile", "{profile}",
+  "--set", "cycles={cycles}", "--set", "clients={clients}",
+  "--set", "requests_per_client={requests_per_client}",
+  "--set", "table_limit={table_limit}", "--set", "cycle_idle_s={cycle_idle_s}",
+  "--set", "idle_s={idle_s}", "--output", "{output}",
+]
+defaults = { profile = "soak", cycles = "10", clients = "20", requests_per_client = "3", table_limit = "10000", cycle_idle_s = "2", idle_s = "20", output = "benchmark-results/{timestamp}-release-watch-overload" }
+interval = 0.5
+max_tree_rss_mb = 6000
+result_json = "{output}/ptop-result.json"
+tags = { case = "watch.csv.file.overload", profile = "{profile}", release_gate = "overload-recovery" }
+components = { server = 'pipeline_profile\.worker server', client = 'pipeline_profile\.worker client' }
+
+[recipes.publish-remote-sync-release]
+description = "Release gate: repeated reference remote synchronous publishing"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.sync.small", "--profile", "{profile}", "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-release-publish-sync" }
+interval = 0.25
+max_tree_rss_mb = 2000
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.sync.small", profile = "{profile}", release_gate = "sync-publish" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+[recipes.publish-remote-async-high-frequency-release]
+description = "Release gate: soaked latest-wins async publishing to stable views"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.async.latest-wins.high-frequency", "--profile", "{profile}",
+  "--output", "{output}",
+]
+defaults = { profile = "soak", output = "benchmark-results/{timestamp}-release-publish-async-latest" }
+interval = 0.25
+max_tree_rss_mb = 3000
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.async.latest-wins.high-frequency", profile = "{profile}", release_gate = "async-latest-wins" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+[recipes.publish-remote-async-queue-pressure-release]
+description = "Release gate: soaked async queue count/byte admission with distinct views"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.distinct-views.queue-pressure", "--profile", "{profile}",
+  "--output", "{output}",
+]
+defaults = { profile = "soak", output = "benchmark-results/{timestamp}-release-publish-async-pressure" }
+interval = 0.25
+max_tree_rss_mb = 3000
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.distinct-views.queue-pressure", profile = "{profile}", release_gate = "async-queue-pressure" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+

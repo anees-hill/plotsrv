@@ -88,6 +88,9 @@ machine identity:
 ptop compare 41 52 --require-comparable
 ```
 
+The local `ptop.toml`, release manifest, `.ptop/` database, and manifest
+outputs are ignored by git.
+
 ## Core scenarios
 
 Run a no-plotsrv baseline first, then match it with a publishing mode:

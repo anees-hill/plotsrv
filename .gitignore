@@ -31,3 +31,9 @@ STEP
 benchmark-results/
 benchmark_results/
 benchmarks/helpers/
+
+# Local ptop benchmark configuration and state
+ptop.toml
+plotsrv-final-release.toml
+ptop-manifest-results/
+.ptop/
