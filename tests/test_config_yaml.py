@@ -653,4 +653,4 @@ watch-settings:
     settings.set_runtime_context(config_path=yml)
 
     assert cfg.get_watch_materialization() == "auto"
-    assert cfg.get_watch_file_threshold_bytes() == 20 * 1024 * 1024
+    assert cfg.get_watch_file_threshold_bytes() == 10 * 1024 * 1024

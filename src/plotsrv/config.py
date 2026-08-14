@@ -104,7 +104,7 @@ _DEFAULTS: dict[str, Any] = {
     },
     "watch-settings": {
         "materialization": "auto",
-        "file_threshold_mb": 20,
+        "file_threshold_mb": 10,
         # File-backed previews are parsed on request. Keep expensive table
         # materialisation bounded even when several browser clients refresh at
         # once. Existing limits.truncate_after.* values remain the limits that
@@ -137,7 +137,7 @@ _DEFAULTS: dict[str, Any] = {
         "max_pending_tasks": 32,
         "max_pending_mb": 64,
         "latest": {
-            "enabled": False,
+            "enabled": True,
             "restore_on_startup": True,
             "restore_scope": "discovered",
         },

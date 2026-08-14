@@ -383,13 +383,15 @@ def test_default_config_text_uses_new_config_layout() -> None:
 
     assert "watch-settings:" in text
     assert "materialization: auto" in text
-    assert "file_threshold_mb: 20" in text
+    assert "file_threshold_mb: 10" in text
     assert "active_loads:" in text
     assert "max_concurrent: 2" in text
     assert "wait_timeout_s: 1.0" in text
 
     assert "storage-settings:" in text
     assert "watch_enabled: false" in text
+    assert "latest:" in text
+    assert "    enabled: true" in text
     assert "freshness-settings:" in text
     assert "security-settings:" in text
     assert "tracebacks_enabled: false" in text
@@ -438,7 +440,7 @@ def test_default_config_text_parses_as_yaml() -> None:
     assert data["render-settings"]["default"]["markdown_sanitize"] is True
 
     assert data["watch-settings"]["materialization"] == "auto"
-    assert data["watch-settings"]["file_threshold_mb"] == 20
+    assert data["watch-settings"]["file_threshold_mb"] == 10
     assert data["watch-settings"]["active_loads"] == {
         "max_concurrent": 2,
         "wait_timeout_s": 1.0,
@@ -446,6 +448,7 @@ def test_default_config_text_parses_as_yaml() -> None:
 
     assert data["storage-settings"]["enabled"] is False
     assert data["storage-settings"]["watch_enabled"] is False
+    assert data["storage-settings"]["latest"]["enabled"] is True
 
     assert data["freshness-settings"]["enabled"] is False
     assert data["freshness-settings"]["expected_every"] == "60s"
@@ -476,7 +479,7 @@ def test_create_config_file_writes_new_layout(tmp_path: Path) -> None:
 
     assert "watch-settings" in data
     assert data["watch-settings"]["materialization"] == "auto"
-    assert data["watch-settings"]["file_threshold_mb"] == 20
+    assert data["watch-settings"]["file_threshold_mb"] == 10
 
     assert "publish-limits" not in data
     assert "table-settings" not in data

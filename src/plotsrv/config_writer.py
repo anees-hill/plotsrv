@@ -52,7 +52,7 @@ watch-settings:
   # file   = keep file metadata and read preview slices on demand where supported.
   # auto   = memory below file_threshold_mb, file-backed at/above it.
   materialization: auto
-  file_threshold_mb: 20
+  file_threshold_mb: 10
 
   # Bound simultaneous on-demand file-backed preview loads. This protects the
   # server when several browser clients open a large watched CSV at once.
@@ -90,6 +90,11 @@ storage-settings:
   max_snapshot_size_mb: 20.0
   default_keep_last: 3
   default_min_store_interval: off
+  latest:
+    # Persist and restore the latest live view when storage is enabled.
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
 
   # Bound best-effort snapshot work waiting to be serialised.
   max_pending_tasks: 32
@@ -317,7 +322,7 @@ def populate_storage(
         sec.setdefault("root_dir", ".plotsrv/store")
 
         latest = _ensure_mapping(sec, "latest")
-        latest.setdefault("enabled", False)
+        latest.setdefault("enabled", True)
         latest.setdefault("restore_on_startup", True)
         latest.setdefault("restore_scope", "discovered")
 
