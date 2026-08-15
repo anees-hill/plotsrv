@@ -51,7 +51,7 @@ benchmark = [
 ]
 
 [project.scripts]
-plotsrv = "plotsrv.cli:main"
+plotsrv = "plotsrv.cli_entry:main"
 
 [tool.coverage.run]
 source = ["plotsrv"]

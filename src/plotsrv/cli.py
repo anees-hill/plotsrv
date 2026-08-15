@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Literal
 
@@ -160,7 +161,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    sub = p.add_subparsers(dest="cmd", required=True)
+    p.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {version('plotsrv')}",
+    )
+    sub = p.add_subparsers(dest="cmd")
 
     run_p = sub.add_parser(
         "run",
@@ -1599,7 +1605,13 @@ def _run_watch_mode(
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    effective_argv = sys.argv[1:] if argv is None else argv
+    if not effective_argv:
+        parser.print_help()
+        return 0
+
+    args = parser.parse_args(effective_argv)
 
     apply_runtime_options(
         config=getattr(args, "config", None),

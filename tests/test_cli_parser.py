@@ -1,7 +1,26 @@
 # tests/test_cli_parser.py
 from __future__ import annotations
 
+from plotsrv import cli
 from plotsrv.cli import build_parser
+
+
+def test_bare_cli_prints_help(capsys) -> None:
+    assert cli.main([]) == 0
+    assert "usage: plotsrv" in capsys.readouterr().out
+
+
+def test_cli_version(capsys) -> None:
+    parser = build_parser()
+
+    try:
+        parser.parse_args(["--version"])
+    except SystemExit as exc:
+        assert exc.code == 0
+    else:  # pragma: no cover - argparse version actions always exit
+        raise AssertionError("--version did not exit")
+
+    assert capsys.readouterr().out.startswith("plotsrv ")
 
 
 def test_cli_parses_run_args() -> None:
