@@ -131,6 +131,24 @@ def test_status_includes_service_fields(client: TestClient) -> None:
     assert "service_refresh_rate_s" in data
 
 
+def test_status_includes_current_view_menu_revision(client: TestClient) -> None:
+    store.register_view(section="demo", label="summary", kind="artifact")
+
+    resp = client.get("/status")
+
+    assert resp.status_code == 200
+    assert resp.json()["view_menu_revision"] == store.get_view_menu_revision()
+
+
+def test_index_seeds_current_view_menu_revision(client: TestClient) -> None:
+    store.register_view(section="demo", label="summary", kind="artifact")
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert f'"view_menu_revision": {store.get_view_menu_revision()}' in resp.text
+
+
 def test_status_includes_file_backed_watch_metadata(
     client: TestClient,
     tmp_path,

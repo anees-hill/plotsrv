@@ -842,6 +842,7 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     s["storage_queue"] = get_storage_queue_stats()
     s["file_backed_loads"] = get_file_backed_load_stats()
     s["view_id"] = vid
+    s["view_menu_revision"] = store.get_view_menu_revision()
     s["freshness"] = store.get_freshness(view_id=vid)
 
     watched_file = _watched_file_meta_dict(vid)
@@ -1695,6 +1696,7 @@ def index(view: str | None = None) -> HTMLResponse:
         views=views,
         view_freshness=view_freshness,
         active_view_id=active_view,
+        view_menu_revision=store.get_view_menu_revision(),
     )
     return HTMLResponse(content=html_str)
 

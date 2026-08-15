@@ -172,6 +172,11 @@ _STORE_LOCK = threading.RLock()
 # reusing an earlier view revision.
 _RENDER_REVISION_COUNTER = 0
 
+# The browser receives a complete view-selector snapshot in its initial page.
+# It only needs to request that comparatively large payload again when a menu
+# entry changes, rather than for every published value in an existing view.
+_VIEW_MENU_REVISION = 0
+
 
 # Helpers
 
@@ -195,6 +200,11 @@ def _touch_render_revision(st: ViewState) -> None:
     global _RENDER_REVISION_COUNTER
     _RENDER_REVISION_COUNTER += 1
     st.render_revision = _RENDER_REVISION_COUNTER
+
+
+def _touch_view_menu_revision() -> None:
+    global _VIEW_MENU_REVISION
+    _VIEW_MENU_REVISION += 1
 
 
 def normalize_view_id(
@@ -236,23 +246,21 @@ def register_view(
     if icon_key is not None:
         st.icon_key = icon_key
 
-    meta = _VIEW_META.get(vid)
-    if meta is None:
-        _VIEW_META[vid] = ViewMeta(
-            view_id=vid,
-            kind=st.kind,
-            label=(label or vid),
-            section=section,
-            icon_key=st.icon_key,
-        )
-    else:
-        _VIEW_META[vid] = ViewMeta(
-            view_id=vid,
-            kind=st.kind,
-            label=(label or meta.label),
-            section=(section if section is not None else meta.section),
-            icon_key=st.icon_key,
-        )
+    previous_meta = _VIEW_META.get(vid)
+    next_meta = ViewMeta(
+        view_id=vid,
+        kind=st.kind,
+        label=label or (previous_meta.label if previous_meta else vid),
+        section=(
+            section
+            if section is not None
+            else (previous_meta.section if previous_meta else None)
+        ),
+        icon_key=st.icon_key,
+    )
+    _VIEW_META[vid] = next_meta
+    if next_meta != previous_meta:
+        _touch_view_menu_revision()
 
     global _ACTIVE_VIEW_ID
     if (
@@ -324,6 +332,11 @@ def get_active_view_id() -> str:
     return _ACTIVE_VIEW_ID
 
 
+def get_view_menu_revision() -> int:
+    """Return the change token for browser view-selector metadata."""
+    return _VIEW_MENU_REVISION
+
+
 def get_view_state(view_id: str | None = None) -> ViewState:
     vid = view_id or _ACTIVE_VIEW_ID
     return _ensure_view(vid)
@@ -353,13 +366,16 @@ def set_watched_file_meta(meta: WatchedFileMeta) -> None:
 
     if meta.view_id in _VIEW_META:
         existing = _VIEW_META[meta.view_id]
-        _VIEW_META[meta.view_id] = ViewMeta(
+        next_meta = ViewMeta(
             view_id=existing.view_id,
             kind=existing.kind,
             label=existing.label,
             section=existing.section,
             icon_key=st.icon_key,
         )
+        _VIEW_META[meta.view_id] = next_meta
+        if next_meta != existing:
+            _touch_view_menu_revision()
 
 
 def has_watched_file_meta(*, view_id: str | None = None) -> bool:
@@ -831,6 +847,7 @@ for _store_api_name in (
     "list_views",
     "set_active_view",
     "get_active_view_id",
+    "get_view_menu_revision",
     "get_view_state",
     "get_render_revision",
     "set_watched_file_meta",
