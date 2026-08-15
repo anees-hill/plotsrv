@@ -8,6 +8,7 @@ v0.5.1 refines resource-safe watched-file serving and its defaults.
 * generated configuration now exposes watched-file materialization, uses a 10 MB automatic file-backing threshold, and enables latest-state persistence when storage is enabled
 * generated configuration documents bounded async live-publish settings; synchronous publishing remains the compatibility default
 * added repeatable release-gate benchmark coverage for watched-file settling, overload recovery, and publish-queue behaviour
+* browser auto-refresh now coordinates requests, pauses in background tabs, and only reloads view-selector metadata when it changes
 
 ## v0.5.0
 
