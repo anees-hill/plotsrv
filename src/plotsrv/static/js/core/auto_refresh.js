@@ -26,25 +26,57 @@
 
   function stopAutoRefresh() {
     if (state.autoRefreshTimer !== null) {
-      clearInterval(state.autoRefreshTimer);
+      clearTimeout(state.autoRefreshTimer);
       state.autoRefreshTimer = null;
     }
+    state.autoRefreshGeneration += 1;
   }
 
-  function tickAutoRefresh() {
+  function canAutoRefresh() {
+    if (document.hidden) return false;
     if (typeof core.isHistoryMode === "function" && core.isHistoryMode()) {
-      stopAutoRefresh();
+      return false;
+    }
+    return getSelectedSeconds() > 0;
+  }
+
+  function scheduleAutoRefresh(generation) {
+    if (generation !== state.autoRefreshGeneration || !canAutoRefresh()) {
       return;
     }
 
-    if (typeof core.reloadCurrentView === "function") {
-      core.reloadCurrentView();
-    }
+    const seconds = getSelectedSeconds();
+    state.autoRefreshTimer = window.setTimeout(function () {
+      state.autoRefreshTimer = null;
+      tickAutoRefresh(generation);
+    }, seconds * 1000);
   }
 
-  function startAutoRefresh() {
-    const seconds = getSelectedSeconds();
-    if (seconds <= 0) {
+  function tickAutoRefresh(generation) {
+    const refreshGeneration =
+      typeof generation === "number" ? generation : state.autoRefreshGeneration;
+
+    if (refreshGeneration !== state.autoRefreshGeneration || !canAutoRefresh()) {
+      return Promise.resolve();
+    }
+
+    if (typeof core.reloadCurrentView === "function") {
+      return Promise.resolve(core.reloadCurrentView())
+        .catch(function () {
+          // The current renderer shows its own visible failure state.
+        })
+        .then(function () {
+          scheduleAutoRefresh(refreshGeneration);
+        });
+    }
+
+    scheduleAutoRefresh(refreshGeneration);
+    return Promise.resolve();
+  }
+
+  function startAutoRefresh(options) {
+    const immediate = !!(options && options.immediate);
+    if (getSelectedSeconds() <= 0) {
       stopAutoRefresh();
       return;
     }
@@ -55,7 +87,12 @@
     }
 
     stopAutoRefresh();
-    state.autoRefreshTimer = setInterval(tickAutoRefresh, seconds * 1000);
+    const generation = state.autoRefreshGeneration;
+    if (immediate && !document.hidden) {
+      tickAutoRefresh(generation);
+      return;
+    }
+    scheduleAutoRefresh(generation);
   }
 
   function saveAutoRefreshState() {
@@ -76,8 +113,7 @@
     }
 
     if (getSelectedSeconds() > 0) {
-      tickAutoRefresh();
-      startAutoRefresh();
+      startAutoRefresh({ immediate: true });
     } else {
       stopAutoRefresh();
     }
@@ -117,6 +153,17 @@
       saveAutoRefreshState();
       if (typeof core.syncAutoRefreshAvailability === "function") {
         core.syncAutoRefreshAvailability();
+      }
+    });
+
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) {
+        stopAutoRefresh();
+        return;
+      }
+
+      if (getSelectedSeconds() > 0) {
+        startAutoRefresh({ immediate: true });
       }
     });
   }

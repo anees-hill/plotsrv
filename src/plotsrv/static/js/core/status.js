@@ -118,9 +118,26 @@
     }
   }
 
-  async function refreshViewIcons() {
+  function normalizeViewMenuRevision(value) {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
+  function refreshViewIcons(viewMenuRevision) {
     const wrap = document.querySelector("[data-plotsrv-viewselect='1']");
     if (!wrap) return;
+
+    const nextRevision = normalizeViewMenuRevision(viewMenuRevision);
+    if (
+      nextRevision !== null &&
+      state.viewMenuRevision !== null &&
+      nextRevision === state.viewMenuRevision
+    ) {
+      return Promise.resolve();
+    }
+
+    if (state.viewMenuRefreshPromise) {
+      return state.viewMenuRefreshPromise;
+    }
 
     const ICONS = {
       unknown: "/static/logo_unknown.png",
@@ -136,43 +153,57 @@
       html: "/static/logo_html.png",
     };
 
-    try {
-      const res = await fetch("/views?_ts=" + Date.now());
-      if (!res.ok) return;
-      const views = await res.json();
+    const refreshPromise = (async function () {
+      try {
+        const res = await fetch("/views?_ts=" + Date.now());
+        if (!res.ok) return;
+        const views = await res.json();
 
-      const byId = {};
-      for (const v of views) {
-        byId[v.view_id] = v;
-      }
-
-      const items = wrap.querySelectorAll("[data-plotsrv-view]");
-      items.forEach(function (btn) {
-        const vid = btn.getAttribute("data-plotsrv-view");
-        if (!vid) return;
-        const meta = byId[vid];
-        if (!meta) return;
-
-        const iconKey = meta.icon_key || "unknown";
-        const img = btn.querySelector(".ps-viewselect__itemicon");
-        if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
-          img.setAttribute("src", ICONS[iconKey]);
+        const byId = {};
+        for (const v of views) {
+          byId[v.view_id] = v;
         }
 
-        applyFreshnessClass(btn, meta.freshness || null);
-      });
+        const items = wrap.querySelectorAll("[data-plotsrv-view]");
+        items.forEach(function (btn) {
+          const vid = btn.getAttribute("data-plotsrv-view");
+          if (!vid) return;
+          const meta = byId[vid];
+          if (!meta) return;
 
-      const activeMeta = byId[config.activeViewId];
-      if (activeMeta) {
-        const iconKey = activeMeta.icon_key || "unknown";
-        const img = wrap.querySelector(".ps-viewselect__icon");
-        if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
-          img.setAttribute("src", ICONS[iconKey]);
+          const iconKey = meta.icon_key || "unknown";
+          const img = btn.querySelector(".ps-viewselect__itemicon");
+          if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
+            img.setAttribute("src", ICONS[iconKey]);
+          }
+
+          applyFreshnessClass(btn, meta.freshness || null);
+        });
+
+        const activeMeta = byId[config.activeViewId];
+        if (activeMeta) {
+          const iconKey = activeMeta.icon_key || "unknown";
+          const img = wrap.querySelector(".ps-viewselect__icon");
+          if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
+            img.setAttribute("src", ICONS[iconKey]);
+          }
         }
+        if (nextRevision !== null) {
+          state.viewMenuRevision = nextRevision;
+        }
+      } catch (e) {
+        // ignore
       }
-    } catch (e) {
-      // ignore
+    })();
+
+    state.viewMenuRefreshPromise = refreshPromise;
+    function clearInFlight() {
+      if (state.viewMenuRefreshPromise === refreshPromise) {
+        state.viewMenuRefreshPromise = null;
+      }
     }
+    refreshPromise.then(clearInFlight, clearInFlight);
+    return refreshPromise;
   }
 
   function setFreshnessDot(freshness, isHistory) {
@@ -226,14 +257,19 @@
     marker.hidden = false;
   }
 
-  async function refreshStatus() {
-    try {
-      const res = await fetch(
-        "/status?view=" + encodeURIComponent(config.activeViewId) + "&_ts=" + Date.now()
-      );
-      if (!res.ok) return;
+  function refreshStatus() {
+    if (state.statusRefreshPromise) {
+      return state.statusRefreshPromise;
+    }
 
-      const s = await res.json();
+    const refreshPromise = (async function () {
+      try {
+        const res = await fetch(
+        "/status?view=" + encodeURIComponent(config.activeViewId) + "&_ts=" + Date.now()
+        );
+        if (!res.ok) return;
+
+        const s = await res.json();
 
       const updated = document.getElementById("status-updated");
       const updatedAgo = document.getElementById("status-updated-ago");
@@ -303,10 +339,20 @@
         );
       }
 
-      refreshViewIcons();
-    } catch (e) {
-      // ignore
+        await refreshViewIcons(s.view_menu_revision);
+      } catch (e) {
+        // ignore
+      }
+    })();
+
+    state.statusRefreshPromise = refreshPromise;
+    function clearInFlight() {
+      if (state.statusRefreshPromise === refreshPromise) {
+        state.statusRefreshPromise = null;
+      }
     }
+    refreshPromise.then(clearInFlight, clearInFlight);
+    return refreshPromise;
   }
 
   core.fmtLocalTime = fmtLocalTime;

@@ -10,7 +10,7 @@
 
   const core = window.PLOTSRV.core;
 
-  core.reloadCurrentView = function () {
+  function reloadCurrentViewNow() {
     if (typeof core.setStatusMessage === "function") {
       core.setStatusMessage("");
     }
@@ -53,6 +53,28 @@
     }
 
     return Promise.resolve();
+  }
+
+  core.reloadCurrentView = function () {
+    if (state.reloadCurrentViewPromise) {
+      return state.reloadCurrentViewPromise;
+    }
+
+    if (document.hidden) {
+      return Promise.resolve();
+    }
+
+    const refreshPromise = Promise.resolve().then(reloadCurrentViewNow);
+    state.reloadCurrentViewPromise = refreshPromise;
+
+    function clearInFlight() {
+      if (state.reloadCurrentViewPromise === refreshPromise) {
+        state.reloadCurrentViewPromise = null;
+      }
+    }
+
+    refreshPromise.then(clearInFlight, clearInFlight);
+    return refreshPromise;
   };
 
   core.bootstrap = function () {

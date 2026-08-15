@@ -44,6 +44,13 @@
   state.currentSnapshot = readSnapshotFromUrl();
   state.plotObjectUrl = null;
   state.autoRefreshTimer = null;
+  state.autoRefreshGeneration = 0;
+  state.reloadCurrentViewPromise = null;
+  state.statusRefreshPromise = null;
+  state.viewMenuRefreshPromise = null;
+  state.viewMenuRevision = Number.isInteger(raw.view_menu_revision)
+    ? raw.view_menu_revision
+    : null;
   state.tabulatorInstance = null;
 
   core.getActiveViewId = function () {
