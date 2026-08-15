@@ -62,7 +62,8 @@ watch-settings:
 
 publish-settings:
   live:
-    # Keep existing synchronous behaviour by default.
+    # Keep existing synchronous behaviour by default. This setting applies to
+    # publish_view() and to active @view decorators when async_ is omitted.
     #
     # false:
     #   publish_view() is synchronous unless async_=True is passed.
@@ -88,7 +89,7 @@ storage-settings:
   watch_enabled: false
   root_dir: .plotsrv/store
   max_snapshot_size_mb: 20.0
-  default_keep_last: 3
+  default_keep_last: 2
   default_min_store_interval: off
   latest:
     # Persist and restore the latest live view when storage is enabled.

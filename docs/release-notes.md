@@ -6,6 +6,7 @@ v0.5.1 refines resource-safe watched-file serving and its defaults.
 
 * file-backed CSV previews parse bounded rows and columns incrementally, avoiding unnecessary full-file scans and duplicate in-memory representations
 * generated configuration now exposes watched-file materialization, uses a 10 MB automatic file-backing threshold, and enables latest-state persistence when storage is enabled
+* generated configuration documents bounded async live-publish settings; synchronous publishing remains the compatibility default
 * added repeatable release-gate benchmark coverage for watched-file settling, overload recovery, and publish-queue behaviour
 
 ## v0.5.0

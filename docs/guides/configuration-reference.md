@@ -51,7 +51,7 @@ storage-settings:
     restore_on_startup: true
     restore_scope: discovered
   max_snapshot_size_mb: 20.0
-  default_keep_last: 3
+  default_keep_last: 2
   default_min_store_interval: off
 
 watch-settings:
@@ -63,6 +63,14 @@ watch-settings:
   active_loads:
     max_concurrent: 2
     wait_timeout_s: 1.0
+
+publish-settings:
+  live:
+    # Synchronous by default; set true for bounded latest-wins publishing.
+    async_enabled: false
+    max_pending_views: 32
+    max_pending_mb: 64
+    flush_timeout_s: 1.0
 
 freshness-settings:
   enabled: false
@@ -260,6 +268,10 @@ pending update replaces the older one. New views are rejected once either budget
 is full. Inspect `/status` for `publish_queue` counters rather than assuming
 that a high-volume update was delivered.
 
+For `@view`, this setting selects synchronous or asynchronous delivery only
+after the decorator is active through `host`, `port`, or `launch_server`. It
+does not turn a metadata-only `@view(...)` declaration into a publisher.
+
 ## `render-settings`
 
 `render-settings.default` controls renderer behaviour.
@@ -305,7 +317,7 @@ storage-settings:
     enabled: true
     restore_on_startup: true
     restore_scope: discovered
-  default_keep_last: 3
+  default_keep_last: 2
   default_min_store_interval: off
   max_snapshot_size_mb: 20.0
   max_pending_tasks: 32

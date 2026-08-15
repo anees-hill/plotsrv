@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import urllib.request
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -10,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import plotsrv.publisher as publisher
 import plotsrv.server as server
+import plotsrv.settings as settings
 from plotsrv import store
 from plotsrv.app import app
 from plotsrv.publishing.models import PublishTarget, PublishTask
@@ -34,8 +36,12 @@ class _Response:
 @pytest.fixture(autouse=True)
 def _reset_worker() -> None:
     reset_publish_worker()
+    settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
+    settings._CONFIG_CACHE.clear()  # type: ignore[attr-defined]
     yield
     reset_publish_worker()
+    settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
+    settings._CONFIG_CACHE.clear()  # type: ignore[attr-defined]
 
 
 def _task(
@@ -142,6 +148,39 @@ def test_async_remote_publish_returns_before_http_delivery(
     assert get_publish_queue_stats()["processed"] == 1
 
 
+def test_publish_view_uses_yaml_async_default_and_explicit_false_overrides(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        "publish-settings:\n  live:\n    async_enabled: true\n",
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    submitted: list[PublishTask] = []
+    delivered: list[dict[str, Any]] = []
+
+    class _Worker:
+        def submit(self, task: PublishTask) -> bool:
+            submitted.append(task)
+            return True
+
+    monkeypatch.setattr(publisher, "get_publish_worker", lambda: _Worker())
+    monkeypatch.setattr(
+        publisher,
+        "_publish_view_now",
+        lambda *args, **kwargs: delivered.append(kwargs) or True,
+    )
+
+    publisher.publish_view("configured", host="127.0.0.1")
+    publisher.publish_view("explicit", host="127.0.0.1", async_=False)
+
+    assert [task.obj for task in submitted] == ["configured"]
+    assert len(delivered) == 1
+
+
 def test_async_remote_failure_does_not_raise_and_is_counted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -195,6 +234,36 @@ def test_view_decorator_forwards_explicit_async_option(
 
     assert report() == {"ok": True}
     assert calls[0]["async_"] is True
+
+
+def test_active_view_decorator_uses_yaml_async_default(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv import decorators
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        "publish-settings:\n  live:\n    async_enabled: true\n",
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    submitted: list[PublishTask] = []
+
+    class _Worker:
+        def submit(self, task: PublishTask) -> bool:
+            submitted.append(task)
+            return True
+
+    monkeypatch.setattr(publisher, "get_publish_worker", lambda: _Worker())
+
+    @decorators.view(label="status", host="127.0.0.1")
+    def report() -> dict[str, bool]:
+        return {"ok": True}
+
+    assert report() == {"ok": True}
+    assert [task.obj for task in submitted] == [{"ok": True}]
 
 
 def test_status_exposes_publish_and_storage_queue_counters() -> None:

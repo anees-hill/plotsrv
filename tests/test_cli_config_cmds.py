@@ -388,6 +388,12 @@ def test_default_config_text_uses_new_config_layout() -> None:
     assert "max_concurrent: 2" in text
     assert "wait_timeout_s: 1.0" in text
 
+    assert "publish-settings:" in text
+    assert "async_enabled: false" in text
+    assert "max_pending_views: 32" in text
+    assert "max_pending_mb: 64" in text
+    assert "flush_timeout_s: 1.0" in text
+
     assert "storage-settings:" in text
     assert "watch_enabled: false" in text
     assert "latest:" in text
@@ -446,8 +452,16 @@ def test_default_config_text_parses_as_yaml() -> None:
         "wait_timeout_s": 1.0,
     }
 
+    assert data["publish-settings"]["live"] == {
+        "async_enabled": False,
+        "max_pending_views": 32,
+        "max_pending_mb": 64,
+        "flush_timeout_s": 1.0,
+    }
+
     assert data["storage-settings"]["enabled"] is False
     assert data["storage-settings"]["watch_enabled"] is False
+    assert data["storage-settings"]["default_keep_last"] == 2
     assert data["storage-settings"]["latest"]["enabled"] is True
 
     assert data["freshness-settings"]["enabled"] is False

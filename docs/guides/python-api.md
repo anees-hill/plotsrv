@@ -148,6 +148,10 @@ The default remains synchronous. To make the bounded worker the default for a
 process, use the optional configuration below; `async_=False` always keeps one
 call synchronous.
 
+For `@view`, the config default changes delivery mode only when the decorator
+is already active through `host`, `port`, or `launch_server`. Metadata-only
+decorators remain metadata-only.
+
 At the end of a short script or batch job, give accepted updates a bounded
 opportunity to finish:
 

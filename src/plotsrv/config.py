@@ -1025,7 +1025,8 @@ def _publish_live_settings() -> dict[str, Any]:
 def get_publish_async_enabled() -> bool:
     """Whether live publish calls use the bounded worker by default."""
     live = _publish_live_settings()
-    return _as_bool(live.get("async_enabled"), False)
+    default = bool(_DEFAULTS["publish-settings"]["live"]["async_enabled"])
+    return _as_bool(live.get("async_enabled"), default)
 
 
 def get_publish_max_pending_views() -> int:
@@ -1174,13 +1175,6 @@ def get_storage_view_settings(view_id: str) -> dict[str, Any]:
     overrides = _storage_view_overrides()
     raw = overrides.get(view_id)
     return dict(raw) if isinstance(raw, dict) else {}
-
-
-def get_storage_view_enabled(view_id: str) -> bool:
-    view_sec = get_storage_view_settings(view_id)
-    if "enabled" in view_sec:
-        return _as_bool(view_sec.get("enabled"), get_storage_enabled())
-    return get_storage_enabled()
 
 
 def get_storage_max_snapshot_size_bytes(view_id: str | None = None) -> int:
