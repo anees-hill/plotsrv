@@ -23,6 +23,7 @@ from . import html as html_mod
 from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
+from .render_cache import cache_rendered_artifact, get_cached_rendered_artifact
 from .storage.worker import enqueue_snapshot, get_storage_queue_stats
 from .storage.backend import list_snapshots, load_snapshot
 from .publishing.worker import get_publish_queue_stats
@@ -457,6 +458,32 @@ def _render_artifact_response(
         out["snapshot_id"] = snapshot_id
 
     return out
+
+
+def _render_current_artifact_response(
+    *,
+    view_id: str,
+    obj: Any,
+    kind_hint: str,
+    meta: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Render an in-memory current artifact, reusing its current revision."""
+    revision = store.get_render_revision(view_id=view_id)
+    cached = get_cached_rendered_artifact(view_id=view_id, revision=revision)
+    if cached is not None:
+        return cached
+
+    rendered = _render_artifact_response(
+        view_id=view_id,
+        obj=obj,
+        kind_hint=kind_hint,
+        meta=meta,
+    )
+    return cache_rendered_artifact(
+        view_id=view_id,
+        revision=revision,
+        response=rendered,
+    )
 
 
 def _watched_file_raw_url(*, view_id: str, download: bool = False) -> str:
@@ -1720,7 +1747,7 @@ def get_artifact(
     if store.has_watched_file_meta(view_id=vid):
         watched_meta = _watched_file_source_meta(view_id=vid)
 
-    return _render_artifact_response(
+    return _render_current_artifact_response(
         view_id=vid,
         obj=art.obj,
         kind_hint=art.kind,

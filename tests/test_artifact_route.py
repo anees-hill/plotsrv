@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import importlib
+
 import pandas as pd
 from fastapi.testclient import TestClient
 
+from plotsrv import config, store
 from plotsrv.app import app
-from plotsrv import store, config
 from plotsrv.runtime import WatchConfig, register_watch_views
 
 
@@ -39,6 +41,135 @@ def test_artifact_table_returns_html() -> None:
     data = r.json()
     assert data["kind"] == "table"
     assert "table-grid" in data["html"]
+
+
+def test_artifact_route_caches_current_render_and_invalidates_on_publish(
+    monkeypatch,
+) -> None:
+    store.reset()
+    client = TestClient(app)
+    app_module = importlib.import_module("plotsrv.app")
+    original_render_any = app_module.render_any
+    calls = 0
+
+    def counting_render_any(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_render_any(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, "render_any", counting_render_any)
+
+    view_id = "report:current"
+    store.set_artifact(
+        view_id=view_id,
+        kind="markdown",
+        obj="# First report\n\nUnchanged content.",
+    )
+
+    first = client.get(f"/artifact?view={view_id}")
+    second = client.get(f"/artifact?view={view_id}")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json() == second.json()
+    assert calls == 1
+
+    store.set_artifact(
+        view_id=view_id,
+        kind="markdown",
+        obj="# Updated report\n\nNew content.",
+    )
+
+    refreshed = client.get(f"/artifact?view={view_id}")
+
+    assert refreshed.status_code == 200
+    assert "Updated report" in refreshed.json()["html"]
+    assert calls == 2
+
+
+def test_artifact_route_caches_representative_large_json_render(
+    monkeypatch,
+) -> None:
+    store.reset()
+    client = TestClient(app)
+    app_module = importlib.import_module("plotsrv.app")
+    original_render_any = app_module.render_any
+    calls = 0
+
+    def counting_render_any(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_render_any(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, "render_any", counting_render_any)
+
+    store.set_artifact(
+        kind="json",
+        obj={
+            "items": [
+                {
+                    "id": index,
+                    "name": f"name_{index}",
+                    "values": list(range(10)),
+                }
+                for index in range(400)
+            ]
+        },
+    )
+
+    first = client.get("/artifact")
+    second = client.get("/artifact")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls == 1
+
+
+def test_file_backed_artifacts_are_not_cached_between_requests(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    store.reset()
+    client = TestClient(app)
+    app_module = importlib.import_module("plotsrv.app")
+    original_render_any = app_module.render_any
+    calls = 0
+
+    def counting_render_any(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original_render_any(*args, **kwargs)
+
+    monkeypatch.setattr(app_module, "render_any", counting_render_any)
+
+    path = tmp_path / "report.md"
+    path.write_text("# First", encoding="utf-8")
+    monkeypatch.setattr(
+        "plotsrv.runtime.resolve_watch_materialization",
+        lambda path, requested=None: "file",
+    )
+    register_watch_views(
+        [
+            WatchConfig(
+                path=path,
+                label="report",
+                section="docs",
+                read_mode="head",
+                max_bytes=100,
+            )
+        ],
+        activate_first_if_none=True,
+    )
+
+    first = client.get("/artifact?view=docs:report")
+    path.write_text("# Updated", encoding="utf-8")
+    second = client.get("/artifact?view=docs:report")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert "First" in first.json()["html"]
+    assert "Updated" in second.json()["html"]
+    assert calls == 2
 
 
 def test_artifact_route_serves_file_backed_text_watch(

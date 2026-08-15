@@ -58,6 +58,7 @@ class ViewState:
     table_returned_rows: int | None = None
     artifact: Artifact | None = None
     watched_file: WatchedFileMeta | None = None
+    render_revision: int = 0
 
     # publish throttling
     last_publish_at: float | None = None  # epoch seconds
@@ -166,6 +167,11 @@ _SERVICE_STOP_HOOK: Callable[[], None] | None = None
 # helpers to call one another without changing their shape.
 _STORE_LOCK = threading.RLock()
 
+# Rendered HTML is cached by this state token rather than by payload identity.
+# A process-wide monotonic counter keeps a reset-and-republish cycle from ever
+# reusing an earlier view revision.
+_RENDER_REVISION_COUNTER = 0
+
 
 # Helpers
 
@@ -183,6 +189,12 @@ def _ensure_view(view_id: str) -> ViewState:
     if view_id not in _VIEWS:
         _VIEWS[view_id] = ViewState()
     return _VIEWS[view_id]
+
+
+def _touch_render_revision(st: ViewState) -> None:
+    global _RENDER_REVISION_COUNTER
+    _RENDER_REVISION_COUNTER += 1
+    st.render_revision = _RENDER_REVISION_COUNTER
 
 
 def normalize_view_id(
@@ -317,6 +329,11 @@ def get_view_state(view_id: str | None = None) -> ViewState:
     return _ensure_view(vid)
 
 
+def get_render_revision(*, view_id: str | None = None) -> int:
+    """Return the display-state revision used by the rendered-artifact cache."""
+    return get_view_state(view_id).render_revision
+
+
 # Watched-file metadata API
 
 
@@ -329,6 +346,7 @@ def set_watched_file_meta(meta: WatchedFileMeta) -> None:
     """
     st = get_view_state(meta.view_id)
     st.watched_file = meta
+    _touch_render_revision(st)
 
     if st.icon_key == "unknown":
         st.icon_key = _icon_for_watched_file_kind(meta.file_kind)
@@ -359,6 +377,7 @@ def get_watched_file_meta(*, view_id: str | None = None) -> WatchedFileMeta:
 def clear_watched_file_meta(*, view_id: str | None = None) -> None:
     st = get_view_state(view_id)
     st.watched_file = None
+    _touch_render_revision(st)
 
 
 # Backwards-compatible single-view API (uses active view)
@@ -392,6 +411,7 @@ def set_plot(
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
+    _touch_render_revision(st)
 
     register_view(
         view_id=vid, kind="plot", icon_key=st.icon_key, activate_if_first=False
@@ -441,6 +461,7 @@ def set_table(
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
+    _touch_render_revision(st)
 
     register_view(
         view_id=vid, kind="table", icon_key=st.icon_key, activate_if_first=False
@@ -476,6 +497,7 @@ def set_artifact(
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
+    _touch_render_revision(st)
 
     register_view(
         view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
@@ -810,6 +832,7 @@ for _store_api_name in (
     "set_active_view",
     "get_active_view_id",
     "get_view_state",
+    "get_render_revision",
     "set_watched_file_meta",
     "has_watched_file_meta",
     "get_watched_file_meta",
