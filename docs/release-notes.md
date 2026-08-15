@@ -1,5 +1,13 @@
 # Release notes
 
+## v0.5.1
+
+v0.5.1 refines resource-safe watched-file serving and its defaults.
+
+* file-backed CSV previews parse bounded rows and columns incrementally, avoiding unnecessary full-file scans and duplicate in-memory representations
+* generated configuration now exposes watched-file materialization, uses a 10 MB automatic file-backing threshold, and enables latest-state persistence when storage is enabled
+* added repeatable release-gate benchmark coverage for watched-file settling, overload recovery, and publish-queue behaviour
+
 ## v0.5.0
 
 v0.5.0 is a perf-based update introducing bounded async live publishing and file-backed watched-file serving.
