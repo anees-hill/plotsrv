@@ -4,13 +4,11 @@ from __future__ import annotations
 import base64
 import json
 import shutil
-import ipaddress
 import stat
 import time
 from html import escape as escape_html
 from pathlib import Path
 from typing import Any
-from datetime import datetime, timezone
 from urllib.parse import urlencode
 
 import pandas as pd
@@ -25,8 +23,23 @@ from .renderers import register_default_renderers
 from .renderers.registry import render_any
 from .render_cache import cache_rendered_artifact, get_cached_rendered_artifact
 from .storage.worker import enqueue_snapshot, get_storage_queue_stats
-from .storage.backend import list_snapshots, load_snapshot
+from .storage.backend import list_snapshots
 from .publishing.worker import get_publish_queue_stats
+from .http_publish import (
+    _publish_source_label,
+    _raise_publish_rejection,
+    _record_publish_rejection_artifact,
+    _validate_artifact_size,
+)
+from .http_security import require_local_request
+from .http_snapshots import (
+    _latest_snapshot_is_live_equivalent,
+    _load_snapshot_or_404,
+    _render_plot_snapshot_html,
+    _render_table_snapshot_html,
+    _snapshot_summary_dict,
+    _storage_root,
+)
 from .runtime import (
     FileBackedLoadBusyError,
     acquire_file_backed_load_slot,
@@ -91,334 +104,6 @@ def _ensure_assets_mount() -> None:
                 return
 
     app.mount("/assets", StaticFiles(directory=str(_ASSETS_CACHE_DIR)), name="assets")
-
-
-def _container_item_count(obj: Any) -> int:
-    if isinstance(obj, dict):
-        n = len(obj)
-        for v in obj.values():
-            n += _container_item_count(v)
-        return n
-    if isinstance(obj, (list, tuple, set)):
-        n = len(obj)
-        for v in obj:
-            n += _container_item_count(v)
-        return n
-    return 0
-
-
-def _is_watch_publish_source(publish_source: str | None) -> bool:
-    return (publish_source or "").strip().lower() == "watch"
-
-
-def _publish_source_label(publish_source: str | None) -> str:
-    return (publish_source or "normal").strip().lower()
-
-
-def _http_detail_to_text(detail: Any) -> str:
-    if isinstance(detail, str):
-        return detail
-    try:
-        return str(detail)
-    except Exception:
-        return "Unknown publish error"
-
-
-def _publish_rejection_artifact_text(
-    *,
-    status_code: int,
-    detail: Any,
-    view_id: str,
-    kind: str,
-    publish_source: str | None,
-) -> str:
-    detail_text = _http_detail_to_text(detail)
-
-    return (
-        "plotsrv publish rejected\n"
-        "\n"
-        f"Status: {status_code}\n"
-        f"View: {view_id}\n"
-        f"Kind: {kind}\n"
-        f"Publish source: {_publish_source_label(publish_source)}\n"
-        "\n"
-        "What failed:\n"
-        f"{detail_text}\n"
-        "\n"
-        "Adjust the config key mentioned above, or publish a smaller/truncated object.\n"
-    )
-
-
-def _record_publish_rejection_artifact(
-    *,
-    exc: HTTPException,
-    view_id: str,
-    section: Any,
-    label: Any,
-    kind: str,
-    publish_source: str | None,
-) -> None:
-    """
-    Make rejected normal Python publishes visible in the UI.
-
-    Watch publishes have their own fallback path in runtime.py, so avoid
-    duplicating that behaviour here.
-    """
-    if _is_watch_publish_source(publish_source):
-        return
-
-    msg = _publish_rejection_artifact_text(
-        status_code=int(exc.status_code),
-        detail=exc.detail,
-        view_id=view_id,
-        kind=kind,
-        publish_source=publish_source,
-    )
-
-    try:
-        store.set_artifact(
-            obj=msg,
-            kind="publish_error",
-            label=label if isinstance(label, str) else None,
-            section=section if isinstance(section, str) else None,
-            view_id=view_id,
-            publish_source=publish_source,
-        )
-        store.mark_error(msg, view_id=view_id)
-    except Exception:
-        # Never hide the original publish rejection.
-        return
-
-
-def _raise_publish_rejection(
-    *,
-    status_code: int,
-    detail: str,
-    view_id: str,
-    section: Any,
-    label: Any,
-    kind: str,
-    publish_source: str | None,
-) -> None:
-    exc = HTTPException(status_code=status_code, detail=detail)
-    _record_publish_rejection_artifact(
-        exc=exc,
-        view_id=view_id,
-        section=section,
-        label=label,
-        kind=kind,
-        publish_source=publish_source,
-    )
-    raise exc
-
-
-def _validate_artifact_size(
-    obj: Any,
-    *,
-    publish_source: str | None = None,
-) -> None:
-    """
-        Validate normal /publish artifact payloads.
-
-
-    Watched files are source-aware: by the time they reach /publish, they should
-    already have been controlled by limits.watched_files and limits.truncate_after.*.
-    They should not also be rejected by limits.published_objects.*.
-    """
-    if _is_watch_publish_source(publish_source):
-        return
-
-    source = _publish_source_label(publish_source)
-    max_text = config.get_publish_max_artifact_text_chars()
-    max_items = config.get_publish_max_json_container_items()
-
-    if isinstance(obj, str):
-        actual = len(obj)
-        if actual > max_text:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"Artifact text payload has {actual} characters, exceeding "
-                    f"limits.published_objects.max_artifact_text_chars={max_text}. "
-                    f"publish_source={source}"
-                ),
-            )
-        return
-
-    if isinstance(obj, (dict, list, tuple, set)):
-        actual = _container_item_count(obj)
-        if actual > max_items:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    f"Artifact JSON/container payload has {actual} items, exceeding "
-                    f"limits.published_objects.max_json_container_items={max_items}. "
-                    f"publish_source={source}"
-                ),
-            )
-        return
-
-    s = repr(obj)
-    actual = len(s)
-    if actual > max_text:
-        raise HTTPException(
-            status_code=413,
-            detail=(
-                f"Artifact representation has {actual} characters, exceeding "
-                f"limits.published_objects.max_artifact_text_chars={max_text}. "
-                f"publish_source={source}"
-            ),
-        )
-
-
-def _client_ip(request: Request) -> str | None:
-    client = request.client
-    if client is None:
-        return None
-    return client.host
-
-
-def _is_loopback_ip(value: str | None) -> bool:
-    if not value:
-        return False
-    try:
-        return ipaddress.ip_address(value).is_loopback
-    except ValueError:
-        return False
-
-
-def require_local_request(request: Request) -> None:
-    host = _client_ip(request)
-    if not _is_loopback_ip(host):
-        raise HTTPException(status_code=403, detail="Local access only")
-
-
-def _storage_root() -> Path:
-    return config.get_storage_root_dir()
-
-
-def _snapshot_summary_dict(
-    snap: Any,
-    *,
-    is_latest: bool = False,
-    is_live_equivalent: bool = False,
-) -> dict[str, Any]:
-    return {
-        "snapshot_id": snap.snapshot_id,
-        "view_id": snap.view_id,
-        "section": snap.section,
-        "label": snap.label,
-        "kind": snap.kind,
-        "created_at": snap.created_at,
-        "payload_filename": snap.payload_filename,
-        "payload_format": snap.payload_format,
-        "size_bytes": snap.size_bytes,
-        "payload_exists": snap.payload_exists,
-        "is_latest": is_latest,
-        "is_live_equivalent": is_live_equivalent,
-        "extra": snap.extra or {},
-    }
-
-
-def _parse_iso_datetime(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        dt = datetime.fromisoformat(value)
-    except Exception:
-        return None
-
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-
-    return dt.astimezone(timezone.utc)
-
-
-def _latest_snapshot_is_live_equivalent(*, view_id: str, snap: Any) -> bool:
-    """
-    Best-effort check that the newest snapshot represents current live state.
-
-    A snapshot written as part of the current publish is normally created at or
-    just after the store last_updated timestamp. If the live view has updated
-    since the latest snapshot, last_updated will be later and this returns false.
-    """
-    status = store.get_status(view_id=view_id)
-    last_updated = _parse_iso_datetime(status.get("last_updated"))
-    snap_created = _parse_iso_datetime(getattr(snap, "created_at", None))
-
-    if last_updated is None or snap_created is None:
-        return False
-
-    if snap_created < last_updated:
-        return False
-
-    live_kind = store.get_kind(view_id)
-    snap_kind = str(getattr(snap, "kind", "") or "").strip().lower()
-
-    if live_kind == "artifact":
-        try:
-            art = store.get_artifact(view_id=view_id)
-            return str(art.kind).strip().lower() == snap_kind
-        except LookupError:
-            return False
-
-    return live_kind == snap_kind
-
-
-def _load_snapshot_or_404(*, view_id: str, snapshot_id: str):
-    try:
-        return load_snapshot(
-            root_dir=_storage_root(),
-            view_id=view_id,
-            snapshot_id=snapshot_id,
-        )
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-def _render_plot_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, Any]:
-    src = f"/plot?view={view_id}&snapshot={snapshot_id}"
-    html = f"""
-    <div class="plot-frame">
-      <img id="plot" src="{src}" alt="Plot snapshot" />
-    </div>
-    """.strip()
-
-    return {
-        "view_id": view_id,
-        "snapshot_id": snapshot_id,
-        "kind": "plot",
-        "html": html,
-        "mime": "text/html",
-        "truncation": None,
-        "meta": {
-            "src": src,
-            "snapshot": True,
-        },
-    }
-
-
-def _render_table_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, Any]:
-    data_src = f"/table/data?view={view_id}&snapshot={snapshot_id}"
-    html = """
-    <div class="plot-frame">
-      <div id="table-grid" class="table-grid"></div>
-    </div>
-    """.strip()
-
-    return {
-        "view_id": view_id,
-        "snapshot_id": snapshot_id,
-        "kind": "table",
-        "html": html,
-        "mime": "text/html",
-        "truncation": None,
-        "meta": {
-            "data_src": data_src,
-            "snapshot": True,
-        },
-    }
 
 
 def _render_artifact_response(
