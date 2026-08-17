@@ -1,0 +1,5 @@
+# Generated and minified browser assets are reproducible from readable sources.
+src/plotsrv/static/dist/* -diff
+src/plotsrv/static/vendor/**/*.min.css -diff
+src/plotsrv/static/vendor/**/*.min.js -diff
+src/plotsrv/html.py whitespace=cr-at-eol

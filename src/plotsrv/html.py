@@ -6,6 +6,7 @@ import json
 
 from .config import TableViewMode
 from .store import ViewMeta
+from .ui_assets import get_ui_assets
 from .ui_config import UISettings, get_ui_settings
 
 ViewKind = Literal["none", "plot", "table", "artifact"]
@@ -57,6 +58,7 @@ def render_index(
     Return the HTML for the main viewer page.
     """
     ui = ui_settings or get_ui_settings()
+    assets = get_ui_assets()
     views = views or []
     active_view_id = active_view_id or "default"
     active_view_id_attr = _escape_attr(active_view_id)
@@ -72,11 +74,7 @@ def render_index(
     include_tabulator = kind in ("table", "artifact") and table_view_mode != "simple"
 
     if include_tabulator:
-        tabulator_head = """
-        <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css"
- rel="stylesheet">
-        <script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
-        """
+        tabulator_head = f'<script src="{assets.tabulator_js}" defer></script>'
 
     statusline_html = ""
     if ui.show_statusline:
@@ -507,25 +505,12 @@ def render_index(
       <title>{page_title}</title>
       <link rel="icon" href="{favicon_url}">
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <link rel="stylesheet" href="/static/plotsrv.css">
+      <link rel="stylesheet" href="{assets.css}">
       <script>
         window.PLOTSRV_CONFIG = {cfg_json};
       </script>
       {tabulator_head}
-      <script src="/static/js/core/dom.js" defer></script>
-      <script src="/static/js/core/state.js" defer></script>
-      <script src="/static/js/core/storage.js" defer></script>
-      <script src="/static/js/core/history.js" defer></script>
-      <script src="/static/js/core/status.js" defer></script>
-      <script src="/static/js/core/auto_refresh.js" defer></script>
-      <script src="/static/js/core/view_selector.js" defer></script>
-      <script src="/static/js/renderers/artifact.js" defer></script>
-      <script src="/static/js/renderers/plot.js" defer></script>
-      <script src="/static/js/renderers/table.js" defer></script>
-      <script src="/static/js/renderers/json.js" defer></script>
-      <script src="/static/js/renderers/text.js" defer></script>
-      <script src="/static/js/renderers/code.js" defer></script>
-      <script src="/static/js/core/app.js" defer></script>
+      <script src="{assets.js}" defer></script>
     </head>
     <body class="ps-body"
           data-kind="{kind}"

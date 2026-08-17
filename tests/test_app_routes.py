@@ -104,7 +104,7 @@ def test_index_table_simple_embeds_table_html(client: TestClient) -> None:
 
     # Don't look for "table-grid" substring
     assert 'id="table-grid"' not in text
-    assert "tabulator-tables" not in text
+    assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" not in text
 
 
 def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
@@ -114,7 +114,7 @@ def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
     resp = client.get("/")
     text = resp.text
     assert 'id="table-grid"' in text
-    assert "tabulator-tables" in text
+    assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" in text
 
 
 def test_status_includes_service_fields(client: TestClient) -> None:
