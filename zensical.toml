@@ -46,6 +46,7 @@ nav = [
   { "About" = [
     { "Philosophy" = "about/philosophy.md" },
     { "Contributing" = "about/contributing.md" },
+    { "UI development" = "about/ui-development.md" },
     { "Testing and benchmarks" = "about/testing-and-benchmarks.md" },
   ] },
   { "Release notes" = "release-notes.md" },

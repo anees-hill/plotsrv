@@ -9,6 +9,7 @@ v0.5.1 refines resource-safe watched-file serving and its defaults.
 * generated configuration documents bounded async live-publish settings; synchronous publishing remains the compatibility default
 * added repeatable release-gate benchmark coverage for watched-file settling, overload recovery, and publish-queue behaviour
 * browser auto-refresh now coordinates requests, pauses in background tabs, and only reloads view-selector metadata when it changes
+* browser assets are fingerprinted, packaged locally, and no longer require a runtime CDN; stable CLI, HTTP, watch-admission, and object-coercion concerns now have explicit module boundaries
 
 ## v0.5.0
 
