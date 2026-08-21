@@ -1,0 +1,74 @@
+# ptop manifest for the final 0.5.1 comparison pass.
+#
+# Run it from this checkout with:
+#   scripts/run_plotsrv_manifest.sh
+#
+# The published 0.5.0 target is the baseline.  The local source target is
+# deliberately used for 0.5.1 because this release may not be on PyPI yet.
+schema_version = 1
+name = "plotsrv 0.5.0 vs local 0.5.1 performance comparison"
+output_root = "ptop-manifest-results"
+baseline_target = "plotsrv_0_5_0"
+continue_on_error = true
+
+[targets.plotsrv_0_5_0]
+package = "plotsrv==0.5.0"
+harness = "."
+packages = ["psutil>=5.9"]
+
+[targets.plotsrv_0_5_1]
+source = "."
+label = "plotsrv local checkout (0.5.1 candidate)"
+harness = "."
+packages = ["psutil>=5.9"]
+
+# Three independent ptop attempts per target are intentional.  Compare the
+# medians in the manifest report rather than relying on one noisy run.
+[[runs]]
+recipe = "cli-import-cold-start"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { repeats = "6" }
+
+[[runs]]
+recipe = "cli-root-help-cold-start"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { repeats = "6" }
+
+[[runs]]
+recipe = "cli-bare-cold-start"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { repeats = "6" }
+
+[[runs]]
+recipe = "server-artifact-repeated-clients"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { profile = "standard" }
+
+[[runs]]
+recipe = "watch-file-large-cycles"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { profile = "standard", cycles = "12" }
+
+[[runs]]
+recipe = "watch-file-overload"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+
+[[runs]]
+recipe = "publish-remote-async-high-frequency"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+
+# 0.5.0 did not expose this command.  Keep it as a candidate-only smoke
+# benchmark so the manifest still verifies the new public behaviour.
+[[runs]]
+recipe = "cli-version-cold-start"
+targets = ["plotsrv_0_5_1"]
+repeats = 3
+set = { repeats = "6" }
+

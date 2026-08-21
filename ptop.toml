@@ -141,3 +141,78 @@ result_json = "{output}/ptop-result.json"
 tags = { case = "publish.remote.distinct-views.queue-pressure", profile = "{profile}", release_gate = "async-queue-pressure" }
 components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
 
+# CLI startup and the new rendered-artifact/browser foundations.  These use
+# fresh child processes where startup is the subject under test, and the
+# existing process-profile runner for server memory and request timing.
+
+[recipes.cli-import-cold-start]
+description = "Fresh-process import plotsrv startup; useful for tracking lazy public imports"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.cli_profile", "--mode", "import", "--repeats", "{repeats}",
+  "--output", "{output}",
+]
+defaults = { repeats = "6", output = "benchmark-results/{timestamp}-cli-import" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "cli.import.cold-start", mode = "import" }
+components = { cli = 'benchmarks\.cli_profile' }
+
+[recipes.cli-root-help-cold-start]
+description = "Fresh-process plotsrv --help startup"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.cli_profile", "--mode", "root-help", "--repeats", "{repeats}",
+  "--output", "{output}",
+]
+defaults = { repeats = "6", output = "benchmark-results/{timestamp}-cli-root-help" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "cli.root-help.cold-start", mode = "root-help" }
+components = { cli = 'benchmarks\.cli_profile' }
+
+[recipes.cli-bare-cold-start]
+description = "Fresh-process bare plotsrv invocation, which should print help and exit successfully"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.cli_profile", "--mode", "bare", "--repeats", "{repeats}",
+  "--output", "{output}",
+]
+defaults = { repeats = "6", output = "benchmark-results/{timestamp}-cli-bare" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "cli.bare.cold-start", mode = "bare" }
+components = { cli = 'benchmarks\.cli_profile' }
+
+[recipes.cli-version-cold-start]
+description = "Fresh-process plotsrv --version startup on releases that provide the lightweight entrypoint"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.cli_profile", "--mode", "version", "--repeats", "{repeats}",
+  "--output", "{output}",
+]
+defaults = { repeats = "6", output = "benchmark-results/{timestamp}-cli-version" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "cli.version.cold-start", mode = "version" }
+components = { cli = 'benchmarks\.cli_profile' }
+
+[recipes.server-artifact-repeated-clients]
+description = "Repeated JSON artifact requests with server RSS/USS and warm-request latency"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "server.artifact.repeated-clients", "--profile", "{profile}",
+  "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-server-artifact" }
+interval = 0.25
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "server.artifact.repeated-clients", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline', client = 'pipeline_profile\.worker client' }
+
