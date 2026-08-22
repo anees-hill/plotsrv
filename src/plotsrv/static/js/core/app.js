@@ -9,6 +9,7 @@
   };
 
   const core = window.PLOTSRV.core;
+  const state = window.PLOTSRV.state;
 
   function reloadCurrentViewNow() {
     if (typeof core.setStatusMessage === "function") {
