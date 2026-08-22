@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import atexit
 import json
 import math
 import os
@@ -22,6 +23,26 @@ from .publishing.models import PublishTarget, PublishTask
 from .publishing.worker import flush_publish_views, get_publish_worker
 
 PublishMode = Literal["auto", "local", "remote"]
+
+
+def _flush_async_views_at_process_exit() -> None:
+    """Give accepted live-view publishes their configured final flush window.
+
+    PublishWorker is a daemon so an ordinary one-shot Python script would
+    otherwise exit immediately and abandon every task still waiting in it.
+    This is intentionally best-effort and bounded by the existing live publish
+    flush timeout; callers that need a specific guarantee can still call
+    ``flush_views(timeout=...)`` explicitly.
+    """
+    try:
+        flush_publish_views(timeout=config.get_publish_flush_timeout_s())
+    except Exception:
+        # Interpreter shutdown can partially tear down optional dependencies.
+        # Never turn a successful user script into a shutdown exception.
+        return
+
+
+atexit.register(_flush_async_views_at_process_exit)
 
 try:  # pragma: no cover
     import polars as pl  # type: ignore

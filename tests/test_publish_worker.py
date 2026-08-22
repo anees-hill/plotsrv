@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 import plotsrv.publisher as publisher
 import plotsrv.server as server
 import plotsrv.settings as settings
+from plotsrv import config
 from plotsrv import store
 from plotsrv.app import app
 from plotsrv.publishing.models import PublishTarget, PublishTask
@@ -146,6 +147,23 @@ def test_async_remote_publish_returns_before_http_delivery(
     assert publisher.flush_views(timeout=1.0) is True
     assert captured[0]["label"] == "status"
     assert get_publish_queue_stats()["processed"] == 1
+
+
+def test_process_exit_flushes_accepted_async_views(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[float] = []
+
+    monkeypatch.setattr(config, "get_publish_flush_timeout_s", lambda: 1.5)
+    monkeypatch.setattr(
+        publisher,
+        "flush_publish_views",
+        lambda *, timeout: calls.append(timeout) or True,
+    )
+
+    publisher._flush_async_views_at_process_exit()
+
+    assert calls == [1.5]
 
 
 def test_publish_view_uses_yaml_async_default_and_explicit_false_overrides(
