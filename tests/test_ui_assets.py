@@ -90,6 +90,17 @@ def test_built_assets_are_served_by_the_application() -> None:
     assert "Tabulator" in tabulator.text
 
 
+def test_watch_errors_have_a_compact_status_presentation() -> None:
+    status_js = (_STATIC / "js" / "core" / "status.js").read_text("utf-8")
+    status_css = (_STATIC / "css" / "status.css").read_text("utf-8")
+    text_css = (_STATIC / "css" / "renderers" / "text.css").read_text("utf-8")
+
+    assert "errWrap.hidden = false" in status_js
+    assert "errWrap.hidden = true" in status_js
+    assert "flex-basis: 100%" in status_css
+    assert ".ps-watch-error" in text_css
+
+
 def test_public_module_compatibility_imports_remain_available() -> None:
     import plotsrv.app as app_module
     import plotsrv.cli as cli_module

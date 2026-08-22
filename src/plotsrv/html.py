@@ -95,8 +95,7 @@ def render_index(
               <span id="status-updated-ago"></span>
             </span>
             {freshness_html}
-            <span id="status-error-wrap" class="ps-statusline__error" style="display:none;">
-              &nbsp;|&nbsp;
+            <span id="status-error-wrap" class="ps-statusline__error" hidden>
               <strong style="color:#792424;">Error:</strong>
               <span id="status-error" style="color:#792424;"></span>
             </span>

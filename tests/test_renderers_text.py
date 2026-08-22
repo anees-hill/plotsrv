@@ -123,5 +123,9 @@ def test_watch_error_text_renderer_does_not_truncate(monkeypatch) -> None:
 
     assert out.kind == "watch_error"
     assert "watch error message that must remain visible" in out.html
+    assert "ps-watch-error" in out.html
+    assert "plotsrv-pre" not in out.html
+    assert "data-plotsrv-toolbar" not in out.html
+    assert out.meta["presentation"] == "error_card"
     assert out.truncation is not None
     assert out.truncation.truncated is False

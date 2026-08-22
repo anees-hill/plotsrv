@@ -316,10 +316,10 @@
       if (errWrap && err) {
         if (s.last_error) {
           err.textContent = s.last_error;
-          errWrap.style.display = "inline";
+          errWrap.hidden = false;
         } else {
           err.textContent = "";
-          errWrap.style.display = "none";
+          errWrap.hidden = true;
         }
       }
 

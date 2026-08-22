@@ -68,6 +68,39 @@
   tab-size: 2;
 }
 
+.ps-watch-error {
+  max-width: 46rem;
+  margin: 1.1rem auto;
+  padding: 1.15rem 1.25rem;
+  border: 1px solid #ebc8d0;
+  border-radius: 10px;
+  background: #fff8f9;
+  color: #4f2630;
+  box-shadow: 0 2px 10px rgba(111, 42, 57, 0.06);
+}
+
+.ps-watch-error__eyebrow {
+  display: inline-block;
+  margin-bottom: 0.35rem;
+  color: #8d4253;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ps-watch-error h2 {
+  margin: 0 0 0.55rem;
+  color: #792424;
+  font-size: 1.15rem;
+}
+
+.ps-watch-error p {
+  margin: 0.45rem 0 0;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .plotsrv-pre--wrap {
   white-space: pre-wrap;
   word-break: break-word;
