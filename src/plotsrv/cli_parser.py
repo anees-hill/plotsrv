@@ -426,6 +426,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite the config file if it already exists",
     )
+    config_create_p.add_argument(
+        "--expanded",
+        action="store_true",
+        help="Include additional limits, storage, freshness, rendering, and security settings",
+    )
     config_populate_p = config_sub.add_parser(
         "populate",
         help="Populate config sections from discovered @view functions",

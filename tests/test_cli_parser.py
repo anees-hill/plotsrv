@@ -182,6 +182,7 @@ def test_cli_parses_config_create() -> None:
             "--config",
             "config/plotsrv.yml",
             "--force",
+            "--expanded",
         ]
     )
 
@@ -189,6 +190,7 @@ def test_cli_parses_config_create() -> None:
     assert args.config_cmd == "create"
     assert args.config == "config/plotsrv.yml"
     assert args.force is True
+    assert args.expanded is True
 
 
 def test_cli_parses_config_populate_freshness() -> None:

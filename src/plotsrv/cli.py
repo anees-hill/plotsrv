@@ -1162,6 +1162,7 @@ def main(argv: list[str] | None = None) -> int:
                 result = create_config_file(
                     getattr(args, "config", "plotsrv.yml"),
                     force=bool(getattr(args, "force", False)),
+                    expanded=bool(getattr(args, "expanded", False)),
                 )
             except FileExistsError as e:
                 print(f"plotsrv: error: {e}", file=sys.stderr)

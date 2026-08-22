@@ -12,87 +12,35 @@ Create a starter config with:
 plotsrv config create
 ```
 
+The default file is intentionally short and exposes the core settings:
+storage, watched-file materialisation, and async publishing. Storage is off by
+default. For the full set of common controls, use:
+
+```bash
+plotsrv config create --expanded
+```
+
 plotsrv still runs without a config file. Add config when you want stable limits, storage, freshness, rendering, or security behaviour across runs.
 
 ## Starter layout
 
-A current starter config looks like this:
+A compact starter config looks like this:
 
 ```yaml title="plotsrv.yaml"
-limits:
-  published_objects:
-    # Hard safety limits for objects sent to the plotsrv server.
-    max_plot_bytes: 5242880
-    max_table_rows: 100000
-    max_table_columns: 200
-    max_artifact_text_chars: 200000
-    max_json_container_items: 20000
-
-  watched_files:
-    # Maximum amount plotsrv reads from each watched file preview.
-    # Use "off" to allow full-file reads.
-    max_mb: 500
-
-  truncate_after:
-    # Preparation/display limits.
-    # These truncate what plotsrv prepares for display.
-    text: 1000000
-    markdown: 100000
-    html: off
-    table_rows: 100000
-    table_columns: 200
-
+# Storage is off by default. Enable it for latest restore and history.
 storage-settings:
   enabled: false
-  watch_enabled: false
-  root_dir: .plotsrv/store
-  latest:
-    enabled: true
-    restore_on_startup: true
-    restore_scope: discovered
-  max_snapshot_size_mb: 20.0
-  default_keep_last: 2
-  default_min_store_interval: off
 
 watch-settings:
-  # auto = file-backed when the watched file is at/above file_threshold_mb.
-  # memory = always publish watched-file content into memory.
-  # file = always keep watched files file-backed and preview from disk on demand.
   materialization: auto
-  file_threshold_mb: 10
-  active_loads:
-    max_concurrent: 2
-    wait_timeout_s: 1.0
 
 publish-settings:
   live:
-    # Synchronous by default; set true for bounded latest-wins publishing.
     async_enabled: false
-    max_pending_views: 32
-    max_pending_mb: 64
-    flush_timeout_s: 1.0
-
-freshness-settings:
-  enabled: false
-  expected_every: 60s
-  warn_after: 2m
-  overdue_after: 10m
-
-render-settings:
-  default:
-    plot_dpi: 200
-    plot_default_figsize_in: "12,6"
-    plot_bbox_tight: true
-    plot_pad_inches: 0.10
-    table_view_mode: rich
-    html_sanitize: false
-    markdown_sanitize: true
-    html_sandbox: ""
-    markdown_sandbox: ""
-
-security-settings:
-  tracebacks_enabled: false
 ```
+
+The `--expanded` form adds the common limits, storage retention, freshness,
+rendering, and security settings shown throughout this reference.
 
 ## `limits`
 

@@ -15,75 +15,27 @@ PopulateMode = Literal["merge", "replace"]
 
 
 DEFAULT_CONFIG_TEXT = """# plotsrv.yml
-#
-# Starter configuration for plotsrv.
-#
-# This file includes the most commonly adjusted options.
-# More options are available in the configuration reference:
-# https://docs.plotsrv.com/guides/configuration-reference
+# Core settings. plotsrv works without this file.
 
-limits:
-  published_objects:
-    # Hard safety limits for objects sent to the plotsrv server.
-    # If these are exceeded, the publish request is rejected with an actionable error.
-    max_plot_bytes: 5242880          # 5 MiB
-    max_table_rows: 100000
-    max_table_columns: 200
-    max_artifact_text_chars: 200000
-    max_json_container_items: 20000
+# Storage is off by default. Enable it for latest restore and history.
+storage-settings:
+  enabled: false
 
-  watched_files:
-    # Maximum amount plotsrv reads from each watched file.
-    # Use "off" to allow full-file reads, but this can use a lot of memory.
-    max_mb: 500
-
-  truncate_after:
-    # Preparation/display limits.
-    # These should truncate what plotsrv prepares for display, not reject the view.
-    text: 1000000
-    markdown: 100000
-    html: off
-    table_rows: 100000
-    table_columns: 200
-
+# How watched files are read: auto, memory, or file.
 watch-settings:
-  # Controls how watched files are represented internally.
-  # memory = read/coerce/publish watched files into memory.
-  # file   = keep file metadata and read preview slices on demand where supported.
-  # auto   = memory below file_threshold_mb, file-backed at/above it.
   materialization: auto
-  file_threshold_mb: 10
 
-  # Bound simultaneous on-demand file-backed preview loads. This protects the
-  # server when several browser clients open a large watched CSV at once.
-  active_loads:
-    max_concurrent: 2
-    wait_timeout_s: 1.0
-
+# Async publishing is off by default. Enable it for high-frequency updates.
 publish-settings:
   live:
-    # Keep existing synchronous behaviour by default. This setting applies to
-    # publish_view() and to active @view decorators when async_ is omitted.
-    #
-    # false:
-    #   publish_view() is synchronous unless async_=True is passed.
-    #
-    # true:
-    #   publish_view() uses the bounded background worker unless
-    #   async_=False is passed.
     async_enabled: false
+"""
 
-    # Maximum number of distinct destination/view updates retained while
-    # waiting to publish. Repeated updates to the same view are coalesced so
-    # that only the latest pending value is retained.
-    max_pending_views: 32
 
-    # Approximate maximum source-object memory retained by pending updates.
-    max_pending_mb: 64
+EXPANDED_CONFIG_TEXT = """# plotsrv.yml
+# Expanded starter settings. Edit the small set you need.
 
-    # Default bounded wait used by flush_views() and normal server shutdown.
-    flush_timeout_s: 1.0
-
+# Storage is off by default. Enable it for latest restore and history.
 storage-settings:
   enabled: false
   watch_enabled: false
@@ -92,14 +44,43 @@ storage-settings:
   default_keep_last: 2
   default_min_store_interval: off
   latest:
-    # Persist and restore the latest live view when storage is enabled.
     enabled: true
     restore_on_startup: true
     restore_scope: discovered
-
-  # Bound best-effort snapshot work waiting to be serialised.
   max_pending_tasks: 32
   max_pending_mb: 64
+
+watch-settings:
+  # auto uses file-backed reads at/above file_threshold_mb.
+  materialization: auto
+  file_threshold_mb: 10
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+
+publish-settings:
+  live:
+    # true enables bounded background publishing when async_ is omitted.
+    async_enabled: false
+    max_pending_views: 32
+    max_pending_mb: 64
+    flush_timeout_s: 1.0
+
+limits:
+  published_objects:
+    max_plot_bytes: 5242880
+    max_table_rows: 100000
+    max_table_columns: 200
+    max_artifact_text_chars: 200000
+    max_json_container_items: 20000
+  watched_files:
+    max_mb: 500
+  truncate_after:
+    text: 1000000
+    markdown: 100000
+    html: off
+    table_rows: 100000
+    table_columns: 200
 
 freshness-settings:
   enabled: false
@@ -143,14 +124,16 @@ class ConfigPopulateResult:
     replaced: bool
 
 
-def default_config_text() -> str:
-    return DEFAULT_CONFIG_TEXT
+def default_config_text(*, expanded: bool = False) -> str:
+    """Return the compact starter config, or its expanded variant."""
+    return EXPANDED_CONFIG_TEXT if expanded else DEFAULT_CONFIG_TEXT
 
 
 def create_config_file(
     path: str | Path,
     *,
     force: bool = False,
+    expanded: bool = False,
 ) -> ConfigCreateResult:
     p = Path(path).expanduser().resolve()
 
@@ -159,7 +142,7 @@ def create_config_file(
 
     existed = p.exists()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(DEFAULT_CONFIG_TEXT, encoding="utf-8")
+    p.write_text(default_config_text(expanded=expanded), encoding="utf-8")
 
     return ConfigCreateResult(
         path=p,
@@ -178,7 +161,9 @@ def _load_config_data(path: Path) -> tuple[dict[str, Any], bool]:
     y = _require_yaml()
 
     if not path.exists():
-        base = y.safe_load(DEFAULT_CONFIG_TEXT) or {}
+        # Population commands need the complete defaults so adding one
+        # per-view section does not drop unrelated safety settings.
+        base = y.safe_load(EXPANDED_CONFIG_TEXT) or {}
         if not isinstance(base, dict):
             base = {}
         return base, True
