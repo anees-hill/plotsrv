@@ -7,6 +7,7 @@ import pytest
 
 from plotsrv.runtime import (
     WatchPublishPayload,
+    build_watch_read_error_artifact,
     build_watch_publish_error_artifact,
     publish_prepared_watch_payload,
 )
@@ -25,13 +26,12 @@ def test_build_watch_publish_error_artifact_for_text_log(tmp_path: Path) -> None
         read_mode="head",
     )
 
-    assert "[plotsrv watch] publish failed" in msg
-    assert "RuntimeError: boom" in msg
-    assert str(p.resolve()) in msg
-    assert "section='watch', label='app'" in msg
-    assert "limits.watched_files.max_mb" in msg
-    assert "limits.truncate_after.text" in msg
-    assert "--watch-tail" in msg
+    assert "This watched view could not be updated." in msg
+    assert "RuntimeError" not in msg
+    assert "boom" not in msg
+    assert str(p.resolve()) not in msg
+    assert "section=" not in msg
+    assert "limits." not in msg
 
 
 def test_build_watch_publish_error_artifact_for_markdown(tmp_path: Path) -> None:
@@ -47,9 +47,9 @@ def test_build_watch_publish_error_artifact_for_markdown(tmp_path: Path) -> None
         read_mode="head",
     )
 
-    assert "bad response" in msg
-    assert "limits.watched_files.max_mb" in msg
-    assert "limits.truncate_after.markdown" in msg
+    assert "This watched view could not be updated." in msg
+    assert "bad response" not in msg
+    assert str(p.resolve()) not in msg
 
 
 def test_build_watch_publish_error_artifact_for_csv(tmp_path: Path) -> None:
@@ -65,10 +65,23 @@ def test_build_watch_publish_error_artifact_for_csv(tmp_path: Path) -> None:
         read_mode="tail",
     )
 
-    assert "limits.watched_files.max_mb" in msg
-    assert "limits.truncate_after.table_rows" in msg
-    assert "limits.truncate_after.table_columns" in msg
-    assert "--watch-tail" not in msg
+    assert "This watched view could not be updated." in msg
+    assert "bad response" not in msg
+    assert str(p.resolve()) not in msg
+
+
+def test_build_watch_read_error_artifact_does_not_expose_missing_path(
+    tmp_path: Path,
+) -> None:
+    p = tmp_path / "private.log"
+
+    msg = build_watch_read_error_artifact(
+        FileNotFoundError(2, "No such file or directory", str(p.resolve()))
+    )
+
+    assert "source file for this view is unavailable" in msg
+    assert "FileNotFoundError" not in msg
+    assert str(p.resolve()) not in msg
 
 
 def test_publish_prepared_watch_payload_falls_back_when_primary_returns_false(
@@ -112,8 +125,8 @@ def test_publish_prepared_watch_payload_falls_back_when_primary_returns_false(
     assert calls[1]["artifact_kind"] == "watch_error"
     assert calls[1]["force"] is True
     assert calls[1]["update_limit_s"] is None
-    assert "[plotsrv watch] publish failed" in str(calls[1]["artifact"])
-    assert "limits.truncate_after.text" in str(calls[1]["artifact"])
+    assert "This watched view could not be updated." in str(calls[1]["artifact"])
+    assert str(p.resolve()) not in str(calls[1]["artifact"])
 
 
 def test_publish_prepared_watch_payload_does_not_recursively_crash_if_fallback_fails(
@@ -186,4 +199,4 @@ def test_watch_publish_error_artifact_kind_is_non_truncated(
 
     assert ok is True
     assert calls[1]["artifact_kind"] == "watch_error"
-    assert "[plotsrv watch] publish failed" in str(calls[1]["artifact"])
+    assert "This watched view could not be updated." in str(calls[1]["artifact"])

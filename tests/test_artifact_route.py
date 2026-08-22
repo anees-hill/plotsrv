@@ -292,9 +292,11 @@ def test_artifact_route_file_backed_missing_file_returns_visible_watch_error(
     assert data["status_code"] == 404
     assert data["meta"]["error"] is True
     assert data["meta"]["file_backed"] is True
-    assert "file-backed artifact read failed" in data["html"]
-    assert "FileNotFoundError" in data["html"]
-    assert str(p.resolve()) in data["html"]
+    assert "Couldn’t update this view" in data["html"]
+    assert "source file for this view is unavailable" in data["html"]
+    assert "FileNotFoundError" not in data["html"]
+    assert str(p.resolve()) not in data["html"]
+    assert "path" not in data["meta"]
 
     status = store.get_status(view_id="logs:missing")
     assert status["last_error"]
@@ -373,5 +375,6 @@ def test_file_backed_artifact_error_is_not_truncated(
 
     assert data["kind"] == "watch_error"
     assert data["truncation"]["truncated"] is False
-    assert "Config keys to check" in data["html"]
-    assert "limits.watched_files.max_mb" in data["html"]
+    assert "ps-watch-error" in data["html"]
+    assert "source file for this view is unavailable" in data["html"]
+    assert str(p.resolve()) not in data["html"]

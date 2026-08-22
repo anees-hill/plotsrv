@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import threading
 import time
 import urllib.request
@@ -23,12 +24,48 @@ from .file_backed_loads import (
     get_file_backed_load_stats as get_file_backed_load_stats,
 )
 
+
+logger = logging.getLogger(__name__)
+
 WatchReadMode = Literal["head", "tail"]
 WatchKind = Literal["auto", "text", "json"]
 WatchMaterialization = Literal["memory", "file"]
 WatchMaterializationRequest = Literal["auto", "memory", "file"]
 
 _WATCH_MAX_BYTES_UNSET = object()
+
+
+def watched_file_user_error(error: BaseException | str | None = None) -> str:
+    """Return a short, safe explanation suitable for a browser user.
+
+    The underlying exception often contains an absolute server path. Keep that
+    detail in the process log rather than putting it in a watch artifact or the
+    status API, which is sent to every browser user.
+    """
+    if isinstance(error, FileNotFoundError):
+        return (
+            "The source file for this view is unavailable.\n\n"
+            "It may have been moved, renamed, or removed. Restore the file and "
+            "refresh the page."
+        )
+
+    if isinstance(error, PermissionError):
+        return (
+            "The source file for this view cannot be read.\n\n"
+            "Check that the file is available and that the PlotSrv service can "
+            "read it, then refresh the page."
+        )
+
+    return (
+        "This view could not read its source file.\n\n"
+        "Try refreshing the page. If the problem continues, contact the server "
+        "owner."
+    )
+
+
+def build_watch_read_error_artifact(error: BaseException | str | None = None) -> str:
+    """Build the browser-safe fallback used when a watched file cannot be read."""
+    return watched_file_user_error(error)
 
 
 @dataclass(frozen=True, slots=True)
@@ -568,7 +605,7 @@ def build_watched_file_meta(
         mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
     except Exception as e:
         if error is None:
-            error = f"{type(e).__name__}: {e}"
+            error = watched_file_user_error(e)
 
     return store.WatchedFileMeta(
         view_id=registered.view_id,
@@ -1514,38 +1551,10 @@ def build_watch_publish_error_artifact(
     This is intentionally plain text so it can render even when richer artifact
     rendering is the thing that failed.
     """
-    if isinstance(error, BaseException):
-        error_text = f"{type(error).__name__}: {error}"
-    else:
-        error_text = str(error)
-
-    file_text = (
-        str(Path(path).expanduser().resolve()) if path is not None else "unknown"
-    )
-    keys = get_watch_adjustment_keys(path=path, artifact_kind=artifact_kind)
-
-    key_lines = "\n".join(f"  - {key}" for key in keys)
-
-    tail_hint = ""
-    if read_mode != "tail":
-        tail_hint = (
-            "\n\n"
-            "For large logs or text files, prefer tail mode:\n"
-            "  plotsrv watch <file> --watch-tail\n"
-            "  plotsrv run <target> --watch <file> --watch-tail"
-        )
-
     return (
-        "[plotsrv watch] publish failed\n\n"
-        "What failed:\n"
-        f"  {error_text}\n\n"
-        "Watched file:\n"
-        f"  {file_text}\n\n"
-        "View:\n"
-        f"  section={section!r}, label={label!r}\n\n"
-        "Config keys to adjust:\n"
-        f"{key_lines}"
-        f"{tail_hint}"
+        "This watched view could not be updated.\n\n"
+        "The server did not accept the latest contents from its source file. "
+        "Try refreshing the page. If the problem continues, contact the server owner."
     )
 
 
@@ -1582,6 +1591,14 @@ def publish_prepared_watch_payload(
 
     if ok:
         return True
+
+    logger.warning(
+        "Unable to publish watched view (section=%r, label=%r, path=%s): %s",
+        section,
+        label,
+        path,
+        error,
+    )
 
     fallback = build_watch_publish_error_artifact(
         error=error,
@@ -1641,16 +1658,20 @@ def start_watch_threads(
             registered_view: RegisteredWatchView = registered,
         ) -> None:
             last_sig: tuple[int, int] | None = None
+            last_stat_error: str | None = None
+            last_read_error: str | None = None
 
             while True:
+                stat_error: BaseException | None = None
                 try:
                     st = pth.stat()
                     sig = (
                         int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
                         int(st.st_size),
                     )
-                except Exception:
+                except Exception as e:
                     sig = None
+                    stat_error = e
 
                 if sig is not None and sig == last_sig:
                     time.sleep(1.0)
@@ -1659,7 +1680,23 @@ def start_watch_threads(
                 last_sig = sig
 
                 if registered_view.materialization == "file":
-                    error = None if sig is not None else "Watched file stat failed"
+                    error = (
+                        None if stat_error is None else watched_file_user_error(stat_error)
+                    )
+                    stat_error_text = (
+                        None
+                        if stat_error is None
+                        else f"{type(stat_error).__name__}: {stat_error}"
+                    )
+                    if stat_error_text is not None and stat_error_text != last_stat_error:
+                        logger.warning(
+                            "Unable to stat file-backed watched view "
+                            "(view_id=%s, path=%s): %s",
+                            registered_view.view_id,
+                            pth,
+                            stat_error,
+                        )
+                    last_stat_error = stat_error_text
 
                     note_file_backed_watch_change(
                         registered=registered_view,
@@ -1670,14 +1707,25 @@ def start_watch_threads(
                     time.sleep(1.0)
                     continue
 
+                last_stat_error = None
+
                 try:
                     raw = read_watch_file_bytes(
                         pth,
                         read_mode=watch_read_mode,
                         max_bytes=watch_max_bytes,
-                        watch_config=watch_config,
-                    )
+                    watch_config=watch_config,
+                )
                 except Exception as e:
+                    read_error_text = f"{type(e).__name__}: {e}"
+                    if read_error_text != last_read_error:
+                        logger.warning(
+                            "Unable to read watched view (view_id=%s, path=%s): %s",
+                            registered_view.view_id,
+                            pth,
+                            e,
+                        )
+                    last_read_error = read_error_text
 
                     publish_watch_payload(
                         host=host,
@@ -1685,13 +1733,15 @@ def start_watch_threads(
                         label=view_label,
                         section=view_section,
                         kind="artifact",
-                        artifact=f"[plotsrv watch] read error: {type(e).__name__}: {e}",
+                        artifact=build_watch_read_error_artifact(e),
                         artifact_kind="watch_error",
                         update_limit_s=watch_config.update_limit_s,
                         force=watch_config.force,
                     )
                     time.sleep(1.0)
                     continue
+
+                last_read_error = None
 
                 payload = build_watch_publish_payload(
                     path=pth,

@@ -529,7 +529,9 @@ def test_build_watched_file_meta_records_stat_error(tmp_path: Path) -> None:
     assert meta.size_bytes is None
     assert meta.mtime_ns is None
     assert meta.last_error is not None
-    assert "FileNotFoundError" in meta.last_error
+    assert "source file for this view is unavailable" in meta.last_error
+    assert "FileNotFoundError" not in meta.last_error
+    assert str(p.resolve()) not in meta.last_error
 
 
 def test_coerce_watch_materialization_request_valid_values() -> None:

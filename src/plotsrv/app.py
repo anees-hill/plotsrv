@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import shutil
 import stat
 import time
@@ -47,7 +48,11 @@ from .runtime import (
     get_file_backed_load_stats,
     read_file_backed_artifact_preview,
     read_file_backed_csv_preview,
+    watched_file_user_error,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 def _build_app() -> FastAPI:
@@ -183,6 +188,25 @@ def _watched_file_source_meta(*, view_id: str) -> dict[str, str]:
     }
 
 
+def _public_watched_file_meta(meta: store.WatchedFileMeta) -> dict[str, Any]:
+    """Return watched-file metadata that is safe to send to browser clients.
+
+    The absolute source path and low-level read error belong in server logs. A
+    browser only needs the file kind and the limits that shape its preview.
+    """
+    return {
+        "file_kind": meta.file_kind,
+        "read_mode": meta.read_mode,
+        "encoding": meta.encoding,
+        "materialization": meta.materialization,
+        "size_bytes": meta.size_bytes,
+        "mtime_ns": meta.mtime_ns,
+        "max_bytes": meta.max_bytes,
+        "last_checked_at": meta.last_checked_at,
+        "last_read_at": meta.last_read_at,
+    }
+
+
 def _watched_file_media_type(meta: store.WatchedFileMeta) -> str:
     kind = meta.file_kind
     return {
@@ -276,9 +300,7 @@ def _render_file_backed_image_response(
         "meta": {
             "file_backed": True,
             "watch": True,
-            "materialization": meta.materialization,
-            "path": meta.path,
-            "file_kind": meta.file_kind,
+            **_public_watched_file_meta(meta),
             "source": "file_backed_stream",
             **_watched_file_source_meta(view_id=view_id),
         },
@@ -311,9 +333,7 @@ def _render_file_backed_html_stream_response(
         "meta": {
             "file_backed": True,
             "watch": True,
-            "materialization": meta.materialization,
-            "path": meta.path,
-            "file_kind": meta.file_kind,
+            **_public_watched_file_meta(meta),
             "mode": "file_backed_sandboxed_iframe",
             "sandbox": sandbox,
             "source": "file_backed_stream",
@@ -329,43 +349,14 @@ def _file_backed_error_text(
     view_id: str,
     meta: store.WatchedFileMeta | None,
 ) -> str:
-    if isinstance(error, BaseException):
-        error_text = f"{type(error).__name__}: {error}"
-    else:
-        error_text = str(error)
-
-    path = meta.path if meta is not None else "unknown"
-    file_kind = meta.file_kind if meta is not None else "unknown"
-    materialization = meta.materialization if meta is not None else "unknown"
-    read_mode = meta.read_mode if meta is not None else "unknown"
-    max_bytes = meta.max_bytes if meta is not None else None
-    last_error = meta.last_error if meta is not None else None
-
-    return (
-        f"[plotsrv watch] {title}\n"
-        "\n"
-        "What failed:\n"
-        f"  {error_text}\n"
-        "\n"
-        "View:\n"
-        f"  {view_id}\n"
-        "\n"
-        "Watched file:\n"
-        f"  {path}\n"
-        "\n"
-        "File-backed metadata:\n"
-        f"  file_kind={file_kind!r}\n"
-        f"  materialization={materialization!r}\n"
-        f"  read_mode={read_mode!r}\n"
-        f"  max_bytes={max_bytes!r}\n"
-        f"  last_error={last_error!r}\n"
-        "\n"
-        "Config keys to check:\n"
-        "  - limits.watched_files.max_mb\n"
-        "  - limits.truncate_after.text\n"
-        "  - limits.truncate_after.table_rows\n"
-        "  - limits.truncate_after.table_columns\n"
+    logger.warning(
+        "File-backed watched view failed (view_id=%s, path=%s, operation=%s): %s",
+        view_id,
+        None if meta is None else meta.path,
+        title,
+        error,
     )
+    return watched_file_user_error(error)
 
 
 def _render_file_backed_error_response(
@@ -398,15 +389,7 @@ def _render_file_backed_error_response(
             "watch": True,
             "error": True,
             "status_code": status_code,
-            "materialization": None if meta is None else meta.materialization,
-            "path": None if meta is None else meta.path,
-            "file_kind": None if meta is None else meta.file_kind,
-            "read_mode": None if meta is None else meta.read_mode,
-            "encoding": None if meta is None else meta.encoding,
-            "size_bytes": None if meta is None else meta.size_bytes,
-            "mtime_ns": None if meta is None else meta.mtime_ns,
-            "max_bytes": None if meta is None else meta.max_bytes,
-            "last_error": None if meta is None else meta.last_error,
+            **({} if meta is None else _public_watched_file_meta(meta)),
         },
     )
     out["status_code"] = status_code
@@ -477,14 +460,7 @@ def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
         meta={
             "file_backed": True,
             "watch": True,
-            "materialization": meta.materialization,
-            "path": meta.path,
-            "file_kind": meta.file_kind,
-            "read_mode": meta.read_mode,
-            "encoding": meta.encoding,
-            "size_bytes": meta.size_bytes,
-            "mtime_ns": meta.mtime_ns,
-            "max_bytes": meta.max_bytes,
+            **_public_watched_file_meta(meta),
             "preview_bytes": len(preview.raw),
             **_watched_file_source_meta(view_id=view_id),
         },
@@ -500,19 +476,7 @@ def _watched_file_meta_dict(view_id: str) -> dict[str, Any] | None:
     except LookupError:
         return None
 
-    return {
-        "path": meta.path,
-        "file_kind": meta.file_kind,
-        "read_mode": meta.read_mode,
-        "encoding": meta.encoding,
-        "materialization": meta.materialization,
-        "size_bytes": meta.size_bytes,
-        "mtime_ns": meta.mtime_ns,
-        "max_bytes": meta.max_bytes,
-        "last_checked_at": meta.last_checked_at,
-        "last_read_at": meta.last_read_at,
-        "last_error": meta.last_error,
-    }
+    return _public_watched_file_meta(meta)
 
 
 @app.get("/status")
@@ -729,15 +693,7 @@ def _file_backed_table_error_response(
             "error": True,
             "artifact_kind": "watch_error",
             "status_code": status_code,
-            "materialization": None if meta is None else meta.materialization,
-            "path": None if meta is None else meta.path,
-            "file_kind": None if meta is None else meta.file_kind,
-            "read_mode": None if meta is None else meta.read_mode,
-            "encoding": None if meta is None else meta.encoding,
-            "size_bytes": None if meta is None else meta.size_bytes,
-            "mtime_ns": None if meta is None else meta.mtime_ns,
-            "max_bytes": None if meta is None else meta.max_bytes,
-            "last_error": None if meta is None else meta.last_error,
+            **({} if meta is None else _public_watched_file_meta(meta)),
         },
     }
 
@@ -808,14 +764,7 @@ def _file_backed_csv_table_data_response(
     response_meta = {
         "file_backed": True,
         "watch": True,
-        "materialization": meta.materialization,
-        "path": meta.path,
-        "file_kind": meta.file_kind,
-        "read_mode": meta.read_mode,
-        "encoding": meta.encoding,
-        "size_bytes": meta.size_bytes,
-        "mtime_ns": meta.mtime_ns,
-        "max_bytes": meta.max_bytes,
+        **_public_watched_file_meta(meta),
         "preview_bytes": preview.preview_bytes,
         "source": preview.source,
         "total_columns": preview.total_columns,
