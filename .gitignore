@@ -39,3 +39,4 @@ ptop.toml
 plotsrv-final-release.toml
 ptop-manifest-results/
 .ptop/
+log_feat_testing/*
