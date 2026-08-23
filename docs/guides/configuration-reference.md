@@ -12,9 +12,10 @@ Create a starter config with:
 plotsrv config create
 ```
 
-The default file is intentionally short and exposes the core settings:
-storage, watched-file materialisation, and async publishing. Storage is off by
-default. For the full set of common controls, use:
+The default file is intentionally compact and exposes the main settings:
+storage, watched-file materialisation, async publishing, safety limits,
+freshness checks, and concise browser errors. Storage is off by default. For
+less commonly adjusted storage queue and rendering controls, use:
 
 ```bash
 plotsrv config create --expanded
@@ -30,17 +31,48 @@ A compact starter config looks like this:
 # Storage is off by default. Enable it for latest restore and history.
 storage-settings:
   enabled: false
+  watch_enabled: false
+  root_dir: .plotsrv/store
+  max_snapshot_size_mb: 20.0
+  default_keep_last: 2
+  default_min_store_interval: off
+  latest:
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
 
 watch-settings:
+  # auto = memory below file_threshold_mb, file-backed at or above it.
   materialization: auto
+  file_threshold_mb: 10
 
 publish-settings:
   live:
     async_enabled: false
+
+limits:
+  published_objects:
+    max_plot_bytes: 5242880
+    max_table_rows: 100000
+    max_table_columns: 200
+  watched_files:
+    max_mb: 500
+  truncate_after:
+    text: 1000000
+    markdown: 100000
+    html: off
+    table_rows: 100000
+    table_columns: 200
+
+freshness-settings:
+  enabled: false
+
+security-settings:
+  tracebacks_enabled: false
 ```
 
-The `--expanded` form adds the common limits, storage retention, freshness,
-rendering, and security settings shown throughout this reference.
+The `--expanded` form adds storage queue bounds and rendering settings shown
+throughout this reference.
 
 ## `limits`
 

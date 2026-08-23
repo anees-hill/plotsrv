@@ -15,27 +15,15 @@ PopulateMode = Literal["merge", "replace"]
 
 
 DEFAULT_CONFIG_TEXT = """# plotsrv.yml
-# Core settings. plotsrv works without this file.
+#
+# Starter configuration for plotsrv. plotsrv also works without this file.
+# Change the settings below when you need to tune persistence, watched files,
+# publishing, or the safety limits used for browser output.
+# More options are available in the configuration reference:
+# https://docs.plotsrv.com/guides/configuration-reference
 
-# Storage is off by default. Enable it for latest restore and history.
-storage-settings:
-  enabled: false
-
-# How watched files are read: auto, memory, or file.
-watch-settings:
-  materialization: auto
-
-# Async publishing is off by default. Enable it for high-frequency updates.
-publish-settings:
-  live:
-    async_enabled: false
-"""
-
-
-EXPANDED_CONFIG_TEXT = """# plotsrv.yml
-# Expanded starter settings. Edit the small set you need.
-
-# Storage is off by default. Enable it for latest restore and history.
+# Storage is off by default. Enable it to keep the latest views and history
+# on disk between runs.
 storage-settings:
   enabled: false
   watch_enabled: false
@@ -44,23 +32,116 @@ storage-settings:
   default_keep_last: 2
   default_min_store_interval: off
   latest:
+    # Restore the latest stored view when storage is enabled.
     enabled: true
     restore_on_startup: true
     restore_scope: discovered
-  max_pending_tasks: 32
-  max_pending_mb: 64
 
 watch-settings:
-  # auto uses file-backed reads at/above file_threshold_mb.
+  # Controls how watched files are represented internally:
+  # memory = read and publish the content into memory;
+  # file = keep metadata and read previews from disk on demand;
+  # auto = memory below file_threshold_mb, file-backed at or above it.
   materialization: auto
   file_threshold_mb: 10
+
+  # Bound simultaneous file-backed preview loads from browser requests.
   active_loads:
     max_concurrent: 2
     wait_timeout_s: 1.0
 
 publish-settings:
   live:
-    # true enables bounded background publishing when async_ is omitted.
+    # Synchronous by default. Set true to make publish_view() and @view()
+    # asynchronous when async_ is not supplied.
+    async_enabled: false
+
+    # Bounds for pending async updates. Repeated updates to one view coalesce
+    # so only its latest pending value is retained.
+    max_pending_views: 32
+    max_pending_mb: 64
+
+    # Default bounded wait used by flush_views() and server shutdown.
+    flush_timeout_s: 1.0
+
+limits:
+  published_objects:
+    # Hard safety limits for objects sent to the plotsrv server.
+    max_plot_bytes: 5242880          # 5 MiB
+    max_table_rows: 100000
+    max_table_columns: 200
+    max_artifact_text_chars: 200000
+    max_json_container_items: 20000
+
+  watched_files:
+    # Maximum amount plotsrv reads from each watched file.
+    # Use "off" to allow full-file reads, but this can use a lot of memory.
+    max_mb: 500
+
+  truncate_after:
+    # Preparation/display limits. These truncate browser output rather than
+    # rejecting the view.
+    text: 1000000
+    markdown: 100000
+    html: off
+    table_rows: 100000
+    table_columns: 200
+
+freshness-settings:
+  # Optional checks for views that are expected to update regularly.
+  enabled: false
+  expected_every: 60s
+  warn_after: 2m
+  overdue_after: 10m
+
+security-settings:
+  # Keep browser-facing errors concise. Enable tracebacks only for trusted use.
+  tracebacks_enabled: false
+"""
+
+
+EXPANDED_CONFIG_TEXT = """# plotsrv.yml
+#
+# Expanded starter configuration. It includes the less commonly adjusted
+# storage queue and rendering controls as well as the normal starter settings.
+# Remove sections you do not need; plotsrv works without this file.
+
+# Storage is off by default. Enable it to keep the latest views and history
+# on disk between runs.
+storage-settings:
+  enabled: false
+  watch_enabled: false
+  root_dir: .plotsrv/store
+  max_snapshot_size_mb: 20.0
+  default_keep_last: 2
+  default_min_store_interval: off
+  latest:
+    # Restore the latest stored view when storage is enabled.
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
+
+  # Bounds for best-effort snapshot work waiting to be serialised.
+  max_pending_tasks: 32
+  max_pending_mb: 64
+
+watch-settings:
+  # Controls how watched files are represented internally:
+  # memory = read and publish the content into memory;
+  # file = keep metadata and read previews from disk on demand;
+  # auto = memory below file_threshold_mb, file-backed at or above it.
+  materialization: auto
+  file_threshold_mb: 10
+
+  # Bound simultaneous file-backed preview loads from browser requests.
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+
+publish-settings:
+  live:
+    # Synchronous by default. Set true to make publish_view() and @view()
+    # asynchronous when async_ is not supplied.
     async_enabled: false
     max_pending_views: 32
     max_pending_mb: 64
@@ -68,7 +149,8 @@ publish-settings:
 
 limits:
   published_objects:
-    max_plot_bytes: 5242880
+    # Hard safety limits for objects sent to the plotsrv server.
+    max_plot_bytes: 5242880          # 5 MiB
     max_table_rows: 100000
     max_table_columns: 200
     max_artifact_text_chars: 200000
@@ -90,6 +172,7 @@ freshness-settings:
 
 render-settings:
   default:
+    # Renderer defaults. Change these only when you need different output.
     plot_dpi: 200
     plot_default_figsize_in: "12,6"
     plot_bbox_tight: true
@@ -101,6 +184,7 @@ render-settings:
     markdown_sandbox: ""
 
 security-settings:
+  # Keep browser-facing errors concise. Enable tracebacks only for trusted use.
   tracebacks_enabled: false
 """
 

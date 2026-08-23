@@ -363,17 +363,32 @@ def test_run_store_clear_view_yes(monkeypatch: pytest.MonkeyPatch, capsys) -> No
     assert "2 snapshots" in out
 
 
-def test_default_config_text_is_compact_and_keeps_core_settings() -> None:
+def test_default_config_text_is_compact_but_keeps_useful_settings() -> None:
     from plotsrv.config_writer import default_config_text
 
     text = default_config_text()
     data = yaml.safe_load(text)
 
-    assert list(data) == ["storage-settings", "watch-settings", "publish-settings"]
-    assert data["storage-settings"] == {"enabled": False}
-    assert data["watch-settings"] == {"materialization": "auto"}
-    assert data["publish-settings"] == {"live": {"async_enabled": False}}
-    assert len(text.splitlines()) < 20
+    assert list(data) == [
+        "storage-settings",
+        "watch-settings",
+        "publish-settings",
+        "limits",
+        "freshness-settings",
+        "security-settings",
+    ]
+    assert data["storage-settings"]["enabled"] is False
+    assert data["storage-settings"]["root_dir"] == ".plotsrv/store"
+    assert data["storage-settings"]["latest"]["restore_on_startup"] is True
+    assert data["watch-settings"]["materialization"] == "auto"
+    assert data["watch-settings"]["file_threshold_mb"] == 10
+    assert data["publish-settings"]["live"]["async_enabled"] is False
+    assert data["publish-settings"]["live"]["max_pending_views"] == 32
+    assert data["limits"]["watched_files"]["max_mb"] == 500
+    assert data["freshness-settings"]["enabled"] is False
+    assert data["security-settings"]["tracebacks_enabled"] is False
+    # Keep the starter useful without returning to the full reference dump.
+    assert 75 <= len(text.splitlines()) < 100
 
 
 def test_expanded_config_text_includes_useful_controls() -> None:
@@ -408,6 +423,7 @@ def test_default_config_text_no_longer_emits_legacy_sections() -> None:
     assert "max_bytes:" not in text
     assert "  render:" not in text
     assert "  tables:" not in text
+    assert "render-settings:" not in text
 
 
 def test_default_config_text_parses_as_yaml() -> None:
@@ -474,7 +490,14 @@ def test_create_config_file_writes_new_layout(tmp_path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
 
-    assert list(data) == ["storage-settings", "watch-settings", "publish-settings"]
+    assert list(data) == [
+        "storage-settings",
+        "watch-settings",
+        "publish-settings",
+        "limits",
+        "freshness-settings",
+        "security-settings",
+    ]
     assert data["storage-settings"]["enabled"] is False
     assert data["watch-settings"]["materialization"] == "auto"
     assert data["publish-settings"]["live"]["async_enabled"] is False
@@ -482,6 +505,7 @@ def test_create_config_file_writes_new_layout(tmp_path: Path) -> None:
     assert "publish-limits" not in data
     assert "table-settings" not in data
     assert "artifact-render-settings" not in data
+    assert "render-settings" not in data
 
 
 def test_create_config_file_expanded_writes_extra_settings(tmp_path: Path) -> None:

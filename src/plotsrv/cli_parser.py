@@ -429,7 +429,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_create_p.add_argument(
         "--expanded",
         action="store_true",
-        help="Include additional limits, storage, freshness, rendering, and security settings",
+        help="Include less-common storage queue and rendering settings",
     )
     config_populate_p = config_sub.add_parser(
         "populate",
