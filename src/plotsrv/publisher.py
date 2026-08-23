@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import atexit
 import json
 import math
 import os
@@ -22,6 +23,26 @@ from .publishing.models import PublishTarget, PublishTask
 from .publishing.worker import flush_publish_views, get_publish_worker
 
 PublishMode = Literal["auto", "local", "remote"]
+
+
+def _flush_async_views_at_process_exit() -> None:
+    """Give accepted live-view publishes their configured final flush window.
+
+    PublishWorker is a daemon so an ordinary one-shot Python script would
+    otherwise exit immediately and abandon every task still waiting in it.
+    This is intentionally best-effort and bounded by the existing live publish
+    flush timeout; callers that need a specific guarantee can still call
+    ``flush_views(timeout=...)`` explicitly.
+    """
+    try:
+        flush_publish_views(timeout=config.get_publish_flush_timeout_s())
+    except Exception:
+        # Interpreter shutdown can partially tear down optional dependencies.
+        # Never turn a successful user script into a shutdown exception.
+        return
+
+
+atexit.register(_flush_async_views_at_process_exit)
 
 try:  # pragma: no cover
     import polars as pl  # type: ignore
@@ -712,7 +733,20 @@ def _estimate_publish_task_bytes(obj: Any) -> int:
 
     if isinstance(obj, pd.DataFrame):
         try:
-            return max(1, int(obj.memory_usage(index=True, deep=True).sum()))
+            # This runs on the caller's thread before the task is admitted.
+            # ``deep=True`` walks every object/string value and makes a high
+            # frequency async publish unexpectedly synchronous.  A structural
+            # estimate plus a conservative variable-width allowance preserves
+            # bounded-queue admission without scanning payload contents.
+            shallow = int(obj.memory_usage(index=True, deep=False).sum())
+            variable_columns = sum(
+                1
+                for dtype in obj.dtypes
+                if pd.api.types.is_object_dtype(dtype)
+                or pd.api.types.is_string_dtype(dtype)
+            )
+            allowance = len(obj) * variable_columns * 256
+            return max(1, shallow + allowance)
         except Exception:
             return max(1, int(sys.getsizeof(obj)))
 

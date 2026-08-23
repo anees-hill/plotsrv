@@ -243,7 +243,7 @@ def test_file_backed_load_controller_returns_503_when_all_slots_busy(
     release = threading.Event()
     real_preview = read_file_backed_csv_preview
 
-    def blocked_preview(meta):
+    def blocked_preview(meta, **kwargs):
         started.set()
         assert release.wait(timeout=2.0)
         return real_preview(meta)
@@ -272,3 +272,23 @@ def test_file_backed_load_slot_is_bounded_without_retaining_payloads(
         with pytest.raises(FileBackedLoadBusyError):
             with file_backed_load_slot():
                 pass
+
+
+def test_file_backed_csv_route_does_not_access_legacy_dataframe_preview(
+    client: TestClient,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "data.csv"
+    path.write_text("a,b\n1,one\n2,two\n", encoding="utf-8")
+    view_id = _register_file_watch(path, monkeypatch=monkeypatch)
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.FileBackedTablePreview.table_df",
+        property(lambda _self: (_ for _ in ()).throw(AssertionError("legacy DataFrame"))),
+    )
+
+    response = client.get(f"/table/data?view={view_id}&limit=1")
+
+    assert response.status_code == 200
+    assert response.json()["rows"] == [{"a": 1, "b": "one"}]

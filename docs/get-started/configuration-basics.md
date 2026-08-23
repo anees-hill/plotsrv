@@ -24,7 +24,16 @@ To create a starter config:
 plotsrv config create
 ```
 
-This creates a plotsrv config file in the current directory.
+This creates a compact starter config with the settings most projects care
+about: storage, watched-file materialisation, async publishing, safety limits,
+freshness checks, and concise browser errors. Storage is off by default.
+
+For a config that also includes the less commonly adjusted storage queue and
+rendering controls, use:
+
+```bash
+plotsrv config create --expanded
+```
 
 The starter config is written from plotsrv’s built-in config template.
 

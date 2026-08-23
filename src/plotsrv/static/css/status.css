@@ -27,7 +27,15 @@
 }
 
 .ps-statusline__error {
-  white-space: nowrap;
+  flex-basis: 100%;
+  margin-top: 0.3rem;
+  color: #792424;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.ps-statusline__error[hidden] {
+  display: none !important;
 }
 
 .ps-footer-inline .ps-note,
@@ -66,6 +74,10 @@
 }
 
 .ps-statusline__main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 0.35rem;
   min-width: 0;
 }
 

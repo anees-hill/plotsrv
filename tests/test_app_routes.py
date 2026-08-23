@@ -104,7 +104,7 @@ def test_index_table_simple_embeds_table_html(client: TestClient) -> None:
 
     # Don't look for "table-grid" substring
     assert 'id="table-grid"' not in text
-    assert "tabulator-tables" not in text
+    assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" not in text
 
 
 def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
@@ -114,7 +114,7 @@ def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
     resp = client.get("/")
     text = resp.text
     assert 'id="table-grid"' in text
-    assert "tabulator-tables" in text
+    assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" in text
 
 
 def test_status_includes_service_fields(client: TestClient) -> None:
@@ -129,6 +129,24 @@ def test_status_includes_service_fields(client: TestClient) -> None:
     assert "service_mode" in data
     assert "service_target" in data
     assert "service_refresh_rate_s" in data
+
+
+def test_status_includes_current_view_menu_revision(client: TestClient) -> None:
+    store.register_view(section="demo", label="summary", kind="artifact")
+
+    resp = client.get("/status")
+
+    assert resp.status_code == 200
+    assert resp.json()["view_menu_revision"] == store.get_view_menu_revision()
+
+
+def test_index_seeds_current_view_menu_revision(client: TestClient) -> None:
+    store.register_view(section="demo", label="summary", kind="artifact")
+
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert f'"view_menu_revision": {store.get_view_menu_revision()}' in resp.text
 
 
 def test_status_includes_file_backed_watch_metadata(
@@ -168,7 +186,8 @@ def test_status_includes_file_backed_watch_metadata(
 
     watched = data["watched_file"]
     assert watched["materialization"] == "file"
-    assert watched["path"] == str(p.resolve())
+    assert "path" not in watched
+    assert "last_error" not in watched
     assert watched["file_kind"] == "unknown"
     assert watched["read_mode"] == "tail"
     assert watched["encoding"] == "utf-8"
@@ -234,7 +253,7 @@ def test_views_include_file_backed_watch_metadata(
     assert item["is_watched_file"] is True
     assert item["materialization"] == "file"
     assert item["watched_file"]["materialization"] == "file"
-    assert item["watched_file"]["path"] == str(p.resolve())
+    assert "path" not in item["watched_file"]
     assert item["watched_file"]["read_mode"] == "tail"
     assert item["watched_file"]["size_bytes"] == len("hello\n".encode("utf-8"))
 
@@ -275,7 +294,7 @@ def test_views_include_memory_backed_watch_metadata(
     assert item["is_watched_file"] is True
     assert item["materialization"] == "memory"
     assert item["watched_file"]["materialization"] == "memory"
-    assert item["watched_file"]["path"] == str(p.resolve())
+    assert "path" not in item["watched_file"]
 
 
 def _mk_view(section: str = "default", label: str = "titanic") -> str:
@@ -840,7 +859,7 @@ def test_table_data_serves_file_backed_csv_watch(
     assert meta["watch"] is True
     assert meta["materialization"] == "file"
     assert meta["file_kind"] == "csv"
-    assert meta["path"] == str(p.resolve())
+    assert "path" not in meta
     assert meta["source"] == "file_backed_csv"
     assert meta["truncated"] is False
 
@@ -887,7 +906,9 @@ def test_table_data_file_backed_csv_respects_query_limit(
     ]
     assert data["total_rows"] is None
     assert data["total_rows_known"] is False
-    assert data["loaded_rows"] == 3
+    # The request limit is applied while reading the file-backed source,
+    # rather than after constructing a larger in-memory preview.
+    assert data["loaded_rows"] == 2
     assert data["returned_rows"] == 2
     assert data["meta"]["file_backed"] is True
 
@@ -1013,9 +1034,10 @@ def test_table_data_file_backed_csv_missing_file_returns_visible_error_row(
     assert data["meta"]["status_code"] == 404
 
     error_text = data["rows"][0]["plotsrv_error"]
-    assert "file-backed CSV read failed" in error_text
-    assert "FileNotFoundError" in error_text
-    assert str(p.resolve()) in error_text
+    assert "source file for this view is unavailable" in error_text
+    assert "FileNotFoundError" not in error_text
+    assert str(p.resolve()) not in error_text
+    assert "path" not in data["meta"]
 
     status = store.get_status(view_id="watch:missing")
     assert status["last_error"]
@@ -1195,10 +1217,9 @@ def test_file_backed_csv_error_row_contains_full_actionable_message(
     data = resp.json()
 
     error_text = data["rows"][0]["plotsrv_error"]
-    assert "Config keys to check" in error_text
-    assert "limits.watched_files.max_mb" in error_text
-    assert "limits.truncate_after.table_rows" in error_text
-    assert "limits.truncate_after.table_columns" in error_text
+    assert "source file for this view is unavailable" in error_text
+    assert str(p.resolve()) not in error_text
+    assert "limits." not in error_text
 
 
 def test_views_file_backed_csv_watch_uses_table_icon(

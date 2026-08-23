@@ -58,6 +58,7 @@ class ViewState:
     table_returned_rows: int | None = None
     artifact: Artifact | None = None
     watched_file: WatchedFileMeta | None = None
+    render_revision: int = 0
 
     # publish throttling
     last_publish_at: float | None = None  # epoch seconds
@@ -166,6 +167,16 @@ _SERVICE_STOP_HOOK: Callable[[], None] | None = None
 # helpers to call one another without changing their shape.
 _STORE_LOCK = threading.RLock()
 
+# Rendered HTML is cached by this state token rather than by payload identity.
+# A process-wide monotonic counter keeps a reset-and-republish cycle from ever
+# reusing an earlier view revision.
+_RENDER_REVISION_COUNTER = 0
+
+# The browser receives a complete view-selector snapshot in its initial page.
+# It only needs to request that comparatively large payload again when a menu
+# entry changes, rather than for every published value in an existing view.
+_VIEW_MENU_REVISION = 0
+
 
 # Helpers
 
@@ -183,6 +194,17 @@ def _ensure_view(view_id: str) -> ViewState:
     if view_id not in _VIEWS:
         _VIEWS[view_id] = ViewState()
     return _VIEWS[view_id]
+
+
+def _touch_render_revision(st: ViewState) -> None:
+    global _RENDER_REVISION_COUNTER
+    _RENDER_REVISION_COUNTER += 1
+    st.render_revision = _RENDER_REVISION_COUNTER
+
+
+def _touch_view_menu_revision() -> None:
+    global _VIEW_MENU_REVISION
+    _VIEW_MENU_REVISION += 1
 
 
 def normalize_view_id(
@@ -224,23 +246,21 @@ def register_view(
     if icon_key is not None:
         st.icon_key = icon_key
 
-    meta = _VIEW_META.get(vid)
-    if meta is None:
-        _VIEW_META[vid] = ViewMeta(
-            view_id=vid,
-            kind=st.kind,
-            label=(label or vid),
-            section=section,
-            icon_key=st.icon_key,
-        )
-    else:
-        _VIEW_META[vid] = ViewMeta(
-            view_id=vid,
-            kind=st.kind,
-            label=(label or meta.label),
-            section=(section if section is not None else meta.section),
-            icon_key=st.icon_key,
-        )
+    previous_meta = _VIEW_META.get(vid)
+    next_meta = ViewMeta(
+        view_id=vid,
+        kind=st.kind,
+        label=label or (previous_meta.label if previous_meta else vid),
+        section=(
+            section
+            if section is not None
+            else (previous_meta.section if previous_meta else None)
+        ),
+        icon_key=st.icon_key,
+    )
+    _VIEW_META[vid] = next_meta
+    if next_meta != previous_meta:
+        _touch_view_menu_revision()
 
     global _ACTIVE_VIEW_ID
     if (
@@ -312,9 +332,19 @@ def get_active_view_id() -> str:
     return _ACTIVE_VIEW_ID
 
 
+def get_view_menu_revision() -> int:
+    """Return the change token for browser view-selector metadata."""
+    return _VIEW_MENU_REVISION
+
+
 def get_view_state(view_id: str | None = None) -> ViewState:
     vid = view_id or _ACTIVE_VIEW_ID
     return _ensure_view(vid)
+
+
+def get_render_revision(*, view_id: str | None = None) -> int:
+    """Return the display-state revision used by the rendered-artifact cache."""
+    return get_view_state(view_id).render_revision
 
 
 # Watched-file metadata API
@@ -329,19 +359,23 @@ def set_watched_file_meta(meta: WatchedFileMeta) -> None:
     """
     st = get_view_state(meta.view_id)
     st.watched_file = meta
+    _touch_render_revision(st)
 
     if st.icon_key == "unknown":
         st.icon_key = _icon_for_watched_file_kind(meta.file_kind)
 
     if meta.view_id in _VIEW_META:
         existing = _VIEW_META[meta.view_id]
-        _VIEW_META[meta.view_id] = ViewMeta(
+        next_meta = ViewMeta(
             view_id=existing.view_id,
             kind=existing.kind,
             label=existing.label,
             section=existing.section,
             icon_key=st.icon_key,
         )
+        _VIEW_META[meta.view_id] = next_meta
+        if next_meta != existing:
+            _touch_view_menu_revision()
 
 
 def has_watched_file_meta(*, view_id: str | None = None) -> bool:
@@ -359,6 +393,7 @@ def get_watched_file_meta(*, view_id: str | None = None) -> WatchedFileMeta:
 def clear_watched_file_meta(*, view_id: str | None = None) -> None:
     st = get_view_state(view_id)
     st.watched_file = None
+    _touch_render_revision(st)
 
 
 # Backwards-compatible single-view API (uses active view)
@@ -392,6 +427,7 @@ def set_plot(
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
+    _touch_render_revision(st)
 
     register_view(
         view_id=vid, kind="plot", icon_key=st.icon_key, activate_if_first=False
@@ -441,6 +477,7 @@ def set_table(
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
+    _touch_render_revision(st)
 
     register_view(
         view_id=vid, kind="table", icon_key=st.icon_key, activate_if_first=False
@@ -476,6 +513,7 @@ def set_artifact(
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
+    _touch_render_revision(st)
 
     register_view(
         view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
@@ -809,7 +847,9 @@ for _store_api_name in (
     "list_views",
     "set_active_view",
     "get_active_view_id",
+    "get_view_menu_revision",
     "get_view_state",
+    "get_render_revision",
     "set_watched_file_meta",
     "has_watched_file_meta",
     "get_watched_file_meta",

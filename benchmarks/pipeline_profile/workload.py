@@ -216,6 +216,10 @@ def run_workload(
                 )
 
             should_publish = (iteration + 1) % spec.publish_every == 0
+            if spec.distinct_view_ids:
+                for item in items:
+                    item.view_id = f"{item.view_id}-iteration-{iteration + 1}"
+                    item.label = f"{item.label} iteration {iteration + 1}"
             for item in items:
                 started = time.perf_counter()
                 event(

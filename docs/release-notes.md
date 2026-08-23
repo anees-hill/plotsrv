@@ -1,5 +1,27 @@
 # Release notes
 
+## v0.6.0
+
+v0.6.0 makes replaceable live publishing bounded and inspectable.
+
+* added `async_=True` to `publish_view()` and `@view(...)` for attached and remote live publishing
+* added a bounded latest-wins `PublishWorker`, with count and estimated-byte budgets
+* added `flush_views()` and short publish-worker flushing during `stop_server()`
+* exposed publish and storage queue counters through `/status`
+* guarded the global in-memory view store against concurrent request/worker mutation
+* bounded queued storage work by task count and estimated retained bytes
+
+## v0.5.1
+
+v0.5.1 refines resource-safe watched-file serving and its defaults.
+
+* file-backed CSV previews parse bounded rows and columns incrementally, avoiding unnecessary full-file scans and duplicate in-memory representations
+* generated configuration now exposes watched-file materialization, uses a 10 MB automatic file-backing threshold, and enables latest-state persistence when storage is enabled
+* generated configuration documents bounded async live-publish settings; synchronous publishing remains the compatibility default
+* added repeatable release-gate benchmark coverage for watched-file settling, overload recovery, and publish-queue behaviour
+* browser auto-refresh now coordinates requests, pauses in background tabs, and only reloads view-selector metadata when it changes
+* browser assets are fingerprinted, packaged locally, and no longer require a runtime CDN; stable CLI, HTTP, watch-admission, and object-coercion concerns now have explicit module boundaries
+
 ## v0.5.0
 
 v0.5.0 is a perf-based update introducing bounded async live publishing and file-backed watched-file serving.

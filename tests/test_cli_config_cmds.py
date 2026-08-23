@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 from pathlib import Path
+from types import SimpleNamespace
 import yaml
 
 import pytest
@@ -362,39 +363,49 @@ def test_run_store_clear_view_yes(monkeypatch: pytest.MonkeyPatch, capsys) -> No
     assert "2 snapshots" in out
 
 
-def test_default_config_text_uses_new_config_layout() -> None:
+def test_default_config_text_is_compact_but_keeps_useful_settings() -> None:
     from plotsrv.config_writer import default_config_text
 
     text = default_config_text()
+    data = yaml.safe_load(text)
 
-    assert "limits:" in text
-    assert "published_objects:" in text
-    assert "watched_files:" in text
-    assert "max_mb: 500" in text
-    assert "truncate_after:" in text
-    assert "table_rows: 100000" in text
-    assert "table_columns: 200" in text
+    assert list(data) == [
+        "storage-settings",
+        "watch-settings",
+        "publish-settings",
+        "limits",
+        "freshness-settings",
+        "security-settings",
+    ]
+    assert data["storage-settings"]["enabled"] is False
+    assert data["storage-settings"]["root_dir"] == ".plotsrv/store"
+    assert data["storage-settings"]["latest"]["restore_on_startup"] is True
+    assert data["watch-settings"]["materialization"] == "auto"
+    assert data["watch-settings"]["file_threshold_mb"] == 10
+    assert data["publish-settings"]["live"]["async_enabled"] is False
+    assert data["publish-settings"]["live"]["max_pending_views"] == 32
+    assert data["limits"]["watched_files"]["max_mb"] == 500
+    assert data["freshness-settings"]["enabled"] is False
+    assert data["security-settings"]["tracebacks_enabled"] is False
+    # Keep the starter useful without returning to the full reference dump.
+    assert 75 <= len(text.splitlines()) < 100
 
-    assert "render-settings:" in text
-    assert "default:" in text
-    assert "table_view_mode: rich" in text
-    assert "html_sanitize: false" in text
-    assert "markdown_sanitize: true" in text
 
-    assert "watch-settings:" in text
-    assert "materialization: auto" in text
-    assert "file_threshold_mb: 20" in text
-    assert "active_loads:" in text
-    assert "max_concurrent: 2" in text
-    assert "wait_timeout_s: 1.0" in text
+def test_expanded_config_text_includes_useful_controls() -> None:
+    from plotsrv.config_writer import default_config_text
 
-    assert "storage-settings:" in text
-    assert "watch_enabled: false" in text
-    assert "freshness-settings:" in text
-    assert "security-settings:" in text
-    assert "tracebacks_enabled: false" in text
+    text = default_config_text(expanded=True)
+    data = yaml.safe_load(text)
 
-    assert "configuration-reference" in text
+    assert "limits" in data
+    assert data["storage-settings"]["enabled"] is False
+    assert data["watch-settings"]["materialization"] == "auto"
+    assert data["watch-settings"]["file_threshold_mb"] == 10
+    assert data["publish-settings"]["live"]["async_enabled"] is False
+    assert data["publish-settings"]["live"]["max_pending_views"] == 32
+    assert data["freshness-settings"]["enabled"] is False
+    assert data["render-settings"]["default"]["table_view_mode"] == "rich"
+    assert data["security-settings"]["tracebacks_enabled"] is False
 
 
 def test_default_config_text_no_longer_emits_legacy_sections() -> None:
@@ -412,12 +423,13 @@ def test_default_config_text_no_longer_emits_legacy_sections() -> None:
     assert "max_bytes:" not in text
     assert "  render:" not in text
     assert "  tables:" not in text
+    assert "render-settings:" not in text
 
 
 def test_default_config_text_parses_as_yaml() -> None:
     from plotsrv.config_writer import default_config_text
 
-    data = yaml.safe_load(default_config_text())
+    data = yaml.safe_load(default_config_text(expanded=True))
 
     assert isinstance(data, dict)
 
@@ -438,14 +450,23 @@ def test_default_config_text_parses_as_yaml() -> None:
     assert data["render-settings"]["default"]["markdown_sanitize"] is True
 
     assert data["watch-settings"]["materialization"] == "auto"
-    assert data["watch-settings"]["file_threshold_mb"] == 20
+    assert data["watch-settings"]["file_threshold_mb"] == 10
     assert data["watch-settings"]["active_loads"] == {
         "max_concurrent": 2,
         "wait_timeout_s": 1.0,
     }
 
+    assert data["publish-settings"]["live"] == {
+        "async_enabled": False,
+        "max_pending_views": 32,
+        "max_pending_mb": 64,
+        "flush_timeout_s": 1.0,
+    }
+
     assert data["storage-settings"]["enabled"] is False
     assert data["storage-settings"]["watch_enabled"] is False
+    assert data["storage-settings"]["default_keep_last"] == 2
+    assert data["storage-settings"]["latest"]["enabled"] is True
 
     assert data["freshness-settings"]["enabled"] is False
     assert data["freshness-settings"]["expected_every"] == "60s"
@@ -469,21 +490,66 @@ def test_create_config_file_writes_new_layout(tmp_path: Path) -> None:
     text = path.read_text(encoding="utf-8")
     data = yaml.safe_load(text)
 
-    assert "limits" in data
-    assert "published_objects" in data["limits"]
-    assert "watched_files" in data["limits"]
-    assert "truncate_after" in data["limits"]
-
-    assert "watch-settings" in data
+    assert list(data) == [
+        "storage-settings",
+        "watch-settings",
+        "publish-settings",
+        "limits",
+        "freshness-settings",
+        "security-settings",
+    ]
+    assert data["storage-settings"]["enabled"] is False
     assert data["watch-settings"]["materialization"] == "auto"
-    assert data["watch-settings"]["file_threshold_mb"] == 20
+    assert data["publish-settings"]["live"]["async_enabled"] is False
 
     assert "publish-limits" not in data
     assert "table-settings" not in data
     assert "artifact-render-settings" not in data
+    assert "render-settings" not in data
 
+
+def test_create_config_file_expanded_writes_extra_settings(tmp_path: Path) -> None:
+    from plotsrv.config_writer import create_config_file
+
+    path = tmp_path / "plotsrv.yml"
+
+    create_config_file(path, expanded=True)
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    assert "limits" in data
     assert data["limits"]["watched_files"]["max_mb"] == 500
     assert data["render-settings"]["default"]["table_view_mode"] == "rich"
+
+
+def test_main_config_create_passes_expanded_flag(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: dict[str, Any] = {}
+
+    def fake_create(path: str, *, force: bool, expanded: bool) -> Any:
+        calls.update(path=path, force=force, expanded=expanded)
+        return SimpleNamespace(path=tmp_path / "plotsrv.yml", overwritten=False)
+
+    monkeypatch.setattr(cli_mod, "create_config_file", fake_create)
+    monkeypatch.setattr(cli_mod, "apply_runtime_options", lambda **kwargs: None)
+
+    rc = cli_mod.main(
+        [
+            "config",
+            "create",
+            "--config",
+            str(tmp_path / "plotsrv.yml"),
+            "--expanded",
+        ]
+    )
+
+    assert rc == 0
+    assert calls == {
+        "path": str(tmp_path / "plotsrv.yml"),
+        "force": False,
+        "expanded": True,
+    }
 
 
 def test_populate_limits_writes_new_schema(

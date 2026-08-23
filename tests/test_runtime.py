@@ -529,7 +529,9 @@ def test_build_watched_file_meta_records_stat_error(tmp_path: Path) -> None:
     assert meta.size_bytes is None
     assert meta.mtime_ns is None
     assert meta.last_error is not None
-    assert "FileNotFoundError" in meta.last_error
+    assert "source file for this view is unavailable" in meta.last_error
+    assert "FileNotFoundError" not in meta.last_error
+    assert str(p.resolve()) not in meta.last_error
 
 
 def test_coerce_watch_materialization_request_valid_values() -> None:
@@ -1243,6 +1245,42 @@ def test_read_file_backed_csv_preview_records_column_truncation(
     assert out.returned_columns == 2
     assert list(out.table_df.columns) == ["a", "b"]
     assert out.truncated is True
+
+
+def test_read_file_backed_csv_preview_preserves_column_numeric_types(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    p = tmp_path / "typed.csv"
+    p.write_text(
+        "integer,decimal,mixed\n"
+        "1,1.5,1\n"
+        "2,2.0,text\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_table_truncate_rows",
+        lambda: 10,
+    )
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_table_truncate_columns",
+        lambda: 10,
+    )
+
+    out = read_file_backed_csv_preview(
+        _watched_meta(
+            p,
+            file_kind="csv",
+            read_mode="head",
+            max_bytes=1000,
+        )
+    )
+
+    assert out.rows == [
+        [1, 1.5, "1"],
+        [2, 2.0, "text"],
+    ]
 
 
 def test_read_file_backed_csv_preview_rejects_non_csv(tmp_path: Path) -> None:

@@ -45,9 +45,15 @@ def test_default_limits_are_generous() -> None:
     assert config.get_truncation_max_chars("markdown") == 100_000
 
 
-def test_default_watch_materialisation_settings() -> None:
+def test_default_watch_materialisation_settings(tmp_path) -> None:
+    # Do not let an ignored working-directory plotsrv.yml override the code
+    # defaults this test is intended to verify.
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text("", encoding="utf-8")
+    settings.set_runtime_context(config_path=yml)
+
     assert config.get_watch_materialization() == "auto"
-    assert config.get_watch_file_threshold_bytes() == 20 * 1024 * 1024
+    assert config.get_watch_file_threshold_bytes() == 10 * 1024 * 1024
     assert config.get_watch_active_load_max_concurrent() == 2
     assert config.get_watch_active_load_wait_timeout_s() == 1.0
 
@@ -85,6 +91,20 @@ def test_storage_latest_defaults_disabled() -> None:
     assert config.get_storage_latest_enabled() is False
     assert config.get_storage_restore_latest_on_startup() is False
     assert config.get_storage_latest_restore_scope() == "none"
+
+
+def test_storage_latest_is_enabled_when_storage_is_enabled_without_override(
+    tmp_path,
+) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        "storage-settings:\n  enabled: true\n",
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_storage_latest_enabled() is True
+    assert config.get_storage_restore_latest_on_startup() is True
 
 
 def test_get_render_text_max_chars_default() -> None:
@@ -205,7 +225,7 @@ watch-settings:
     settings.set_runtime_context(config_path=yml)
 
     assert config.get_watch_materialization() == "auto"
-    assert config.get_watch_file_threshold_bytes() == 20 * 1024 * 1024
+    assert config.get_watch_file_threshold_bytes() == 10 * 1024 * 1024
 
 
 def test_watch_file_threshold_off_falls_back_to_default(tmp_path) -> None:
@@ -220,7 +240,7 @@ watch-settings:
 
     settings.set_runtime_context(config_path=yml)
 
-    assert config.get_watch_file_threshold_bytes() == 20 * 1024 * 1024
+    assert config.get_watch_file_threshold_bytes() == 10 * 1024 * 1024
 
 
 def test_legacy_publish_limits_still_work_without_new_section(tmp_path) -> None:

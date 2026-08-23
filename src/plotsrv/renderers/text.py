@@ -89,6 +89,36 @@ class ErrorTextRenderer(TextRenderer):
     def _get_max_chars(self, *, view_id: str) -> int | None:
         return None
 
+    def render(self, obj: Any, *, view_id: str) -> RenderResult:
+        if self.kind != "watch_error":
+            return super().render(obj, view_id=view_id)
+
+        text, _ = _to_text_and_anchor(obj)
+        paragraphs = [part.strip() for part in text.split("\n\n") if part.strip()]
+        body = "\n".join(
+            f"<p>{_escape_html(paragraph).replace(chr(10), '<br>')}</p>"
+            for paragraph in paragraphs
+        )
+        if not body:
+            body = "<p>This watched view could not be updated.</p>"
+
+        html = (
+            '<section class="ps-watch-error" role="alert">'
+            '<span class="ps-watch-error__eyebrow">Source problem</span>'
+            "<h2>Couldn\u2019t update this view</h2>"
+            f"{body}"
+            "</section>"
+        )
+
+        from ..artifacts import Truncation
+
+        return RenderResult(
+            kind=self.kind,
+            html=html,
+            truncation=Truncation(truncated=False),
+            meta={"view_id": view_id, "length": len(text), "presentation": "error_card"},
+        )
+
 
 def _strip_anchor_header(text: str) -> tuple[str, Literal["head", "tail"]]:
     if not text.startswith(ANCHOR_PREFIX):

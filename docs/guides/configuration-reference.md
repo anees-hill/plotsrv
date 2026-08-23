@@ -12,75 +12,67 @@ Create a starter config with:
 plotsrv config create
 ```
 
+The default file is intentionally compact and exposes the main settings:
+storage, watched-file materialisation, async publishing, safety limits,
+freshness checks, and concise browser errors. Storage is off by default. For
+less commonly adjusted storage queue and rendering controls, use:
+
+```bash
+plotsrv config create --expanded
+```
+
 plotsrv still runs without a config file. Add config when you want stable limits, storage, freshness, rendering, or security behaviour across runs.
 
 ## Starter layout
 
-A current starter config looks like this:
+A compact starter config looks like this:
 
 ```yaml title="plotsrv.yaml"
+# Storage is off by default. Enable it for latest restore and history.
+storage-settings:
+  enabled: false
+  watch_enabled: false
+  root_dir: .plotsrv/store
+  max_snapshot_size_mb: 20.0
+  default_keep_last: 2
+  default_min_store_interval: off
+  latest:
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
+
+watch-settings:
+  # auto = memory below file_threshold_mb, file-backed at or above it.
+  materialization: auto
+  file_threshold_mb: 10
+
+publish-settings:
+  live:
+    async_enabled: false
+
 limits:
   published_objects:
-    # Hard safety limits for objects sent to the plotsrv server.
     max_plot_bytes: 5242880
     max_table_rows: 100000
     max_table_columns: 200
-    max_artifact_text_chars: 200000
-    max_json_container_items: 20000
-
   watched_files:
-    # Maximum amount plotsrv reads from each watched file preview.
-    # Use "off" to allow full-file reads.
     max_mb: 500
-
   truncate_after:
-    # Preparation/display limits.
-    # These truncate what plotsrv prepares for display.
     text: 1000000
     markdown: 100000
     html: off
     table_rows: 100000
     table_columns: 200
 
-storage-settings:
-  enabled: false
-  watch_enabled: false
-  root_dir: .plotsrv/store
-  max_snapshot_size_mb: 20.0
-  default_keep_last: 3
-  default_min_store_interval: off
-
-watch-settings:
-  # auto = file-backed when the watched file is at/above file_threshold_mb.
-  # memory = always publish watched-file content into memory.
-  # file = always keep watched files file-backed and preview from disk on demand.
-  materialization: auto
-  file_threshold_mb: 50
-  active_loads:
-    max_concurrent: 2
-    wait_timeout_s: 1.0
-
 freshness-settings:
   enabled: false
-  expected_every: 60s
-  warn_after: 2m
-  overdue_after: 10m
-
-render-settings:
-  default:
-    plot_dpi: 200
-    plot_default_figsize_in: "12,6"
-    plot_bbox_tight: true
-    plot_pad_inches: 0.10
-    table_view_mode: rich
-    html_sanitize: false
-    markdown_sanitize: true
-    html_sandbox: ""
-    markdown_sandbox: ""
 
 security-settings:
   tracebacks_enabled: false
 ```
+
+The `--expanded` form adds storage queue bounds and rendering settings shown
+throughout this reference.
 
 ## `limits`
 
@@ -165,7 +157,7 @@ In `auto` mode, files at or above `file_threshold_mb` become file-backed.
 ```yaml
 watch-settings:
   materialization: auto
-  file_threshold_mb: 50
+  file_threshold_mb: 10
 ```
 
 You can force a mode from the CLI:
@@ -256,6 +248,10 @@ pending update replaces the older one. New views are rejected once either budget
 is full. Inspect `/status` for `publish_queue` counters rather than assuming
 that a high-volume update was delivered.
 
+For `@view`, this setting selects synchronous or asynchronous delivery only
+after the decorator is active through `host`, `port`, or `launch_server`. It
+does not turn a metadata-only `@view(...)` declaration into a publisher.
+
 ## `render-settings`
 
 `render-settings.default` controls renderer behaviour.
@@ -301,7 +297,7 @@ storage-settings:
     enabled: true
     restore_on_startup: true
     restore_scope: discovered
-  default_keep_last: 3
+  default_keep_last: 2
   default_min_store_interval: off
   max_snapshot_size_mb: 20.0
   max_pending_tasks: 32

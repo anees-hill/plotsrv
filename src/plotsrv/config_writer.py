@@ -16,16 +16,57 @@ PopulateMode = Literal["merge", "replace"]
 
 DEFAULT_CONFIG_TEXT = """# plotsrv.yml
 #
-# Starter configuration for plotsrv.
-#
-# This file includes the most commonly adjusted options.
+# Starter configuration for plotsrv. plotsrv also works without this file.
+# Change the settings below when you need to tune persistence, watched files,
+# publishing, or the safety limits used for browser output.
 # More options are available in the configuration reference:
 # https://docs.plotsrv.com/guides/configuration-reference
+
+# Storage is off by default. Enable it to keep the latest views and history
+# on disk between runs.
+storage-settings:
+  enabled: false
+  watch_enabled: false
+  root_dir: .plotsrv/store
+  max_snapshot_size_mb: 20.0
+  default_keep_last: 2
+  default_min_store_interval: off
+  latest:
+    # Restore the latest stored view when storage is enabled.
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
+
+watch-settings:
+  # Controls how watched files are represented internally:
+  # memory = read and publish the content into memory;
+  # file = keep metadata and read previews from disk on demand;
+  # auto = memory below file_threshold_mb, file-backed at or above it.
+  materialization: auto
+  file_threshold_mb: 10
+
+  # Bound simultaneous file-backed preview loads from browser requests.
+  active_loads:
+    max_concurrent: 2
+    wait_timeout_s: 1.0
+
+publish-settings:
+  live:
+    # Synchronous by default. Set true to make publish_view() and @view()
+    # asynchronous when async_ is not supplied.
+    async_enabled: false
+
+    # Bounds for pending async updates. Repeated updates to one view coalesce
+    # so only its latest pending value is retained.
+    max_pending_views: 32
+    max_pending_mb: 64
+
+    # Default bounded wait used by flush_views() and server shutdown.
+    flush_timeout_s: 1.0
 
 limits:
   published_objects:
     # Hard safety limits for objects sent to the plotsrv server.
-    # If these are exceeded, the publish request is rejected with an actionable error.
     max_plot_bytes: 5242880          # 5 MiB
     max_table_rows: 100000
     max_table_columns: 200
@@ -38,62 +79,90 @@ limits:
     max_mb: 500
 
   truncate_after:
-    # Preparation/display limits.
-    # These should truncate what plotsrv prepares for display, not reject the view.
+    # Preparation/display limits. These truncate browser output rather than
+    # rejecting the view.
     text: 1000000
     markdown: 100000
     html: off
     table_rows: 100000
     table_columns: 200
 
-watch-settings:
-  # Controls how watched files are represented internally.
-  # memory = read/coerce/publish watched files into memory.
-  # file   = keep file metadata and read preview slices on demand where supported.
-  # auto   = memory below file_threshold_mb, file-backed at/above it.
-  materialization: auto
-  file_threshold_mb: 20
+freshness-settings:
+  # Optional checks for views that are expected to update regularly.
+  enabled: false
+  expected_every: 60s
+  warn_after: 2m
+  overdue_after: 10m
 
-  # Bound simultaneous on-demand file-backed preview loads. This protects the
-  # server when several browser clients open a large watched CSV at once.
+security-settings:
+  # Keep browser-facing errors concise. Enable tracebacks only for trusted use.
+  tracebacks_enabled: false
+"""
+
+
+EXPANDED_CONFIG_TEXT = """# plotsrv.yml
+#
+# Expanded starter configuration. It includes the less commonly adjusted
+# storage queue and rendering controls as well as the normal starter settings.
+# Remove sections you do not need; plotsrv works without this file.
+
+# Storage is off by default. Enable it to keep the latest views and history
+# on disk between runs.
+storage-settings:
+  enabled: false
+  watch_enabled: false
+  root_dir: .plotsrv/store
+  max_snapshot_size_mb: 20.0
+  default_keep_last: 2
+  default_min_store_interval: off
+  latest:
+    # Restore the latest stored view when storage is enabled.
+    enabled: true
+    restore_on_startup: true
+    restore_scope: discovered
+
+  # Bounds for best-effort snapshot work waiting to be serialised.
+  max_pending_tasks: 32
+  max_pending_mb: 64
+
+watch-settings:
+  # Controls how watched files are represented internally:
+  # memory = read and publish the content into memory;
+  # file = keep metadata and read previews from disk on demand;
+  # auto = memory below file_threshold_mb, file-backed at or above it.
+  materialization: auto
+  file_threshold_mb: 10
+
+  # Bound simultaneous file-backed preview loads from browser requests.
   active_loads:
     max_concurrent: 2
     wait_timeout_s: 1.0
 
 publish-settings:
   live:
-    # Keep existing synchronous behaviour by default.
-    #
-    # false:
-    #   publish_view() is synchronous unless async_=True is passed.
-    #
-    # true:
-    #   publish_view() uses the bounded background worker unless
-    #   async_=False is passed.
+    # Synchronous by default. Set true to make publish_view() and @view()
+    # asynchronous when async_ is not supplied.
     async_enabled: false
-
-    # Maximum number of distinct destination/view updates retained while
-    # waiting to publish. Repeated updates to the same view are coalesced so
-    # that only the latest pending value is retained.
     max_pending_views: 32
-
-    # Approximate maximum source-object memory retained by pending updates.
     max_pending_mb: 64
-
-    # Default bounded wait used by flush_views() and normal server shutdown.
     flush_timeout_s: 1.0
 
-storage-settings:
-  enabled: false
-  watch_enabled: false
-  root_dir: .plotsrv/store
-  max_snapshot_size_mb: 20.0
-  default_keep_last: 3
-  default_min_store_interval: off
-
-  # Bound best-effort snapshot work waiting to be serialised.
-  max_pending_tasks: 32
-  max_pending_mb: 64
+limits:
+  published_objects:
+    # Hard safety limits for objects sent to the plotsrv server.
+    max_plot_bytes: 5242880          # 5 MiB
+    max_table_rows: 100000
+    max_table_columns: 200
+    max_artifact_text_chars: 200000
+    max_json_container_items: 20000
+  watched_files:
+    max_mb: 500
+  truncate_after:
+    text: 1000000
+    markdown: 100000
+    html: off
+    table_rows: 100000
+    table_columns: 200
 
 freshness-settings:
   enabled: false
@@ -103,6 +172,7 @@ freshness-settings:
 
 render-settings:
   default:
+    # Renderer defaults. Change these only when you need different output.
     plot_dpi: 200
     plot_default_figsize_in: "12,6"
     plot_bbox_tight: true
@@ -114,6 +184,7 @@ render-settings:
     markdown_sandbox: ""
 
 security-settings:
+  # Keep browser-facing errors concise. Enable tracebacks only for trusted use.
   tracebacks_enabled: false
 """
 
@@ -137,14 +208,16 @@ class ConfigPopulateResult:
     replaced: bool
 
 
-def default_config_text() -> str:
-    return DEFAULT_CONFIG_TEXT
+def default_config_text(*, expanded: bool = False) -> str:
+    """Return the compact starter config, or its expanded variant."""
+    return EXPANDED_CONFIG_TEXT if expanded else DEFAULT_CONFIG_TEXT
 
 
 def create_config_file(
     path: str | Path,
     *,
     force: bool = False,
+    expanded: bool = False,
 ) -> ConfigCreateResult:
     p = Path(path).expanduser().resolve()
 
@@ -153,7 +226,7 @@ def create_config_file(
 
     existed = p.exists()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(DEFAULT_CONFIG_TEXT, encoding="utf-8")
+    p.write_text(default_config_text(expanded=expanded), encoding="utf-8")
 
     return ConfigCreateResult(
         path=p,
@@ -172,7 +245,9 @@ def _load_config_data(path: Path) -> tuple[dict[str, Any], bool]:
     y = _require_yaml()
 
     if not path.exists():
-        base = y.safe_load(DEFAULT_CONFIG_TEXT) or {}
+        # Population commands need the complete defaults so adding one
+        # per-view section does not drop unrelated safety settings.
+        base = y.safe_load(EXPANDED_CONFIG_TEXT) or {}
         if not isinstance(base, dict):
             base = {}
         return base, True
@@ -317,7 +392,7 @@ def populate_storage(
         sec.setdefault("root_dir", ".plotsrv/store")
 
         latest = _ensure_mapping(sec, "latest")
-        latest.setdefault("enabled", False)
+        latest.setdefault("enabled", True)
         latest.setdefault("restore_on_startup", True)
         latest.setdefault("restore_scope", "discovered")
 

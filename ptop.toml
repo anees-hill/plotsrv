@@ -1,0 +1,218 @@
+# Optional ptop helpers.  plotsrv's benchmark runner remains independently
+# usable; these recipes only add durable process-resource history and comparison.
+
+[recipes.watch-file-large-cycles]
+description = "Large file-backed CSV visits with post-idle server memory checkpoints"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "watch.csv.file.large.repeated-clients", "--profile", "{profile}",
+  "--set", "cycles={cycles}", "--output", "{output}",
+]
+defaults = { profile = "standard", cycles = "4", output = "benchmark-results/{timestamp}-watch-file-cycles" }
+interval = 0.5
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "watch.csv.file.large.repeated-clients", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', client = 'pipeline_profile\.worker client' }
+
+[recipes.watch-file-overload]
+description = "Overload the file-backed admission limit; expected 503s are recorded, not treated as failures"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "watch.csv.file.overload", "--profile", "{profile}", "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-watch-file-overload" }
+interval = 0.5
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "watch.csv.file.overload", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', client = 'pipeline_profile\.worker client' }
+
+[recipes.publish-remote-sync]
+description = "Reference remote synchronous publishing run"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.sync.small", "--profile", "{profile}", "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-publish-sync" }
+interval = 0.5
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.sync.small", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+[recipes.publish-remote-async-high-frequency]
+description = "High-frequency async publishing to stable view IDs"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.async.latest-wins.high-frequency", "--profile", "{profile}", "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-publish-async" }
+interval = 0.5
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.async.latest-wins.high-frequency", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+# Final-release recipes.  These intentionally take longer than the standard
+# recipes and are intended to be run from plotsrv-final-release.toml on a
+# desktop-class machine before publishing a release.
+
+[recipes.watch-file-release-soak]
+description = "Release gate: repeated large file-backed CSV visits with long settling checks"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "watch.csv.file.large.repeated-clients", "--profile", "{profile}",
+  "--set", "cycles={cycles}", "--set", "clients={clients}",
+  "--set", "requests_per_client={requests_per_client}",
+  "--set", "table_limit={table_limit}", "--set", "cycle_idle_s={cycle_idle_s}",
+  "--set", "idle_s={idle_s}", "--set", "max_rss_mb={max_rss_mb}",
+  "--output", "{output}",
+]
+defaults = { profile = "soak", cycles = "24", clients = "9", requests_per_client = "3", table_limit = "20000", cycle_idle_s = "3", idle_s = "30", max_rss_mb = "6000", output = "benchmark-results/{timestamp}-release-watch-soak" }
+interval = 0.5
+max_tree_rss_mb = 6000
+result_json = "{output}/ptop-result.json"
+tags = { case = "watch.csv.file.large.repeated-clients", profile = "{profile}", release_gate = "file-settling" }
+components = { server = 'pipeline_profile\.worker server', client = 'pipeline_profile\.worker client' }
+
+[recipes.watch-file-release-overload]
+description = "Release gate: extended overload/recovery test for watched-file admission"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "watch.csv.file.overload", "--profile", "{profile}",
+  "--set", "cycles={cycles}", "--set", "clients={clients}",
+  "--set", "requests_per_client={requests_per_client}",
+  "--set", "table_limit={table_limit}", "--set", "cycle_idle_s={cycle_idle_s}",
+  "--set", "idle_s={idle_s}", "--output", "{output}",
+]
+defaults = { profile = "soak", cycles = "10", clients = "20", requests_per_client = "3", table_limit = "10000", cycle_idle_s = "2", idle_s = "20", output = "benchmark-results/{timestamp}-release-watch-overload" }
+interval = 0.5
+max_tree_rss_mb = 6000
+result_json = "{output}/ptop-result.json"
+tags = { case = "watch.csv.file.overload", profile = "{profile}", release_gate = "overload-recovery" }
+components = { server = 'pipeline_profile\.worker server', client = 'pipeline_profile\.worker client' }
+
+[recipes.publish-remote-sync-release]
+description = "Release gate: repeated reference remote synchronous publishing"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.sync.small", "--profile", "{profile}", "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-release-publish-sync" }
+interval = 0.25
+max_tree_rss_mb = 2000
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.sync.small", profile = "{profile}", release_gate = "sync-publish" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+[recipes.publish-remote-async-high-frequency-release]
+description = "Release gate: soaked latest-wins async publishing to stable views"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.async.latest-wins.high-frequency", "--profile", "{profile}",
+  "--output", "{output}",
+]
+defaults = { profile = "soak", output = "benchmark-results/{timestamp}-release-publish-async-latest" }
+interval = 0.25
+max_tree_rss_mb = 3000
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.async.latest-wins.high-frequency", profile = "{profile}", release_gate = "async-latest-wins" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+[recipes.publish-remote-async-queue-pressure-release]
+description = "Release gate: soaked async queue count/byte admission with distinct views"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "publish.remote.distinct-views.queue-pressure", "--profile", "{profile}",
+  "--output", "{output}",
+]
+defaults = { profile = "soak", output = "benchmark-results/{timestamp}-release-publish-async-pressure" }
+interval = 0.25
+max_tree_rss_mb = 3000
+result_json = "{output}/ptop-result.json"
+tags = { case = "publish.remote.distinct-views.queue-pressure", profile = "{profile}", release_gate = "async-queue-pressure" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline' }
+
+# CLI startup and the new rendered-artifact/browser foundations.  These use
+# fresh child processes where startup is the subject under test, and the
+# existing process-profile runner for server memory and request timing.
+
+[recipes.cli-import-cold-start]
+description = "Fresh-process import plotsrv startup; useful for tracking lazy public imports"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.cli_profile", "--mode", "import", "--repeats", "{repeats}",
+  "--output", "{output}",
+]
+defaults = { repeats = "6", output = "benchmark-results/{timestamp}-cli-import" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "cli.import.cold-start", mode = "import" }
+components = { cli = 'benchmarks\.cli_profile' }
+
+[recipes.cli-root-help-cold-start]
+description = "Fresh-process plotsrv --help startup"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.cli_profile", "--mode", "root-help", "--repeats", "{repeats}",
+  "--output", "{output}",
+]
+defaults = { repeats = "6", output = "benchmark-results/{timestamp}-cli-root-help" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "cli.root-help.cold-start", mode = "root-help" }
+components = { cli = 'benchmarks\.cli_profile' }
+
+[recipes.cli-bare-cold-start]
+description = "Fresh-process bare plotsrv invocation, which should print help and exit successfully"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.cli_profile", "--mode", "bare", "--repeats", "{repeats}",
+  "--output", "{output}",
+]
+defaults = { repeats = "6", output = "benchmark-results/{timestamp}-cli-bare" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "cli.bare.cold-start", mode = "bare" }
+components = { cli = 'benchmarks\.cli_profile' }
+
+[recipes.cli-version-cold-start]
+description = "Fresh-process plotsrv --version startup on releases that provide the lightweight entrypoint"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.cli_profile", "--mode", "version", "--repeats", "{repeats}",
+  "--output", "{output}",
+]
+defaults = { repeats = "6", output = "benchmark-results/{timestamp}-cli-version" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "cli.version.cold-start", mode = "version" }
+components = { cli = 'benchmarks\.cli_profile' }
+
+[recipes.server-artifact-repeated-clients]
+description = "Repeated JSON artifact requests with server RSS/USS and warm-request latency"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m",
+  "benchmarks.pipeline_profile", "case", "run",
+  "server.artifact.repeated-clients", "--profile", "{profile}",
+  "--output", "{output}",
+]
+defaults = { profile = "standard", output = "benchmark-results/{timestamp}-server-artifact" }
+interval = 0.25
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "server.artifact.repeated-clients", profile = "{profile}" }
+components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline', client = 'pipeline_profile\.worker client' }
+

@@ -4,18 +4,28 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import threading
 import time
 import urllib.request
 from collections import deque
-from contextlib import contextmanager
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterator, Literal
-from collections.abc import Mapping, Sequence
+from typing import Any, Literal, cast
 
 from . import config, settings, store
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
+from .file_backed_loads import (
+    FileBackedLoadBusyError as FileBackedLoadBusyError,
+    _FILE_BACKED_LOADS as _FILE_BACKED_LOADS,
+    acquire_file_backed_load_slot as acquire_file_backed_load_slot,
+    file_backed_load_slot as file_backed_load_slot,
+    get_file_backed_load_stats as get_file_backed_load_stats,
+)
+
+
+logger = logging.getLogger(__name__)
 
 WatchReadMode = Literal["head", "tail"]
 WatchKind = Literal["auto", "text", "json"]
@@ -23,6 +33,39 @@ WatchMaterialization = Literal["memory", "file"]
 WatchMaterializationRequest = Literal["auto", "memory", "file"]
 
 _WATCH_MAX_BYTES_UNSET = object()
+
+
+def watched_file_user_error(error: BaseException | str | None = None) -> str:
+    """Return a short, safe explanation suitable for a browser user.
+
+    The underlying exception often contains an absolute server path. Keep that
+    detail in the process log rather than putting it in a watch artifact or the
+    status API, which is sent to every browser user.
+    """
+    if isinstance(error, FileNotFoundError):
+        return (
+            "The source file for this view is unavailable.\n\n"
+            "It may have been moved, renamed, or removed. Restore the file and "
+            "refresh the page."
+        )
+
+    if isinstance(error, PermissionError):
+        return (
+            "The source file for this view cannot be read.\n\n"
+            "Check that the file is available and that the PlotSrv service can "
+            "read it, then refresh the page."
+        )
+
+    return (
+        "This view could not read its source file.\n\n"
+        "Try refreshing the page. If the problem continues, contact the server "
+        "owner."
+    )
+
+
+def build_watch_read_error_artifact(error: BaseException | str | None = None) -> str:
+    """Build the browser-safe fallback used when a watched file cannot be read."""
+    return watched_file_user_error(error)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +96,8 @@ class FileBackedArtifactPreview:
 
 @dataclass(frozen=True, slots=True)
 class FileBackedTablePreview:
-    table_df: Any
+    columns: list[str]
+    rows: list[list[Any]]
     preview_bytes: int
     total_rows: int | None
     total_rows_known: bool
@@ -64,62 +108,18 @@ class FileBackedTablePreview:
     truncated: bool
     source: str = "file_backed_csv"
 
+    @property
+    def table_df(self) -> Any:
+        """Compatibility escape hatch for internal callers outside the route.
 
-class FileBackedLoadBusyError(RuntimeError):
-    """Raised when every configured file-backed preview slot is occupied."""
+        The file-backed HTTP route deliberately never accesses this property:
+        constructing a DataFrame is exactly the additional object graph it is
+        designed to avoid.  Keeping it lazy avoids a needless compatibility
+        break for integrations that still inspect previews directly.
+        """
+        import pandas as pd
 
-
-class _FileBackedLoadController:
-    """
-    Process-wide admission controller for expensive file-backed previews.
-
-    FastAPI runs normal ``def`` endpoints in a thread pool, so a plain global
-    counter would race. This controller intentionally has no payload cache: a
-    completed request releases all request-only Python objects before another
-    client starts materialising a large CSV.
-    """
-
-    def __init__(self) -> None:
-        self._condition = threading.Condition()
-        self._in_flight = 0
-
-    @contextmanager
-    def slot(self) -> Iterator[None]:
-        limit = config.get_watch_active_load_max_concurrent()
-        timeout_s = config.get_watch_active_load_wait_timeout_s()
-        deadline = time.monotonic() + timeout_s
-
-        with self._condition:
-            while self._in_flight >= limit:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise FileBackedLoadBusyError(
-                        "File-backed watch preview is busy. Try again in a moment."
-                    )
-                self._condition.wait(timeout=remaining)
-            self._in_flight += 1
-
-        try:
-            yield
-        finally:
-            with self._condition:
-                self._in_flight = max(0, self._in_flight - 1)
-                self._condition.notify()
-
-    def reset_for_tests(self) -> None:
-        with self._condition:
-            self._in_flight = 0
-            self._condition.notify_all()
-
-
-_FILE_BACKED_LOADS = _FileBackedLoadController()
-
-
-@contextmanager
-def file_backed_load_slot() -> Iterator[None]:
-    """Acquire one bounded file-backed materialisation slot."""
-    with _FILE_BACKED_LOADS.slot():
-        yield
+        return pd.DataFrame(self.rows, columns=self.columns)
 
 
 @dataclass(frozen=True, slots=True)
@@ -605,7 +605,7 @@ def build_watched_file_meta(
         mtime_ns = int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9)))
     except Exception as e:
         if error is None:
-            error = f"{type(e).__name__}: {e}"
+            error = watched_file_user_error(e)
 
     return store.WatchedFileMeta(
         view_id=registered.view_id,
@@ -820,14 +820,18 @@ def _normalise_csv_row(row: list[str], width: int) -> list[str | None]:
     return values
 
 
-def _coerce_csv_dataframe(
+def _coerce_csv_rows(
     *,
     header: list[str],
     rows: list[list[str | None]],
     max_columns: int | None,
-) -> tuple[Any, int, int]:
-    """Build a small DataFrame without creating a second CSV text buffer."""
-    import pandas as pd
+) -> tuple[list[str], list[list[Any]], int, int]:
+    """Keep a bounded CSV row window without building a pandas object graph.
+
+    CSV values remain compact Python scalars.  The deliberately small numeric
+    inference here preserves the useful JSON shape of the prior pandas path,
+    without constructing pandas' indexes, columns and block managers.
+    """
 
     total_columns = len(header)
     visible_width = total_columns
@@ -835,21 +839,52 @@ def _coerce_csv_dataframe(
         visible_width = min(visible_width, max(1, int(max_columns)))
 
     columns = _normalise_csv_columns(header[:visible_width])
-    df = pd.DataFrame(rows, columns=columns)
+    # The reader already owns these mutable row lists.  Reuse them so numeric
+    # conversion can release the original strings progressively instead of
+    # retaining a duplicate list graph until the whole column is converted.
+    output = cast(list[list[Any]], rows)
+    for index in range(visible_width):
+        has_value = False
+        all_int = True
+        for row in output:
+            value = row[index]
+            if value in (None, ""):
+                continue
+            has_value = True
+            try:
+                int(value)
+            except (TypeError, ValueError):
+                all_int = False
+                break
 
-    # csv.reader yields strings. Preserve the useful numeric behaviour callers
-    # get from pandas.read_csv without reparsing a second in-memory text copy.
-    for column in columns:
-        values = df[column]
-        non_empty = values.dropna().astype(str).str.strip()
-        non_empty = non_empty[non_empty != ""]
-        if non_empty.empty:
+        if not has_value:
             continue
-        converted = pd.to_numeric(non_empty, errors="coerce")
-        if converted.notna().all():
-            df[column] = pd.to_numeric(values.replace("", None), errors="coerce")
 
-    return df, total_columns, visible_width
+        convert: type[int] | type[float] | None = int if all_int else float
+        if not all_int:
+            for row in output:
+                value = row[index]
+                if value in (None, ""):
+                    continue
+                try:
+                    float(value)
+                except (TypeError, ValueError):
+                    convert = None
+                    break
+
+        if convert is None:
+            continue
+
+        # Convert directly into the bounded row window.  Building separate
+        # ``values`` and ``converted`` lists briefly retained both every CSV
+        # string and every numeric object, which inflated peak memory even
+        # though the final preview was bounded.
+        for row in output:
+            if row[index] in (None, ""):
+                row[index] = None
+            else:
+                row[index] = convert(row[index])
+    return columns, output, total_columns, visible_width
 
 
 def _read_csv_header(path: Path, *, encoding: str) -> list[str]:
@@ -957,6 +992,8 @@ def _read_csv_tail_rows(
 
 def read_file_backed_csv_preview(
     meta: store.WatchedFileMeta,
+    *,
+    row_limit: int | None = None,
 ) -> FileBackedTablePreview:
     """
     Materialise a bounded CSV table preview directly from disk.
@@ -975,7 +1012,13 @@ def read_file_backed_csv_preview(
         raise TypeError("file-backed CSV preview requires file materialization")
 
     path = Path(meta.path).expanduser().resolve()
-    row_limit = config.get_table_truncate_rows()
+    configured_row_limit = config.get_table_truncate_rows()
+    if row_limit is None:
+        effective_row_limit = configured_row_limit
+    elif configured_row_limit is None:
+        effective_row_limit = row_limit
+    else:
+        effective_row_limit = min(configured_row_limit, row_limit)
     column_limit = config.get_table_truncate_columns()
 
     if meta.read_mode == "tail":
@@ -983,7 +1026,7 @@ def read_file_backed_csv_preview(
             path,
             encoding=meta.encoding,
             max_bytes=meta.max_bytes,
-            max_rows=row_limit,
+            max_rows=effective_row_limit,
             max_columns=column_limit,
         )
     else:
@@ -991,16 +1034,16 @@ def read_file_backed_csv_preview(
             path,
             encoding=meta.encoding,
             max_bytes=meta.max_bytes,
-            max_rows=row_limit,
+            max_rows=effective_row_limit,
             max_columns=column_limit,
         )
 
-    df, total_columns, returned_columns = _coerce_csv_dataframe(
+    columns, rows, total_columns, returned_columns = _coerce_csv_rows(
         header=header,
         rows=rows,
         max_columns=column_limit,
     )
-    loaded_rows = len(df)
+    loaded_rows = len(rows)
 
     input_window_truncated = (
         meta.max_bytes is not None and path.stat().st_size > int(meta.max_bytes)
@@ -1012,7 +1055,8 @@ def read_file_backed_csv_preview(
     )
 
     return FileBackedTablePreview(
-        table_df=df,
+        columns=columns,
+        rows=rows,
         preview_bytes=preview_bytes,
         total_rows=None,
         total_rows_known=False,
@@ -1507,38 +1551,10 @@ def build_watch_publish_error_artifact(
     This is intentionally plain text so it can render even when richer artifact
     rendering is the thing that failed.
     """
-    if isinstance(error, BaseException):
-        error_text = f"{type(error).__name__}: {error}"
-    else:
-        error_text = str(error)
-
-    file_text = (
-        str(Path(path).expanduser().resolve()) if path is not None else "unknown"
-    )
-    keys = get_watch_adjustment_keys(path=path, artifact_kind=artifact_kind)
-
-    key_lines = "\n".join(f"  - {key}" for key in keys)
-
-    tail_hint = ""
-    if read_mode != "tail":
-        tail_hint = (
-            "\n\n"
-            "For large logs or text files, prefer tail mode:\n"
-            "  plotsrv watch <file> --watch-tail\n"
-            "  plotsrv run <target> --watch <file> --watch-tail"
-        )
-
     return (
-        "[plotsrv watch] publish failed\n\n"
-        "What failed:\n"
-        f"  {error_text}\n\n"
-        "Watched file:\n"
-        f"  {file_text}\n\n"
-        "View:\n"
-        f"  section={section!r}, label={label!r}\n\n"
-        "Config keys to adjust:\n"
-        f"{key_lines}"
-        f"{tail_hint}"
+        "This watched view could not be updated.\n\n"
+        "The server did not accept the latest contents from its source file. "
+        "Try refreshing the page. If the problem continues, contact the server owner."
     )
 
 
@@ -1575,6 +1591,14 @@ def publish_prepared_watch_payload(
 
     if ok:
         return True
+
+    logger.warning(
+        "Unable to publish watched view (section=%r, label=%r, path=%s): %s",
+        section,
+        label,
+        path,
+        error,
+    )
 
     fallback = build_watch_publish_error_artifact(
         error=error,
@@ -1634,16 +1658,20 @@ def start_watch_threads(
             registered_view: RegisteredWatchView = registered,
         ) -> None:
             last_sig: tuple[int, int] | None = None
+            last_stat_error: str | None = None
+            last_read_error: str | None = None
 
             while True:
+                stat_error: BaseException | None = None
                 try:
                     st = pth.stat()
                     sig = (
                         int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
                         int(st.st_size),
                     )
-                except Exception:
+                except Exception as e:
                     sig = None
+                    stat_error = e
 
                 if sig is not None and sig == last_sig:
                     time.sleep(1.0)
@@ -1652,7 +1680,23 @@ def start_watch_threads(
                 last_sig = sig
 
                 if registered_view.materialization == "file":
-                    error = None if sig is not None else "Watched file stat failed"
+                    error = (
+                        None if stat_error is None else watched_file_user_error(stat_error)
+                    )
+                    stat_error_text = (
+                        None
+                        if stat_error is None
+                        else f"{type(stat_error).__name__}: {stat_error}"
+                    )
+                    if stat_error_text is not None and stat_error_text != last_stat_error:
+                        logger.warning(
+                            "Unable to stat file-backed watched view "
+                            "(view_id=%s, path=%s): %s",
+                            registered_view.view_id,
+                            pth,
+                            stat_error,
+                        )
+                    last_stat_error = stat_error_text
 
                     note_file_backed_watch_change(
                         registered=registered_view,
@@ -1663,14 +1707,25 @@ def start_watch_threads(
                     time.sleep(1.0)
                     continue
 
+                last_stat_error = None
+
                 try:
                     raw = read_watch_file_bytes(
                         pth,
                         read_mode=watch_read_mode,
                         max_bytes=watch_max_bytes,
-                        watch_config=watch_config,
-                    )
+                    watch_config=watch_config,
+                )
                 except Exception as e:
+                    read_error_text = f"{type(e).__name__}: {e}"
+                    if read_error_text != last_read_error:
+                        logger.warning(
+                            "Unable to read watched view (view_id=%s, path=%s): %s",
+                            registered_view.view_id,
+                            pth,
+                            e,
+                        )
+                    last_read_error = read_error_text
 
                     publish_watch_payload(
                         host=host,
@@ -1678,13 +1733,15 @@ def start_watch_threads(
                         label=view_label,
                         section=view_section,
                         kind="artifact",
-                        artifact=f"[plotsrv watch] read error: {type(e).__name__}: {e}",
+                        artifact=build_watch_read_error_artifact(e),
                         artifact_kind="watch_error",
                         update_limit_s=watch_config.update_limit_s,
                         force=watch_config.force,
                     )
                     time.sleep(1.0)
                     continue
+
+                last_read_error = None
 
                 payload = build_watch_publish_payload(
                     path=pth,

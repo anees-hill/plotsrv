@@ -1,0 +1,70 @@
+# ptop manifest
+#
+# Run it from this checkout with:
+#   scripts/run_plotsrv_manifest.sh
+#
+schema_version = 1
+name = "plotsrv 0.5.0 vs local 0.5.1 performance comparison"
+output_root = "ptop-manifest-results"
+baseline_target = "plotsrv_0_5_0"
+continue_on_error = true
+
+[targets.plotsrv_0_5_0]
+package = "plotsrv==0.5.0"
+harness = "."
+packages = ["psutil>=5.9"]
+
+[targets.plotsrv_0_5_1]
+source = "."
+label = "plotsrv local checkout (0.5.1 candidate)"
+harness = "."
+packages = ["psutil>=5.9"]
+
+# Three independent ptop attempts per target are intentional.  Compare the
+# medians in the manifest report rather than relying on one noisy run.
+[[runs]]
+recipe = "cli-import-cold-start"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { repeats = "6" }
+
+[[runs]]
+recipe = "cli-root-help-cold-start"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { repeats = "6" }
+
+[[runs]]
+recipe = "cli-bare-cold-start"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { repeats = "6" }
+
+[[runs]]
+recipe = "server-artifact-repeated-clients"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { profile = "standard" }
+
+[[runs]]
+recipe = "watch-file-large-cycles"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+set = { profile = "standard", cycles = "12" }
+
+[[runs]]
+recipe = "watch-file-overload"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+
+[[runs]]
+recipe = "publish-remote-async-high-frequency"
+targets = ["plotsrv_0_5_0", "plotsrv_0_5_1"]
+repeats = 3
+
+[[runs]]
+recipe = "cli-version-cold-start"
+targets = ["plotsrv_0_5_1"]
+repeats = 3
+set = { repeats = "6" }
+

@@ -62,7 +62,14 @@ Run tests:
 uv run pytest
 ```
 
-Run linting:
+For browser UI changes, see [UI development](ui-development.md). The committed
+asset bundles must match their readable source files.
+
+Run the UI asset check:
+
+```bash
+python scripts/build_ui_assets.py --check
+```
 
 ## Compatibility
 

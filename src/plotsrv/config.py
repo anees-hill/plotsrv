@@ -104,7 +104,7 @@ _DEFAULTS: dict[str, Any] = {
     },
     "watch-settings": {
         "materialization": "auto",
-        "file_threshold_mb": 20,
+        "file_threshold_mb": 10,
         # File-backed previews are parsed on request. Keep expensive table
         # materialisation bounded even when several browser clients refresh at
         # once. Existing limits.truncate_after.* values remain the limits that
@@ -137,7 +137,7 @@ _DEFAULTS: dict[str, Any] = {
         "max_pending_tasks": 32,
         "max_pending_mb": 64,
         "latest": {
-            "enabled": False,
+            "enabled": True,
             "restore_on_startup": True,
             "restore_scope": "discovered",
         },
@@ -1025,7 +1025,8 @@ def _publish_live_settings() -> dict[str, Any]:
 def get_publish_async_enabled() -> bool:
     """Whether live publish calls use the bounded worker by default."""
     live = _publish_live_settings()
-    return _as_bool(live.get("async_enabled"), False)
+    default = bool(_DEFAULTS["publish-settings"]["live"]["async_enabled"])
+    return _as_bool(live.get("async_enabled"), default)
 
 
 def get_publish_max_pending_views() -> int:
@@ -1174,13 +1175,6 @@ def get_storage_view_settings(view_id: str) -> dict[str, Any]:
     overrides = _storage_view_overrides()
     raw = overrides.get(view_id)
     return dict(raw) if isinstance(raw, dict) else {}
-
-
-def get_storage_view_enabled(view_id: str) -> bool:
-    view_sec = get_storage_view_settings(view_id)
-    if "enabled" in view_sec:
-        return _as_bool(view_sec.get("enabled"), get_storage_enabled())
-    return get_storage_enabled()
 
 
 def get_storage_max_snapshot_size_bytes(view_id: str | None = None) -> int:
