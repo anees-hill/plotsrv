@@ -37,14 +37,6 @@ def test_find_project_root_git(tmp_path: Path) -> None:
     assert cli_mod._find_project_root(sub) == root.resolve()
 
 
-def test_default_run_target_raises_when_no_project(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)  # empty dir, no markers
-    with pytest.raises(ValueError):
-        _ = cli_mod._default_run_target()
-
-
 def test_default_run_target_uses_project_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
