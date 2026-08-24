@@ -65,6 +65,46 @@ def test_default_live_publish_settings_are_safe_and_synchronous() -> None:
     assert config.get_publish_flush_timeout_s() == 1.0
 
 
+def test_default_stream_settings_bound_recovery_without_affecting_publish() -> None:
+    assert config.get_stream_poll_interval_s() == 0.1
+    assert config.get_stream_request_timeout_s() == 1.0
+    assert config.get_stream_retry_initial_delay_s() == 0.1
+    assert config.get_stream_retry_max_delay_s() == 5.0
+    assert config.get_stream_heartbeat_interval_s() == 1.0
+    assert config.get_stream_heartbeat_timeout_s() == 3.0
+    assert config.get_stream_shutdown_drain_timeout_s() == 1.0
+    assert config.get_stream_process_exit_cleanup_timeout_s() == 0.25
+    assert config.get_publish_async_enabled() is False
+
+
+def test_stream_settings_use_yaml(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+stream-settings:
+  poll_interval_s: 0.02
+  request_timeout_s: 0.5
+  retry_initial_delay_s: 0.03
+  retry_max_delay_s: 0.2
+  heartbeat_interval_s: 0.04
+  heartbeat_timeout_s: 0.12
+  shutdown_drain_timeout_s: 0.3
+  process_exit_cleanup_timeout_s: 0.05
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_stream_poll_interval_s() == 0.02
+    assert config.get_stream_request_timeout_s() == 0.5
+    assert config.get_stream_retry_initial_delay_s() == 0.03
+    assert config.get_stream_retry_max_delay_s() == 0.2
+    assert config.get_stream_heartbeat_interval_s() == 0.04
+    assert config.get_stream_heartbeat_timeout_s() == 0.12
+    assert config.get_stream_shutdown_drain_timeout_s() == 0.3
+    assert config.get_stream_process_exit_cleanup_timeout_s() == 0.05
+
+
 def test_live_publish_settings_use_yaml(tmp_path) -> None:
     yml = tmp_path / "plotsrv.yml"
     yml.write_text(

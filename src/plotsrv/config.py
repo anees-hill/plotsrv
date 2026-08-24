@@ -125,6 +125,24 @@ _DEFAULTS: dict[str, Any] = {
             "flush_timeout_s": 1.0,
         },
     },
+    "stream-settings": {
+        # Stream transport is independent from snapshot publishing. These
+        # values bound failed-delivery recovery without changing existing
+        # publish async/latest-wins behaviour.
+        "poll_interval_s": 0.1,
+        "request_timeout_s": 1.0,
+        "retry_initial_delay_s": 0.1,
+        "retry_max_delay_s": 5.0,
+        # A stream session remains live only while its producer renews this
+        # heartbeat. Timeouts are observations of the transport, never proof
+        # of a clean producer or application exit.
+        "heartbeat_interval_s": 1.0,
+        "heartbeat_timeout_s": 3.0,
+        # Every explicit stop and the single process-exit manager receives a
+        # finite budget; neither installs an application signal handler.
+        "shutdown_drain_timeout_s": 1.0,
+        "process_exit_cleanup_timeout_s": 0.25,
+    },
     "storage-settings": {
         "enabled": False,
         "watch_enabled": False,
@@ -1054,6 +1072,83 @@ def get_publish_flush_timeout_s() -> float:
     default = float(_DEFAULTS["publish-settings"]["live"]["flush_timeout_s"])
     value = _as_float(_publish_live_settings().get("flush_timeout_s"), default)
     return value if value >= 0 else default
+
+
+# ---- Stream settings ---------------------------------------------------------
+
+
+def _stream_settings() -> dict[str, Any]:
+    return _merged_section("stream-settings")
+
+
+def get_stream_poll_interval_s() -> float:
+    """Polling interval for local JSONL observation."""
+    default = float(_DEFAULTS["stream-settings"]["poll_interval_s"])
+    return _as_float(_stream_settings().get("poll_interval_s"), default, min_value=0.001)
+
+
+def get_stream_request_timeout_s() -> float:
+    """Bounded HTTP wait time for one stream registration or append attempt."""
+    default = float(_DEFAULTS["stream-settings"]["request_timeout_s"])
+    return _as_float(
+        _stream_settings().get("request_timeout_s"), default, min_value=0.001
+    )
+
+
+def get_stream_retry_initial_delay_s() -> float:
+    """First delay used after a temporary stream transport failure."""
+    default = float(_DEFAULTS["stream-settings"]["retry_initial_delay_s"])
+    return _as_float(
+        _stream_settings().get("retry_initial_delay_s"), default, min_value=0.001
+    )
+
+
+def get_stream_retry_max_delay_s() -> float:
+    """Maximum capped stream transport retry delay."""
+    initial = get_stream_retry_initial_delay_s()
+    default = float(_DEFAULTS["stream-settings"]["retry_max_delay_s"])
+    value = _as_float(
+        _stream_settings().get("retry_max_delay_s"), default, min_value=initial
+    )
+    return max(initial, value)
+
+
+def get_stream_heartbeat_interval_s() -> float:
+    """Interval between producer lifecycle heartbeats."""
+    default = float(_DEFAULTS["stream-settings"]["heartbeat_interval_s"])
+    return _as_float(
+        _stream_settings().get("heartbeat_interval_s"), default, min_value=0.001
+    )
+
+
+def get_stream_heartbeat_timeout_s() -> float:
+    """Server-side expiry window for a producer heartbeat."""
+    interval = get_stream_heartbeat_interval_s()
+    default = float(_DEFAULTS["stream-settings"]["heartbeat_timeout_s"])
+    value = _as_float(
+        _stream_settings().get("heartbeat_timeout_s"), default, min_value=interval
+    )
+    return max(interval, value)
+
+
+def get_stream_shutdown_drain_timeout_s() -> float:
+    """Finite default budget for one explicit stream final-drain attempt."""
+    default = float(_DEFAULTS["stream-settings"]["shutdown_drain_timeout_s"])
+    return _as_float(
+        _stream_settings().get("shutdown_drain_timeout_s"),
+        default,
+        min_value=0.001,
+    )
+
+
+def get_stream_process_exit_cleanup_timeout_s() -> float:
+    """Finite total budget used by the one stream atexit cleanup manager."""
+    default = float(_DEFAULTS["stream-settings"]["process_exit_cleanup_timeout_s"])
+    return _as_float(
+        _stream_settings().get("process_exit_cleanup_timeout_s"),
+        default,
+        min_value=0.001,
+    )
 
 
 # ---- Storage settings ---------------------------------------------------------
