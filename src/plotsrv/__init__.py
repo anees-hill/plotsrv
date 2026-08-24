@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from .publisher import flush_views, publish_view
     from .runtime import WatchConfig
     from .server import plot_session, refresh_view, start_server, stop_server
+    from .streams import StreamHandle, stream_view
     from .tracebacks import TracebackPublishOptions, publish_traceback
 
 __all__ = [  # noqa: RUF022 - grouped by public API area
@@ -17,6 +18,7 @@ __all__ = [  # noqa: RUF022 - grouped by public API area
     "view",
     "publish_view",
     "flush_views",
+    "stream_view",
     # Server/session API
     "start_server",
     "stop_server",
@@ -31,6 +33,7 @@ __all__ = [  # noqa: RUF022 - grouped by public API area
     "get_plotsrv_spec",
     "PlotsrvSpec",
     "WatchConfig",
+    "StreamHandle",
     # Runtime config
     "set_table_view_mode",
 ]
@@ -46,10 +49,12 @@ _EXPORTS: dict[str, tuple[str, str]] = {
     "PlotsrvSpec": (".decorators", "PlotsrvSpec"),
     "flush_views": (".publisher", "flush_views"),
     "publish_view": (".publisher", "publish_view"),
+    "stream_view": (".streams", "stream_view"),
     "capture_exceptions": (".capture", "capture_exceptions"),
     "publish_traceback": (".tracebacks", "publish_traceback"),
     "TracebackPublishOptions": (".tracebacks", "TracebackPublishOptions"),
     "WatchConfig": (".runtime", "WatchConfig"),
+    "StreamHandle": (".streams", "StreamHandle"),
 }
 
 
