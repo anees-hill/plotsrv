@@ -33,11 +33,15 @@ class ViewMeta:
     """
 
     view_id: str
-    kind: str  # "none" | "plot" | "table" | "artifact"
+    kind: str  # "none" | "plot" | "table" | "artifact" | "stream"
     label: str
     section: str | None = None
 
     icon_key: IconKey = "unknown"
+
+
+class ViewOwnershipError(ValueError):
+    """A logical stream view cannot be repurposed as an ordinary view."""
 
 
 @dataclass(slots=True)
@@ -48,7 +52,7 @@ class ViewState:
     Each view is independent: plot/table/status.
     """
 
-    kind: str = "none"  # "none" | "plot" | "table"
+    kind: str = "none"  # "none" | "plot" | "table" | "artifact" | "stream"
     icon_key: IconKey = "unknown"
     plot_png: bytes | None = None
     table_df: pd.DataFrame | None = None
@@ -108,6 +112,8 @@ def _icon_for_view_kind(
     if k == "plot":
         return "plot"
     if k == "table":
+        return "table"
+    if k == "stream":
         return "table"
 
     if k == "artifact":
@@ -239,8 +245,21 @@ def register_view(
     vid = normalize_view_id(view_id, section=section, label=label)
     st = _ensure_view(vid)
 
+    # Stream views own their logical ID for the life of this minimal
+    # in-memory registry. Keep the ownership decision alongside the catalogue
+    # mutation so an ordinary registration cannot replace a stream between a
+    # separate preflight check and the metadata write.
+    if st.kind == "stream" and kind != "stream":
+        raise ViewOwnershipError(
+            f"view_id {vid!r} is owned by an active stream view"
+        )
+    if kind == "stream" and st.kind not in ("none", "stream"):
+        raise ViewOwnershipError(
+            f"view_id {vid!r} already belongs to an ordinary {st.kind!r} view"
+        )
+
     # allow upgrade of assigned view dropdown menu icon
-    if kind in ("plot", "table", "artifact"):
+    if kind in ("plot", "table", "artifact", "stream"):
         st.kind = kind
 
     if icon_key is not None:
@@ -409,8 +428,9 @@ def set_plot(
     view_id: str | None = None,
     publish_source: str | None = None,
 ) -> None:
-    st = get_view_state(view_id)
     vid = view_id or _ACTIVE_VIEW_ID
+    _require_ordinary_publishable_view(vid)
+    st = _ensure_view(vid)
 
     st.kind = "plot"
     st.icon_key = _icon_for_view_kind("plot")
@@ -455,9 +475,10 @@ def set_table(
     returned_rows: int | None = None,
     publish_source: str | None = None,
 ) -> None:
-    st = get_view_state(view_id)
-    st.icon_key = _icon_for_view_kind("table")
     vid = view_id or _ACTIVE_VIEW_ID
+    _require_ordinary_publishable_view(vid)
+    st = _ensure_view(vid)
+    st.icon_key = _icon_for_view_kind("table")
 
     st.kind = "table"
     st.table_df = df
@@ -494,8 +515,9 @@ def set_artifact(
     truncation: Truncation | None = None,
     publish_source: str | None = None,
 ) -> None:
-    st = get_view_state(view_id)
     vid = view_id or _ACTIVE_VIEW_ID
+    _require_ordinary_publishable_view(vid)
+    st = _ensure_view(vid)
 
     st.kind = "artifact"
     st.icon_key = _icon_for_view_kind("artifact", artifact_kind=kind)
@@ -518,6 +540,13 @@ def set_artifact(
     register_view(
         view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
     )
+
+
+def _require_ordinary_publishable_view(view_id: str) -> None:
+    if _ensure_view(view_id).kind == "stream":
+        raise ViewOwnershipError(
+            f"view_id {view_id!r} is owned by an active stream view"
+        )
 
 
 def has_table(*, view_id: str | None = None) -> bool:
@@ -831,6 +860,15 @@ def reset() -> None:
         "service_refresh_rate_s": None,
     }
     _SERVICE_STOP_HOOK = None
+
+    # Stream rows are deliberately kept in their own bounded registry rather
+    # than the snapshot store, but reset() promises test/process-local state
+    # isolation for every in-memory view representation.
+    try:
+        from .streams.server_state import stream_registry
+    except ImportError:
+        return
+    stream_registry.clear()
 
 
 def _synchronise_store_api(func: Callable[..., Any]) -> Callable[..., Any]:

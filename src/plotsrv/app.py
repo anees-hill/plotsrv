@@ -41,6 +41,7 @@ from .http_snapshots import (
     _snapshot_summary_dict,
     _storage_root,
 )
+from .http_streams import router as stream_router
 from .runtime import (
     FileBackedLoadBusyError,
     acquire_file_backed_load_slot,
@@ -68,6 +69,7 @@ def _build_app() -> FastAPI:
 
 app = _build_app()
 register_default_renderers()
+app.include_router(stream_router)
 
 # Static files shipped inside plotsrv package (logo, etc.)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -1015,14 +1017,17 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         else None
     )
 
-    store.register_view(
-        view_id=view_id,
-        section=section,
-        label=label,
-        kind="none",
-        icon_key="unknown",
-        activate_if_first=False,
-    )
+    try:
+        store.register_view(
+            view_id=view_id,
+            section=section,
+            label=label,
+            kind="none",
+            icon_key="unknown",
+            activate_if_first=False,
+        )
+    except store.ViewOwnershipError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     current_active = store.get_active_view_id()
     known_view_ids = {v.view_id for v in store.list_views()}
     if current_active not in known_view_ids:
