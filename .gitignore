@@ -40,3 +40,11 @@ plotsrv-final-release.toml
 ptop-manifest-results/
 .ptop/
 log_feat_testing/*
+!log_feat_testing/README.md
+!log_feat_testing/history_jsonl_logger.py
+!log_feat_testing/rectangular_json_demo.py
+!log_feat_testing/since_visit_jsonl_logger.py
+!log_feat_testing/storage_jsonl_logger.py
+!log_feat_testing/configs/
+!log_feat_testing/configs/compaction_demo.yml
+!log_feat_testing/configs/storage_on.yml
