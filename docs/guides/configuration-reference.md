@@ -297,6 +297,14 @@ storage-settings:
     enabled: true
     restore_on_startup: true
     restore_scope: discovered
+  streams:
+    enabled: true
+    summary_retention: 32
+    noteworthy_keep_last: 32
+    keep_last_sessions: 4
+    max_bytes_per_view_mb: 16
+    # Omit or set to null for compact-only history.
+    raw_retention: null
   default_keep_last: 2
   default_min_store_interval: off
   max_snapshot_size_mb: 20.0
@@ -310,6 +318,28 @@ storage-settings:
 serialisation work. Rejections are exposed as `storage_queue` counters in
 `/status`; they never affect the in-memory live view that has already been
 accepted.
+
+### Stream-session storage
+
+`storage-settings.streams` controls bounded persistence for structured stream
+sessions. `storage-settings.enabled` remains the master switch. A compact
+session stores metadata, derived summaries, and noteworthy/continuity items;
+it does not turn a restarted producer into a live session.
+
+| Key | Meaning |
+|---|---|
+| `enabled` | Enable compact stream persistence while master storage is enabled. |
+| `summary_retention` | Maximum derived windows retained for each session. |
+| `noteworthy_keep_last` | Maximum noteworthy/continuity items retained for each session. |
+| `keep_last_sessions` | Softer count limit for retained sessions per logical stream. |
+| `max_bytes_per_view_mb` | Hard combined ceiling for compact files, markers, and raw blocks for one logical stream. |
+| `raw_retention` | Explicit raw-segment policy; `null` disables raw persistence. |
+
+`raw_retention`, when present, accepts `max_blocks`, `max_bytes_mb`, and
+optional `max_age_s`. The hard `max_bytes_per_view_mb` ceiling wins whenever
+these policies conflict. A per-view override belongs at
+`storage-settings.views.<view_id>.stream` (the early `streams` spelling is
+also accepted).
 
 ### Source-aware storage
 

@@ -142,6 +142,30 @@ _DEFAULTS: dict[str, Any] = {
         # finite budget; neither installs an application signal handler.
         "shutdown_drain_timeout_s": 1.0,
         "process_exit_cleanup_timeout_s": 0.25,
+        # The raw browser window is independently bounded by all three
+        # limits.  Age is opt-in because a stream with intermittent source
+        # activity may otherwise become empty merely while it is quiet.
+        # Fine windows are an internal compaction boundary, not source-time
+        # buckets: they use plotsrv's observation time.
+        "retention": {
+            "max_raw_records": 200,
+            "max_raw_bytes": 8 * 1024 * 1024,
+            "max_raw_age_s": None,
+            "fine_window_s": 60,
+            # Derived history keeps a recent fixed fine tier, a coarser fixed
+            # tier, then one oldest cumulative aggregate. Every constituent
+            # object has explicit field/category/value bounds.
+            "max_fine_summary_windows": 32,
+            "max_coarse_summary_windows": 24,
+            "coarse_window_factor": 60,
+            "max_summary_fields": 64,
+            "max_categorical_values": 16,
+            "max_categorical_value_bytes": 128,
+            # Source records are individually bounded by the stream protocol,
+            # and system notices have a fixed schema.  A single chronological
+            # item cap therefore bounds their combined retained footprint.
+            "max_noteworthy_items": 64,
+        },
     },
     "storage-settings": {
         "enabled": False,
@@ -158,6 +182,25 @@ _DEFAULTS: dict[str, Any] = {
             "enabled": True,
             "restore_on_startup": True,
             "restore_scope": "discovered",
+        },
+        # Stream storage is deliberately independent of snapshot retention.
+        # Global storage remains the master opt-in; once it is enabled, compact
+        # stream state is useful by default while source-row persistence stays
+        # explicitly off.  The limits below apply to every retained stream
+        # file, including metadata, so this cannot become an implicit log
+        # archive.
+        "streams": {
+            "enabled": True,
+            # This queue is independent from the ordinary snapshot/latest
+            # worker. A busy stream therefore consumes only its own bounded
+            # admission budget.
+            "max_pending_tasks": 16,
+            "max_pending_mb": 8.0,
+            "raw_retention": None,
+            "summary_retention": 64,
+            "noteworthy_keep_last": 64,
+            "keep_last_sessions": 8,
+            "max_bytes_per_view_mb": 16.0,
         },
         "views": {},
     },
@@ -1081,6 +1124,176 @@ def _stream_settings() -> dict[str, Any]:
     return _merged_section("stream-settings")
 
 
+def _stream_retention_settings() -> dict[str, Any]:
+    """Return stream retention defaults merged with its nested YAML section."""
+    default = dict(_DEFAULTS["stream-settings"]["retention"])
+    raw = _stream_settings().get("retention")
+    return _deep_merge_dicts(default, dict(raw)) if isinstance(raw, Mapping) else default
+
+
+def get_stream_raw_max_records() -> int:
+    """Maximum source records retained in a stream's recent raw window."""
+    default = int(_DEFAULTS["stream-settings"]["retention"]["max_raw_records"])
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("max_raw_records"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_stream_raw_max_bytes() -> int:
+    """Maximum canonical source bytes retained in a stream's raw window."""
+    default = int(_DEFAULTS["stream-settings"]["retention"]["max_raw_bytes"])
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("max_raw_bytes"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_stream_raw_max_age_s() -> float | None:
+    """Optional maximum plotsrv-observation age for raw stream records."""
+    raw = _stream_retention_settings().get("max_raw_age_s")
+    if raw is None or raw is False:
+        return None
+    if isinstance(raw, str) and raw.strip().lower() in {
+        "",
+        "off",
+        "none",
+        "null",
+        "false",
+        "no",
+        "0",
+    }:
+        return None
+    value = _as_float(raw, 0.0, min_value=0.001)
+    return value if value >= 0.001 else None
+
+
+def get_stream_fine_window_s() -> int:
+    """Fixed observation-time resolution used for the initial fine handoff."""
+    default = int(_DEFAULTS["stream-settings"]["retention"]["fine_window_s"])
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("fine_window_s"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_stream_max_fine_summary_windows() -> int:
+    """Maximum retained fixed fine summary windows per stream."""
+    default = int(
+        _DEFAULTS["stream-settings"]["retention"]["max_fine_summary_windows"]
+    )
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("max_fine_summary_windows"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_stream_max_coarse_summary_windows() -> int:
+    """Maximum retained fixed coarse summary windows per stream."""
+    default = int(
+        _DEFAULTS["stream-settings"]["retention"]["max_coarse_summary_windows"]
+    )
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("max_coarse_summary_windows"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_stream_coarse_window_factor() -> int:
+    """Number of fine intervals in one deterministic coarse interval."""
+    default = int(
+        _DEFAULTS["stream-settings"]["retention"]["coarse_window_factor"]
+    )
+    return max(
+        2,
+        _as_int_or_inf(
+            _stream_retention_settings().get("coarse_window_factor"),
+            default,
+            min_value=2,
+        ),
+    )
+
+
+def get_stream_max_summary_fields() -> int:
+    """Maximum deterministically selected fields held by one summary window."""
+    default = int(
+        _DEFAULTS["stream-settings"]["retention"]["max_summary_fields"]
+    )
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("max_summary_fields"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_stream_max_categorical_values() -> int:
+    """Maximum exact scalar categories retained per field/window."""
+    default = int(
+        _DEFAULTS["stream-settings"]["retention"]["max_categorical_values"]
+    )
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("max_categorical_values"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_stream_max_categorical_value_bytes() -> int:
+    """Maximum canonical byte length retained for one categorical scalar."""
+    default = int(
+        _DEFAULTS["stream-settings"]["retention"]["max_categorical_value_bytes"]
+    )
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("max_categorical_value_bytes"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_stream_max_noteworthy_items() -> int:
+    """Maximum source noteworthy records and system notices held per stream."""
+    default = int(
+        _DEFAULTS["stream-settings"]["retention"]["max_noteworthy_items"]
+    )
+    return max(
+        1,
+        _as_int_or_inf(
+            _stream_retention_settings().get("max_noteworthy_items"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
 def get_stream_poll_interval_s() -> float:
     """Polling interval for local JSONL observation."""
     default = float(_DEFAULTS["stream-settings"]["poll_interval_s"])
@@ -1258,6 +1471,169 @@ def get_storage_latest_restore_scope() -> str:
         return "discovered"
 
     return raw
+
+
+def _storage_stream_settings(view_id: str | None = None) -> dict[str, Any]:
+    """Return bounded stream-storage settings, including a view override.
+
+    The existing ``storage-settings.views.<view>`` mapping retains its
+    snapshot semantics.  Its nested singular ``stream`` mapping is the
+    stream-specific override, so ordinary ``keep_last`` never accidentally
+    becomes a source-record policy.  ``streams`` is accepted as a harmless
+    spelling alias for early configuration drafts.
+    """
+    defaults = dict(_DEFAULTS["storage-settings"]["streams"])
+    storage = _merged_section("storage-settings")
+    configured = storage.get("streams")
+    if isinstance(configured, Mapping):
+        defaults = _deep_merge_dicts(defaults, dict(configured))
+
+    if view_id is None:
+        return defaults
+
+    view = get_storage_view_settings(view_id)
+    override = view.get("stream")
+    if not isinstance(override, Mapping):
+        override = view.get("streams")
+    if isinstance(override, Mapping):
+        return _deep_merge_dicts(defaults, dict(override))
+    return defaults
+
+
+def get_storage_stream_enabled(view_id: str | None = None) -> bool:
+    """Whether compact stream persistence is enabled for one logical view."""
+    if not get_storage_enabled():
+        return False
+    return _as_bool(_storage_stream_settings(view_id).get("enabled"), True)
+
+
+def get_storage_stream_summary_retention(view_id: str | None = None) -> int:
+    """Maximum persisted derived-summary windows for one stream session."""
+    default = int(_DEFAULTS["storage-settings"]["streams"]["summary_retention"])
+    return max(
+        1,
+        _as_int_or_inf(
+            _storage_stream_settings(view_id).get("summary_retention"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_storage_stream_max_pending_tasks() -> int:
+    """Maximum compact stream persistence tasks held independently in memory."""
+    default = int(_DEFAULTS["storage-settings"]["streams"]["max_pending_tasks"])
+    return max(
+        1,
+        _as_int_or_inf(
+            _storage_stream_settings().get("max_pending_tasks"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_storage_stream_max_pending_bytes() -> int:
+    """Maximum estimated bytes held by the independent stream queue."""
+    default_mb = float(_DEFAULTS["storage-settings"]["streams"]["max_pending_mb"])
+    value = _parse_mb_to_bytes(
+        _storage_stream_settings().get("max_pending_mb"),
+        default_mb,
+    )
+    return max(1, int(default_mb * _MB) if value is None else value)
+
+
+def get_storage_stream_noteworthy_keep_last(view_id: str | None = None) -> int:
+    """Maximum persisted noteworthy or continuity items for a session."""
+    default = int(
+        _DEFAULTS["storage-settings"]["streams"]["noteworthy_keep_last"]
+    )
+    return max(
+        1,
+        _as_int_or_inf(
+            _storage_stream_settings(view_id).get("noteworthy_keep_last"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_storage_stream_keep_last_sessions(view_id: str | None = None) -> int:
+    """Maximum retained persisted stream sessions for a logical view."""
+    default = int(
+        _DEFAULTS["storage-settings"]["streams"]["keep_last_sessions"]
+    )
+    return max(
+        1,
+        _as_int_or_inf(
+            _storage_stream_settings(view_id).get("keep_last_sessions"),
+            default,
+            min_value=1,
+        ),
+    )
+
+
+def get_storage_stream_max_bytes_per_view(view_id: str | None = None) -> int:
+    """Hard byte ceiling for all persisted stream sessions of one view."""
+    default_mb = float(
+        _DEFAULTS["storage-settings"]["streams"]["max_bytes_per_view_mb"]
+    )
+    value = _parse_mb_to_bytes(
+        _storage_stream_settings(view_id).get("max_bytes_per_view_mb"),
+        default_mb,
+    )
+    return max(1, int(default_mb * _MB) if value is None else value)
+
+
+def get_storage_stream_raw_retention(
+    view_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return an explicitly enabled raw-block policy, otherwise ``None``.
+
+    A mapping is required to opt in.  This prevents a truthy global storage
+    setting, a bare boolean, or inherited stream-memory limits from silently
+    enabling raw source persistence.
+    """
+    raw = _storage_stream_settings(view_id).get("raw_retention")
+    if not isinstance(raw, Mapping):
+        return None
+    if not _as_bool(raw.get("enabled"), True):
+        return None
+    return dict(raw)
+
+
+def get_storage_stream_raw_enabled(view_id: str | None = None) -> bool:
+    """Whether raw stream blocks have been explicitly configured to persist."""
+    return (
+        get_storage_stream_enabled(view_id)
+        and get_storage_stream_raw_retention(view_id) is not None
+    )
+
+
+def get_storage_stream_raw_max_blocks(view_id: str | None = None) -> int:
+    """Bound explicitly enabled raw persistence to a finite block count."""
+    raw = get_storage_stream_raw_retention(view_id)
+    if raw is None:
+        return 0
+    return max(1, _as_int_or_inf(raw.get("max_blocks"), 16, min_value=1))
+
+
+def get_storage_stream_raw_max_bytes(view_id: str | None = None) -> int:
+    """Bound explicitly enabled raw persistence before the per-view hard cap."""
+    raw = get_storage_stream_raw_retention(view_id)
+    if raw is None:
+        return 0
+    value = _parse_mb_to_bytes(raw.get("max_bytes_mb"), 4.0)
+    raw_limit = max(1, int(4.0 * _MB) if value is None else value)
+    return min(raw_limit, get_storage_stream_max_bytes_per_view(view_id))
+
+
+def get_storage_stream_raw_max_age_s(view_id: str | None = None) -> int | None:
+    """Optional age retention for raw blocks; count and bytes always apply."""
+    raw = get_storage_stream_raw_retention(view_id)
+    if raw is None:
+        return None
+    return _parse_duration_seconds(raw.get("max_age_s"))
 
 
 def _storage_view_overrides() -> dict[str, Any]:

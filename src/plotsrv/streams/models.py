@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 import hashlib
 import json
 import math
@@ -20,11 +21,38 @@ MAX_STREAM_BATCH_RECORDS = 100
 MAX_STREAM_BATCH_BYTES = 512 * 1024
 # Includes protocol metadata around a maximally-sized records payload.
 MAX_STREAM_REQUEST_BYTES = 640 * 1024
+# Stream producer identities are echoed into browser-local checkpoint state.
+# Keep the public and wire ingress bound aligned with that small storage
+# schema, rather than allowing sessions that can never be compared.  A
+# "character" here is one Unicode code point, which is also the unit used by
+# Python's ``len`` and the browser checkpoint validator.
+MAX_STREAM_ID_CHARS = 512
 SOURCE_TRANSITIONS = frozenset(
     ("unknown", "initial", "continuing", "replaced", "truncated", "missing", "appeared")
 )
 MAX_SOURCE_CONTINUITY_WARNING_CHARS = 256
 MAX_SOURCE_HEALTH_COUNTER = (2**53) - 1
+# Automatic classification deliberately has a very small vocabulary.  These
+# are conventional structured log fields, and only an exact case-normalised
+# value is accepted.  In particular, prose in ``message`` (or an unrecognised
+# field/value combination) is never interpreted as a severity event.
+STRUCTURED_SEVERITY_FIELDS = ("severity", "level")
+RECOGNIZED_SEVERITIES = (
+    "warning",
+    "emergency",
+    "alert",
+    "critical",
+    "fatal",
+    "error",
+)
+# ``warn`` is the one accepted conventional spelling alias.  It deliberately
+# normalises to the single browser-facing ``warning`` counter rather than
+# creating a second, easily confused category.  No whitespace, punctuation,
+# substring, or prose matching is performed.
+_RECOGNIZED_SEVERITY_VALUES = {
+    **{severity: severity for severity in RECOGNIZED_SEVERITIES},
+    "warn": "warning",
+}
 SOURCE_CONTINUITY_WARNINGS = frozenset(
     (
         "The JSONL source was truncated; record continuity is uncertain.",
@@ -43,6 +71,77 @@ class StreamRecordValidationError(ValueError):
 
 class StreamBatchValidationError(StreamRecordValidationError):
     """A stream append exceeds an explicit record or batch resource bound."""
+
+
+def normalize_checkpoint_identifier(value: object, field: str) -> str:
+    """Return one browser-storable stream identity or raise ``ValueError``.
+
+    Checkpoint keys are shared by public API callers, the HTTP protocol, and
+    browser local storage.  Their contract is deliberately small: trimmed,
+    non-empty, at most ``MAX_STREAM_ID_CHARS`` Unicode code points, and valid
+    Unicode (no surrogate code points).  The last condition matters because
+    an escaped surrogate can survive a permissive JSON decode but cannot be
+    encoded safely in a browser checkpoint key.
+    """
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{field} must be a non-empty string")
+    identity = value.strip()
+    if len(identity) > MAX_STREAM_ID_CHARS:
+        raise ValueError(f"{field} must be at most {MAX_STREAM_ID_CHARS} characters")
+    if any("\ud800" <= character <= "\udfff" for character in identity):
+        raise ValueError(f"{field} must be well-formed Unicode")
+    return identity
+
+
+@dataclass(frozen=True, slots=True)
+class StreamRecord:
+    """One accepted raw observation retained by the stream server.
+
+    ``browser_sequence`` and ``observed_at`` are assigned by plotsrv, rather
+    than copied from a source field.  ``encoded_bytes`` is the exact canonical
+    wire-size estimate used by raw-retention accounting.  Keeping this
+    information beside the source object avoids letting a later schema or
+    retention pass recalculate a different size for the same observation.
+    """
+
+    browser_sequence: int
+    data: dict[str, Any]
+    observed_at: datetime
+    encoded_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class StreamSchema:
+    """The bounded, ordered browser schema for the current raw window.
+
+    A schema revision changes only when its retained field list changes.  The
+    raw rows remain source objects; this is metadata that describes their
+    columns and is deliberately not a synthetic stream record.
+    """
+
+    columns: tuple[str, ...] = ()
+    revision: int = 0
+
+
+def recognize_structured_severity(record: dict[str, Any]) -> str | None:
+    """Return one explicit notable severity from a source record, if present.
+
+    This is intentionally a classifier for *structured* source fields rather
+    than a search over arbitrary string values.  The exact conventional field
+    names above are considered in order, and their strings are case-folded
+    only to tolerate conventional ``ERROR``/``error`` spellings.  Whitespace,
+    aliases, substrings, nested objects, and free-text message content do not
+    match.
+    """
+    for field_name in STRUCTURED_SEVERITY_FIELDS:
+        value = record.get(field_name)
+        if type(value) is not str:
+            continue
+        normalized = value.casefold()
+        recognized = _RECOGNIZED_SEVERITY_VALUES.get(normalized)
+        if recognized is not None:
+            return recognized
+    return None
 
 
 @dataclass(frozen=True, slots=True)

@@ -74,6 +74,17 @@ def test_default_stream_settings_bound_recovery_without_affecting_publish() -> N
     assert config.get_stream_heartbeat_timeout_s() == 3.0
     assert config.get_stream_shutdown_drain_timeout_s() == 1.0
     assert config.get_stream_process_exit_cleanup_timeout_s() == 0.25
+    assert config.get_stream_raw_max_records() == 200
+    assert config.get_stream_raw_max_bytes() == 8 * 1024 * 1024
+    assert config.get_stream_raw_max_age_s() is None
+    assert config.get_stream_fine_window_s() == 60
+    assert config.get_stream_max_fine_summary_windows() == 32
+    assert config.get_stream_max_coarse_summary_windows() == 24
+    assert config.get_stream_coarse_window_factor() == 60
+    assert config.get_stream_max_summary_fields() == 64
+    assert config.get_stream_max_categorical_values() == 16
+    assert config.get_stream_max_categorical_value_bytes() == 128
+    assert config.get_stream_max_noteworthy_items() == 64
     assert config.get_publish_async_enabled() is False
 
 
@@ -90,6 +101,18 @@ stream-settings:
   heartbeat_timeout_s: 0.12
   shutdown_drain_timeout_s: 0.3
   process_exit_cleanup_timeout_s: 0.05
+  retention:
+    max_raw_records: 3
+    max_raw_bytes: 1234
+    max_raw_age_s: 0.2
+    fine_window_s: 5
+    max_fine_summary_windows: 4
+    max_coarse_summary_windows: 3
+    coarse_window_factor: 6
+    max_summary_fields: 7
+    max_categorical_values: 8
+    max_categorical_value_bytes: 9
+    max_noteworthy_items: 10
 """.strip(),
         encoding="utf-8",
     )
@@ -103,6 +126,17 @@ stream-settings:
     assert config.get_stream_heartbeat_timeout_s() == 0.12
     assert config.get_stream_shutdown_drain_timeout_s() == 0.3
     assert config.get_stream_process_exit_cleanup_timeout_s() == 0.05
+    assert config.get_stream_raw_max_records() == 3
+    assert config.get_stream_raw_max_bytes() == 1234
+    assert config.get_stream_raw_max_age_s() == 0.2
+    assert config.get_stream_fine_window_s() == 5
+    assert config.get_stream_max_fine_summary_windows() == 4
+    assert config.get_stream_max_coarse_summary_windows() == 3
+    assert config.get_stream_coarse_window_factor() == 6
+    assert config.get_stream_max_summary_fields() == 7
+    assert config.get_stream_max_categorical_values() == 8
+    assert config.get_stream_max_categorical_value_bytes() == 9
+    assert config.get_stream_max_noteworthy_items() == 10
 
 
 def test_live_publish_settings_use_yaml(tmp_path) -> None:
@@ -145,6 +179,89 @@ def test_storage_latest_is_enabled_when_storage_is_enabled_without_override(
 
     assert config.get_storage_latest_enabled() is True
     assert config.get_storage_restore_latest_on_startup() is True
+
+
+def test_stream_storage_defaults_to_compact_history_only_when_storage_is_enabled(
+    tmp_path,
+) -> None:
+    assert config.get_storage_stream_enabled() is False
+    assert config.get_storage_stream_raw_enabled() is False
+
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text("storage-settings:\n  enabled: true\n", encoding="utf-8")
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_storage_stream_enabled("logs:worker") is True
+    assert config.get_storage_stream_summary_retention("logs:worker") == 64
+    assert config.get_storage_stream_noteworthy_keep_last("logs:worker") == 64
+    assert config.get_storage_stream_keep_last_sessions("logs:worker") == 8
+    assert config.get_storage_stream_max_bytes_per_view("logs:worker") == 16 * 1024 * 1024
+    assert config.get_storage_stream_raw_retention("logs:worker") is None
+    assert config.get_storage_stream_raw_enabled("logs:worker") is False
+
+
+def test_stream_raw_opt_in_does_not_bypass_the_global_storage_master_switch(
+    tmp_path,
+) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+storage-settings:
+  enabled: false
+  streams:
+    raw_retention:
+      max_blocks: 2
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_storage_stream_raw_retention("logs:worker") == {"max_blocks": 2}
+    assert config.get_storage_stream_raw_enabled("logs:worker") is False
+
+
+def test_stream_storage_settings_support_explicit_raw_opt_in_and_view_overrides(
+    tmp_path,
+) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+storage-settings:
+  enabled: true
+  streams:
+    summary_retention: 9
+    noteworthy_keep_last: 8
+    keep_last_sessions: 7
+    max_bytes_per_view_mb: 2
+    raw_retention:
+      max_age_s: 60
+      max_blocks: 3
+  views:
+    logs:worker:
+      stream:
+        enabled: false
+    logs:raw-worker:
+      stream:
+        summary_retention: 4
+        raw_retention:
+          enabled: true
+          max_age_s: 30
+          max_blocks: 2
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_storage_stream_enabled("logs:worker") is False
+    assert config.get_storage_stream_enabled("logs:raw-worker") is True
+    assert config.get_storage_stream_summary_retention("logs:raw-worker") == 4
+    assert config.get_storage_stream_noteworthy_keep_last("logs:raw-worker") == 8
+    assert config.get_storage_stream_raw_enabled("logs:raw-worker") is True
+    assert config.get_storage_stream_raw_retention("logs:raw-worker") == {
+        "max_age_s": 30,
+        "max_blocks": 2,
+        "enabled": True,
+    }
 
 
 def test_get_render_text_max_chars_default() -> None:
