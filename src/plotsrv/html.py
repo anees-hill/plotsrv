@@ -9,7 +9,7 @@ from .store import ViewMeta
 from .ui_assets import get_ui_assets
 from .ui_config import UISettings, get_ui_settings
 
-ViewKind = Literal["none", "plot", "table", "artifact"]
+ViewKind = Literal["none", "plot", "table", "artifact", "stream"]
 
 
 def _escape_html(s: object) -> str:
@@ -71,7 +71,9 @@ def render_index(
     )
 
     tabulator_head = ""
-    include_tabulator = kind in ("table", "artifact") and table_view_mode != "simple"
+    include_tabulator = kind in ("table", "artifact", "stream") and (
+        table_view_mode != "simple" or kind == "stream"
+    )
 
     if include_tabulator:
         tabulator_head = f'<script src="{assets.tabulator_js}" defer></script>'
@@ -412,6 +414,109 @@ def render_index(
               {table_shell_close}
             """
 
+        footer_html = _footer_html(controls_html=controls_html)
+
+    elif kind == "stream":
+        controls_html = (
+            _refresh_control_html("refreshStream()")
+            + _auto_refresh_controls_html()
+            + _terminate_button_html()
+        )
+
+        content_html = """
+          <div class="ps-stream-shell">
+            <div class="ps-stream-topbar">
+              <span id="stream-lifecycle-badge" class="ps-stream-badge ps-stream-badge--live">LIVE OBSERVATION</span>
+              <p id="stream-status-inline" class="ps-stream-status" aria-live="polite">
+                Waiting for appended JSON objects.
+              </p>
+              <p id="stream-health-inline" class="ps-stream-health" aria-live="polite"></p>
+            </div>
+
+            <div class="ps-table-shell">
+              <div class="ps-table-topbar">
+                <div class="ps-table-topbar__left">
+                  <p id="table-status-inline" class="ps-table-status"></p>
+                </div>
+                <div class="ps-table-topbar__right">
+                  <div class="ps-table-toolbar">
+                    <label class="ps-table-toolbar__search">
+                      <span class="ps-table-toolbar__label">Search</span>
+                      <input
+                        id="table-search-input"
+                        class="ps-table-input"
+                        type="text"
+                        placeholder="Search retained rows…"
+                        autocomplete="off"
+                      />
+                    </label>
+
+                    <button
+                      id="table-filters-toggle-btn"
+                      type="button"
+                      class="ps-btn"
+                      aria-expanded="false"
+                      aria-controls="table-filter-panel">
+                      Filters
+                    </button>
+
+                    <button
+                      id="table-columns-toggle-btn"
+                      type="button"
+                      class="ps-btn"
+                      aria-expanded="false"
+                      aria-controls="table-columns-panel">
+                      Columns
+                    </button>
+
+                    <button
+                      id="table-reset-btn"
+                      type="button"
+                      class="ps-btn">
+                      Reset view
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div id="table-filter-panel" class="ps-table-filter-panel" hidden>
+                <div class="ps-table-filter-panel__header">
+                  <div class="ps-table-filter-panel__title">Filters</div>
+                  <button
+                    id="table-filter-add-btn"
+                    type="button"
+                    class="ps-btn">
+                    Add filter
+                  </button>
+                </div>
+
+                <div id="table-filter-rows" class="ps-table-filter-rows"></div>
+              </div>
+
+              <div id="table-columns-panel" class="ps-table-columns-panel" hidden>
+                <div class="ps-table-columns-panel__header">
+                  <div class="ps-table-columns-panel__title">Columns</div>
+                  <div class="ps-table-columns-panel__actions">
+                    <button
+                      id="table-columns-show-all-btn"
+                      type="button"
+                      class="ps-btn">
+                      Show all
+                    </button>
+                  </div>
+                </div>
+
+                <div id="table-columns-list" class="ps-table-columns-list"></div>
+              </div>
+
+              <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
+
+              <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
+                <div id="stream-grid" class="table-grid ps-tablegrid ps-stream-grid"></div>
+              </div>
+            </div>
+          </div>
+        """
         footer_html = _footer_html(controls_html=controls_html)
 
     elif kind == "plot":

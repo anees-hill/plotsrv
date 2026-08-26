@@ -27,6 +27,17 @@
       return Promise.resolve();
     }
 
+    if (document.getElementById("stream-grid")) {
+      if (typeof core.loadStream === "function") {
+        return core.loadStream().then(function () {
+          if (typeof core.refreshStatus === "function") {
+            return core.refreshStatus();
+          }
+        });
+      }
+      return Promise.resolve();
+    }
+
     if (document.getElementById("table-grid")) {
       if (typeof core.loadTable === "function") {
         return core.loadTable().then(function () {

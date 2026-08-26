@@ -52,6 +52,14 @@
     ? raw.view_menu_revision
     : null;
   state.tabulatorInstance = null;
+  state.streamTabulatorInstance = null;
+  state.streamCursor = null;
+  state.streamSessionId = null;
+  state.streamSchemaRevision = null;
+  state.streamColumnsSignature = null;
+  state.streamRowsBySequence = Object.create(null);
+  state.streamRefreshTimer = null;
+  state.streamVisibilityListenerBound = false;
 
   core.getActiveViewId = function () {
     return config.activeViewId;

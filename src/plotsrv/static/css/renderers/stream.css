@@ -1,0 +1,73 @@
+.ps-stream-shell {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.ps-stream-topbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  justify-content: space-between;
+}
+
+.ps-stream-badge {
+  background: #e5f5ec;
+  border: 1px solid #86c79f;
+  border-radius: 999px;
+  color: #165b31;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 0.22rem 0.55rem;
+}
+
+.ps-stream-badge--retrying {
+  background: #fff4df;
+  border-color: #e6ae63;
+  color: #815014;
+}
+
+.ps-stream-badge--ended {
+  background: #edf0f3;
+  border-color: #aeb8c3;
+  color: #455363;
+}
+
+.ps-stream-badge--disconnected,
+.ps-stream-badge--incomplete,
+.ps-stream-badge--unknown {
+  background: #fff0f0;
+  border-color: #d58c8c;
+  color: #8b2525;
+}
+
+.ps-stream-status {
+  color: #4b5563;
+  margin: 0;
+  min-width: 0;
+}
+
+.ps-stream-health {
+  color: #667085;
+  font-size: 0.86rem;
+  margin: 0;
+  min-width: 0;
+}
+
+.ps-stream-grid {
+  min-height: 16rem;
+}
+
+@media (max-width: 700px) {
+  .ps-stream-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ps-stream-badge,
+  .ps-stream-status,
+  .ps-stream-health {
+    max-width: 100%;
+  }
+}

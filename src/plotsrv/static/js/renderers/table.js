@@ -1168,6 +1168,36 @@
     return true;
   }
 
+  function configureTableExplorer(options) {
+    const settings = options && typeof options === "object" ? options : {};
+    const table = settings.table;
+    if (!table) return;
+
+    const fields = Array.isArray(settings.fields) ? settings.fields.slice() : [];
+    const rows = Array.isArray(settings.rows) ? settings.rows : [];
+
+    if (!state.tableUiState) {
+      loadTableUiState();
+    }
+
+    // The stream renderer uses the same small controller as a rich static
+    // table.  There is only one table surface per page, so this alias lets
+    // search, filters, and column controls operate without duplicating their
+    // state model or event bindings.
+    state.tabulatorInstance = table;
+    state.tableLastPayload = settings.payload || {};
+    state.tableRows = rows;
+    state.tableFields = fields;
+    state.tableFieldTypes = inferFieldTypes(fields, rows);
+    state.tableColumnDefs = Array.isArray(settings.columnDefs)
+      ? settings.columnDefs
+      : [];
+
+    bindTableToolbar();
+    applyAllTableFilters();
+    refreshTableStatus();
+  }
+
   async function loadTable() {
     const grid = document.getElementById("table-grid");
     if (!grid) return;
@@ -1289,6 +1319,7 @@
 
   core.loadTable = loadTable;
   core.exportTable = exportTable;
+  core.configureTableExplorer = configureTableExplorer;
 
   window.exportTable = exportTable;
 })();
