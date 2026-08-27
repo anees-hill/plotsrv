@@ -29,6 +29,29 @@ from .policy import (
     snapshots_to_prune,
     estimate_payload_size_bytes,
 )
+from .streams import (
+    STREAM_STORAGE_FORMAT_VERSION,
+    CompactSessionWrite,
+    FileStreamStorageBackend,
+    RawBlockPolicy,
+    RawBlockWrite,
+    StoredStreamGap,
+    StoredStreamSession,
+    StoredStreamView,
+    StreamSessionPaths,
+    StreamStorageCapacityError,
+    StreamStorageError,
+    StreamStoragePolicy,
+    StreamStorageValidationError,
+)
+from .stream_worker import (
+    StreamStorageSubmission,
+    StreamStorageTask,
+    StreamStorageWorker,
+    get_stream_storage_queue_stats,
+    get_stream_storage_worker,
+    stop_stream_storage_worker,
+)
 
 __all__ = [
     "SnapshotMeta",
@@ -56,4 +79,23 @@ __all__ = [
     "get_latest_stats",
     "delete_latest_for_view",
     "delete_all_latest",
+    "STREAM_STORAGE_FORMAT_VERSION",
+    "CompactSessionWrite",
+    "FileStreamStorageBackend",
+    "RawBlockPolicy",
+    "RawBlockWrite",
+    "StoredStreamGap",
+    "StoredStreamSession",
+    "StoredStreamView",
+    "StreamSessionPaths",
+    "StreamStorageCapacityError",
+    "StreamStorageError",
+    "StreamStoragePolicy",
+    "StreamStorageValidationError",
+    "StreamStorageSubmission",
+    "StreamStorageTask",
+    "StreamStorageWorker",
+    "get_stream_storage_queue_stats",
+    "get_stream_storage_worker",
+    "stop_stream_storage_worker",
 ]
