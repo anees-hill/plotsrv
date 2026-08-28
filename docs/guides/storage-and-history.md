@@ -52,6 +52,7 @@ Storage has two effects:
 |---|---|
 | Snapshot history | previous versions can be browsed through the UI history controls |
 | Latest restore | the most recent live view can reappear after restart |
+| Stream-session history | bounded observed stream sessions can be selected after restart |
 
 Snapshots appear in the history controls.
 
@@ -141,6 +142,55 @@ Common values are:
 | `none` | restore nothing |
 
 `discovered` is a good default for project-specific server runs because it avoids restoring unrelated old views.
+
+## Stream-session history
+
+When a JSONL stream is used with storage enabled, plotsrv stores bounded
+session metadata, derived summary windows, and noteworthy/continuity
+observations beneath the dedicated `streams/` storage namespace. On restart,
+each retained session is available from the stream view's **Stored sessions**
+selector. A stored session is marked as historical and is never presented as a
+live producer.
+
+Raw source rows remain opt-in. They can be retained only with a finite raw
+block policy; the history view shows those explicitly retained segments, not a
+source-log replay.
+
+```yaml title="plotsrv.yaml"
+storage-settings:
+  enabled: true
+  streams:
+    keep_last_sessions: 4
+    summary_retention: 32
+    noteworthy_keep_last: 32
+    # This is a hard ceiling for every retained session and optional raw block
+    # for one logical stream view. It overrides the softer count policies.
+    max_bytes_per_view_mb: 16
+    raw_retention:
+      max_blocks: 8
+      max_bytes_mb: 4
+      max_age_s: 24h
+```
+
+Use `raw_retention: null` (the default) to keep compact history only. A
+persistence gap remains visible on the restored historical session; storage is
+observational history, not an audit guarantee.
+If a hard byte ceiling can retain only the small persistence-gap marker, the
+session still appears as an incomplete stored session with its compact details
+unavailable rather than disappearing or being shown as complete.
+
+To override one logical stream without changing snapshot settings for that
+view, put a nested `stream` mapping under `storage-settings.views`:
+
+```yaml title="plotsrv.yaml"
+storage-settings:
+  enabled: true
+  views:
+    "logs:worker stream":
+      stream:
+        keep_last_sessions: 2
+        max_bytes_per_view_mb: 4
+```
 
 ## Storage retention
 
@@ -263,7 +313,7 @@ Show storage statistics:
 plotsrv store stats
 ```
 
-List stored views or snapshots:
+List stored views, snapshots, and stream history:
 
 ```bash
 plotsrv store list
@@ -289,7 +339,7 @@ plotsrv store clear --all
 
 !!! warning
 
-    `plotsrv store clear --all` removes stored material, including latest restored state and snapshot history.
+    `plotsrv store clear --all` removes stored material, including latest restored state, snapshot history, and stream-session history. `--view` clears all three kinds only for that logical view.
 
 ## Storage directory
 

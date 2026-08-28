@@ -9,6 +9,10 @@ from fastapi import APIRouter, HTTPException, Query, Request
 
 from . import config, store
 from .http_security import require_local_request
+from .storage.stream_worker import (
+    get_stream_storage_worker,
+    schedule_stream_persistence_incomplete,
+)
 from .streams.models import (
     MAX_STREAM_REQUEST_BYTES,
     STREAM_PROTOCOL_VERSION,
@@ -18,11 +22,13 @@ from .streams.models import (
     StreamBatchValidationError,
     StreamClose,
     StreamHeartbeat,
+    StreamRecord,
     StreamRecordValidationError,
     StreamRegistration,
     validate_source_status,
     validate_source_health,
     validate_stream_batch,
+    normalize_checkpoint_identifier,
 )
 from .streams.server_state import (
     StreamConflictError,
@@ -33,6 +39,108 @@ from .streams.server_state import (
 
 
 router = APIRouter()
+
+
+def _submit_stream_persistence(
+    *,
+    view_id: str,
+    session_id: str,
+    raw_block_id: str | None = None,
+    raw_records: tuple[StreamRecord, ...] = (),
+) -> None:
+    """Best-effort persistence that never changes stream protocol acceptance.
+
+    Stream state has already been accepted by the registry before this helper
+    runs. Its only job is to hand a compact, bounded copy to the stream-only
+    worker. Thus a full queue, validation problem, or failed write is visible
+    through ``durable_history`` but cannot turn a successful append, heartbeat,
+    or close into a failed live-observation request.
+    """
+    if not config.get_storage_stream_enabled(view_id):
+        # Global storage is the master opt-in. The registry state is otherwise
+        # deliberately untouched so storage-disabled streams have neither
+        # pending persistence work nor stream-content files.
+        stream_registry.set_persistence_enabled(view_id=view_id, enabled=False)
+        return
+
+    raw_enabled = config.get_storage_stream_raw_enabled(view_id)
+    try:
+        stream_registry.begin_persistence(view_id=view_id, session_id=session_id)
+        snapshot = stream_registry.persistence_snapshot(
+            view_id=view_id,
+            session_id=session_id,
+            raw_records=raw_records if raw_enabled else (),
+            raw_block_id=raw_block_id if raw_enabled else None,
+        )
+        submission = get_stream_storage_worker().submit(
+            view_id=snapshot["view_id"],
+            session_id=snapshot["session_id"],
+            client_id=snapshot["client_id"],
+            metadata=snapshot["metadata"],
+            summary_windows=snapshot["summary_windows"],
+            noteworthy_items=snapshot["noteworthy_items"],
+            raw_block_id=snapshot["raw_block_id"],
+            raw_records=snapshot["raw_records"],
+            on_complete=lambda success, error: stream_registry.complete_persistence(
+                view_id=view_id,
+                session_id=session_id,
+                success=success,
+                error=error,
+            ),
+        )
+    except Exception as error:
+        # This boundary also protects a malformed storage configuration or an
+        # unexpected snapshot-copy error from breaking live stream protocol
+        # handling. The exception text is intentionally concise because it is
+        # exposed to the browser as persistence health.
+        stream_registry.reject_persistence(
+            view_id=view_id,
+            session_id=session_id,
+            reason=f"stream persistence submission failed: {type(error).__name__}: {error}",
+        )
+        _schedule_stream_persistence_gap(
+            view_id=view_id,
+            session_id=session_id,
+            reason=f"stream persistence submission failed: {type(error).__name__}: {error}",
+        )
+        return
+
+    if not submission.accepted:
+        if submission.enabled:
+            reason = submission.reason or "stream persistence was not admitted"
+            stream_registry.reject_persistence(
+                view_id=view_id,
+                session_id=session_id,
+                reason=reason,
+            )
+            _schedule_stream_persistence_gap(
+                view_id=view_id,
+                session_id=session_id,
+                reason=reason,
+            )
+        else:
+            # Storage can be disabled between the initial opt-in check and
+            # admission. It is not a durable gap, just a cancelled attempt.
+            stream_registry.cancel_persistence(
+                view_id=view_id,
+                session_id=session_id,
+            )
+
+
+def _schedule_stream_persistence_gap(
+    *, view_id: str, session_id: str, reason: str
+) -> None:
+    """Keep marker scheduling from changing an accepted live request."""
+    try:
+        schedule_stream_persistence_incomplete(
+            view_id=view_id,
+            session_id=session_id,
+            reason=reason,
+        )
+    except Exception:
+        # The registry was marked incomplete first. This final containment also
+        # protects the HTTP boundary from an injected/custom scheduler failure.
+        pass
 
 
 def _require_protocol_version(payload: dict[str, Any]) -> None:
@@ -60,6 +168,14 @@ def _required_text(payload: dict[str, Any], field: str) -> str:
             detail=f"stream {field} must be a non-empty string",
         )
     return value.strip()
+
+
+def _required_stream_identity(payload: dict[str, Any], field: str) -> str:
+    """Read an identity that can safely participate in browser checkpoints."""
+    try:
+        return normalize_checkpoint_identifier(payload.get(field), field)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=f"stream {error}") from error
 
 
 def _required_batch_sequence(payload: dict[str, Any]) -> int:
@@ -116,8 +232,25 @@ def _source_health(payload: dict[str, Any]) -> SourceHealth:
 
 
 def _configure_heartbeat_timeout() -> None:
-    """Keep server expiry configuration local to every stream request."""
+    """Apply current stream timing and raw-retention configuration per request."""
     stream_registry.set_heartbeat_timeout_s(config.get_stream_heartbeat_timeout_s())
+    stream_registry.set_raw_retention(
+        max_recent_records=config.get_stream_raw_max_records(),
+        max_recent_bytes=config.get_stream_raw_max_bytes(),
+        max_recent_age_s=config.get_stream_raw_max_age_s(),
+        fine_window_s=config.get_stream_fine_window_s(),
+    )
+    stream_registry.set_summary_retention(
+        max_fine_summary_windows=config.get_stream_max_fine_summary_windows(),
+        max_coarse_summary_windows=config.get_stream_max_coarse_summary_windows(),
+        coarse_window_factor=config.get_stream_coarse_window_factor(),
+        max_summary_fields=config.get_stream_max_summary_fields(),
+        max_categorical_values=config.get_stream_max_categorical_values(),
+        max_categorical_value_bytes=config.get_stream_max_categorical_value_bytes(),
+    )
+    stream_registry.set_noteworthy_retention(
+        max_noteworthy_items=config.get_stream_max_noteworthy_items(),
+    )
 
 
 async def _read_bounded_payload(request: Request) -> dict[str, Any]:
@@ -182,11 +315,11 @@ async def register_stream(request: Request) -> dict[str, Any]:
     _configure_heartbeat_timeout()
     registration = StreamRegistration(
         protocol_version=STREAM_PROTOCOL_VERSION,
-        view_id=_required_text(payload, "view_id"),
+        view_id=_required_stream_identity(payload, "view_id"),
         label=_required_text(payload, "label"),
         section=_required_text(payload, "section"),
-        client_id=_required_text(payload, "client_id"),
-        session_id=_required_text(payload, "session_id"),
+        client_id=_required_stream_identity(payload, "client_id"),
+        session_id=_required_stream_identity(payload, "session_id"),
         source_status=_source_status(payload),
         source_health=_source_health(payload),
     )
@@ -194,6 +327,11 @@ async def register_stream(request: Request) -> dict[str, Any]:
         state = stream_registry.register(registration)
     except StreamStateError as error:
         _raise_state_error(error)
+
+    _submit_stream_persistence(
+        view_id=registration.view_id,
+        session_id=registration.session_id,
+    )
 
     current_active = store.get_active_view_id()
     known_view_ids = {view.view_id for view in store.list_views()}
@@ -238,9 +376,9 @@ async def append_stream(request: Request) -> dict[str, Any]:
 
     append = StreamAppend(
         protocol_version=STREAM_PROTOCOL_VERSION,
-        view_id=_required_text(payload, "view_id"),
-        client_id=_required_text(payload, "client_id"),
-        session_id=_required_text(payload, "session_id"),
+        view_id=_required_stream_identity(payload, "view_id"),
+        client_id=_required_stream_identity(payload, "client_id"),
+        session_id=_required_stream_identity(payload, "session_id"),
         batch_id=_required_text(payload, "batch_id"),
         batch_sequence=_required_batch_sequence(payload),
         records=tuple(raw_records),
@@ -251,6 +389,20 @@ async def append_stream(request: Request) -> dict[str, Any]:
         result = stream_registry.append(append)
     except StreamStateError as error:
         _raise_state_error(error)
+
+    # Persist only the newly accepted source batch as an optional immutable raw
+    # block. Compact state is submitted for every accepted protocol state
+    # change, but raw persistence stays disabled unless explicitly configured.
+    _submit_stream_persistence(
+        view_id=result.view_id,
+        session_id=append.session_id,
+        raw_block_id=(
+            f"batch-{result.batch_sequence:020d}"
+            if not result.duplicate and result.accepted_raw_records
+            else None
+        ),
+        raw_records=result.accepted_raw_records,
+    )
 
     return {
         "ok": True,
@@ -275,9 +427,9 @@ async def heartbeat_stream(request: Request) -> dict[str, Any]:
     _configure_heartbeat_timeout()
     heartbeat = StreamHeartbeat(
         protocol_version=STREAM_PROTOCOL_VERSION,
-        view_id=_required_text(payload, "view_id"),
-        client_id=_required_text(payload, "client_id"),
-        session_id=_required_text(payload, "session_id"),
+        view_id=_required_stream_identity(payload, "view_id"),
+        client_id=_required_stream_identity(payload, "client_id"),
+        session_id=_required_stream_identity(payload, "session_id"),
         delivery_state=_required_text(payload, "delivery_state"),
         pending_delivery=_required_bool(payload, "pending_delivery"),
         source_status=_source_status(payload),
@@ -287,6 +439,10 @@ async def heartbeat_stream(request: Request) -> dict[str, Any]:
         result = stream_registry.heartbeat(heartbeat)
     except StreamStateError as error:
         _raise_state_error(error)
+    _submit_stream_persistence(
+        view_id=result.view_id,
+        session_id=heartbeat.session_id,
+    )
     return {
         "ok": True,
         "protocol_version": STREAM_PROTOCOL_VERSION,
@@ -305,15 +461,19 @@ async def close_stream(request: Request) -> dict[str, Any]:
     _configure_heartbeat_timeout()
     close = StreamClose(
         protocol_version=STREAM_PROTOCOL_VERSION,
-        view_id=_required_text(payload, "view_id"),
-        client_id=_required_text(payload, "client_id"),
-        session_id=_required_text(payload, "session_id"),
+        view_id=_required_stream_identity(payload, "view_id"),
+        client_id=_required_stream_identity(payload, "client_id"),
+        session_id=_required_stream_identity(payload, "session_id"),
         drain_completed=_required_bool(payload, "drain_completed"),
     )
     try:
         result = stream_registry.close(close)
     except StreamStateError as error:
         _raise_state_error(error)
+    _submit_stream_persistence(
+        view_id=result.view_id,
+        session_id=close.session_id,
+    )
     return {
         "ok": True,
         "protocol_version": STREAM_PROTOCOL_VERSION,
@@ -343,6 +503,52 @@ def get_stream_data(
     return {"protocol_version": STREAM_PROTOCOL_VERSION, **data}
 
 
+@router.get("/stream/history")
+def get_stream_history(
+    view: str = Query(min_length=1),
+    session_id: str | None = Query(default=None, min_length=1),
+    after: int | None = Query(default=None, ge=0),
+    limit: int | None = Query(default=None, ge=1),
+) -> dict[str, Any]:
+    """Expose restored sessions through a path distinct from live observation.
+
+    Without ``session_id`` this is a lightweight chooser catalogue. With one,
+    it returns the compact historical session and its derived summaries. A
+    historical selection never resolves through the process-local current
+    owner, so a new producer cannot make an old session appear live.
+    """
+    _configure_heartbeat_timeout()
+    try:
+        if session_id is None:
+            return {
+                "protocol_version": STREAM_PROTOCOL_VERSION,
+                "object_type": "stream_historical_session_collection",
+                "historical": True,
+                "view_id": view,
+                "sessions": stream_registry.historical_sessions(view_id=view),
+            }
+        data = stream_registry.historical_data(
+            view_id=view,
+            session_id=session_id,
+            after=after,
+            limit=limit,
+        )
+        summary = stream_registry.historical_summary(
+            view_id=view, session_id=session_id
+        )
+    except StreamStateError as error:
+        _raise_state_error(error)
+    return {
+        "protocol_version": STREAM_PROTOCOL_VERSION,
+        "object_type": "stream_historical_session",
+        "historical": True,
+        "view_id": view,
+        "session_id": session_id,
+        "data": data,
+        "summary": summary,
+    }
+
+
 @router.get("/stream/status")
 def get_stream_status(view: str = Query(min_length=1)) -> dict[str, Any]:
     """Return lifecycle status for a stream observer, never app-process status."""
@@ -352,3 +558,14 @@ def get_stream_status(view: str = Query(min_length=1)) -> dict[str, Any]:
     except StreamStateError as error:
         _raise_state_error(error)
     return {"protocol_version": STREAM_PROTOCOL_VERSION, **status}
+
+
+@router.get("/stream/summary")
+def get_stream_summary(view: str = Query(min_length=1)) -> dict[str, Any]:
+    """Expose derived compact history separately from recent source rows."""
+    _configure_heartbeat_timeout()
+    try:
+        summary = stream_registry.summary(view_id=view)
+    except StreamStateError as error:
+        _raise_state_error(error)
+    return {"protocol_version": STREAM_PROTOCOL_VERSION, **summary}

@@ -24,6 +24,7 @@ from .renderers import register_default_renderers
 from .renderers.registry import render_any
 from .render_cache import cache_rendered_artifact, get_cached_rendered_artifact
 from .storage.worker import enqueue_snapshot, get_storage_queue_stats
+from .storage.stream_worker import get_stream_storage_queue_stats
 from .storage.backend import list_snapshots
 from .publishing.worker import get_publish_queue_stats
 from .http_publish import (
@@ -491,6 +492,9 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     s.update(store.get_service_info())
     s["publish_queue"] = get_publish_queue_stats()
     s["storage_queue"] = get_storage_queue_stats()
+    # Stream persistence has its own budget and must remain inspectable apart
+    # from existing latest/snapshot storage admission.
+    s["stream_storage_queue"] = get_stream_storage_queue_stats()
     s["file_backed_loads"] = get_file_backed_load_stats()
     s["view_id"] = vid
     s["view_menu_revision"] = store.get_view_menu_revision()
