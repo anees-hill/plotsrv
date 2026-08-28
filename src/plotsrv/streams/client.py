@@ -87,6 +87,11 @@ class StreamClient:
         self._started = False
         self._start_lock = threading.Lock()
         self._append_lock = threading.Lock()
+        # Source status and health are cumulative observations.  A heartbeat
+        # and an append run on separate worker paths, so keep snapshot capture
+        # and its HTTP delivery together: a delayed older snapshot must not
+        # reach the registry after a newer one and look like a counter reset.
+        self._source_telemetry_delivery_lock = threading.Lock()
         self._connection_lock = threading.Lock()
         self._heartbeat_thread: threading.Thread | None = None
         self._closed = False
@@ -155,23 +160,24 @@ class StreamClient:
 
             assert self._pending_batch_sequence is not None
             sequence = self._pending_batch_sequence
-            payload = {
-                "protocol_version": STREAM_PROTOCOL_VERSION,
-                "view_id": self.registration.view_id,
-                "client_id": self.registration.client_id,
-                "session_id": self.registration.session_id,
-                "batch_id": batch.batch_id,
-                "batch_sequence": sequence,
-                "records": [record.data for record in batch.records],
-                **self._source_status_payload(),
-                **self._source_health_payload(),
-            }
             try:
-                with self._connection_lock:
-                    self.delivery_attempts += 1
-                response = self._request_with_optional_timeout(
-                    "/stream/append", payload, timeout_s=timeout_s
-                )
+                with self._source_telemetry_delivery_lock:
+                    payload = {
+                        "protocol_version": STREAM_PROTOCOL_VERSION,
+                        "view_id": self.registration.view_id,
+                        "client_id": self.registration.client_id,
+                        "session_id": self.registration.session_id,
+                        "batch_id": batch.batch_id,
+                        "batch_sequence": sequence,
+                        "records": [record.data for record in batch.records],
+                        **self._source_status_payload(),
+                        **self._source_health_payload(),
+                    }
+                    with self._connection_lock:
+                        self.delivery_attempts += 1
+                    response = self._request_with_optional_timeout(
+                        "/stream/append", payload, timeout_s=timeout_s
+                    )
                 next_sequence = response.get("next_batch_sequence")
                 if (
                     not response.get("ok")
@@ -240,20 +246,21 @@ class StreamClient:
         with self._append_lock:
             pending_delivery = self._pending_batch_id is not None
         delivery_state = "retrying" if pending_delivery or self.retry_delay_s > 0 else "live"
-        payload = {
-            "protocol_version": STREAM_PROTOCOL_VERSION,
-            "view_id": self.registration.view_id,
-            "client_id": self.registration.client_id,
-            "session_id": self.registration.session_id,
-            "delivery_state": delivery_state,
-            "pending_delivery": pending_delivery,
-            **self._source_status_payload(source_status),
-            **self._source_health_payload(),
-        }
         try:
-            with self._connection_lock:
-                self.heartbeat_attempts += 1
-            response = self._request("/stream/heartbeat", payload)
+            with self._source_telemetry_delivery_lock:
+                payload = {
+                    "protocol_version": STREAM_PROTOCOL_VERSION,
+                    "view_id": self.registration.view_id,
+                    "client_id": self.registration.client_id,
+                    "session_id": self.registration.session_id,
+                    "delivery_state": delivery_state,
+                    "pending_delivery": pending_delivery,
+                    **self._source_status_payload(source_status),
+                    **self._source_health_payload(),
+                }
+                with self._connection_lock:
+                    self.heartbeat_attempts += 1
+                response = self._request("/stream/heartbeat", payload)
             if response.get("ok") is not True or response.get("lifecycle") not in (
                 "live",
                 "retrying",
@@ -327,20 +334,21 @@ class StreamClient:
             self._registration_attempting = True
             self.registration_attempts += 1
         try:
-            response = self._request_with_optional_timeout(
-                "/stream/register",
-                {
-                    "protocol_version": STREAM_PROTOCOL_VERSION,
-                    "view_id": self.registration.view_id,
-                    "label": self.registration.label,
-                    "section": self.registration.section,
-                    "client_id": self.registration.client_id,
-                    "session_id": self.registration.session_id,
-                    **self._source_status_payload(),
-                    **self._source_health_payload(),
-                },
-                timeout_s=timeout_s,
-            )
+            with self._source_telemetry_delivery_lock:
+                response = self._request_with_optional_timeout(
+                    "/stream/register",
+                    {
+                        "protocol_version": STREAM_PROTOCOL_VERSION,
+                        "view_id": self.registration.view_id,
+                        "label": self.registration.label,
+                        "section": self.registration.section,
+                        "client_id": self.registration.client_id,
+                        "session_id": self.registration.session_id,
+                        **self._source_status_payload(),
+                        **self._source_health_payload(),
+                    },
+                    timeout_s=timeout_s,
+                )
             next_sequence = response.get("next_batch_sequence")
             if (
                 not response.get("ok")

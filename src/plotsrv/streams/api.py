@@ -13,7 +13,7 @@ from uuid import uuid4
 from .. import config
 from .client import StreamClient
 from .file_source import JsonlFollower, resolve_jsonl_source
-from .models import StreamRegistration
+from .models import StreamRegistration, normalize_checkpoint_identifier
 
 
 @dataclass(slots=True)
@@ -210,7 +210,9 @@ def stream_view(
 
     stream_label = (label or source_path.stem).strip() or source_path.stem
     stream_section = (section or "stream").strip() or "stream"
-    stream_view_id = view_id or f"{stream_section}:{stream_label}"
+    stream_view_id = _require_checkpoint_identifier(
+        view_id or f"{stream_section}:{stream_label}", "view_id"
+    )
     stream_client_id = _resolve_identity(client_id, "client_id")
     stream_session_id = _resolve_identity(session_id, "session_id")
     registration = StreamRegistration(
@@ -270,6 +272,9 @@ def _resolve_identity(value: str | None, field: str) -> str:
     """Use a caller-supplied stable ID or create a fresh producer identity."""
     if value is None:
         return uuid4().hex
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field} must be a non-empty string")
-    return value.strip()
+    return _require_checkpoint_identifier(value, field)
+
+
+def _require_checkpoint_identifier(value: object, field: str) -> str:
+    """Validate an identifier which must fit browser checkpoint storage."""
+    return normalize_checkpoint_identifier(value, field)
