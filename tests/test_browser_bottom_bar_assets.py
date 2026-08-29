@@ -64,6 +64,10 @@ def test_every_renderer_uses_the_persistent_bottom_dock(
     assert 'aria-label="View actions and status"' in rendered
     assert 'id="snapshots-control"' in rendered
     assert ">Snapshots<" in rendered
+    assert 'id="history-select" class="ps-select" aria-label="Snapshots" disabled' in rendered
+    assert 'id="snapshots-info"' in rendered
+    assert 'id="snapshots-unavailable"' not in rendered
+    assert "Last updated:" not in rendered
     assert 'id="status-error-wrap"' in rendered
     assert 'id="status"' in rendered
     assert ">Refresh<" not in rendered
@@ -144,6 +148,10 @@ def test_history_client_uses_explicit_capability_and_preserves_snapshot_urls() -
     assert "capability.enabled === true" in source
     assert "No snapshots yet" in source
     assert "Snapshot availability could not be loaded." in source
+    assert 'document.getElementById("snapshots-info")' in source
+    assert 'selector.title = reason' in source
+    assert 'sel.setAttribute("aria-label", reason' in source
+    assert "sel.disabled = !hasSnapshots" in source
     assert 'url.searchParams.set("snapshot", snapshotId)' in source
     assert 'url.searchParams.delete("snapshot")' in source
     assert "core.reloadCurrentView()" in source
@@ -190,6 +198,11 @@ def test_dock_is_fixed_and_pages_reserve_mobile_and_desktop_space() -> None:
     assert ".ps-bottom-dock" in controls
     assert "position: fixed" in controls
     assert "env(safe-area-inset-bottom)" in controls
+    assert "width: max-content" in controls
+    assert "width: fit-content" in controls
+    assert "background: rgba(255, 255, 255, 0.84)" in controls
+    assert "padding: 0.3rem 0.38rem" in controls
+    assert ".ps-snapshots__info" in controls
     assert "var(--ps-bottom-dock-height" in layout
     assert "window.ResizeObserver" in bar_source
     assert 'style.setProperty("--ps-bottom-dock-height"' in bar_source

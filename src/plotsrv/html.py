@@ -80,25 +80,19 @@ def render_index(
     if include_tabulator:
         tabulator_head = f'<script src="{assets.tabulator_js}" defer></script>'
 
-    bottom_meta_html = ""
+    bottom_file_indicator_html = ""
     if ui.show_statusline:
-        bottom_meta_html = """
-        <div class="ps-bottom-bar__meta">
-          <span class="ps-bottom-bar__updated">
-            Last updated: <span id="status-updated">—</span>
-            <span id="status-updated-ago"></span>
-          </span>
-          <span
-            id="status-file-backed"
-            class="ps-bottom-bar__disk"
-            title="File-backed watched view. Data preview is retrieved from the source file on disk."
-            hidden>
-            <img
-              class="ps-bottom-bar__disk-icon"
-              src="/static/logo_on_disk.png"
-              alt="File-backed watched view" />
-          </span>
-        </div>
+        bottom_file_indicator_html = """
+        <span
+          id="status-file-backed"
+          class="ps-bottom-bar__disk"
+          title="File-backed watched view. Data preview is retrieved from the source file on disk."
+          hidden>
+          <img
+            class="ps-bottom-bar__disk-icon"
+            src="/static/logo_on_disk.png"
+            alt="File-backed watched view" />
+        </span>
         """
 
     def _terminate_button_html() -> str:
@@ -118,17 +112,16 @@ def render_index(
             return ""
         return """
           <div id="snapshots-control" class="ps-snapshots" data-state="loading">
-            <label id="snapshots-selector" class="ps-snapshots__selector">
+            <label id="snapshots-selector" class="ps-snapshots__selector" title="Checking snapshot availability.">
               <span>Snapshots</span>
-              <select id="history-select" class="ps-select" aria-label="Snapshots">
+              <select id="history-select" class="ps-select" aria-label="Snapshots" disabled>
                 <option value="">Loading snapshots…</option>
               </select>
             </label>
-            <div id="snapshots-unavailable" class="ps-snapshots__unavailable" hidden>
-              <strong>Snapshots unavailable</strong>
-              <span id="snapshots-unavailable-reason">Checking snapshot storage.</span>
-              <button id="snapshots-return-latest" type="button" hidden>Return to latest</button>
-            </div>
+            <span id="snapshots-info" class="ps-snapshots__info" role="img"
+                  tabindex="0" aria-label="Checking snapshot availability."
+                  title="Checking snapshot availability.">i</span>
+            <button id="snapshots-return-latest" class="ps-snapshots__return" type="button" hidden>Return to latest</button>
           </div>
         """
 
@@ -253,6 +246,106 @@ def render_index(
 
         return f' title="{_escape_attr(label + age)}"'
 
+    def _view_type_label(v: ViewMeta) -> str:
+        icon_key = str(getattr(v, "icon_key", "unknown") or "unknown")
+        kind = str(getattr(v, "kind", "none") or "none")
+        labels = {
+            "plot": "Plot",
+            "table": "Table",
+            "stream": "Live stream",
+            "image": "Image",
+            "markdown": "Markdown",
+            "json": "JSON",
+            "python": "Python object",
+            "traceback": "Traceback",
+            "exception": "Exception",
+            "text": "Text",
+            "html": "HTML",
+        }
+        return labels.get(icon_key) or labels.get(kind) or "View"
+
+    def _view_item_html(v: ViewMeta, *, include_section: bool = False) -> str:
+        view_id_attr = _escape_attr(v.view_id)
+        icon = _safe_url_attr(_icon_url(v))
+        label_html = _escape_html(v.label)
+        section = v.section or "default"
+        type_label = _view_type_label(v)
+        secondary = (
+            f"{section} · {type_label}" if include_section else type_label
+        )
+        is_selected = v.view_id == active_view_id
+        selected = "true" if is_selected else "false"
+        current = ' aria-current="page"' if is_selected else ""
+        freshness_class = _freshness_class(v)
+        freshness_title = _freshness_title(v)
+
+        return f"""
+          <button type="button"
+                  class="ps-viewselect__item{freshness_class}"
+                  role="option"
+                  aria-selected="{selected}"{current}
+                  data-plotsrv-view="{view_id_attr}"
+                  data-view-section="{_escape_attr(section)}"
+                  data-view-kind="{_escape_attr(v.kind)}"
+                  data-view-icon="{_escape_attr(v.icon_key)}"{freshness_title}>
+            <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{view_id_attr}" hidden aria-hidden="true"></span>
+            <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
+            <span class="ps-viewselect__itemcopy">
+              <span class="ps-viewselect__itemlabel">{label_html}</span>
+              <span class="ps-viewselect__itemmeta">{_escape_html(secondary)}</span>
+            </span>
+            <span class="ps-viewselect__check" aria-hidden="true">✓</span>
+          </button>
+        """
+
+    configured_featured = tuple(getattr(ui, "featured_views", ()))
+    views_by_id = {v.view_id: v for v in views}
+    valid_featured = [
+        (feature, views_by_id[feature.view_id])
+        for feature in configured_featured
+        if feature.view_id in views_by_id
+    ]
+
+    def _featured_item_html(feature: object, view: ViewMeta) -> str:
+        title = getattr(feature, "title", None) or view.label
+        caption = getattr(feature, "caption", None)
+        thumbnail = getattr(feature, "thumbnail_url", None)
+        selected = "true" if view.view_id == active_view_id else "false"
+        current = ' aria-current="page"' if view.view_id == active_view_id else ""
+        freshness_class = _freshness_class(view)
+        freshness_title = _freshness_title(view)
+        if thumbnail:
+            visual = (
+                '<img class="ps-viewselect__feature-thumbnail" '
+                f'src="{_safe_url_attr(thumbnail)}" alt="" loading="lazy" />'
+            )
+        else:
+            visual = (
+                '<span class="ps-viewselect__feature-fallback">'
+                f'<img src="{_safe_url_attr(_icon_url(view))}" alt="" />'
+                "</span>"
+            )
+        caption_html = (
+            f'<span class="ps-viewselect__feature-caption">{_escape_html(caption)}</span>'
+            if caption
+            else ""
+        )
+        return f"""
+          <button type="button"
+                  class="ps-viewselect__feature{freshness_class}"
+                  role="option"
+                  aria-selected="{selected}"{current}
+                  data-plotsrv-view="{_escape_attr(view.view_id)}"{freshness_title}>
+            {visual}
+            <span class="ps-viewselect__feature-copy">
+              <span class="ps-viewselect__feature-title">{_escape_html(title)}</span>
+              {caption_html}
+              <span class="ps-viewselect__feature-kind">{_escape_html(_view_type_label(view))}</span>
+            </span>
+            <span class="ps-viewselect__check" aria-hidden="true">✓</span>
+          </button>
+        """
+
     dropdown_html = ""
     if getattr(ui, "show_view_selector", True) and len(views) > 0:
         groups: dict[str, list[ViewMeta]] = {}
@@ -274,50 +367,77 @@ def render_index(
         )
         active_icon = _safe_url_attr(_icon_url(active_meta))
 
+        initial_mode = "grouped"
         menu_parts: list[str] = []
-        for sec in sections:
-            menu_parts.append('<div class="ps-viewselect__group">')
+        featured_ids = {view.view_id for _, view in valid_featured}
+        if valid_featured:
+            menu_parts.extend(
+                [
+                    '<section class="ps-viewselect__group ps-viewselect__group--featured" role="group" aria-labelledby="view-selector-featured">',
+                    '<h3 id="view-selector-featured" class="ps-viewselect__group-label">Featured</h3>',
+                    '<div class="ps-viewselect__features">',
+                    *(
+                        _featured_item_html(feature, view)
+                        for feature, view in valid_featured
+                    ),
+                    "</div></section>",
+                ]
+            )
+
+        for index, sec in enumerate(sections):
+            section_views = [v for v in groups[sec] if v.view_id not in featured_ids]
+            if not section_views:
+                continue
+            heading_id = f"view-selector-group-{index}"
             menu_parts.append(
-                f'<div class="ps-viewselect__group-label">{_escape_html(sec)}</div>'
+                f'<section class="ps-viewselect__group" role="group" aria-labelledby="{heading_id}">'
+            )
+            menu_parts.append(
+                f'<h3 id="{heading_id}" class="ps-viewselect__group-label">{_escape_html(sec)}</h3>'
             )
             menu_parts.append('<div class="ps-viewselect__group-items">')
+            menu_parts.extend(_view_item_html(v) for v in section_views)
+            menu_parts.append("</div></section>")
 
-            for v in groups[sec]:
-                view_id_attr = _escape_attr(v.view_id)
-                icon = _safe_url_attr(_icon_url(v))
-                label_html = _escape_html(v.label)
-
-                is_sel = "true" if v.view_id == active_view_id else "false"
-                freshness_class = _freshness_class(v)
-                freshness_title = _freshness_title(v)
-
-                menu_parts.append(f"""
-                    <button type="button"
-                            class="ps-viewselect__item{freshness_class}"
-                            role="option"
-                            aria-selected="{is_sel}"
-                            data-plotsrv-view="{view_id_attr}"{freshness_title}>
-                      <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{view_id_attr}" hidden aria-hidden="true"></span>
-                      <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
-                      <span class="ps-viewselect__itemlabel">{label_html}</span>
-                    </button>
-                    """)
-
-            menu_parts.append("</div>")
+        tab_parts: list[str] = []
+        modes = ["grouped", "az"]
+        mode_labels = {"grouped": "Grouped", "az": "A–Z"}
+        for mode in modes:
+            selected = "true" if mode == initial_mode else "false"
+            tab_parts.append(
+                f'<button type="button" class="ps-viewselect__tab" role="tab" '
+                f'aria-selected="{selected}" tabindex="{0 if mode == initial_mode else -1}" '
+                f'aria-controls="view-selector-results" '
+                f'data-view-mode="{mode}">{mode_labels[mode]}</button>'
+            )
 
         dropdown_html = f"""
           <div class="ps-viewselect" data-plotsrv-viewselect="1">
             <button type="button"
                     class="ps-viewselect__btn"
-                    aria-haspopup="listbox"
-                    aria-expanded="false">
+                    aria-haspopup="dialog"
+                    aria-controls="view-selector-menu"
+                    aria-expanded="false"
+                    aria-label="Choose view; current view is {active_label}">
               <img class="ps-viewselect__icon" src="{active_icon}" alt="" />
               <span class="ps-viewselect__label">{active_label}</span>
-              <span class="ps-viewselect__chev" aria-hidden="true">▾</span>
+              <span class="ps-viewselect__chev" aria-hidden="true">⌄</span>
             </button>
 
-            <div class="ps-viewselect__menu" role="listbox" tabindex="-1" hidden>
-              {''.join(menu_parts)}
+            <div id="view-selector-menu" class="ps-viewselect__menu" role="dialog" aria-label="Browse views" hidden>
+              <div class="ps-viewselect__tools">
+                <label class="ps-viewselect__search-wrap">
+                  <span class="ps-viewselect__search-icon" aria-hidden="true">⌕</span>
+                  <input class="ps-viewselect__search" type="search" autocomplete="off"
+                         aria-label="Search views" placeholder="Search views…" />
+                </label>
+                <div class="ps-viewselect__tabs" role="tablist" aria-label="View browse mode">
+                  {''.join(tab_parts)}
+                </div>
+              </div>
+              <div id="view-selector-results" class="ps-viewselect__results" role="listbox" aria-label="Views" aria-live="polite">
+                {''.join(menu_parts)}
+              </div>
             </div>
           </div>
         """
@@ -335,9 +455,9 @@ def render_index(
               <div class="ps-bottom-bar__controls">
                 {_export_control_html(view_kind)}
                 {_history_controls_html()}
+                {bottom_file_indicator_html}
                 {_terminate_button_html()}
               </div>
-              {bottom_meta_html}
             </div>
           </div>
         """
@@ -635,6 +755,26 @@ def render_index(
           </div>
         """
 
+    view_catalogue = [
+        {
+            "view_id": v.view_id,
+            "section": v.section or "default",
+            "label": v.label,
+            "kind": v.kind,
+            "icon_key": v.icon_key,
+            "freshness": view_freshness.get(v.view_id),
+        }
+        for v in views
+    ]
+    featured_config = [
+        {
+            "view_id": feature.view_id,
+            "title": feature.title,
+            "caption": feature.caption,
+            "thumbnail_url": feature.thumbnail_url,
+        }
+        for feature in configured_featured
+    ]
     cfg_json = json.dumps(
         {
             "active_view_id": active_view_id,
@@ -644,13 +784,24 @@ def render_index(
             "max_table_rows_rich": max_table_rows_rich,
             "view_menu_revision": view_menu_revision,
             "browser_update_revision": browser_update_revision,
-            # These existing settings now independently control the two modes
-            # of the shared header status. ``show_statusline`` controls the
-            # compact last-updated row in the bottom dock.
+            # These settings independently control the two modes of the shared
+            # header status. The legacy statusline setting now only gates the
+            # small file-backed source indicator in the bottom controls.
             "show_header_freshness": ui.show_freshness,
             "show_header_history": ui.show_history_banner,
+            "view_catalogue": view_catalogue,
+            "featured_views": featured_config,
         },
         ensure_ascii=False,
+    )
+    # JSON sits in an inline script. Encode HTML-significant characters so a
+    # view label or configured caption cannot terminate that element.
+    cfg_json = (
+        cfg_json.replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
     )
 
     html = f"""

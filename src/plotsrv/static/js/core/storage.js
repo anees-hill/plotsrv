@@ -19,6 +19,8 @@
    tablePrefsPrefix: "plotsrv:v2:table_prefs:",
    jsonPrefsPrefix: "plotsrv:v2:json_prefs:",
    textPrefsPrefix: "plotsrv:v2:text_prefs:",
+   viewSelectorMode: "plotsrv:v1:view_selector_mode",
+   viewSelectorRecent: "plotsrv:v1:view_selector_recent",
  };   
 
   core.loadPref = function (key, fallbackValue) {

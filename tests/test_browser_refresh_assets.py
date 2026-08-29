@@ -35,7 +35,7 @@ def test_refresh_paths_share_in_flight_promises_and_gate_view_metadata() -> None
     assert "state.reloadCurrentViewPromise" in app_source
     assert "state.statusRefreshPromise" in status_source
     assert "state.viewMenuRefreshPromise" in status_source
-    assert "rebuildViewMenu(wrap, views, ICONS)" in status_source
+    assert "core.updateViewSelectorCatalogue(views)" in status_source
     assert "view_menu_revision" in status_source
     assert "await refreshViewIcons(s.view_menu_revision)" in status_source
 

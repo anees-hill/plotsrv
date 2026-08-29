@@ -87,30 +87,40 @@
   function setSnapshotControlState(capability, snapshots, failed) {
     const wrap = document.getElementById("snapshots-control");
     const selector = document.getElementById("snapshots-selector");
-    const unavailable = document.getElementById("snapshots-unavailable");
-    const reason = document.getElementById("snapshots-unavailable-reason");
+    const info = document.getElementById("snapshots-info");
     const returnLatest = document.getElementById("snapshots-return-latest");
     const sel = document.getElementById("history-select");
-    if (!wrap || !selector || !unavailable || !reason || !sel) return;
+    if (!wrap || !selector || !info || !sel) return;
 
     const usable = !failed && (!capability || capability.enabled === true);
-    wrap.dataset.state = failed ? "error" : usable ? "enabled" : "unavailable";
-    selector.hidden = !usable;
-    unavailable.hidden = usable;
-    if (returnLatest) returnLatest.hidden = usable || !state.currentSnapshot;
-
-    if (!usable) {
-      sel.disabled = true;
-      reason.textContent = failed
-        ? "Snapshot availability could not be loaded."
-        : String(
+    const hasSnapshots = usable && snapshots.length > 0;
+    const reason = failed
+      ? "Snapshot availability could not be loaded."
+      : !usable
+        ? String(
             (capability && capability.message) ||
               "Snapshots are unavailable for this view."
-          );
-      return;
-    }
+          )
+        : !hasSnapshots
+          ? "No snapshots have been saved for this view yet."
+          : "";
 
-    sel.disabled = snapshots.length === 0;
+    wrap.dataset.state = failed
+      ? "error"
+      : hasSnapshots
+        ? "enabled"
+        : usable
+          ? "empty"
+          : "unavailable";
+    selector.hidden = false;
+    selector.title = reason;
+    sel.title = reason;
+    sel.setAttribute("aria-label", reason ? "Snapshots. " + reason : "Snapshots");
+    info.hidden = !reason;
+    info.title = reason;
+    info.setAttribute("aria-label", reason);
+    if (returnLatest) returnLatest.hidden = usable || !state.currentSnapshot;
+    sel.disabled = !hasSnapshots;
   }
 
   async function loadHistory() {

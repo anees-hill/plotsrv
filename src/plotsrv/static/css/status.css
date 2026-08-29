@@ -44,17 +44,6 @@
   font-size: 0.8rem;
 }
 
-.ps-bottom-bar__meta {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  min-height: 1rem;
-  margin-top: 0.28rem;
-  color: var(--muted);
-  font-size: 0.74rem;
-  line-height: 1.25;
-}
-
 .ps-bottom-bar__disk {
   display: inline-flex;
   align-items: center;
@@ -71,20 +60,9 @@
   opacity: 0.72;
 }
 
-/* Shared latest/snapshot status in the page header. */
-.ps-header-status {
-  position: relative;
-  min-width: 0;
-  max-width: 100%;
-}
-
-.ps-header-status[hidden] {
-  display: none !important;
-}
-
-.ps-header-status__button {
-  display: inline-grid;
-  grid-template-columns: auto auto minmax(0, auto) auto;
+/* Shared control treatment for status and view selection in the page header. */
+.ps-header-status__button,
+.ps-viewselect__btn {
   align-items: center;
   gap: 0.55rem;
   max-width: 100%;
@@ -100,14 +78,32 @@
   text-align: left;
 }
 
-.ps-header-status__button:hover {
+.ps-header-status__button:hover,
+.ps-viewselect__btn:hover {
   border-color: #c9c9c9;
   background: #fcfcfc;
 }
 
-.ps-header-status__button:focus-visible {
+.ps-header-status__button:focus-visible,
+.ps-viewselect__btn:focus-visible {
   outline: 2px solid #617f9b;
   outline-offset: 2px;
+}
+
+/* Shared latest/snapshot status in the page header. */
+.ps-header-status {
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ps-header-status[hidden] {
+  display: none !important;
+}
+
+.ps-header-status__button {
+  display: inline-grid;
+  grid-template-columns: auto auto minmax(0, auto) auto;
 }
 
 .ps-header-status__dot {

@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 
-from plotsrv.ui_config import UISettings
+from plotsrv.ui_config import FeaturedView, UISettings
 from plotsrv.store import ViewMeta
 import plotsrv.html as html_mod
 
@@ -255,7 +255,7 @@ def test_render_index_uses_shared_accessible_header_status_for_every_view_kind(
     )
 
 
-def test_header_status_settings_are_independent_from_bottom_updated_metadata() -> None:
+def test_header_status_settings_are_independent_from_bottom_file_indicator() -> None:
     ui = UISettings(
         logo_url="/static/x.png",
         header_text="",
@@ -287,8 +287,9 @@ def test_header_status_settings_are_independent_from_bottom_updated_metadata() -
     )
 
     assert 'id="header-status-button"' not in rendered
-    assert 'class="ps-bottom-bar__meta"' in rendered
-    assert 'id="status-updated"' in rendered
+    assert 'class="ps-bottom-bar__meta"' not in rendered
+    assert 'id="status-updated"' not in rendered
+    assert 'id="status-file-backed"' in rendered
     assert '"show_header_freshness": false' in rendered
     assert '"show_header_history": false' in rendered
 
@@ -309,5 +310,127 @@ def test_header_status_settings_are_independent_from_bottom_updated_metadata() -
     )
 
     assert 'id="header-status-button"' in without_lower_status
-    assert 'class="ps-bottom-bar__meta"' not in without_lower_status
-    assert 'id="status-updated"' not in without_lower_status
+    assert 'id="status-file-backed"' not in without_lower_status
+
+
+def test_view_browser_renders_grouped_and_az_modes_without_empty_featured_tab() -> None:
+    ui = UISettings(
+        page_title="test",
+        favicon_url="/static/x.png",
+        logo_url="/static/x.png",
+        header_text="",
+        header_fill_colour="#fff",
+        show_view_selector=True,
+        terminate_process_option=False,
+        auto_refresh_option=True,
+        export_image=True,
+        export_table=True,
+        show_history_controls=True,
+        show_history_banner=True,
+        show_freshness=True,
+        show_statusline=True,
+        show_help_note=True,
+    )
+    views = [
+        ViewMeta(
+            view_id="reports:daily",
+            kind="table",
+            label="Daily report",
+            section="Reports",
+            icon_key="table",
+        ),
+        ViewMeta(
+            view_id="ops:health",
+            kind="plot",
+            label="Health",
+            section="Operations",
+            icon_key="plot",
+        ),
+    ]
+
+    rendered = html_mod.render_index(
+        kind="table",
+        table_view_mode="rich",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+        ui_settings=ui,
+        views=views,
+        active_view_id="reports:daily",
+    )
+
+    assert 'class="ps-viewselect__search"' in rendered
+    assert 'data-view-mode="grouped"' in rendered
+    assert 'data-view-mode="az"' in rendered
+    assert 'data-view-mode="featured"' not in rendered
+    assert rendered.index(">Reports</h3>") < rendered.index(">Operations</h3>")
+    assert 'data-plotsrv-view="reports:daily"' in rendered
+    assert 'aria-selected="true" aria-current="page"' in rendered
+    assert 'role="dialog" aria-label="Browse views"' in rendered
+
+
+def test_view_browser_puts_featured_at_top_of_grouped_and_escapes_copy() -> None:
+    ui = UISettings(
+        page_title="test",
+        favicon_url="/static/x.png",
+        logo_url="/static/x.png",
+        header_text="",
+        header_fill_colour="#fff",
+        show_view_selector=True,
+        terminate_process_option=False,
+        auto_refresh_option=True,
+        export_image=True,
+        export_table=True,
+        show_history_controls=True,
+        show_history_banner=True,
+        show_freshness=True,
+        show_statusline=True,
+        show_help_note=True,
+        featured_views=(
+            FeaturedView(
+                view_id="reports:daily",
+                title="Daily <overview>",
+                caption="Safe </script><b>caption</b>",
+            ),
+            FeaturedView(view_id="missing:view", title="Missing"),
+        ),
+    )
+    views = [
+        ViewMeta(
+            view_id="reports:daily",
+            kind="table",
+            label="Daily report",
+            section="Reports",
+            icon_key="table",
+        ),
+        ViewMeta(
+            view_id="ops:health",
+            kind="plot",
+            label="Health",
+            section="Operations",
+            icon_key="plot",
+        ),
+    ]
+
+    rendered = html_mod.render_index(
+        kind="table",
+        table_view_mode="rich",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+        ui_settings=ui,
+        views=views,
+        active_view_id="reports:daily",
+    )
+
+    assert 'data-view-mode="featured"' not in rendered
+    assert 'data-view-mode="grouped"' in rendered
+    assert ">Featured</h3>" in rendered
+    assert 'class="ps-viewselect__feature-fallback"' in rendered
+    assert rendered.index(">Featured</h3>") < rendered.index(">Operations</h3>")
+    assert rendered.count('data-plotsrv-view="reports:daily"') == 1
+    assert "Daily &lt;overview&gt;" in rendered
+    assert "Safe &lt;/script&gt;&lt;b&gt;caption&lt;/b&gt;" in rendered
+    assert "Missing</span>" not in rendered
+    assert "</script><b>caption</b>" not in rendered
+    assert r"Safe \u003c/script\u003e\u003cb\u003ecaption\u003c/b\u003e" in rendered

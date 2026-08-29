@@ -63,6 +63,12 @@
   config.maxTableRowsRich = raw.max_table_rows_rich || 1000;
   config.showHeaderFreshness = raw.show_header_freshness !== false;
   config.showHeaderHistory = raw.show_header_history !== false;
+  config.viewCatalogue = Array.isArray(raw.view_catalogue)
+    ? raw.view_catalogue
+    : [];
+  config.featuredViews = Array.isArray(raw.featured_views)
+    ? raw.featured_views
+    : [];
   config.browserUpdateRevision = Number.isSafeInteger(raw.browser_update_revision)
     ? raw.browser_update_revision
     : 0;

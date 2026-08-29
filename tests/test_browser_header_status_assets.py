@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 
-_STATIC_JS = Path(__file__).parents[1] / "src" / "plotsrv" / "static" / "js"
+_STATIC = Path(__file__).parents[1] / "src" / "plotsrv" / "static"
+_STATIC_JS = _STATIC / "js"
 
 
 def _read(relative_path: str) -> str:
@@ -48,3 +49,27 @@ def test_header_status_opens_the_shared_accessible_modal() -> None:
     assert "core.returnToLive()" in modal_source
     assert "core.bindHeaderStatus()" in app_source
     assert "core.bindStatusModal()" in app_source
+
+
+def test_view_selector_and_status_use_the_same_header_control_treatment() -> None:
+    status_css = (_STATIC / "css" / "status.css").read_text(encoding="utf-8")
+    controls_css = (_STATIC / "css" / "controls.css").read_text(encoding="utf-8")
+    html_source = (
+        Path(__file__).parents[1] / "src" / "plotsrv" / "html.py"
+    ).read_text(encoding="utf-8")
+
+    shared = status_css.split(".ps-header-status__button,", 1)[1].split("}", 1)[0]
+    assert ".ps-viewselect__btn" in shared
+    for declaration in (
+        "min-height: 36px",
+        "padding: 0.38rem 0.65rem",
+        "border: 1px solid #dedede",
+        "border-radius: 12px",
+        "box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07)",
+    ):
+        assert declaration in shared
+
+    assert ".ps-header-status__button:hover,\n.ps-viewselect__btn:hover" in status_css
+    assert ".ps-header-status__button:focus-visible,\n.ps-viewselect__btn:focus-visible" in status_css
+    assert "grid-template-columns: auto minmax(0, auto) auto" in controls_css
+    assert 'class="ps-viewselect__chev" aria-hidden="true">⌄</span>' in html_source

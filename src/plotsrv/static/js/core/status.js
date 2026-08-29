@@ -123,57 +123,6 @@
     return Number.isInteger(value) && value >= 0 ? value : null;
   }
 
-  function rebuildViewMenu(wrap, views, icons) {
-    const menu = wrap.querySelector(".ps-viewselect__menu");
-    if (!menu || typeof document.createElement !== "function") return;
-    const groups = new Map();
-    for (const view of views) {
-      const section = String(view.section || "default");
-      if (!groups.has(section)) groups.set(section, []);
-      groups.get(section).push(view);
-    }
-    const fragments = [];
-    groups.forEach(function (items, section) {
-      const group = document.createElement("div");
-      group.className = "ps-viewselect__group";
-      const heading = document.createElement("div");
-      heading.className = "ps-viewselect__group-label";
-      heading.textContent = section;
-      group.appendChild(heading);
-      const list = document.createElement("div");
-      list.className = "ps-viewselect__group-items";
-      for (const view of items) {
-        const button = document.createElement("button");
-        button.type = "button";
-        button.className = "ps-viewselect__item";
-        button.setAttribute("role", "option");
-        button.setAttribute(
-          "aria-selected", view.view_id === config.activeViewId ? "true" : "false"
-        );
-        button.setAttribute("data-plotsrv-view", String(view.view_id));
-        const dot = document.createElement("span");
-        dot.className = "ps-viewselect__freshness";
-        dot.hidden = true;
-        dot.setAttribute("aria-hidden", "true");
-        const image = document.createElement("img");
-        image.className = "ps-viewselect__itemicon";
-        image.src = icons[view.icon_key] || icons.unknown;
-        image.alt = "";
-        const label = document.createElement("span");
-        label.className = "ps-viewselect__itemlabel";
-        label.textContent = String(view.label || view.view_id);
-        button.appendChild(dot);
-        button.appendChild(image);
-        button.appendChild(label);
-        applyFreshnessClass(button, view.freshness || null);
-        list.appendChild(button);
-      }
-      group.appendChild(list);
-      fragments.push(group);
-    });
-    menu.replaceChildren(...fragments);
-  }
-
   function refreshViewIcons(viewMenuRevision) {
     const wrap = document.querySelector("[data-plotsrv-viewselect='1']");
     if (!wrap) return;
@@ -216,7 +165,9 @@
           byId[v.view_id] = v;
         }
 
-        rebuildViewMenu(wrap, views, ICONS);
+        if (typeof core.updateViewSelectorCatalogue === "function") {
+          core.updateViewSelectorCatalogue(views);
+        }
 
         const items = wrap.querySelectorAll("[data-plotsrv-view]");
         items.forEach(function (btn) {
@@ -427,13 +378,6 @@
     } else {
       Object.assign(freshness, { state: "ok", label: "Fresh", emoji: "✅" });
     }
-    const updatedAgo = document.getElementById("status-updated-ago");
-    if (updatedAgo) updatedAgo.textContent = fmtAgo(latest.lastUpdated);
-    const freshnessEl = document.getElementById("status-freshness");
-    if (freshnessEl && !(typeof core.isHistoryMode === "function" && core.isHistoryMode())) {
-      freshnessEl.textContent = (freshness.emoji + " " + freshness.label +
-        " (" + formatAgeShort(age) + ")").trim();
-    }
     renderHeaderStatus();
   }
 
@@ -483,19 +427,8 @@
 
         const s = await res.json();
 
-      const updated = document.getElementById("status-updated");
-      const updatedAgo = document.getElementById("status-updated-ago");
-      const freshness = document.getElementById("status-freshness");
       const errWrap = document.getElementById("status-error-wrap");
       const err = document.getElementById("status-error");
-
-      if (updated) {
-        updated.textContent = fmtLocalTime(s.last_updated);
-      }
-
-      if (updatedAgo) {
-        updatedAgo.textContent = fmtAgo(s.last_updated);
-      }
 
       const restored = !!s.restored_from_storage;
       const restoredAt = s.restored_at || null;
@@ -505,24 +438,6 @@
         typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
 
       setHeaderLatestStatus(s);
-
-      if (freshness) {
-        const f = s.freshness || null;
-        if (isHistory) {
-          freshness.textContent = "Historical snapshot";
-        } else if (!f || f.enabled === false) {
-          freshness.textContent = "—";
-        } else {
-          const emoji = f.emoji || "";
-          const label = f.label || "Unknown";
-          const age =
-            typeof f.age_s === "number"
-              ? " (" + formatAgeShort(f.age_s) + ")"
-              : "";
-          freshness.textContent = (emoji + " " + label + age).trim();
-        }
-
-      }
 
       setFileBackedIndicator(s, isHistory);
 
@@ -573,6 +488,7 @@
   core.formatAgeShort = formatAgeShort;
   core.setStatusMessage = setStatusMessage;
   core.clearPlotObjectUrl = clearPlotObjectUrl;
+  core.applyViewFreshness = applyFreshnessClass;
   core.deriveHeaderStatus = deriveHeaderStatus;
   core.renderHeaderStatus = renderHeaderStatus;
   core.setHeaderViewState = setHeaderViewState;
