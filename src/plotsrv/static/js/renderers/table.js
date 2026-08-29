@@ -44,10 +44,19 @@
     const hidden = new Set(getHiddenColumns());
 
     return (columnNames || []).map(function (col) {
+      const name = String(col);
       return {
-        title: col,
+        // Tabulator assigns plain string titles through innerHTML. Column
+        // names come from the rendered data, so supply an inert title and
+        // return a DOM node whose textContent contains the actual label.
+        title: "",
+        titleFormatter: function () {
+          const element = document.createElement("span");
+          element.textContent = name;
+          return element;
+        },
         field: col,
-        visible: !hidden.has(col),
+        visible: !hidden.has(name),
       };
     });
   }
@@ -59,6 +68,7 @@
       filters: [],
       columnsOpen: false,
       hiddenColumns: [],
+      groupBy: null,
     };
   }
 
@@ -136,6 +146,10 @@
 
     const hasSavedFilters = normalizedFilters.some(isFilterComplete);
     const hasHiddenColumns = hiddenColumns.length > 0;
+    const groupBy =
+      parsed && typeof parsed.groupBy === "string" && parsed.groupBy
+        ? parsed.groupBy
+        : null;
 
     state.tableUiState = {
       searchQuery:
@@ -156,6 +170,8 @@
           : hasHiddenColumns,
 
       hiddenColumns: hiddenColumns,
+
+      groupBy: groupBy,
     };
   }
 
@@ -289,6 +305,12 @@
     updateTableStatus(state.tableLastPayload, getActiveRowCount());
   }
 
+  function refreshActiveTablePlot() {
+    if (typeof core.refreshTablePlot === "function") {
+      core.refreshTablePlot();
+    }
+  }
+
   function getSearchQuery() {
     return getTableUiState().searchQuery || "";
   }
@@ -335,6 +357,82 @@
     const ui = getTableUiState();
     ui.columnsOpen = !!isOpen;
     saveTableUiState();
+  }
+
+  function getGroupingField() {
+    const field = getTableUiState().groupBy;
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+    return typeof field === "string" && fields.includes(field) ? field : null;
+  }
+
+  function setGroupingField(field) {
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+    const next = typeof field === "string" && fields.includes(field) ? field : null;
+    const ui = getTableUiState();
+    ui.groupBy = next;
+    saveTableUiState();
+    return next;
+  }
+
+  function normalizeGroupingField() {
+    const ui = getTableUiState();
+    const groupingField = getGroupingField();
+    if (ui.groupBy !== groupingField) {
+      ui.groupBy = groupingField;
+      saveTableUiState();
+    }
+    return groupingField;
+  }
+
+  function renderGroupingControl() {
+    const select = document.getElementById("table-group-by-select");
+    if (!select || typeof document.createElement !== "function") return;
+
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+    const selected = normalizeGroupingField();
+
+    while (select.firstChild) {
+      select.removeChild(select.firstChild);
+    }
+
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "No grouping";
+    select.appendChild(none);
+
+    for (const field of fields) {
+      const option = document.createElement("option");
+      option.value = field;
+      option.textContent = field;
+      select.appendChild(option);
+    }
+
+    select.value = selected || "";
+    select.disabled = fields.length === 0;
+  }
+
+  function applyTableGrouping() {
+    const table = state.tabulatorInstance;
+    const groupingField = normalizeGroupingField();
+    if (!table || typeof table.setGroupBy !== "function") return;
+
+    if (state.tableAppliedGrouping === groupingField) return;
+    if (!groupingField && state.tableAppliedGrouping == null) return;
+
+    try {
+      table.setGroupBy(groupingField || false);
+      state.tableAppliedGrouping = groupingField;
+    } catch (e) {
+      // The shared explorer remains usable with reduced Tabulator surfaces.
+    }
+  }
+
+  function setTableGrouping(field) {
+    const groupingField = setGroupingField(field);
+    renderGroupingControl();
+    applyTableGrouping();
+    refreshTableStatus();
+    return groupingField;
   }
 
   function hasHiddenColumns() {
@@ -642,6 +740,46 @@
     return true;
   }
 
+  function rowMatchesCurrentTableFilters(rowData) {
+    const searchQuery = getSearchQuery().trim().toLowerCase();
+    const filters = getCompleteFilters();
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+
+    if (searchQuery) {
+      let matched = false;
+      for (const field of fields) {
+        const raw = rowData ? rowData[field] : null;
+        const text = String(raw == null ? "" : raw).toLowerCase();
+        if (text.includes(searchQuery)) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) return false;
+    }
+
+    for (const filter of filters) {
+      if (!matchesSingleFilter(rowData, filter)) return false;
+    }
+
+    return true;
+  }
+
+  function getCurrentFilteredLoadedRows() {
+    const table = state.tabulatorInstance;
+    if (table && typeof table.getData === "function") {
+      try {
+        const activeRows = table.getData("active");
+        if (Array.isArray(activeRows)) return activeRows.slice();
+      } catch (e) {
+        // Fall through to the shared predicate for reduced table surfaces.
+      }
+    }
+
+    const rows = Array.isArray(state.tableRows) ? state.tableRows : [];
+    return rows.filter(rowMatchesCurrentTableFilters);
+  }
+
   function applyAllTableFilters() {
     if (!state.tabulatorInstance) return;
 
@@ -652,31 +790,14 @@
     if (!searchQuery && !filters.length) {
       state.tabulatorInstance.clearFilter(true);
       refreshTableStatus();
+      refreshActiveTablePlot();
       return;
     }
 
-    state.tabulatorInstance.setFilter(function (rowData) {
-      if (searchQuery) {
-        let matched = false;
-        for (const field of fields) {
-          const raw = rowData[field];
-          const text = String(raw == null ? "" : raw).toLowerCase();
-          if (text.includes(searchQuery)) {
-            matched = true;
-            break;
-          }
-        }
-        if (!matched) return false;
-      }
-
-      for (const filter of filters) {
-        if (!matchesSingleFilter(rowData, filter)) return false;
-      }
-
-      return true;
-    });
+    state.tabulatorInstance.setFilter(rowMatchesCurrentTableFilters);
 
     refreshTableStatus();
+    refreshActiveTablePlot();
   }
 
   function getColumnComponentByField(field) {
@@ -885,6 +1006,7 @@
 
   function bindTableToolbar() {
     const input = document.getElementById("table-search-input");
+    const groupBySelect = document.getElementById("table-group-by-select");
     const resetBtn = document.getElementById("table-reset-btn");
     const filtersToggleBtn = document.getElementById("table-filters-toggle-btn");
     const columnsToggleBtn = document.getElementById("table-columns-toggle-btn");
@@ -895,6 +1017,7 @@
     const activeFilters = document.getElementById("table-active-filters");
 
     restoreToolbarInputs();
+    renderGroupingControl();
     renderFilterRows();
     renderColumnsList();
     renderActiveFilters();
@@ -915,6 +1038,14 @@
       });
 
       input.dataset.plotsrvBound = "1";
+    }
+
+    if (groupBySelect && !groupBySelect.dataset.plotsrvBound) {
+      groupBySelect.addEventListener("change", function () {
+        setTableGrouping(groupBySelect.value);
+      });
+
+      groupBySelect.dataset.plotsrvBound = "1";
     }
 
     if (resetBtn && !resetBtn.dataset.plotsrvBound) {
@@ -952,12 +1083,14 @@
           }
         }
 
+        renderGroupingControl();
         renderFilterRows();
         renderColumnsList();
         renderActiveFilters();
         syncFilterPanelUi();
         syncColumnsPanelUi();
         applyColumnVisibilityState();
+        applyTableGrouping();
         applyAllTableFilters();
       });
 
@@ -1184,6 +1317,9 @@
     // table.  There is only one table surface per page, so this alias lets
     // search, filters, and column controls operate without duplicating their
     // state model or event bindings.
+    if (state.tabulatorInstance !== table) {
+      state.tableAppliedGrouping = undefined;
+    }
     state.tabulatorInstance = table;
     state.tableLastPayload = settings.payload || {};
     state.tableRows = rows;
@@ -1194,8 +1330,79 @@
       : [];
 
     bindTableToolbar();
+    applyTableGrouping();
     applyAllTableFilters();
     refreshTableStatus();
+    if (typeof core.configureTablePlotSurface === "function") {
+      core.configureTablePlotSurface();
+    }
+  }
+
+  function destroyMountedTable() {
+    const table = state.tabulatorInstance;
+    state.tabulatorInstance = null;
+    state.tableAppliedGrouping = undefined;
+
+    if (table && typeof table.destroy === "function") {
+      try {
+        table.destroy();
+      } catch (e) {
+        // A removed artifact surface may already have been detached.
+      }
+    }
+  }
+
+  function initializeEmbeddedTableExplorer(options) {
+    const settings = options && typeof options === "object" ? options : {};
+    const grid = settings.grid;
+    const data = settings.data && typeof settings.data === "object" ? settings.data : {};
+    const fields = Array.isArray(data.columns) ? data.columns.slice() : [];
+    const rows = Array.isArray(data.rows) ? data.rows.slice() : [];
+
+    if (!grid || !fields.length || !Array.isArray(data.rows)) return false;
+    if (typeof Tabulator === "undefined") {
+      console.error("Tabulator is not available (did not load).");
+      return false;
+    }
+
+    destroyMountedTable();
+    const columns = buildColumnDefs(fields);
+    const table = new Tabulator(grid, {
+      data: rows,
+      columns: columns,
+      height: "72vh",
+      layout: "fitDataStretch",
+      pagination: "local",
+      paginationSize: 20,
+      paginationSizeSelector: [20, 50, 100, 200],
+      movableColumns: true,
+      // JSON object and table column names are flat keys. In particular,
+      // "http.status" is a literal field rather than a nested lookup.
+      nestedFieldSeparator: false,
+    });
+
+    if (typeof table.on === "function") {
+      table.on("dataFiltered", function () {
+        refreshTableStatus();
+        refreshActiveTablePlot();
+      });
+    }
+
+    configureTableExplorer({
+      table: table,
+      payload: data,
+      rows: rows,
+      fields: fields,
+      columnDefs: columns,
+    });
+    state.embeddedTableExplorer = true;
+    return true;
+  }
+
+  function disposeEmbeddedTableExplorer() {
+    if (!state.embeddedTableExplorer) return;
+    destroyMountedTable();
+    state.embeddedTableExplorer = false;
   }
 
   async function loadTable() {
@@ -1246,18 +1453,17 @@
     const columns = buildColumnDefs(data.columns || []);
     const rows = data.rows || [];
 
-    state.tableLastPayload = data;
-    state.tableRows = rows;
-    state.tableFields = (data.columns || []).slice();
-    state.tableFieldTypes = inferFieldTypes(data.columns || [], rows);
-    state.tableColumnDefs = columns;
-
     if (state.tabulatorInstance) {
+      state.tableAppliedGrouping = undefined;
       state.tabulatorInstance.setColumns(columns);
       state.tabulatorInstance.replaceData(rows);
-      bindTableToolbar();
-      applyAllTableFilters();
-      refreshTableStatus();
+      configureTableExplorer({
+        table: state.tabulatorInstance,
+        payload: data,
+        rows: rows,
+        fields: data.columns || [],
+        columnDefs: columns,
+      });
       return;
     }
 
@@ -1275,17 +1481,24 @@
       paginationSize: 20,
       paginationSizeSelector: [20, 50, 100, 200],
       movableColumns: true,
+      // Preserve literal dotted names for ordinary and embedded table data.
+      nestedFieldSeparator: false,
     });
 
     if (typeof state.tabulatorInstance.on === "function") {
       state.tabulatorInstance.on("dataFiltered", function () {
         refreshTableStatus();
+        refreshActiveTablePlot();
       });
     }
 
-    bindTableToolbar();
-    applyAllTableFilters();
-    refreshTableStatus();
+    configureTableExplorer({
+      table: state.tabulatorInstance,
+      payload: data,
+      rows: rows,
+      fields: data.columns || [],
+      columnDefs: columns,
+    });
   }
 
   function exportTable() {
@@ -1320,6 +1533,11 @@
   core.loadTable = loadTable;
   core.exportTable = exportTable;
   core.configureTableExplorer = configureTableExplorer;
+  core.disposeEmbeddedTableExplorer = disposeEmbeddedTableExplorer;
+  core.initializeEmbeddedTableExplorer = initializeEmbeddedTableExplorer;
+  core.getCurrentFilteredLoadedRows = getCurrentFilteredLoadedRows;
+  core.getTableGrouping = normalizeGroupingField;
+  core.setTableGrouping = setTableGrouping;
 
   window.exportTable = exportTable;
 })();

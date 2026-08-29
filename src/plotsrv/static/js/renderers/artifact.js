@@ -83,6 +83,9 @@
           return;
         }
 
+        if (typeof core.disposeEmbeddedTableExplorer === "function") {
+          core.disposeEmbeddedTableExplorer();
+        }
         root.innerHTML =
           '<div class="note">Failed to load artifact (' + res.status + ").</div>";
         renderTruncationBadge(null);
@@ -117,6 +120,9 @@
         kindEl.textContent = data.kind ? "Kind: " + data.kind : "";
       }
       
+      if (typeof core.disposeEmbeddedTableExplorer === "function") {
+        core.disposeEmbeddedTableExplorer();
+      }
       root.innerHTML = data.html || "";
 
       renderTruncationBadge(data.truncation || null);
@@ -136,6 +142,9 @@
         await core.loadTable();
       }
     } catch (e) {
+      if (typeof core.disposeEmbeddedTableExplorer === "function") {
+        core.disposeEmbeddedTableExplorer();
+      }
       root.innerHTML =
         '<div class="note">Failed to load artifact (network error).</div>';
       renderTruncationBadge(null);

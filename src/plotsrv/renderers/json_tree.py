@@ -2,12 +2,18 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from .base import RenderResult
 from .limits import DEFAULT_JSON_LIMITS, JsonLimits
 from ..artifacts import Truncation
-from ..json_model import JsonModelLimits, build_json_document
+from ..json_model import (
+    DEFAULT_RECTANGULAR_JSON_LIMITS,
+    JsonModelLimits,
+    MAX_JAVASCRIPT_SAFE_INTEGER,
+    build_json_document,
+)
 
 _ICON_SRC = {
     "json": "/static/logo_json.png",
@@ -58,6 +64,7 @@ class JsonTreeRenderer:
         raw_text = obj.get("raw_text")
         pretty_text = obj.get("pretty_text")
         source_format = obj.get("source_format")
+        table_data = _valid_rectangular_table_data(obj.get("table_data"))
 
         if not isinstance(root, dict):
             html = (
@@ -84,6 +91,11 @@ class JsonTreeRenderer:
         """.strip()
 
         simple_html = _render_simple_document_node(root)
+        table_modes_html = """
+              <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="table">Table</button>
+              <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="plot">Plot</button>
+        """ if table_data is not None else ""
+        table_panel_html = _render_rectangular_table_panel(table_data)
 
         text_value = raw_text if isinstance(raw_text, str) else pretty_text
         if not isinstance(text_value, str):
@@ -104,7 +116,7 @@ class JsonTreeRenderer:
             },
         )
 
-        toolbar = """
+        toolbar = f"""
         <div class="ps-json-topbar artifact-toolbar" data-plotsrv-toolbar="json">
           <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-toolbar-group="levels">
             <span class="artifact-toolbar-label">Show levels</span>
@@ -141,6 +153,7 @@ class JsonTreeRenderer:
               <button type="button" class="artifact-btn ps-json-mode-btn is-active" data-json-mode="json">JSON</button>
               <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="simple">JSON simple</button>
               <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="text">Text</button>
+              {table_modes_html}
             </div>
           </div>
         </div>
@@ -180,6 +193,8 @@ class JsonTreeRenderer:
             <pre class="plotsrv-pre plotsrv-pre--wrap ps-json-textview" data-json-text-view="1">{_escape_html(text_value)}</pre>
           </div>
 
+          {table_panel_html}
+
           <div class="ps-json-pinnedmodal" data-json-pinned-modal="1" hidden>
             <div class="ps-json-pinnedmodal__backdrop" data-json-pinned-close="1"></div>
             <div class="ps-json-pinnedmodal__dialog" role="dialog" aria-modal="true" aria-label="Pinned values">
@@ -215,6 +230,145 @@ class JsonTreeRenderer:
             limits=_to_json_model_limits(self._limits),
         )
         return self._render_document_payload(doc, view_id=view_id)
+
+
+def _valid_rectangular_table_data(value: Any) -> dict[str, Any] | None:
+    """Accept only the bounded scalar table shape made by json_model."""
+    if not isinstance(value, dict):
+        return None
+
+    columns = value.get("columns")
+    rows = value.get("rows")
+    if (
+        not isinstance(columns, list)
+        or not columns
+        or len(columns) > DEFAULT_RECTANGULAR_JSON_LIMITS.max_columns
+        or not all(isinstance(column, str) for column in columns)
+        or len(set(columns)) != len(columns)
+        or not isinstance(rows, list)
+        or not rows
+        or len(rows) > DEFAULT_RECTANGULAR_JSON_LIMITS.max_rows
+    ):
+        return None
+
+    expected_columns = set(columns)
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != expected_columns:
+            return None
+        if not all(_is_json_table_scalar(cell) for cell in row.values()):
+            return None
+
+    return value
+
+
+def _is_json_table_scalar(value: Any) -> bool:
+    if value is None or isinstance(value, (str, bool)):
+        return True
+    if isinstance(value, int):
+        return -MAX_JAVASCRIPT_SAFE_INTEGER <= value <= MAX_JAVASCRIPT_SAFE_INTEGER
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def _render_rectangular_table_panel(table_data: dict[str, Any] | None) -> str:
+    if table_data is None:
+        return ""
+
+    table_data_json = _escape_html(json.dumps(table_data, ensure_ascii=True))
+    return f"""
+          <div class="ps-json-panel ps-json-panel--table" data-json-panel="table" hidden>
+            <div class="ps-table-shell ps-json-table-shell" data-json-table-explorer="1">
+              <div class="ps-table-topbar">
+                <div class="ps-table-topbar__left">
+                  <p id="table-status-inline" class="ps-table-status"></p>
+                </div>
+                <div class="ps-table-topbar__right">
+                  <div class="ps-table-toolbar">
+                    <label class="ps-table-toolbar__search">
+                      <span class="ps-table-toolbar__label">Search</span>
+                      <input id="table-search-input" class="ps-table-input" type="text"
+                             placeholder="Search loaded rows…" autocomplete="off" />
+                    </label>
+                    <label class="ps-table-toolbar__grouping">
+                      <span class="ps-table-toolbar__label">Group</span>
+                      <select id="table-group-by-select" class="ps-table-select">
+                        <option value="">No grouping</option>
+                      </select>
+                    </label>
+                    <div class="ps-table-mode-switch" role="group"
+                         aria-label="Table display mode" hidden>
+                      <button id="table-mode-table-btn" type="button" class="ps-btn is-active"
+                              aria-pressed="true">Table</button>
+                      <button id="table-mode-plot-btn" type="button" class="ps-btn"
+                              aria-pressed="false">Plot</button>
+                    </div>
+                    <button id="table-filters-toggle-btn" type="button" class="ps-btn"
+                            aria-expanded="false" aria-controls="table-filter-panel">Filters</button>
+                    <button id="table-columns-toggle-btn" type="button" class="ps-btn"
+                            aria-expanded="false" aria-controls="table-columns-panel">Columns</button>
+                    <button id="table-reset-btn" type="button" class="ps-btn">Reset view</button>
+                  </div>
+                </div>
+              </div>
+              <div id="table-filter-panel" class="ps-table-filter-panel" hidden>
+                <div class="ps-table-filter-panel__header">
+                  <div class="ps-table-filter-panel__title">Filters</div>
+                  <button id="table-filter-add-btn" type="button" class="ps-btn">Add filter</button>
+                </div>
+                <div id="table-filter-rows" class="ps-table-filter-rows"></div>
+              </div>
+              <div id="table-columns-panel" class="ps-table-columns-panel" hidden>
+                <div class="ps-table-columns-panel__header">
+                  <div class="ps-table-columns-panel__title">Columns</div>
+                  <div class="ps-table-columns-panel__actions">
+                    <button id="table-columns-show-all-btn" type="button" class="ps-btn">Show all</button>
+                  </div>
+                </div>
+                <div id="table-columns-list" class="ps-table-columns-list"></div>
+              </div>
+              <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
+              <section id="table-plot-controls" class="ps-table-plot-controls"
+                       aria-label="Plot controls" hidden>
+                <div class="ps-table-plot-controls__fields">
+                  <label class="ps-table-plot-control">
+                    <span>Plot type</span>
+                    <select id="table-plot-type" class="ps-table-select">
+                      <option value="bar">Count bar</option>
+                      <option value="line">Line</option>
+                      <option value="scatter">Scatter</option>
+                    </select>
+                  </label>
+                  <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
+                    <span>Stream source</span>
+                    <select id="table-plot-source" class="ps-table-select">
+                      <option value="table">Filtered recent rows</option>
+                      <option value="summary">Derived summary windows</option>
+                    </select>
+                  </label>
+                  <label id="table-plot-category-control" class="ps-table-plot-control">
+                    <span>Category</span>
+                    <select id="table-plot-category" class="ps-table-select"></select>
+                  </label>
+                  <label id="table-plot-x-control" class="ps-table-plot-control" hidden>
+                    <span>X field</span>
+                    <select id="table-plot-x" class="ps-table-select"></select>
+                  </label>
+                  <label id="table-plot-y-control" class="ps-table-plot-control" hidden>
+                    <span>Y field</span>
+                    <select id="table-plot-y" class="ps-table-select"></select>
+                  </label>
+                </div>
+                <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
+                  Plots use only loaded rows that pass the current browser filters.
+                </p>
+              </section>
+              <div id="table-data-surface" class="plot-frame ps-frame ps-frame--table plot-frame--table">
+                <div class="table-grid ps-tablegrid ps-table--rich" data-json-table-grid="1"></div>
+              </div>
+              <div id="table-plot-output" class="ps-table-plot-root" aria-live="polite" hidden></div>
+              <div hidden data-json-table-data="1">{table_data_json}</div>
+            </div>
+          </div>
+    """.strip()
 
 
 def _render_document_node(node: dict[str, Any]) -> str:

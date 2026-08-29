@@ -1,0 +1,116 @@
+.ps-table-plot {
+  width: 100%;
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ps-table-plot__title,
+.ps-table-plot__notice-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.ps-table-plot__detail,
+.ps-table-plot__scope,
+.ps-table-plot__notice-detail {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.ps-table-plot__scope {
+  color: var(--text);
+}
+
+.ps-table-plot__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 0.65rem;
+  overflow: visible;
+}
+
+.ps-table-plot__axis {
+  stroke: #8b8b8b;
+  stroke-width: 1;
+}
+
+.ps-table-plot__grid-line {
+  stroke: #ececec;
+  stroke-width: 1;
+}
+
+.ps-table-plot__tick,
+.ps-table-plot__category,
+.ps-table-plot__value,
+.ps-table-plot__axis-label {
+  fill: #505050;
+  font-family: inherit;
+}
+
+.ps-table-plot__tick {
+  font-size: 12px;
+}
+
+.ps-table-plot__category {
+  font-size: 13px;
+}
+
+.ps-table-plot__value {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ps-table-plot__axis-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ps-table-plot__bar {
+  fill: #d55970;
+}
+
+.ps-table-plot__line {
+  stroke: #d55970;
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ps-table-plot__point {
+  fill: #7a3950;
+  fill-opacity: 0.72;
+}
+
+.ps-table-plot__point--line {
+  fill: #fff;
+  stroke: #d55970;
+  stroke-width: 1.6;
+}
+
+.ps-table-plot__notice {
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fffdfd;
+}
+
+.ps-table-plot__notice--refused {
+  border-color: #ead7df;
+  background: #fcf7f9;
+}
+
+@media (max-width: 640px) {
+  .ps-table-plot {
+    padding: 0.65rem;
+  }
+
+  .ps-table-plot__category {
+    font-size: 12px;
+  }
+}

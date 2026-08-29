@@ -114,6 +114,13 @@ def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
     resp = client.get("/")
     text = resp.text
     assert 'id="table-grid"' in text
+    assert 'id="table-group-by-select"' in text
+    assert "No grouping" in text
+    assert 'id="table-mode-table-btn"' in text
+    assert 'aria-pressed="true"' in text
+    assert 'id="table-mode-plot-btn"' in text
+    assert 'id="table-plot-controls"' in text
+    assert 'id="table-plot-output"' in text
     assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" in text
 
 

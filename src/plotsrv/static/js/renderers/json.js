@@ -50,6 +50,14 @@
     return Array.from(jsonRoot.querySelectorAll("[data-json-panel]"));
   }
 
+  function isExplorerMode(mode) {
+    return mode === "table" || mode === "plot";
+  }
+
+  function isJsonTreeMode(mode) {
+    return mode === "json" || mode === "simple";
+  }
+
   function getModeButtons(root) {
     return Array.from(root.querySelectorAll("[data-json-mode]"));
   }
@@ -74,6 +82,7 @@
     const viewGroup = getToolbarGroup(root, "view");
   
     const isText = mode === "text";
+    const isExplorer = isExplorerMode(mode);
   
     function setGroupVisible(el, shouldShow) {
       if (!el) return;
@@ -81,9 +90,9 @@
       el.style.display = shouldShow ? "" : "none";
     }
   
-    setGroupVisible(levelsGroup, !isText);
-    setGroupVisible(findGroup, !isText);
-    setGroupVisible(pinsGroup, !isText);
+    setGroupVisible(levelsGroup, !isText && !isExplorer);
+    setGroupVisible(findGroup, !isText && !isExplorer);
+    setGroupVisible(pinsGroup, !isText && !isExplorer);
     setGroupVisible(viewGroup, true);
   }
 
@@ -91,16 +100,22 @@
     const jsonRoot = getJsonRoot(root);
     if (!jsonRoot) return;
 
-    const allowed = new Set(["json", "simple", "text"]);
+    const allowed = new Set(["json", "simple", "text", "table", "plot"]);
     const nextMode = allowed.has(mode) ? mode : "json";
 
     getPanels(jsonRoot).forEach((panel) => {
       const panelMode = String(panel.getAttribute("data-json-panel") || "");
-      panel.hidden = panelMode !== nextMode;
+      panel.hidden = isExplorerMode(nextMode)
+        ? panelMode !== "table"
+        : panelMode !== nextMode;
     });
 
     applyModeButtonState(root, nextMode);
     syncToolbarForMode(root, nextMode);
+
+    if (isExplorerMode(nextMode) && typeof core.setTablePlotMode === "function") {
+      core.setTablePlotMode(nextMode, { redraw: nextMode === "table" });
+    }
 
     if (nextMode === "text") {
       applyTextModeContent(root);
@@ -114,9 +129,11 @@
       closePinnedModal(root);
     }
 
-    const prefs = getJsonPrefs();
-    prefs.mode = nextMode;
-    saveJsonPrefs(prefs);
+    if (!isExplorerMode(nextMode)) {
+      const prefs = getJsonPrefs();
+      prefs.mode = nextMode;
+      saveJsonPrefs(prefs);
+    }
   }
 
   function parseStoredJsonText(raw) {
@@ -174,7 +191,7 @@
 
   function setLevelLimit(root, rawLevelLimit) {
     const mode = getActiveMode(root);
-    if (mode === "text") return;
+    if (!isJsonTreeMode(mode)) return;
 
     const levelLimit = String(rawLevelLimit || "2");
     const select = root.querySelector("[data-json-level-limit='1']");
@@ -212,7 +229,7 @@
 
   function expandAll(root) {
     const mode = getActiveMode(root);
-    if (mode === "text") return;
+    if (!isJsonTreeMode(mode)) return;
 
     const detailsNodes = getDetailsNodesForMode(root, mode);
     detailsNodes.forEach((node) => {
@@ -233,7 +250,7 @@
 
   function collapseAll(root) {
     const mode = getActiveMode(root);
-    if (mode === "text") return;
+    if (!isJsonTreeMode(mode)) return;
 
     const detailsNodes = getDetailsNodesForMode(root, mode);
     const expandedPinned = getExpandedPinnedPaths(root);
@@ -532,7 +549,10 @@
     }
 
     applyTextModeContent(root);
-    setMode(root, prefs.mode || "json");
+    const preferredMode = isJsonTreeMode(prefs.mode) || prefs.mode === "text"
+      ? prefs.mode
+      : "json";
+    setMode(root, preferredMode);
     setLevelLimit(root, prefs.level_limit || "2");
     restorePinnedStates(root);
     syncToolbarForMode(root, getActiveMode(root));
@@ -553,7 +573,7 @@
       const mode = String(btn.getAttribute("data-json-mode") || "");
       if (mode) {
         setMode(root, mode);
-        if (mode !== "text") {
+        if (isJsonTreeMode(mode)) {
           runFind(root, localState);
         }
         return;
@@ -661,13 +681,30 @@
     root._plotsrvJsonState = localState;
 
     bindJsonToolbar(root, localState);
+    initJsonTableExplorer(root);
     restorePrefs(root);
     syncToolbarForMode(root, getActiveMode(root));
     const input = root.querySelector("[data-plotsrv-json-find='1']");
     const mode = getActiveMode(root);
-    if (mode !== "text" && input && String(input.value || "").trim()) {
+    if (isJsonTreeMode(mode) && input && String(input.value || "").trim()) {
       runFind(root, localState);
     }
+  }
+
+  function initJsonTableExplorer(root) {
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot || typeof core.initializeEmbeddedTableExplorer !== "function") {
+      return;
+    }
+
+    const dataEl = jsonRoot.querySelector("[data-json-table-data='1']");
+    const grid = jsonRoot.querySelector("[data-json-table-grid='1']");
+    if (!dataEl || !grid) return;
+
+    const tableData = parseStoredJsonText(String(dataEl.textContent || ""));
+    if (!tableData || typeof tableData !== "object") return;
+
+    core.initializeEmbeddedTableExplorer({ grid: grid, data: tableData });
   }
 
   function initArtifactEnhancements(root) {

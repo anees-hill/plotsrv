@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from fastapi.testclient import TestClient
 
 from plotsrv import config, store
@@ -43,6 +45,116 @@ def test_committed_bundles_match_ui_sources() -> None:
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_table_plot_renderer_is_local_and_has_explicit_limits() -> None:
+    renderer = (
+        _STATIC / "js" / "renderers" / "table_plot.js"
+    ).read_text("utf-8")
+    controls = (
+        _STATIC / "js" / "renderers" / "table_plot_controls.js"
+    ).read_text("utf-8")
+    bundle = (_STATIC / get_ui_assets().js.removeprefix("/static/")).read_text("utf-8")
+
+    assert "core.renderTablePlot = renderTablePlot" in renderer
+    assert "core.getCurrentFilteredLoadedRows" in renderer
+    assert "maxSourceRows" in renderer
+    assert "maxPoints" in renderer
+    assert "maxCategories" in renderer
+    assert "no categories were collapsed or sampled" in renderer
+    assert "no points were sampled or plotted" in renderer
+    assert "retained recent raw observation window" in renderer
+    assert 'settings.scopeKind === "summary"' in renderer
+    assert "PLOT_PREFERENCE_PREFIX" in controls
+    assert 'state.tablePlotMode = "table"' in controls
+    assert "setTablePlotSummaryRows" in controls
+    assert "raw-table filters do not apply" in controls
+    assert "plotsrv source: js/renderers/table_plot.js" in bundle
+    assert "plotsrv source: js/renderers/table_plot_controls.js" in bundle
+    assert "core.configureTablePlotSurface" in bundle
+    assert "plotsrv source: css/renderers/table_plot.css" in (
+        _STATIC / get_ui_assets().css.removeprefix("/static/")
+    ).read_text("utf-8")
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_shared_table_renderer_mounts_flat_data_controlled_columns_safely() -> None:
+    """Exercise static and embedded Table mounts with hostile and dotted keys."""
+    table_source = _STATIC / "js" / "renderers" / "table.js"
+    script = r'''
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const unsafeName = '<img src=x onerror="window.__header_xss = 1">';
+const payload = {
+  columns: [unsafeName, "http.status"],
+  rows: [{[unsafeName]: "label", "http.status": 200}],
+  total_rows: 1,
+  returned_rows: 1,
+  loaded_rows: 1,
+  total_rows_known: true,
+};
+const mounts = [];
+const context = {
+  Date,
+  Promise,
+  encodeURIComponent,
+  localStorage: {getItem: () => null, setItem: () => {}},
+  window: {
+    PLOTSRV: {core: {}, renderers: {}, state: {}, config: {activeViewId: "json:unsafe"}},
+  },
+  document: {
+    createElement: (tagName) => ({tagName, textContent: ""}),
+    getElementById: () => null,
+  },
+  fetch: async () => ({ok: true, status: 200, json: async () => payload}),
+  Tabulator: function (target, options) {
+    mounts.push({target, options});
+    this.on = () => {};
+    this.getData = () => options.data;
+    this.clearFilter = () => {};
+    this.destroy = () => {};
+  },
+};
+
+function assertSafeFlatColumns(mount, contextLabel) {
+  if (!mount || mount.options.nestedFieldSeparator !== false) {
+    throw new Error(contextLabel + " did not keep dotted keys flat");
+  }
+  if (mount.options.data[0]["http.status"] !== 200) {
+    throw new Error(contextLabel + " did not retain a dotted key");
+  }
+  const column = mount.options.columns[0];
+  if (column.title !== "") {
+    throw new Error(contextLabel + " passed a data-controlled string title");
+  }
+  const title = column.titleFormatter();
+  if (title.textContent !== unsafeName) {
+    throw new Error(contextLabel + " did not render its title through textContent");
+  }
+}
+
+vm.runInNewContext(source, context, {filename: "table.js"});
+const core = context.window.PLOTSRV.core;
+if (!core.initializeEmbeddedTableExplorer({grid: {}, data: payload})) {
+  throw new Error("embedded table explorer did not mount");
+}
+assertSafeFlatColumns(mounts[0], "embedded table");
+core.disposeEmbeddedTableExplorer();
+core.loadTable().then(() => {
+  assertSafeFlatColumns(mounts[1], "static table");
+}).catch((error) => {
+  console.error(error.stack);
+  process.exitCode = 1;
+});
+'''
+
+    subprocess.run(
+        ["node", "-e", script, str(table_source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_standard_page_uses_two_bundles_and_no_remote_assets() -> None:

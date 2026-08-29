@@ -72,7 +72,7 @@ def render_index(
 
     tabulator_head = ""
     include_tabulator = kind in ("table", "artifact", "stream") and (
-        table_view_mode != "simple" or kind == "stream"
+        table_view_mode != "simple" or kind in ("artifact", "stream")
     )
 
     if include_tabulator:
@@ -313,7 +313,75 @@ def render_index(
             + _terminate_button_html()
         )
 
-        table_shell_open = """
+        table_plot_controls_html = (
+            """
+            <div class="ps-table-mode-switch" role="group" aria-label="Table display mode">
+              <button
+                id="table-mode-table-btn"
+                type="button"
+                class="ps-btn is-active"
+                aria-pressed="true">
+                Table
+              </button>
+              <button
+                id="table-mode-plot-btn"
+                type="button"
+                class="ps-btn"
+                aria-pressed="false">
+                Plot
+              </button>
+            </div>
+            """
+            if table_view_mode != "simple" or table_html_simple is None
+            else ""
+        )
+
+        table_plot_panel_html = (
+            """
+            <section
+              id="table-plot-controls"
+              class="ps-table-plot-controls"
+              aria-label="Plot controls"
+              hidden>
+              <div class="ps-table-plot-controls__fields">
+                <label class="ps-table-plot-control">
+                  <span>Plot type</span>
+                  <select id="table-plot-type" class="ps-table-select">
+                    <option value="bar">Count bar</option>
+                    <option value="line">Line</option>
+                    <option value="scatter">Scatter</option>
+                  </select>
+                </label>
+                <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
+                  <span>Stream source</span>
+                  <select id="table-plot-source" class="ps-table-select">
+                    <option value="table">Filtered recent rows</option>
+                    <option value="summary">Derived summary windows</option>
+                  </select>
+                </label>
+                <label id="table-plot-category-control" class="ps-table-plot-control">
+                  <span>Category</span>
+                  <select id="table-plot-category" class="ps-table-select"></select>
+                </label>
+                <label id="table-plot-x-control" class="ps-table-plot-control" hidden>
+                  <span>X field</span>
+                  <select id="table-plot-x" class="ps-table-select"></select>
+                </label>
+                <label id="table-plot-y-control" class="ps-table-plot-control" hidden>
+                  <span>Y field</span>
+                  <select id="table-plot-y" class="ps-table-select"></select>
+                </label>
+              </div>
+              <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
+                Plots use only loaded rows that pass the current browser filters.
+              </p>
+            </section>
+            """
+            if table_plot_controls_html
+            else ""
+        )
+
+        table_shell_open = f"""
           <div class="ps-table-shell">
             <div class="ps-table-topbar">
               <div class="ps-table-topbar__left">
@@ -331,6 +399,15 @@ def render_index(
                       autocomplete="off"
                     />
                   </label>
+
+                  <label class="ps-table-toolbar__grouping">
+                    <span class="ps-table-toolbar__label">Group</span>
+                    <select id="table-group-by-select" class="ps-table-select">
+                      <option value="">No grouping</option>
+                    </select>
+                  </label>
+
+                  {table_plot_controls_html}
 
                   <button
                     id="table-filters-toggle-btn"
@@ -391,6 +468,8 @@ def render_index(
             </div>
 
             <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
+
+            {table_plot_panel_html}
         """
 
         table_shell_close = "</div>"
@@ -408,9 +487,10 @@ def render_index(
         else:
             content_html = f"""
               {table_shell_open}
-              <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
+              <div id="table-data-surface" class="plot-frame ps-frame ps-frame--table plot-frame--table">
                 <div id="table-grid" class="table-grid ps-tablegrid ps-table--rich"></div>
               </div>
+              <div id="table-plot-output" class="ps-table-plot-root" aria-live="polite" hidden></div>
               {table_shell_close}
             """
 
@@ -433,6 +513,23 @@ def render_index(
               <p id="stream-health-inline" class="ps-stream-health" aria-live="polite"></p>
             </div>
 
+            <section
+              id="stream-history-picker"
+              class="ps-stream-history-picker"
+              aria-labelledby="stream-history-picker-title"
+              hidden>
+              <div>
+                <h2 id="stream-history-picker-title" class="ps-stream-history-picker__title">Stored sessions</h2>
+                <p id="stream-history-picker-status" class="ps-stream-history-picker__notice">
+                  Select a stored session to inspect bounded historical observations.
+                </p>
+              </div>
+              <label class="ps-stream-history-picker__control">
+                <span>Session</span>
+                <select id="stream-history-session-select"></select>
+              </label>
+            </section>
+
             <div class="ps-table-shell">
               <div class="ps-table-topbar">
                 <div class="ps-table-topbar__left">
@@ -450,6 +547,30 @@ def render_index(
                         autocomplete="off"
                       />
                     </label>
+
+                    <label class="ps-table-toolbar__grouping">
+                      <span class="ps-table-toolbar__label">Group</span>
+                      <select id="table-group-by-select" class="ps-table-select">
+                        <option value="">No grouping</option>
+                      </select>
+                    </label>
+
+                    <div class="ps-table-mode-switch" role="group" aria-label="Table display mode">
+                      <button
+                        id="table-mode-table-btn"
+                        type="button"
+                        class="ps-btn is-active"
+                        aria-pressed="true">
+                        Table
+                      </button>
+                      <button
+                        id="table-mode-plot-btn"
+                        type="button"
+                        class="ps-btn"
+                        aria-pressed="false">
+                        Plot
+                      </button>
+                    </div>
 
                     <button
                       id="table-filters-toggle-btn"
@@ -511,10 +632,104 @@ def render_index(
 
               <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
 
-              <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
+              <section
+                id="table-plot-controls"
+                class="ps-table-plot-controls"
+                aria-label="Plot controls"
+                hidden>
+                <div class="ps-table-plot-controls__fields">
+                  <label class="ps-table-plot-control">
+                    <span>Plot type</span>
+                    <select id="table-plot-type" class="ps-table-select">
+                      <option value="bar">Count bar</option>
+                      <option value="line">Line</option>
+                      <option value="scatter">Scatter</option>
+                    </select>
+                  </label>
+                  <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
+                    <span>Stream source</span>
+                    <select id="table-plot-source" class="ps-table-select">
+                      <option value="table">Filtered recent rows</option>
+                      <option value="summary">Derived summary windows</option>
+                    </select>
+                  </label>
+                  <label id="table-plot-category-control" class="ps-table-plot-control">
+                    <span>Category</span>
+                    <select id="table-plot-category" class="ps-table-select"></select>
+                  </label>
+                  <label id="table-plot-x-control" class="ps-table-plot-control" hidden>
+                    <span>X field</span>
+                    <select id="table-plot-x" class="ps-table-select"></select>
+                  </label>
+                  <label id="table-plot-y-control" class="ps-table-plot-control" hidden>
+                    <span>Y field</span>
+                    <select id="table-plot-y" class="ps-table-select"></select>
+                  </label>
+                </div>
+                <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
+                  Plots use only loaded rows that pass the current browser filters.
+                </p>
+              </section>
+
+              <div id="table-data-surface" class="plot-frame ps-frame ps-frame--table plot-frame--table">
                 <div id="stream-grid" class="table-grid ps-tablegrid ps-stream-grid"></div>
               </div>
+              <div id="table-plot-output" class="ps-table-plot-root" aria-live="polite" hidden></div>
             </div>
+
+            <section
+              class="ps-stream-returning"
+              aria-labelledby="stream-since-visit-title"
+              data-returning-kind="since-last-visit">
+              <div class="ps-stream-returning__header">
+                <div>
+                  <h2 id="stream-since-visit-title" class="ps-stream-returning__title">Since last visit</h2>
+                  <p class="ps-stream-returning__notice">
+                    Exact changes are shown only when this browser has a compatible checkpoint for the current plotsrv stream state.
+                  </p>
+                </div>
+                <p id="stream-since-visit-status" class="ps-stream-returning__status" aria-live="polite">
+                  Waiting for current stream state.
+                </p>
+              </div>
+              <div id="stream-since-visit-details" class="ps-stream-returning__details"></div>
+            </section>
+
+            <section
+              class="ps-stream-noteworthy"
+              aria-labelledby="stream-noteworthy-title"
+              data-noteworthy-kind="stream-noteworthy">
+              <div class="ps-stream-noteworthy__header">
+                <div>
+                  <h2 id="stream-noteworthy-title" class="ps-stream-noteworthy__title">Noteworthy observations</h2>
+                  <p class="ps-stream-noteworthy__notice">
+                    This is a bounded retained selection, not a complete source-log history.
+                  </p>
+                </div>
+                <p id="stream-noteworthy-status" class="ps-stream-noteworthy__status" aria-live="polite">
+                  No noteworthy state received yet.
+                </p>
+              </div>
+              <div id="stream-noteworthy-items" class="ps-stream-noteworthy__items"></div>
+            </section>
+
+            <section
+              class="ps-stream-summary"
+              aria-labelledby="stream-summary-title"
+              data-summary-kind="derived-stream-history">
+              <div class="ps-stream-summary__header">
+                <div>
+                  <h2 id="stream-summary-title" class="ps-stream-summary__title">Derived compact history</h2>
+                  <p class="ps-stream-summary__notice">
+                    Aggregated windows are derived from older observations and are not source log rows.
+                  </p>
+                </div>
+                <p id="stream-summary-status" class="ps-stream-summary__status" aria-live="polite">
+                  No derived windows yet.
+                </p>
+              </div>
+              <div id="stream-summary-windows" class="ps-stream-summary__windows"></div>
+            </section>
           </div>
         """
         footer_html = _footer_html(controls_html=controls_html)
