@@ -15,18 +15,13 @@
   flex: 0 1 auto;
 }
 
-.header-centre {
-  flex: 1 1 auto;
-  display: flex;
-  justify-content: center;
-  min-width: 0;
-}
-
 .header-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .header-logo {
@@ -48,7 +43,7 @@
 .page {
   max-width: 1240px;
   margin: 1.25rem auto;
-  padding: 0 1rem 1.75rem;
+  padding: 0 1rem calc(var(--ps-bottom-dock-height, 5.75rem) + 1.5rem);
 }
 
 .plot-card {
@@ -62,7 +57,7 @@
 body[data-kind="table"] .page {
   max-width: none;
   margin: 0.9rem auto;
-  padding: 0 0.75rem 1.5rem;
+  padding: 0 0.75rem calc(var(--ps-bottom-dock-height, 5.75rem) + 1.5rem);
 }
 
 body[data-kind="table"] .plot-card {
@@ -72,7 +67,7 @@ body[data-kind="table"] .plot-card {
 body[data-kind="artifact"] .page:has(.ps-json-shell) {
   max-width: none;
   margin: 0.9rem auto;
-  padding: 0 0.75rem 1.5rem;
+  padding: 0 0.75rem calc(var(--ps-bottom-dock-height, 5.75rem) + 1.5rem);
 }
 
 body[data-kind="artifact"] .plot-card:has(.ps-json-shell) {
@@ -154,19 +149,6 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
   flex-wrap: wrap;
 }
 
-.ps-footer-controls {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.ps-footer-inline {
-  min-height: 1.2rem;
-  margin-top: 0.45rem;
-}
-
 .view-select select {
   padding: 0.28rem 0.5rem;
   border: 1px solid var(--border);
@@ -180,10 +162,12 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
     flex-wrap: wrap;
   }
 
-  .header-centre {
+  .header-right {
     order: 3;
     width: 100%;
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    margin-left: 0;
   }
 
   .header-title {
@@ -192,7 +176,9 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
 
   .page {
     margin: 1rem auto;
-    padding: 0 0.75rem 1.5rem;
+    padding-right: 0.75rem;
+    padding-bottom: calc(var(--ps-bottom-dock-height, 7.5rem) + 1.25rem);
+    padding-left: 0.75rem;
   }
 
   .plot-card {
@@ -207,5 +193,11 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
 
   .plot-frame {
     min-height: 180px;
+  }
+
+  .page,
+  body[data-kind="table"] .page,
+  body[data-kind="artifact"] .page:has(.ps-json-shell) {
+    padding-bottom: calc(var(--ps-bottom-dock-height, 9.5rem) + 1rem);
   }
 }

@@ -64,6 +64,7 @@
     const status = document.getElementById("status");
     if (status) {
       status.innerHTML = html || "";
+      status.hidden = !html;
     }
   }
 
@@ -122,6 +123,57 @@
     return Number.isInteger(value) && value >= 0 ? value : null;
   }
 
+  function rebuildViewMenu(wrap, views, icons) {
+    const menu = wrap.querySelector(".ps-viewselect__menu");
+    if (!menu || typeof document.createElement !== "function") return;
+    const groups = new Map();
+    for (const view of views) {
+      const section = String(view.section || "default");
+      if (!groups.has(section)) groups.set(section, []);
+      groups.get(section).push(view);
+    }
+    const fragments = [];
+    groups.forEach(function (items, section) {
+      const group = document.createElement("div");
+      group.className = "ps-viewselect__group";
+      const heading = document.createElement("div");
+      heading.className = "ps-viewselect__group-label";
+      heading.textContent = section;
+      group.appendChild(heading);
+      const list = document.createElement("div");
+      list.className = "ps-viewselect__group-items";
+      for (const view of items) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "ps-viewselect__item";
+        button.setAttribute("role", "option");
+        button.setAttribute(
+          "aria-selected", view.view_id === config.activeViewId ? "true" : "false"
+        );
+        button.setAttribute("data-plotsrv-view", String(view.view_id));
+        const dot = document.createElement("span");
+        dot.className = "ps-viewselect__freshness";
+        dot.hidden = true;
+        dot.setAttribute("aria-hidden", "true");
+        const image = document.createElement("img");
+        image.className = "ps-viewselect__itemicon";
+        image.src = icons[view.icon_key] || icons.unknown;
+        image.alt = "";
+        const label = document.createElement("span");
+        label.className = "ps-viewselect__itemlabel";
+        label.textContent = String(view.label || view.view_id);
+        button.appendChild(dot);
+        button.appendChild(image);
+        button.appendChild(label);
+        applyFreshnessClass(button, view.freshness || null);
+        list.appendChild(button);
+      }
+      group.appendChild(list);
+      fragments.push(group);
+    });
+    menu.replaceChildren(...fragments);
+  }
+
   function refreshViewIcons(viewMenuRevision) {
     const wrap = document.querySelector("[data-plotsrv-viewselect='1']");
     if (!wrap) return;
@@ -164,6 +216,8 @@
           byId[v.view_id] = v;
         }
 
+        rebuildViewMenu(wrap, views, ICONS);
+
         const items = wrap.querySelectorAll("[data-plotsrv-view]");
         items.forEach(function (btn) {
           const vid = btn.getAttribute("data-plotsrv-view");
@@ -184,9 +238,11 @@
         if (activeMeta) {
           const iconKey = activeMeta.icon_key || "unknown";
           const img = wrap.querySelector(".ps-viewselect__icon");
+          const label = wrap.querySelector(".ps-viewselect__label");
           if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
             img.setAttribute("src", ICONS[iconKey]);
           }
+          if (label) label.textContent = String(activeMeta.label || activeMeta.view_id);
         }
         if (nextRevision !== null) {
           state.viewMenuRevision = nextRevision;
@@ -206,36 +262,237 @@
     return refreshPromise;
   }
 
-  function setFreshnessDot(freshness, isHistory) {
-    const dot = document.getElementById("header-freshness-dot");
-    if (!dot) return;
+  function elapsedLabel(totalSeconds) {
+    const age = formatAgeShort(totalSeconds);
+    return age ? age.replace(/ old$/, " ago") : "";
+  }
 
-    dot.hidden = true;
-    dot.classList.remove("is-warn");
-    dot.classList.remove("is-error");
-    dot.removeAttribute("title");
+  function deriveHeaderStatus(model) {
+    if (model.viewMode === "snapshot") {
+      const createdAt = model.snapshot && model.snapshot.createdAt;
+      return {
+        visible: config.showHeaderHistory,
+        tone: "history",
+        label: "Snapshot",
+        context: createdAt ? "From " + fmtLocalTime(createdAt) : "Historical view",
+        title: "Historical snapshot",
+        copy: createdAt
+          ? "Viewing the snapshot saved " + fmtLocalTime(createdAt) + ". Freshness applies only to the latest data."
+          : "Viewing a historical snapshot. Freshness applies only to the latest data.",
+      };
+    }
 
-    if (isHistory) return;
-    if (!freshness || freshness.enabled === false) return;
+    if (model.browserData === "update_available") {
+      return {
+        visible: config.showHeaderFreshness,
+        tone: "new-data",
+        label: "New data available",
+        context: "This view has not applied it yet",
+        title: "New data available",
+        copy: "The server has newer data than the version currently shown in this browser.",
+      };
+    }
 
-    const stateName = String(freshness.state || "");
-    if (stateName === "ok" || stateName === "disabled" || stateName === "unknown") {
+    const latest = model.latestData || {};
+    const freshness = latest.freshness;
+    const freshnessState = freshness && freshness.enabled !== false
+      ? String(freshness.state || "unknown").toLowerCase()
+      : "disabled";
+    const elapsed = freshness && typeof freshness.age_s === "number"
+      ? elapsedLabel(freshness.age_s)
+      : "";
+    const updatedContext = elapsed
+      ? "Updated " + elapsed
+      : latest.lastUpdated
+        ? "Updated " + fmtAgo(latest.lastUpdated).replace(/^\(|\)$/g, "")
+        : "Update time unavailable";
+    const policyLabel = freshness && freshness.label
+      ? String(freshness.label)
+      : "Freshness policy unavailable";
+
+    if (freshnessState === "error" || freshnessState === "overdue" || freshnessState === "old") {
+      return {
+        visible: config.showHeaderFreshness,
+        tone: "error",
+        label: "Very stale",
+        context: updatedContext,
+        title: "Latest data is very stale",
+        copy: policyLabel + (elapsed ? ". Last update was " + elapsed + "." : "."),
+      };
+    }
+
+    if (freshnessState === "warn" || freshnessState === "warning" || freshnessState === "stale") {
+      return {
+        visible: config.showHeaderFreshness,
+        tone: "warn",
+        label: "Stale",
+        context: updatedContext,
+        title: "Latest data is stale",
+        copy: policyLabel + (elapsed ? ". Last update was " + elapsed + "." : "."),
+      };
+    }
+
+    if (freshnessState === "unknown") {
+      return {
+        visible: config.showHeaderFreshness,
+        tone: "neutral",
+        label: "Latest",
+        context: policyLabel,
+        title: "No latest data yet",
+        copy: policyLabel + ". This browser will remain on the latest view while plotsrv waits for data.",
+      };
+    }
+
+    return {
+      visible: config.showHeaderFreshness,
+      tone: freshnessState === "ok" ? "live" : "neutral",
+      label: freshnessState === "ok" ? "Live" : "Latest",
+      context: freshnessState === "ok" && freshness && freshness.age_s < 10
+        ? "Updated just now"
+        : updatedContext,
+      title: freshnessState === "ok" ? "Latest data is up to date" : "Latest view",
+      copy: freshnessState === "ok"
+        ? policyLabel + (elapsed ? ". Last update was " + elapsed + "." : ".")
+        : "This browser is showing the latest applied data. Freshness status is unavailable.",
+    };
+  }
+
+  function renderHeaderStatus() {
+    const wrap = document.getElementById("header-status");
+    if (!wrap) return;
+
+    const presentation = deriveHeaderStatus(state.headerStatus);
+    wrap.hidden = !presentation.visible;
+    wrap.setAttribute("data-status-tone", presentation.tone);
+
+    if (!presentation.visible) closeHeaderStatusDetails();
+
+    const label = document.getElementById("header-status-label");
+    const context = document.getElementById("header-status-context");
+    const title = document.getElementById("header-status-details-title");
+    const copy = document.getElementById("header-status-details-copy");
+    const applyUpdate = document.getElementById("header-status-apply-update");
+    const returnLatest = document.getElementById("header-status-return-latest");
+    if (label) label.textContent = presentation.label;
+    if (context) context.textContent = presentation.context;
+    if (title) title.textContent = presentation.title;
+    if (copy) copy.textContent = presentation.copy;
+    if (applyUpdate) {
+      applyUpdate.hidden = state.headerStatus.browserData !== "update_available" ||
+        state.headerStatus.viewMode === "snapshot" || !!state.streamHistoricalSessionId;
+    }
+    if (returnLatest) returnLatest.hidden = state.headerStatus.viewMode !== "snapshot";
+  }
+
+  function setHeaderViewState(viewMode, snapshot) {
+    state.headerStatus.viewMode = viewMode === "snapshot" ? "snapshot" : "latest";
+    state.headerStatus.snapshot = state.headerStatus.viewMode === "snapshot"
+      ? snapshot || { id: state.currentSnapshot, createdAt: null }
+      : null;
+    renderHeaderStatus();
+  }
+
+  // Slice 2 can call this when it detects a newer server version without
+  // coupling that mechanism to header DOM details.
+  function setHeaderBrowserDataState(browserData) {
+    state.headerStatus.browserData = browserData === "update_available"
+      ? "update_available"
+      : "current";
+    renderHeaderStatus();
+  }
+
+  function setHeaderLatestStatus(statusPayload) {
+    state.headerStatus.latestData = {
+      lastUpdated: statusPayload && statusPayload.last_updated
+        ? statusPayload.last_updated
+        : null,
+      freshness: statusPayload && statusPayload.freshness
+        ? statusPayload.freshness
+        : null,
+    };
+    renderHeaderStatus();
+  }
+
+  function refreshLocalFreshness() {
+    const latest = state.headerStatus.latestData || {};
+    const freshness = latest.freshness;
+    const updatedAt = Date.parse(latest.lastUpdated || "");
+    if (!freshness || freshness.enabled === false || !Number.isFinite(updatedAt)) {
+      renderHeaderStatus();
       return;
     }
-
-    dot.hidden = false;
-    if (stateName === "error") {
-      dot.classList.add("is-error");
+    const age = Math.max(0, Math.floor((Date.now() - updatedAt) / 1000));
+    const warnRaw = freshness.warn_after_s;
+    const overdueRaw = freshness.overdue_after_s ?? freshness.error_after_s;
+    const warn = warnRaw == null ? null : Number(warnRaw);
+    const overdue = overdueRaw == null ? null : Number(overdueRaw);
+    freshness.age_s = age;
+    if (overdue !== null && Number.isFinite(overdue) && age >= overdue) {
+      Object.assign(freshness, { state: "error", label: "Overdue", emoji: "❌" });
+    } else if (warn !== null && Number.isFinite(warn) && age >= warn) {
+      Object.assign(freshness, { state: "warn", label: "Stale", emoji: "⚠️" });
     } else {
-      dot.classList.add("is-warn");
+      Object.assign(freshness, { state: "ok", label: "Fresh", emoji: "✅" });
     }
+    const updatedAgo = document.getElementById("status-updated-ago");
+    if (updatedAgo) updatedAgo.textContent = fmtAgo(latest.lastUpdated);
+    const freshnessEl = document.getElementById("status-freshness");
+    if (freshnessEl && !(typeof core.isHistoryMode === "function" && core.isHistoryMode())) {
+      freshnessEl.textContent = (freshness.emoji + " " + freshness.label +
+        " (" + formatAgeShort(age) + ")").trim();
+    }
+    renderHeaderStatus();
+  }
 
-    const label = freshness.label || "Not fresh";
-    const age =
-      typeof freshness.age_s === "number"
-        ? " (" + formatAgeShort(freshness.age_s) + ")"
-        : "";
-    dot.title = label + age;
+  function closeHeaderStatusDetails() {
+    const button = document.getElementById("header-status-button");
+    const details = document.getElementById("header-status-details");
+    if (!button || !details) return;
+    details.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  }
+
+  function bindHeaderStatus() {
+    const button = document.getElementById("header-status-button");
+    const details = document.getElementById("header-status-details");
+    const applyUpdate = document.getElementById("header-status-apply-update");
+    const returnLatest = document.getElementById("header-status-return-latest");
+    if (!button || !details) return;
+
+    renderHeaderStatus();
+    button.addEventListener("click", function () {
+      const willOpen = details.hidden;
+      details.hidden = !willOpen;
+      button.setAttribute("aria-expanded", willOpen ? "true" : "false");
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !details.hidden) {
+        closeHeaderStatusDetails();
+        button.focus();
+      }
+    });
+    document.addEventListener("click", function (event) {
+      if (!details.hidden && !button.closest("#header-status").contains(event.target)) {
+        closeHeaderStatusDetails();
+      }
+    });
+    if (returnLatest) {
+      returnLatest.addEventListener("click", function () {
+        closeHeaderStatusDetails();
+        if (typeof core.returnToLive === "function") core.returnToLive();
+      });
+    }
+    if (applyUpdate) {
+      applyUpdate.addEventListener("click", function () {
+        closeHeaderStatusDetails();
+        if (typeof core.applyPendingUpdate === "function") {
+          core.applyPendingUpdate({ force: true });
+        }
+      });
+    }
+    if (state.headerFreshnessTimer == null) {
+      state.headerFreshnessTimer = window.setInterval(refreshLocalFreshness, 10000);
+    }
   }
 
   function setFileBackedIndicator(statusPayload, isHistory) {
@@ -292,6 +549,8 @@
       const isHistory =
         typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
 
+      setHeaderLatestStatus(s);
+
       if (freshness) {
         const f = s.freshness || null;
         if (isHistory) {
@@ -308,7 +567,6 @@
           freshness.textContent = (emoji + " " + label + age).trim();
         }
 
-        setFreshnessDot(s.freshness || null, isHistory);
       }
 
       setFileBackedIndicator(s, isHistory);
@@ -360,6 +618,13 @@
   core.formatAgeShort = formatAgeShort;
   core.setStatusMessage = setStatusMessage;
   core.clearPlotObjectUrl = clearPlotObjectUrl;
+  core.deriveHeaderStatus = deriveHeaderStatus;
+  core.renderHeaderStatus = renderHeaderStatus;
+  core.setHeaderViewState = setHeaderViewState;
+  core.setHeaderBrowserDataState = setHeaderBrowserDataState;
+  core.setHeaderLatestStatus = setHeaderLatestStatus;
+  core.refreshLocalFreshness = refreshLocalFreshness;
+  core.bindHeaderStatus = bindHeaderStatus;
   core.refreshViewIcons = refreshViewIcons;
   core.setFileBackedIndicator = setFileBackedIndicator;
   core.refreshStatus = refreshStatus;

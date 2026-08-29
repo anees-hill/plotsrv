@@ -1313,4 +1313,4 @@ def test_index_includes_file_backed_status_indicator_markup(
 
     assert 'id="status-file-backed"' in text
     assert "/static/logo_on_disk.png" in text
-    assert "ps-statusline__disk-icon" in text
+    assert "ps-bottom-bar__disk-icon" in text

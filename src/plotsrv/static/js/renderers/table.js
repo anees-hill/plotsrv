@@ -61,6 +61,43 @@
     });
   }
 
+  function preserveColumnOrder(columnDefs, table) {
+    if (!table || typeof table.getColumns !== "function") return columnDefs;
+    const byField = new Map(columnDefs.map(function (definition) {
+      return [definition.field, definition];
+    }));
+    const ordered = [];
+    try {
+      table.getColumns().forEach(function (column) {
+        const field = column && typeof column.getField === "function"
+          ? column.getField()
+          : null;
+        if (!byField.has(field)) return;
+        ordered.push(byField.get(field));
+        byField.delete(field);
+      });
+    } catch (e) {
+      return columnDefs;
+    }
+    byField.forEach(function (definition) { ordered.push(definition); });
+    return ordered;
+  }
+
+  function currentSorters(table) {
+    if (!table || typeof table.getSorters !== "function") return [];
+    try {
+      return table.getSorters().map(function (sorter) {
+        const field = sorter.field ||
+          (sorter.column && typeof sorter.column.getField === "function"
+            ? sorter.column.getField()
+            : null);
+        return field ? { column: field, dir: sorter.dir || "asc" } : null;
+      }).filter(Boolean);
+    } catch (e) {
+      return [];
+    }
+  }
+
   function defaultTableUiState() {
     return {
       searchQuery: "",
@@ -319,6 +356,9 @@
     const ui = getTableUiState();
     ui.searchQuery = String(value || "");
     saveTableUiState();
+    if (typeof core.notifyUpdateEligibilityChanged === "function") {
+      core.notifyUpdateEligibilityChanged();
+    }
   }
 
   function getFilters() {
@@ -329,12 +369,18 @@
     const ui = getTableUiState();
     ui.filters = Array.isArray(filters) ? filters.map(normalizeFilter).filter(Boolean) : [];
     saveTableUiState();
+    if (typeof core.notifyUpdateEligibilityChanged === "function") {
+      core.notifyUpdateEligibilityChanged();
+    }
   }
 
   function setFiltersOpen(isOpen) {
     const ui = getTableUiState();
     ui.filtersOpen = !!isOpen;
     saveTableUiState();
+    if (typeof core.notifyUpdateEligibilityChanged === "function") {
+      core.notifyUpdateEligibilityChanged();
+    }
   }
 
   function getHiddenColumns() {
@@ -357,6 +403,9 @@
     const ui = getTableUiState();
     ui.columnsOpen = !!isOpen;
     saveTableUiState();
+    if (typeof core.notifyUpdateEligibilityChanged === "function") {
+      core.notifyUpdateEligibilityChanged();
+    }
   }
 
   function getGroupingField() {
@@ -371,6 +420,9 @@
     const ui = getTableUiState();
     ui.groupBy = next;
     saveTableUiState();
+    if (typeof core.notifyUpdateEligibilityChanged === "function") {
+      core.notifyUpdateEligibilityChanged();
+    }
     return next;
   }
 
@@ -1272,14 +1324,16 @@
     if (!state.tabulatorInstance) return false;
 
     let rows = [];
+    let readActiveRows = false;
     try {
       rows = state.tabulatorInstance.getData("active");
-      if (!Array.isArray(rows)) rows = [];
+      if (Array.isArray(rows)) readActiveRows = true;
+      else rows = [];
     } catch (e) {
       rows = [];
     }
 
-    if (!rows.length) {
+    if (!readActiveRows) {
       try {
         rows = state.tabulatorInstance.getData();
         if (!Array.isArray(rows)) rows = [];
@@ -1295,9 +1349,25 @@
 
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const base = String(config.activeViewId || "table").replace(/[^\w.-]+/g, "_");
-    const filename = base + "-" + stamp + ".csv";
+    const filename = base + "-filtered-" + stamp + ".csv";
 
     downloadTextFile(filename, csv, "text/csv;charset=utf-8");
+    return true;
+  }
+
+  function exportRetainedRawWindow() {
+    const rows = Array.isArray(state.tableRows) ? state.tableRows : [];
+    const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
+    if (!fields.length) return false;
+
+    const csv = buildCsvFromRows(rows, fields);
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = String(config.activeViewId || "stream").replace(/[^\w.-]+/g, "_");
+    downloadTextFile(
+      base + "-retained-window-" + stamp + ".csv",
+      csv,
+      "text/csv;charset=utf-8"
+    );
     return true;
   }
 
@@ -1328,6 +1398,15 @@
     state.tableColumnDefs = Array.isArray(settings.columnDefs)
       ? settings.columnDefs
       : [];
+
+    if (typeof table.on === "function" && !table._plotsrvUpdatePolicyBound) {
+      table.on("dataSorted", function () {
+        if (typeof core.notifyUpdateEligibilityChanged === "function") {
+          core.notifyUpdateEligibilityChanged();
+        }
+      });
+      table._plotsrvUpdatePolicyBound = true;
+    }
 
     bindTableToolbar();
     applyTableGrouping();
@@ -1446,17 +1525,25 @@
       }
 
       console.error("Failed to load table data");
+      if (typeof core.setStatusMessage === "function") {
+        core.setStatusMessage("Failed to load table data (" + res.status + ").");
+      }
       return;
     }
 
     const data = await res.json();
-    const columns = buildColumnDefs(data.columns || []);
+    let columns = buildColumnDefs(data.columns || []);
     const rows = data.rows || [];
 
     if (state.tabulatorInstance) {
+      const sorters = currentSorters(state.tabulatorInstance);
+      columns = preserveColumnOrder(columns, state.tabulatorInstance);
       state.tableAppliedGrouping = undefined;
-      state.tabulatorInstance.setColumns(columns);
-      state.tabulatorInstance.replaceData(rows);
+      await Promise.resolve(state.tabulatorInstance.setColumns(columns));
+      await Promise.resolve(state.tabulatorInstance.replaceData(rows));
+      if (sorters.length && typeof state.tabulatorInstance.setSort === "function") {
+        await Promise.resolve(state.tabulatorInstance.setSort(sorters));
+      }
       configureTableExplorer({
         table: state.tabulatorInstance,
         payload: data,
@@ -1469,6 +1556,9 @@
 
     if (typeof Tabulator === "undefined") {
       console.error("Tabulator is not available (did not load).");
+      if (typeof core.setStatusMessage === "function") {
+        core.setStatusMessage("Failed to start the rich table renderer.");
+      }
       return;
     }
 
@@ -1501,7 +1591,7 @@
     });
   }
 
-  function exportTable() {
+  function exportCompletePublishedTable() {
     const isHistory =
       typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
     const sourceDownload =
@@ -1512,11 +1602,6 @@
     if (!isHistory && typeof sourceDownload === "string" && sourceDownload) {
       window.location.href = sourceDownload + "&_ts=" + Date.now();
       return;
-    }
-
-    if (state.tabulatorInstance) {
-      const ok = exportFilteredRichTable();
-      if (ok) return;
     }
 
     const snapshotQuery =
@@ -1530,8 +1615,28 @@
       Date.now();
   }
 
+  function exportTable(scope) {
+    if (scope === "filtered") {
+      return exportFilteredRichTable();
+    }
+    if (scope === "retained") {
+      return exportRetainedRawWindow();
+    }
+    if (scope === "complete") {
+      return exportCompletePublishedTable();
+    }
+
+    // Retain the old public helper's behaviour for integrations that invoke
+    // exportTable() directly. The bottom dock always supplies an exact scope.
+    if (state.tabulatorInstance && exportFilteredRichTable()) return true;
+    return exportCompletePublishedTable();
+  }
+
   core.loadTable = loadTable;
   core.exportTable = exportTable;
+  core.exportFilteredRichTable = exportFilteredRichTable;
+  core.exportRetainedRawWindow = exportRetainedRawWindow;
+  core.exportCompletePublishedTable = exportCompletePublishedTable;
   core.configureTableExplorer = configureTableExplorer;
   core.disposeEmbeddedTableExplorer = disposeEmbeddedTableExplorer;
   core.initializeEmbeddedTableExplorer = initializeEmbeddedTableExplorer;

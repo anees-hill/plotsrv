@@ -184,6 +184,15 @@
     }
   }
 
+  function getIframeExportHtml(root) {
+    if (!root) return "";
+    const iframe = root.querySelector(
+      ".plotsrv-html-iframe, .plotsrv-markdown-iframe"
+    );
+    if (!iframe) return "";
+    return String(iframe.getAttribute("srcdoc") || "");
+  }
+
   function getArtifactExportText() {
     const jsonRoot = document.querySelector('[data-plotsrv-json="1"]');
     if (jsonRoot) {
@@ -234,6 +243,28 @@
     }, 1000);
   }
 
+  function exportEmbeddedImage(root, base, stamp) {
+    if (!root) return false;
+    const image = root.querySelector('img[src^="data:image/"]');
+    if (!image) return false;
+    const source = String(image.getAttribute("src") || "");
+    const match = /^data:image\/([^;,]+)/i.exec(source);
+    if (!match) return false;
+    const subtype = match[1].toLowerCase();
+    const extension = {
+      "svg+xml": "svg",
+      jpeg: "jpg",
+      jpg: "jpg",
+    }[subtype] || subtype;
+    const a = document.createElement("a");
+    a.href = source;
+    a.download = base + "-" + stamp + "." + extension;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return true;
+  }
+
   function exportArtifact() {
     const isHistory =
       typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
@@ -244,14 +275,24 @@
 
     if (!isHistory && sourceDownload) {
       window.location.href = sourceDownload + "&_ts=" + Date.now();
-      return;
+      return true;
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = String(config.activeViewId || "artifact").replace(/[^\w.-]+/g, "_");
+    if (exportEmbeddedImage(root, base, stamp)) return true;
+
+    const iframeHtml = getIframeExportHtml(root);
+    if (iframeHtml) {
+      downloadTextFile(base + "-" + stamp + ".html", iframeHtml);
+      return true;
     }
 
     const text = getArtifactExportText();
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const base = String(config.activeViewId || "artifact").replace(/[^\w.-]+/g, "_");
+    if (!text) return false;
     const filename = base + "-" + stamp + ".txt";
     downloadTextFile(filename, text);
+    return true;
   }
 
   core.renderTruncationBadge = renderTruncationBadge;

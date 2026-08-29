@@ -42,6 +42,7 @@ JS_SOURCES = (
     "js/core/storage.js",
     "js/core/history.js",
     "js/core/status.js",
+    "js/core/bottom_bar.js",
     "js/core/auto_refresh.js",
     "js/core/view_selector.js",
     "js/renderers/artifact.js",

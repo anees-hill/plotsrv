@@ -11,6 +11,16 @@
   const core = window.PLOTSRV.core;
   const state = window.PLOTSRV.state;
 
+  function refreshChromeAfterLoad() {
+    if (typeof core.configureBottomBar === "function") {
+      core.configureBottomBar();
+    }
+    if (typeof core.refreshStatus === "function") {
+      return core.refreshStatus();
+    }
+    return Promise.resolve();
+  }
+
   function reloadCurrentViewNow() {
     if (typeof core.setStatusMessage === "function") {
       core.setStatusMessage("");
@@ -18,44 +28,28 @@
 
     if (document.getElementById("artifact-root")) {
       if (typeof core.loadArtifact === "function") {
-        return core.loadArtifact().then(function () {
-          if (typeof core.refreshStatus === "function") {
-            return core.refreshStatus();
-          }
-        });
+        return core.loadArtifact().then(refreshChromeAfterLoad);
       }
       return Promise.resolve();
     }
 
     if (document.getElementById("stream-grid")) {
       if (typeof core.loadStream === "function") {
-        return core.loadStream().then(function () {
-          if (typeof core.refreshStatus === "function") {
-            return core.refreshStatus();
-          }
-        });
+        return core.loadStream().then(refreshChromeAfterLoad);
       }
       return Promise.resolve();
     }
 
     if (document.getElementById("table-grid")) {
       if (typeof core.loadTable === "function") {
-        return core.loadTable().then(function () {
-          if (typeof core.refreshStatus === "function") {
-            return core.refreshStatus();
-          }
-        });
+        return core.loadTable().then(refreshChromeAfterLoad);
       }
       return Promise.resolve();
     }
 
     if (document.getElementById("plot")) {
       if (typeof core.refreshPlot === "function") {
-        return core.refreshPlot().then(function () {
-          if (typeof core.refreshStatus === "function") {
-            return core.refreshStatus();
-          }
-        });
+        return core.refreshPlot().then(refreshChromeAfterLoad);
       }
       return Promise.resolve();
     }
@@ -90,6 +84,10 @@
   };
 
   core.bootstrap = function () {
+    if (typeof core.bindHeaderStatus === "function") {
+      core.bindHeaderStatus();
+    }
+
     if (typeof core.bindViewDropdown === "function") {
       core.bindViewDropdown();
     }
@@ -98,8 +96,15 @@
       core.bindHistoryControls();
     }
 
+    if (typeof core.bindBottomBar === "function") {
+      core.bindBottomBar();
+    }
+
     if (typeof core.bindAutoRefreshControls === "function") {
       core.bindAutoRefreshControls();
+    }
+    if (typeof core.bindUpdateNotifications === "function") {
+      core.bindUpdateNotifications();
     }
 
     const loadHistoryPromise =
@@ -115,11 +120,13 @@
         return core.reloadCurrentView();
       })
       .then(function () {
-        if (typeof core.restoreAutoRefreshState === "function") {
-          core.restoreAutoRefreshState();
+        if (typeof core.markInitialViewLoaded === "function") core.markInitialViewLoaded();
+        if (typeof core.showPendingSnapshotNotice === "function") {
+          core.showPendingSnapshotNotice();
         }
       })
       .catch(function () {
+        if (typeof core.markInitialViewLoaded === "function") core.markInitialViewLoaded();
         if (typeof core.refreshStatus === "function") {
           core.refreshStatus();
         }

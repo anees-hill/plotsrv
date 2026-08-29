@@ -61,18 +61,40 @@
   config.tableViewMode = raw.table_view_mode || "rich";
   config.maxTableRowsSimple = raw.max_table_rows_simple || 200;
   config.maxTableRowsRich = raw.max_table_rows_rich || 1000;
+  config.showHeaderFreshness = raw.show_header_freshness !== false;
+  config.showHeaderHistory = raw.show_header_history !== false;
+  config.browserUpdateRevision = Number.isSafeInteger(raw.browser_update_revision)
+    ? raw.browser_update_revision
+    : 0;
 
   state.historyItems = [];
   state.currentSnapshot = readSnapshotFromUrl();
+  // Header status has three independent axes. Rendered classes and text are
+  // always derived from this model; they are never read back as state.
+  state.headerStatus = {
+    viewMode: state.currentSnapshot ? "snapshot" : "latest",
+    latestData: {
+      lastUpdated: null,
+      freshness: null,
+    },
+    browserData: "current",
+    snapshot: state.currentSnapshot
+      ? { id: state.currentSnapshot, createdAt: null }
+      : null,
+  };
   state.plotObjectUrl = null;
-  state.autoRefreshTimer = null;
-  state.autoRefreshGeneration = 0;
   state.reloadCurrentViewPromise = null;
   state.statusRefreshPromise = null;
   state.viewMenuRefreshPromise = null;
   state.viewMenuRevision = Number.isInteger(raw.view_menu_revision)
     ? raw.view_menu_revision
     : null;
+  state.observedUpdateRevision = config.browserUpdateRevision;
+  state.appliedUpdateRevision = config.browserUpdateRevision;
+  state.pendingBrowserUpdate = null;
+  state.browserUpdateSource = null;
+  state.browserUpdateApplying = false;
+  state.initialViewLoadComplete = false;
   state.tabulatorInstance = null;
   state.streamTabulatorInstance = null;
   state.streamCursor = null;
@@ -97,8 +119,6 @@
   state.streamVisitCheckpointReason = null;
   state.streamColumnsSignature = null;
   state.streamRowsBySequence = Object.create(null);
-  state.streamRefreshTimer = null;
-  state.streamVisibilityListenerBound = false;
 
   core.getActiveViewId = function () {
     return config.activeViewId;

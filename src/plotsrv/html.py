@@ -53,6 +53,7 @@ def render_index(
     view_freshness: dict[str, dict[str, object]] | None = None,
     active_view_id: str | None = None,
     view_menu_revision: int = 0,
+    browser_update_revision: int = 0,
 ) -> str:
     """
     Return the HTML for the main viewer page.
@@ -78,85 +79,123 @@ def render_index(
     if include_tabulator:
         tabulator_head = f'<script src="{assets.tabulator_js}" defer></script>'
 
-    statusline_html = ""
+    bottom_meta_html = ""
     if ui.show_statusline:
-        freshness_html = ""
-        if ui.show_freshness:
-            freshness_html = """
-              &nbsp;|&nbsp;
-              <span class="ps-statusline__item">
-                <strong>Freshness:</strong> <span id="status-freshness">—</span>
-              </span>
-            """
-
-        statusline_html = f"""
-        <div class="note ps-note ps-statusline" id="statusline">
-          <span class="ps-statusline__main">
-            <span class="ps-statusline__item">
-              <strong>Last updated:</strong> <span id="status-updated">—</span>
-              <span id="status-updated-ago"></span>
-            </span>
-            {freshness_html}
-            <span id="status-error-wrap" class="ps-statusline__error" hidden>
-              <strong style="color:#792424;">Error:</strong>
-              <span id="status-error" style="color:#792424;"></span>
-            </span>
+        bottom_meta_html = """
+        <div class="ps-bottom-bar__meta">
+          <span class="ps-bottom-bar__updated">
+            Last updated: <span id="status-updated">—</span>
+            <span id="status-updated-ago"></span>
           </span>
-
           <span
             id="status-file-backed"
-            class="ps-statusline__disk"
+            class="ps-bottom-bar__disk"
             title="File-backed watched view. Data preview is retrieved from the source file on disk."
             hidden>
             <img
-              class="ps-statusline__disk-icon"
+              class="ps-bottom-bar__disk-icon"
               src="/static/logo_on_disk.png"
               alt="File-backed watched view" />
           </span>
         </div>
         """
 
-    def _refresh_control_html(action: str) -> str:
-        return (
-            f'<button type="button" class="ps-btn" onclick="{action}">Refresh</button>'
-        )
-
     def _terminate_button_html() -> str:
         if not ui.terminate_process_option:
             return ""
         return """
-          <button type="button" class="ps-btn ps-btn--danger" onclick="terminateServer()">Terminate plotsrv server</button>
-        """
-
-    def _auto_refresh_controls_html() -> str:
-        if not ui.auto_refresh_option:
-            return ""
-        return """
-          <label class="ps-auto-refresh">
-            <span>Auto-refresh</span>
-            <select id="auto-refresh-select" class="ps-select">
-              <option value="off" selected>Off</option>
-              <option value="2">2s</option>
-              <option value="5">5s</option>
-              <option value="10">10s</option>
-              <option value="30">30s</option>
-              <option value="60">60s</option>
-              <option value="120">120s</option>
-              <option value="300">300s</option>
-            </select>
-          </label>
+          <button
+            type="button"
+            class="ps-bottom-bar__terminate"
+            onclick="terminateServer()"
+            title="Terminate plotsrv server"
+            aria-label="Terminate plotsrv server">Stop server</button>
         """
 
     def _history_controls_html() -> str:
         if not ui.show_history_controls:
             return ""
         return """
-          <label class="interval ps-history">
-            <span>History</span>
-            <select id="history-select" class="ps-select">
-              <option value="">Loading…</option>
-            </select>
-          </label>
+          <div id="snapshots-control" class="ps-snapshots" data-state="loading">
+            <label id="snapshots-selector" class="ps-snapshots__selector">
+              <span>Snapshots</span>
+              <select id="history-select" class="ps-select" aria-label="Snapshots">
+                <option value="">Loading snapshots…</option>
+              </select>
+            </label>
+            <div id="snapshots-unavailable" class="ps-snapshots__unavailable" hidden>
+              <strong>Snapshots unavailable</strong>
+              <span id="snapshots-unavailable-reason">Checking snapshot storage.</span>
+              <button id="snapshots-return-latest" type="button" hidden>Return to latest</button>
+            </div>
+          </div>
+        """
+
+    def _export_control_html(view_kind: ViewKind) -> str:
+        enabled = (
+            ui.export_table
+            if view_kind == "table"
+            else ui.export_image
+            if view_kind == "plot"
+            else True
+        )
+        if not enabled:
+            return ""
+
+        if view_kind in ("table", "stream") and (
+            view_kind == "stream" or table_view_mode != "simple"
+        ):
+            if view_kind == "stream":
+                scopes = (
+                    ("filtered", "Current filtered view"),
+                    ("retained", "Retained raw window"),
+                )
+            else:
+                scopes = (
+                    ("filtered", "Current filtered view"),
+                    ("complete", "Complete published table"),
+                )
+            items = "".join(
+                f'<button type="button" role="menuitem" data-export-scope="{scope}">'
+                f"{label}</button>"
+                for scope, label in scopes
+            )
+            return f"""
+              <div id="export-control" class="ps-export" data-export-kind="{view_kind}">
+                <button
+                  id="export-button"
+                  type="button"
+                  class="ps-export__button"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  aria-controls="export-menu">
+                  Export <span aria-hidden="true">⌄</span>
+                </button>
+                <div id="export-menu" class="ps-export__menu" role="menu" hidden>
+                  {items}
+                </div>
+              </div>
+            """
+
+        action = {
+            "table": "table-complete",
+            "plot": "plot",
+            "artifact": "artifact",
+        }.get(view_kind, "none")
+        disabled = " disabled" if action == "none" else ""
+        title = (
+            ' title="Nothing is available to export yet."'
+            if action == "none"
+            else ""
+        )
+        return f"""
+          <div id="export-control" class="ps-export" data-export-kind="{view_kind}">
+            <button
+              id="export-button"
+              type="button"
+              class="ps-export__button"
+              data-export-action="{action}"{disabled}{title}>Export</button>
+          </div>
         """
 
     LOGO_BY_KEY = {
@@ -282,37 +321,30 @@ def render_index(
           </div>
         """
 
-    def _footer_html(*, controls_html: str) -> str:
+    def _footer_html(view_kind: ViewKind) -> str:
         return f"""
-          <div class="ps-footer-controls">
-            {controls_html}
+          <div class="ps-bottom-dock" role="region" aria-label="View actions and status">
+            <div class="ps-bottom-alerts" aria-live="polite">
+              <div class="note ps-note" id="status"></div>
+              <div id="status-error-wrap" class="ps-bottom-alert ps-bottom-alert--error" hidden>
+                <strong>Error:</strong> <span id="status-error"></span>
+              </div>
+            </div>
+            <div class="ps-bottom-bar">
+              <div class="ps-bottom-bar__controls">
+                {_export_control_html(view_kind)}
+                {_history_controls_html()}
+                {_terminate_button_html()}
+              </div>
+              {bottom_meta_html}
+            </div>
           </div>
-
-          <div class="ps-footer-inline">
-            <div class="note ps-note" id="status"></div>
-          </div>
-
-          {statusline_html}
         """
 
     content_html = ""
     footer_html = ""
 
     if kind == "table":
-        controls_html = (
-            _refresh_control_html("window.location.reload()")
-            + (
-                """
-                <button type="button" class="ps-btn" onclick="exportTable()">Export table</button>
-                """
-                if ui.export_table
-                else ""
-            )
-            + _history_controls_html()
-            + _auto_refresh_controls_html()
-            + _terminate_button_html()
-        )
-
         table_plot_controls_html = (
             """
             <div class="ps-table-mode-switch" role="group" aria-label="Table display mode">
@@ -494,15 +526,9 @@ def render_index(
               {table_shell_close}
             """
 
-        footer_html = _footer_html(controls_html=controls_html)
+        footer_html = _footer_html(kind)
 
     elif kind == "stream":
-        controls_html = (
-            _refresh_control_html("refreshStream()")
-            + _auto_refresh_controls_html()
-            + _terminate_button_html()
-        )
-
         content_html = """
           <div class="ps-stream-shell">
             <div class="ps-stream-topbar">
@@ -732,41 +758,17 @@ def render_index(
             </section>
           </div>
         """
-        footer_html = _footer_html(controls_html=controls_html)
+        footer_html = _footer_html(kind)
 
     elif kind == "plot":
-        controls_html = (
-            _refresh_control_html("refreshPlot()")
-            + (
-                """
-                <button type="button" class="ps-btn" onclick="exportImage()">Export image</button>
-                """
-                if ui.export_image
-                else ""
-            )
-            + _history_controls_html()
-            + _auto_refresh_controls_html()
-            + _terminate_button_html()
-        )
-
         content_html = f"""
           <div class="plot-frame ps-frame ps-frame--plot plot-frame--plot">
             <img id="plot" class="ps-plot" src="/plot?view={active_view_id_attr}" alt="Current plot (or none yet)" />
           </div>
         """
-        footer_html = _footer_html(controls_html=controls_html)
+        footer_html = _footer_html(kind)
 
     elif kind == "artifact":
-        controls_html = (
-            _refresh_control_html("refreshArtifact()")
-            + """
-                <button type="button" class="ps-btn" onclick="exportArtifact()">Export</button>
-                """
-            + _history_controls_html()
-            + _auto_refresh_controls_html()
-            + _terminate_button_html()
-        )
-
         content_html = """
           <div class="plot-frame ps-frame ps-frame--artifact plot-frame--artifact">
             <div class="ps-artifact">
@@ -778,16 +780,9 @@ def render_index(
             </div>
           </div>
         """
-        footer_html = _footer_html(controls_html=controls_html)
+        footer_html = _footer_html(kind)
 
     else:
-        controls_html = (
-            _refresh_control_html("window.location.reload()")
-            + _history_controls_html()
-            + _auto_refresh_controls_html()
-            + _terminate_button_html()
-        )
-
         content_html = """
           <div class="plot-frame empty ps-frame ps-frame--empty plot-frame--empty">
             <div class="empty-state ps-empty">
@@ -796,13 +791,48 @@ def render_index(
             </div>
           </div>
         """
-        footer_html = _footer_html(controls_html=controls_html)
+        footer_html = _footer_html(kind)
 
     header_fill = _escape_attr(ui.header_fill_colour or "#ffffff")
     header_text = _escape_html(ui.header_text or "")
     logo_url = _safe_url_attr(
         ui.logo_url or "/static/plotsrv_title_logo_ui-white-bk.png"
     )
+    header_status_html = ""
+    if ui.show_freshness or ui.show_history_banner:
+        header_status_html = """
+          <div id="header-status" class="ps-header-status">
+            <button
+              id="header-status-button"
+              type="button"
+              class="ps-header-status__button"
+              aria-expanded="false"
+              aria-controls="header-status-details">
+              <span id="header-status-dot" class="ps-header-status__dot" aria-hidden="true"></span>
+              <span id="header-status-label" class="ps-header-status__label">Latest</span>
+              <span id="header-status-context" class="ps-header-status__context">Checking status…</span>
+              <span class="ps-header-status__chevron" aria-hidden="true">⌄</span>
+            </button>
+            <div id="header-status-details" class="ps-header-status__details" hidden>
+              <strong id="header-status-details-title">Latest view</strong>
+              <span id="header-status-details-copy">Checking the latest data status.</span>
+              <button
+                id="header-status-apply-update"
+                type="button"
+                class="ps-header-status__return"
+                hidden>
+                Update view
+              </button>
+              <button
+                id="header-status-return-latest"
+                type="button"
+                class="ps-header-status__return"
+                hidden>
+                Return to latest
+              </button>
+            </div>
+          </div>
+        """
 
     cfg_json = json.dumps(
         {
@@ -812,6 +842,12 @@ def render_index(
             "max_table_rows_simple": max_table_rows_simple,
             "max_table_rows_rich": max_table_rows_rich,
             "view_menu_revision": view_menu_revision,
+            "browser_update_revision": browser_update_revision,
+            # These existing settings now independently control the two modes
+            # of the shared header status. ``show_statusline`` controls the
+            # compact last-updated row in the bottom dock.
+            "show_header_freshness": ui.show_freshness,
+            "show_header_history": ui.show_history_banner,
         },
         ensure_ascii=False,
     )
@@ -841,15 +877,8 @@ def render_index(
           <div class="header-title ps-header__title">{header_text}</div>
         </div>
 
-        <div class="header-centre ps-header__centre">
-          <div id="header-history" class="ps-header__history" hidden>
-            <span id="header-history-label" class="ps-header__history-label">Historical mode</span>
-            <button type="button" class="ps-header__linkbtn" onclick="returnToLive()">Return to Live</button>
-          </div>
-        </div>
-
         <div class="header-right ps-header__right">
-          <span id="header-freshness-dot" class="ps-header__freshness-dot" hidden aria-hidden="true"></span>
+          {header_status_html}
           {dropdown_html}
         </div>
       </header>
@@ -857,9 +886,9 @@ def render_index(
       <main class="page ps-page">
         <section class="plot-card ps-card">
           {content_html}
-          {footer_html}
         </section>
       </main>
+      {footer_html}
 
     </body>
     </html>

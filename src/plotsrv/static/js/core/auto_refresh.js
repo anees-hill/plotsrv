@@ -1,179 +1,185 @@
 (function () {
   "use strict";
 
-  window.PLOTSRV = window.PLOTSRV || {
-    core: {},
-    renderers: {},
-    state: {},
-    config: {},
-  };
-
+  window.PLOTSRV = window.PLOTSRV || { core: {}, renderers: {}, state: {}, config: {} };
   const core = window.PLOTSRV.core;
   const state = window.PLOTSRV.state;
+  const config = window.PLOTSRV.config;
 
-  function getSelect() {
-    return document.getElementById("auto-refresh-select");
-  }
-
-  function getSelectedSeconds() {
-    const sel = getSelect();
-    if (!sel) return 0;
-    const raw = String(sel.value || "off").trim().toLowerCase();
-    if (raw === "off" || raw === "") return 0;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0 ? n : 0;
-  }
-
-  function stopAutoRefresh() {
-    if (state.autoRefreshTimer !== null) {
-      clearTimeout(state.autoRefreshTimer);
-      state.autoRefreshTimer = null;
+  function completeFilter(filter) {
+    if (!filter || !filter.field || !filter.op) return false;
+    if (filter.op === "missing" || filter.op === "not_missing") return true;
+    if (String(filter.value || "").trim() === "") return false;
+    if (filter.op === "between" || filter.op === "not_between") {
+      return String(filter.valueTo || "").trim() !== "";
     }
-    state.autoRefreshGeneration += 1;
+    return true;
   }
 
-  function canAutoRefresh() {
-    if (document.hidden) return false;
-    if (typeof core.isHistoryMode === "function" && core.isHistoryMode()) {
+  function tableHasSorters() {
+    const table = state.tabulatorInstance || state.streamTabulatorInstance;
+    if (!table || typeof table.getSorters !== "function") return false;
+    try {
+      const sorters = table.getSorters();
+      return Array.isArray(sorters) && sorters.length > 0;
+    } catch (e) {
       return false;
     }
-    return getSelectedSeconds() > 0;
   }
 
-  function scheduleAutoRefresh(generation) {
-    if (generation !== state.autoRefreshGeneration || !canAutoRefresh()) {
-      return;
-    }
-
-    const seconds = getSelectedSeconds();
-    state.autoRefreshTimer = window.setTimeout(function () {
-      state.autoRefreshTimer = null;
-      tickAutoRefresh(generation);
-    }, seconds * 1000);
-  }
-
-  function tickAutoRefresh(generation) {
-    const refreshGeneration =
-      typeof generation === "number" ? generation : state.autoRefreshGeneration;
-
-    if (refreshGeneration !== state.autoRefreshGeneration || !canAutoRefresh()) {
-      return Promise.resolve();
-    }
-
-    if (typeof core.reloadCurrentView === "function") {
-      return Promise.resolve(core.reloadCurrentView())
-        .catch(function () {
-          // The current renderer shows its own visible failure state.
-        })
-        .then(function () {
-          scheduleAutoRefresh(refreshGeneration);
-        });
-    }
-
-    scheduleAutoRefresh(refreshGeneration);
-    return Promise.resolve();
-  }
-
-  function startAutoRefresh(options) {
-    const immediate = !!(options && options.immediate);
-    if (getSelectedSeconds() <= 0) {
-      stopAutoRefresh();
-      return;
-    }
-
+  // The single policy boundary for every renderer. Explicit application
+  // bypasses interaction blockers, but never changes historical selections.
+  function getAutomaticUpdateBlockers() {
+    const blockers = [];
+    if (document.hidden) blockers.push("hidden_tab");
     if (typeof core.isHistoryMode === "function" && core.isHistoryMode()) {
-      stopAutoRefresh();
+      blockers.push("snapshot");
+    }
+    if (state.streamHistoricalSessionId) blockers.push("historical_stream_session");
+
+    const ui = state.tableUiState || {};
+    if (String(ui.searchQuery || "").trim()) blockers.push("table_search");
+    if (Array.isArray(ui.filters) && ui.filters.some(completeFilter)) {
+      blockers.push("table_filters");
+    }
+    if (ui.groupBy) blockers.push("table_grouping");
+    if (tableHasSorters()) blockers.push("table_sorting");
+    if (state.tablePlotMode === "plot") blockers.push("plot_mode");
+    if (ui.filtersOpen || ui.columnsOpen) blockers.push("open_table_panel");
+
+    const main = document.querySelector("main");
+    const focused = document.activeElement;
+    if (focused && main && main.contains(focused) && focused.matches &&
+        focused.matches("input, select, textarea, [contenteditable='true']")) {
+      blockers.push("active_editor");
+    }
+    return blockers;
+  }
+
+  function historicalBlocker(blocker) {
+    return blocker === "snapshot" || blocker === "historical_stream_session";
+  }
+
+  function canApplyPendingUpdate(options) {
+    const force = !!(options && options.force);
+    const blockers = getAutomaticUpdateBlockers();
+    if (blockers.some(historicalBlocker)) return false;
+    return force || blockers.length === 0;
+  }
+
+  function showPendingUpdate() {
+    if (typeof core.setHeaderBrowserDataState === "function") {
+      core.setHeaderBrowserDataState("update_available");
+    }
+  }
+
+  function finishAppliedUpdate(revision) {
+    state.appliedUpdateRevision = Math.max(state.appliedUpdateRevision, revision);
+    if (state.pendingBrowserUpdate &&
+        state.pendingBrowserUpdate.revision <= state.appliedUpdateRevision) {
+      state.pendingBrowserUpdate = null;
+    }
+    if (!state.pendingBrowserUpdate) {
+      if (typeof core.setHeaderBrowserDataState === "function") {
+        core.setHeaderBrowserDataState("current");
+      }
       return;
     }
+    showPendingUpdate();
+    window.setTimeout(function () { applyPendingUpdate(); }, 0);
+  }
 
-    stopAutoRefresh();
-    const generation = state.autoRefreshGeneration;
-    if (immediate && !document.hidden) {
-      tickAutoRefresh(generation);
+  function applyPendingUpdate(options) {
+    const pending = state.pendingBrowserUpdate;
+    if (!pending || state.browserUpdateApplying) return Promise.resolve(false);
+    if (!state.initialViewLoadComplete || !canApplyPendingUpdate(options)) {
+      showPendingUpdate();
+      return Promise.resolve(false);
+    }
+
+    if (pending.kind && pending.kind !== config.kind) {
+      window.location.reload();
+      return Promise.resolve(true);
+    }
+
+    state.browserUpdateApplying = true;
+    const revision = pending.revision;
+    return Promise.resolve(core.reloadCurrentView())
+      .then(function () {
+        finishAppliedUpdate(revision);
+        return true;
+      })
+      .catch(function () {
+        showPendingUpdate();
+        return false;
+      })
+      .then(function (result) {
+        state.browserUpdateApplying = false;
+        return result;
+      });
+  }
+
+  function receiveBrowserUpdate(payload) {
+    if (!payload || typeof payload !== "object") return;
+    const revision = Number(payload.revision);
+    if (!Number.isSafeInteger(revision) || revision <= state.observedUpdateRevision) return;
+    state.observedUpdateRevision = revision;
+
+    if (payload.change_type === "catalogue") {
+      if (typeof core.refreshViewIcons === "function") core.refreshViewIcons(null);
       return;
     }
-    scheduleAutoRefresh(generation);
-  }
+    if (payload.view_id && payload.view_id !== config.activeViewId) return;
 
-  function saveAutoRefreshState() {
-    const sel = getSelect();
-    if (!sel || !core.storageKeys || typeof core.savePref !== "function") return;
-    core.savePref(core.storageKeys.autoRefreshInterval, sel.value || "off");
-  }
-
-  function restoreAutoRefreshState() {
-    const sel = getSelect();
-    if (!sel || !core.storageKeys || typeof core.loadPref !== "function") return;
-
-    const savedValue = core.loadPref(core.storageKeys.autoRefreshInterval, "off");
-    sel.value = savedValue ? String(savedValue) : "off";
-
-    if (typeof core.syncAutoRefreshAvailability === "function") {
-      core.syncAutoRefreshAvailability();
-    }
-
-    if (getSelectedSeconds() > 0) {
-      startAutoRefresh({ immediate: true });
-    } else {
-      stopAutoRefresh();
-    }
-  }
-
-  function syncAutoRefreshAvailability() {
-    const sel = getSelect();
-    if (!sel) return;
-
-    const isHistory =
-      typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
-
-    sel.disabled = isHistory;
-
-    const wrap = sel.closest(".ps-auto-refresh");
-    if (wrap) {
-      wrap.classList.toggle("ps-disabled-control", isHistory);
-    }
-
-    if (isHistory) {
-      stopAutoRefresh();
+    // A single assignment coalesces any burst while a fetch is in flight.
+    state.pendingBrowserUpdate = payload;
+    if (!state.initialViewLoadComplete || !canApplyPendingUpdate()) {
+      showPendingUpdate();
       return;
     }
-
-    if (getSelectedSeconds() > 0) {
-      startAutoRefresh();
-    } else {
-      stopAutoRefresh();
-    }
+    applyPendingUpdate();
   }
 
-  function bindAutoRefreshControls() {
-    const sel = getSelect();
-    if (!sel) return;
-
-    sel.addEventListener("change", function () {
-      saveAutoRefreshState();
-      if (typeof core.syncAutoRefreshAvailability === "function") {
-        core.syncAutoRefreshAvailability();
+  function bindUpdateNotifications() {
+    if (state.browserUpdateSource || typeof window.EventSource !== "function") return;
+    const url = "/updates?view=" + encodeURIComponent(config.activeViewId) +
+      "&since=" + encodeURIComponent(state.observedUpdateRevision);
+    const source = new window.EventSource(url);
+    state.browserUpdateSource = source;
+    source.addEventListener("update", function (event) {
+      try {
+        receiveBrowserUpdate(JSON.parse(event.data));
+      } catch (e) {
+        // A malformed notice is safely ignored; EventSource still reconnects.
       }
     });
-
-    document.addEventListener("visibilitychange", function () {
-      if (document.hidden) {
-        stopAutoRefresh();
-        return;
-      }
-
-      if (getSelectedSeconds() > 0) {
-        startAutoRefresh({ immediate: true });
-      }
-    });
   }
 
-  core.getSelectedSeconds = getSelectedSeconds;
-  core.stopAutoRefresh = stopAutoRefresh;
-  core.startAutoRefresh = startAutoRefresh;
-  core.tickAutoRefresh = tickAutoRefresh;
-  core.saveAutoRefreshState = saveAutoRefreshState;
-  core.restoreAutoRefreshState = restoreAutoRefreshState;
-  core.syncAutoRefreshAvailability = syncAutoRefreshAvailability;
-  core.bindAutoRefreshControls = bindAutoRefreshControls;
+  function markInitialViewLoaded() {
+    state.initialViewLoadComplete = true;
+    if (state.pendingBrowserUpdate) applyPendingUpdate();
+  }
+
+  function notifyUpdateEligibilityChanged() {
+    if (state.pendingBrowserUpdate) applyPendingUpdate();
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden) notifyUpdateEligibilityChanged();
+  });
+
+  core.getAutomaticUpdateBlockers = getAutomaticUpdateBlockers;
+  core.canApplyPendingUpdate = canApplyPendingUpdate;
+  core.applyPendingUpdate = applyPendingUpdate;
+  core.receiveBrowserUpdate = receiveBrowserUpdate;
+  core.bindUpdateNotifications = bindUpdateNotifications;
+  core.markInitialViewLoaded = markInitialViewLoaded;
+  core.notifyUpdateEligibilityChanged = notifyUpdateEligibilityChanged;
+
+  // Compatibility shims for integrations compiled against the old module.
+  core.stopAutoRefresh = function () {};
+  core.startAutoRefresh = function () {};
+  core.restoreAutoRefreshState = function () {};
+  core.syncAutoRefreshAvailability = notifyUpdateEligibilityChanged;
+  core.bindAutoRefreshControls = function () {};
 })();

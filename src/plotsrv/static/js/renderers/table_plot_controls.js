@@ -240,6 +240,9 @@
     if (!surface || !controls || !output || !tableButton || !plotButton) return;
 
     state.tablePlotMode = nextMode;
+    if (typeof core.notifyUpdateEligibilityChanged === "function") {
+      core.notifyUpdateEligibilityChanged();
+    }
     const isPlot = nextMode === "plot";
     surface.hidden = isPlot;
     controls.hidden = !isPlot;

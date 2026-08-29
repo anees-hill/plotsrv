@@ -11,7 +11,6 @@
   const core = window.PLOTSRV.core;
   const state = window.PLOTSRV.state;
   const config = window.PLOTSRV.config;
-  const STREAM_REFRESH_MS = 1000;
   const LIFECYCLE_PRESENTATION = {
     live: {
       badge: "LIVE OBSERVATION",
@@ -1031,9 +1030,13 @@
       const next = select.value || null;
       if (next === state.streamHistoricalSessionId) return;
       state.streamHistoricalSessionId = next;
+      if (typeof core.renderHeaderStatus === "function") core.renderHeaderStatus();
       try {
         await resetStreamSessionPresentation();
         await loadStream();
+        if (typeof core.notifyUpdateEligibilityChanged === "function") {
+          core.notifyUpdateEligibilityChanged();
+        }
       } catch (error) {
         showStreamError();
       }
@@ -1214,41 +1217,8 @@
     updateCursor(data, records, resetRequired);
   }
 
-  function refreshVisibleStream() {
-    if (document.hidden) return;
-    if (state.streamHistoricalSessionId) return;
-    if (typeof core.reloadCurrentView === "function") {
-      core.reloadCurrentView().catch(showStreamError);
-      return;
-    }
-    loadStream().catch(showStreamError);
-  }
-
-  function bindStreamVisibilityResume() {
-    if (state.streamVisibilityListenerBound) return;
-    state.streamVisibilityListenerBound = true;
-    document.addEventListener("visibilitychange", function () {
-      if (!document.hidden) refreshVisibleStream();
-    });
-  }
-
-  function startStreamRefresh() {
-    if (
-      !document.getElementById("stream-grid") ||
-      state.streamRefreshTimer !== null
-    ) {
-      return;
-    }
-
-    bindStreamVisibilityResume();
-    state.streamRefreshTimer = window.setInterval(refreshVisibleStream, STREAM_REFRESH_MS);
-  }
-
   core.loadStream = loadStream;
-  core.startStreamRefresh = startStreamRefresh;
   window.refreshStream = function () {
     return loadStream();
   };
-
-  document.addEventListener("DOMContentLoaded", startStreamRefresh);
 })();

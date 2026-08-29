@@ -209,7 +209,8 @@ def test_watch_errors_have_a_compact_status_presentation() -> None:
 
     assert "errWrap.hidden = false" in status_js
     assert "errWrap.hidden = true" in status_js
-    assert "flex-basis: 100%" in status_css
+    assert ".ps-bottom-alert--error" in status_css
+    assert "overflow-wrap: anywhere" in status_css
     assert ".ps-watch-error" in text_css
 
 

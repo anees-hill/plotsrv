@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 
 from plotsrv import config, start_server, stop_server, store, stream_view
 from plotsrv.app import app
+from plotsrv.browser_updates import browser_update_hub
 from plotsrv.streams import api as stream_api
 from plotsrv.streams import client as stream_client
 from plotsrv.streams import file_source
@@ -134,6 +135,33 @@ def _read_json(url: str) -> dict[str, object]:
     return data
 
 
+def test_stream_append_advances_update_token_but_duplicate_retry_does_not(
+    client: TestClient,
+) -> None:
+    view_id = "logs:update-awareness"
+    _register_stream(client, view_id=view_id)
+    registered = browser_update_hub.current_revision(view_id)
+    payload = {
+        "protocol_version": STREAM_PROTOCOL_VERSION,
+        "view_id": view_id,
+        "client_id": TEST_CLIENT_ID,
+        "session_id": TEST_SESSION_ID,
+        "batch_id": "batch-0",
+        "batch_sequence": 0,
+        "records": [{"value": 1}],
+    }
+
+    first = client.post("/stream/append", json=payload)
+    assert first.status_code == 200
+    appended = browser_update_hub.current_revision(view_id)
+    assert appended > registered
+
+    duplicate = client.post("/stream/append", json=payload)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["duplicate"] is True
+    assert browser_update_hub.current_revision(view_id) == appended
+
+
 def test_stream_page_uses_bundled_live_grid_and_exposes_ordered_records(
     client: TestClient,
 ) -> None:
@@ -176,7 +204,10 @@ def test_stream_page_uses_bundled_live_grid_and_exposes_ordered_records(
     assert 'id="table-plot-output"' in page.text
     assert 'id="table-filters-toggle-btn"' in page.text
     assert 'id="table-columns-toggle-btn"' in page.text
-    assert "refreshStream()" in page.text
+    assert "refreshStream()" not in page.text
+    assert 'data-export-scope="filtered"' in page.text
+    assert 'data-export-scope="retained"' in page.text
+    assert "Retained raw window" in page.text
     assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" in page.text
 
     data = client.get("/stream/data", params={"view": "logs:worker stream"})
@@ -1102,9 +1133,8 @@ def test_stream_renderer_is_bundled() -> None:
 
     assert "plotsrv source: js/renderers/stream.js" in bundle
     assert "core.loadStream = loadStream" in bundle
-    assert "core.startStreamRefresh = startStreamRefresh" in bundle
-    assert "state.streamRefreshTimer = window.setInterval" in bundle
-    assert "visibilitychange" in bundle
+    assert "core.startStreamRefresh = startStreamRefresh" not in bundle
+    assert "state.streamRefreshTimer = window.setInterval" not in bundle
     assert '"/stream/data?view="' in bundle
     assert '"/stream/history?view="' in bundle
     assert "STORED SESSION" in bundle
@@ -1141,8 +1171,8 @@ def test_stream_renderer_keeps_valid_cursor_updates_incremental() -> None:
     assert "state.streamForceTableReplace = true" in stream_source
     assert 'current.textContent = "Current observation"' in stream_source
     assert "Stored sessions are fixed historical observations" in stream_source
-    assert "visibilitychange" in stream_source
-    assert "refreshVisibleStream" in stream_source
+    assert "visibilitychange" not in stream_source
+    assert "refreshVisibleStream" not in stream_source
     assert "core.updateStreamVisitComparison(data)" in stream_source
     assert "renderVisitComparison(visitComparison)" in stream_source
     assert "renderNoteworthy(data.noteworthy)" in stream_source
@@ -1535,8 +1565,6 @@ const sinceVisitStatus = element();
 const sinceVisitDetails = element();
 const noteworthyStatus = element();
 const noteworthyItems = element();
-const eventListeners = {};
-let intervalCallback;
 const context = {
   Promise,
   fetch: async (url) => {
@@ -1650,17 +1678,13 @@ const context = {
         }),
       },
       renderers: {},
-      state: {streamRefreshTimer: null, streamVisibilityListenerBound: false},
+      state: {},
       config: {activeViewId: "logs:worker"},
-    },
-    setInterval: (callback) => {
-      intervalCallback = callback;
-      return 1;
     },
   },
   document: {
     hidden: false,
-    addEventListener: (event, callback) => { eventListeners[event] = callback; },
+    addEventListener: () => {},
     createElement: () => element(),
     getElementById: (id) => ({
       "stream-grid": {},
@@ -1749,22 +1773,6 @@ context.window.PLOTSRV.core.loadStream().then(() => {
   }
   if (!healthStatus.textContent.includes("Cursor reset:")) {
     throw new Error("the explicit cursor reset was not communicated");
-  }
-  context.window.PLOTSRV.core.startStreamRefresh();
-  if (!eventListeners.visibilitychange || typeof intervalCallback !== "function") {
-    throw new Error("stream refresh did not bind a visibility resume handler");
-  }
-  context.document.hidden = true;
-  eventListeners.visibilitychange();
-  if (fetchCount !== 3) {
-    throw new Error("hidden browser state unexpectedly requested stream data");
-  }
-  context.document.hidden = false;
-  eventListeners.visibilitychange();
-  return new Promise((resolve) => setTimeout(resolve, 0));
-}).then(() => {
-  if (fetchCount !== 4 || !requestUrls[3].includes("after=31")) {
-    throw new Error("visible-tab resume did not request from the last known cursor");
   }
 }).catch((error) => {
   console.error(error.stack);
@@ -1871,7 +1879,7 @@ const context = {
     PLOTSRV: {
       core: {},
       renderers: {},
-      state: {streamRefreshTimer: null, streamVisibilityListenerBound: false},
+      state: {},
       config: {activeViewId: "logs:history"},
     },
   },
