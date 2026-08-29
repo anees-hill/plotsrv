@@ -14,6 +14,7 @@ from ..json_model import (
     MAX_JAVASCRIPT_SAFE_INTEGER,
     build_json_document,
 )
+from ..table_explorer_markup import render_table_explorer
 
 _ICON_SRC = {
     "json": "/static/logo_json.png",
@@ -274,99 +275,21 @@ def _render_rectangular_table_panel(table_data: dict[str, Any] | None) -> str:
         return ""
 
     table_data_json = _escape_html(json.dumps(table_data, ensure_ascii=True))
+    explorer_html = render_table_explorer(
+        grid_html=(
+            '<div class="table-grid ps-tablegrid ps-table--rich" '
+            'data-json-table-grid="1"></div>'
+        ),
+        search_placeholder="Search loaded rows…",
+        mode_switch="hidden",
+        embedded_json=True,
+        trailing_html=(
+            f'<div hidden data-json-table-data="1">{table_data_json}</div>'
+        ),
+    )
     return f"""
           <div class="ps-json-panel ps-json-panel--table" data-json-panel="table" hidden>
-            <div class="ps-table-shell ps-json-table-shell" data-json-table-explorer="1">
-              <div class="ps-table-topbar">
-                <div class="ps-table-topbar__left">
-                  <p id="table-status-inline" class="ps-table-status"></p>
-                </div>
-                <div class="ps-table-topbar__right">
-                  <div class="ps-table-toolbar">
-                    <label class="ps-table-toolbar__search">
-                      <span class="ps-table-toolbar__label">Search</span>
-                      <input id="table-search-input" class="ps-table-input" type="text"
-                             placeholder="Search loaded rows…" autocomplete="off" />
-                    </label>
-                    <label class="ps-table-toolbar__grouping">
-                      <span class="ps-table-toolbar__label">Group</span>
-                      <select id="table-group-by-select" class="ps-table-select">
-                        <option value="">No grouping</option>
-                      </select>
-                    </label>
-                    <div class="ps-table-mode-switch" role="group"
-                         aria-label="Table display mode" hidden>
-                      <button id="table-mode-table-btn" type="button" class="ps-btn is-active"
-                              aria-pressed="true">Table</button>
-                      <button id="table-mode-plot-btn" type="button" class="ps-btn"
-                              aria-pressed="false">Plot</button>
-                    </div>
-                    <button id="table-filters-toggle-btn" type="button" class="ps-btn"
-                            aria-expanded="false" aria-controls="table-filter-panel">Filters</button>
-                    <button id="table-columns-toggle-btn" type="button" class="ps-btn"
-                            aria-expanded="false" aria-controls="table-columns-panel">Columns</button>
-                    <button id="table-reset-btn" type="button" class="ps-btn">Reset view</button>
-                  </div>
-                </div>
-              </div>
-              <div id="table-filter-panel" class="ps-table-filter-panel" hidden>
-                <div class="ps-table-filter-panel__header">
-                  <div class="ps-table-filter-panel__title">Filters</div>
-                  <button id="table-filter-add-btn" type="button" class="ps-btn">Add filter</button>
-                </div>
-                <div id="table-filter-rows" class="ps-table-filter-rows"></div>
-              </div>
-              <div id="table-columns-panel" class="ps-table-columns-panel" hidden>
-                <div class="ps-table-columns-panel__header">
-                  <div class="ps-table-columns-panel__title">Columns</div>
-                  <div class="ps-table-columns-panel__actions">
-                    <button id="table-columns-show-all-btn" type="button" class="ps-btn">Show all</button>
-                  </div>
-                </div>
-                <div id="table-columns-list" class="ps-table-columns-list"></div>
-              </div>
-              <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
-              <section id="table-plot-controls" class="ps-table-plot-controls"
-                       aria-label="Plot controls" hidden>
-                <div class="ps-table-plot-controls__fields">
-                  <label class="ps-table-plot-control">
-                    <span>Plot type</span>
-                    <select id="table-plot-type" class="ps-table-select">
-                      <option value="bar">Count bar</option>
-                      <option value="line">Line</option>
-                      <option value="scatter">Scatter</option>
-                    </select>
-                  </label>
-                  <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
-                    <span>Stream source</span>
-                    <select id="table-plot-source" class="ps-table-select">
-                      <option value="table">Filtered recent rows</option>
-                      <option value="summary">Derived summary windows</option>
-                    </select>
-                  </label>
-                  <label id="table-plot-category-control" class="ps-table-plot-control">
-                    <span>Category</span>
-                    <select id="table-plot-category" class="ps-table-select"></select>
-                  </label>
-                  <label id="table-plot-x-control" class="ps-table-plot-control" hidden>
-                    <span>X field</span>
-                    <select id="table-plot-x" class="ps-table-select"></select>
-                  </label>
-                  <label id="table-plot-y-control" class="ps-table-plot-control" hidden>
-                    <span>Y field</span>
-                    <select id="table-plot-y" class="ps-table-select"></select>
-                  </label>
-                </div>
-                <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
-                  Plots use only loaded rows that pass the current browser filters.
-                </p>
-              </section>
-              <div id="table-data-surface" class="plot-frame ps-frame ps-frame--table plot-frame--table">
-                <div class="table-grid ps-tablegrid ps-table--rich" data-json-table-grid="1"></div>
-              </div>
-              <div id="table-plot-output" class="ps-table-plot-root" aria-live="polite" hidden></div>
-              <div hidden data-json-table-data="1">{table_data_json}</div>
-            </div>
+            {explorer_html}
           </div>
     """.strip()
 

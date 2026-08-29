@@ -63,11 +63,14 @@ def test_table_plot_renderer_is_local_and_has_explicit_limits() -> None:
     assert "maxCategories" in renderer
     assert "no categories were collapsed or sampled" in renderer
     assert "no points were sampled or plotted" in renderer
-    assert "retained recent raw observation window" in renderer
+    assert "Raw-table filters do not apply" in renderer
     assert 'settings.scopeKind === "summary"' in renderer
     assert "PLOT_PREFERENCE_PREFIX" in controls
     assert 'state.tablePlotMode = "table"' in controls
     assert "setTablePlotSummaryRows" in controls
+    assert "setTablePlotCapabilities" in controls
+    assert 'config.kind === "stream"' not in controls
+    assert 'reason: "renderer_error"' in controls
     assert "raw-table filters do not apply" in controls
     assert "plotsrv source: js/renderers/table_plot.js" in bundle
     assert "plotsrv source: js/renderers/table_plot_controls.js" in bundle

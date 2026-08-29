@@ -6,6 +6,7 @@ import json
 
 from .config import TableViewMode
 from .store import ViewMeta
+from .table_explorer_markup import render_table_explorer
 from .ui_assets import get_ui_assets
 from .ui_config import UISettings, get_ui_settings
 
@@ -345,191 +346,33 @@ def render_index(
     footer_html = ""
 
     if kind == "table":
-        table_plot_controls_html = (
-            """
-            <div class="ps-table-mode-switch" role="group" aria-label="Table display mode">
-              <button
-                id="table-mode-table-btn"
-                type="button"
-                class="ps-btn is-active"
-                aria-pressed="true">
-                Table
-              </button>
-              <button
-                id="table-mode-plot-btn"
-                type="button"
-                class="ps-btn"
-                aria-pressed="false">
-                Plot
-              </button>
-            </div>
-            """
-            if table_view_mode != "simple" or table_html_simple is None
-            else ""
-        )
-
-        table_plot_panel_html = (
-            """
-            <section
-              id="table-plot-controls"
-              class="ps-table-plot-controls"
-              aria-label="Plot controls"
-              hidden>
-              <div class="ps-table-plot-controls__fields">
-                <label class="ps-table-plot-control">
-                  <span>Plot type</span>
-                  <select id="table-plot-type" class="ps-table-select">
-                    <option value="bar">Count bar</option>
-                    <option value="line">Line</option>
-                    <option value="scatter">Scatter</option>
-                  </select>
-                </label>
-                <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
-                  <span>Stream source</span>
-                  <select id="table-plot-source" class="ps-table-select">
-                    <option value="table">Filtered recent rows</option>
-                    <option value="summary">Derived summary windows</option>
-                  </select>
-                </label>
-                <label id="table-plot-category-control" class="ps-table-plot-control">
-                  <span>Category</span>
-                  <select id="table-plot-category" class="ps-table-select"></select>
-                </label>
-                <label id="table-plot-x-control" class="ps-table-plot-control" hidden>
-                  <span>X field</span>
-                  <select id="table-plot-x" class="ps-table-select"></select>
-                </label>
-                <label id="table-plot-y-control" class="ps-table-plot-control" hidden>
-                  <span>Y field</span>
-                  <select id="table-plot-y" class="ps-table-select"></select>
-                </label>
-              </div>
-              <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
-                Plots use only loaded rows that pass the current browser filters.
-              </p>
-            </section>
-            """
-            if table_plot_controls_html
-            else ""
-        )
-
-        table_shell_open = f"""
-          <div class="ps-table-shell">
-            <div class="ps-table-topbar">
-              <div class="ps-table-topbar__left">
-                <p id="table-status-inline" class="ps-table-status"></p>
-              </div>
-              <div class="ps-table-topbar__right">
-                <div class="ps-table-toolbar">
-                  <label class="ps-table-toolbar__search">
-                    <span class="ps-table-toolbar__label">Search</span>
-                    <input
-                      id="table-search-input"
-                      class="ps-table-input"
-                      type="text"
-                      placeholder="Search loaded rows…"
-                      autocomplete="off"
-                    />
-                  </label>
-
-                  <label class="ps-table-toolbar__grouping">
-                    <span class="ps-table-toolbar__label">Group</span>
-                    <select id="table-group-by-select" class="ps-table-select">
-                      <option value="">No grouping</option>
-                    </select>
-                  </label>
-
-                  {table_plot_controls_html}
-
-                  <button
-                    id="table-filters-toggle-btn"
-                    type="button"
-                    class="ps-btn"
-                    aria-expanded="false"
-                    aria-controls="table-filter-panel">
-                    Filters
-                  </button>
-
-                  <button
-                    id="table-columns-toggle-btn"
-                    type="button"
-                    class="ps-btn"
-                    aria-expanded="false"
-                    aria-controls="table-columns-panel">
-                    Columns
-                  </button>
-
-                  <button
-                    id="table-reset-btn"
-                    type="button"
-                    class="ps-btn">
-                    Reset view
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <div id="table-filter-panel" class="ps-table-filter-panel" hidden>
-              <div class="ps-table-filter-panel__header">
-                <div class="ps-table-filter-panel__title">Filters</div>
-                <button
-                  id="table-filter-add-btn"
-                  type="button"
-                  class="ps-btn">
-                  Add filter
-                </button>
-              </div>
-
-              <div id="table-filter-rows" class="ps-table-filter-rows"></div>
-            </div>
-
-            <div id="table-columns-panel" class="ps-table-columns-panel" hidden>
-              <div class="ps-table-columns-panel__header">
-                <div class="ps-table-columns-panel__title">Columns</div>
-                <div class="ps-table-columns-panel__actions">
-                  <button
-                    id="table-columns-show-all-btn"
-                    type="button"
-                    class="ps-btn">
-                    Show all
-                  </button>
-                </div>
-              </div>
-
-              <div id="table-columns-list" class="ps-table-columns-list"></div>
-            </div>
-
-            <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
-
-            {table_plot_panel_html}
-        """
-
-        table_shell_close = "</div>"
-
         if table_view_mode == "simple" and table_html_simple is not None:
             content_html = f"""
-              {table_shell_open}
-              <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
-                <div class="table-scroll ps-table-scroll ps-table--simple">
-                  {table_html_simple}
+              <div class="ps-table-simple-view">
+                <p class="ps-table-simple-view__notice">
+                  Simple table mode is read-only. Interactive search, filters,
+                  grouping, column controls, and plotting are available in rich table mode.
+                </p>
+                <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
+                  <div class="table-scroll ps-table-scroll ps-table--simple">
+                    {table_html_simple}
+                  </div>
                 </div>
               </div>
-              {table_shell_close}
             """
         else:
-            content_html = f"""
-              {table_shell_open}
-              <div id="table-data-surface" class="plot-frame ps-frame ps-frame--table plot-frame--table">
-                <div id="table-grid" class="table-grid ps-tablegrid ps-table--rich"></div>
-              </div>
-              <div id="table-plot-output" class="ps-table-plot-root" aria-live="polite" hidden></div>
-              {table_shell_close}
-            """
+            content_html = render_table_explorer(
+                grid_html=(
+                    '<div id="table-grid" '
+                    'class="table-grid ps-tablegrid ps-table--rich"></div>'
+                ),
+                search_placeholder="Search loaded rows…",
+            )
 
         footer_html = _footer_html(kind)
 
     elif kind == "stream":
-        content_html = """
+        content_html = f"""
           <div class="ps-stream-shell">
             <div class="ps-stream-topbar">
               <span id="stream-lifecycle-badge" class="ps-stream-badge ps-stream-badge--live">LIVE OBSERVATION</span>
@@ -556,152 +399,13 @@ def render_index(
               </label>
             </section>
 
-            <div class="ps-table-shell">
-              <div class="ps-table-topbar">
-                <div class="ps-table-topbar__left">
-                  <p id="table-status-inline" class="ps-table-status"></p>
-                </div>
-                <div class="ps-table-topbar__right">
-                  <div class="ps-table-toolbar">
-                    <label class="ps-table-toolbar__search">
-                      <span class="ps-table-toolbar__label">Search</span>
-                      <input
-                        id="table-search-input"
-                        class="ps-table-input"
-                        type="text"
-                        placeholder="Search retained rows…"
-                        autocomplete="off"
-                      />
-                    </label>
-
-                    <label class="ps-table-toolbar__grouping">
-                      <span class="ps-table-toolbar__label">Group</span>
-                      <select id="table-group-by-select" class="ps-table-select">
-                        <option value="">No grouping</option>
-                      </select>
-                    </label>
-
-                    <div class="ps-table-mode-switch" role="group" aria-label="Table display mode">
-                      <button
-                        id="table-mode-table-btn"
-                        type="button"
-                        class="ps-btn is-active"
-                        aria-pressed="true">
-                        Table
-                      </button>
-                      <button
-                        id="table-mode-plot-btn"
-                        type="button"
-                        class="ps-btn"
-                        aria-pressed="false">
-                        Plot
-                      </button>
-                    </div>
-
-                    <button
-                      id="table-filters-toggle-btn"
-                      type="button"
-                      class="ps-btn"
-                      aria-expanded="false"
-                      aria-controls="table-filter-panel">
-                      Filters
-                    </button>
-
-                    <button
-                      id="table-columns-toggle-btn"
-                      type="button"
-                      class="ps-btn"
-                      aria-expanded="false"
-                      aria-controls="table-columns-panel">
-                      Columns
-                    </button>
-
-                    <button
-                      id="table-reset-btn"
-                      type="button"
-                      class="ps-btn">
-                      Reset view
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div id="table-filter-panel" class="ps-table-filter-panel" hidden>
-                <div class="ps-table-filter-panel__header">
-                  <div class="ps-table-filter-panel__title">Filters</div>
-                  <button
-                    id="table-filter-add-btn"
-                    type="button"
-                    class="ps-btn">
-                    Add filter
-                  </button>
-                </div>
-
-                <div id="table-filter-rows" class="ps-table-filter-rows"></div>
-              </div>
-
-              <div id="table-columns-panel" class="ps-table-columns-panel" hidden>
-                <div class="ps-table-columns-panel__header">
-                  <div class="ps-table-columns-panel__title">Columns</div>
-                  <div class="ps-table-columns-panel__actions">
-                    <button
-                      id="table-columns-show-all-btn"
-                      type="button"
-                      class="ps-btn">
-                      Show all
-                    </button>
-                  </div>
-                </div>
-
-                <div id="table-columns-list" class="ps-table-columns-list"></div>
-              </div>
-
-              <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
-
-              <section
-                id="table-plot-controls"
-                class="ps-table-plot-controls"
-                aria-label="Plot controls"
-                hidden>
-                <div class="ps-table-plot-controls__fields">
-                  <label class="ps-table-plot-control">
-                    <span>Plot type</span>
-                    <select id="table-plot-type" class="ps-table-select">
-                      <option value="bar">Count bar</option>
-                      <option value="line">Line</option>
-                      <option value="scatter">Scatter</option>
-                    </select>
-                  </label>
-                  <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
-                    <span>Stream source</span>
-                    <select id="table-plot-source" class="ps-table-select">
-                      <option value="table">Filtered recent rows</option>
-                      <option value="summary">Derived summary windows</option>
-                    </select>
-                  </label>
-                  <label id="table-plot-category-control" class="ps-table-plot-control">
-                    <span>Category</span>
-                    <select id="table-plot-category" class="ps-table-select"></select>
-                  </label>
-                  <label id="table-plot-x-control" class="ps-table-plot-control" hidden>
-                    <span>X field</span>
-                    <select id="table-plot-x" class="ps-table-select"></select>
-                  </label>
-                  <label id="table-plot-y-control" class="ps-table-plot-control" hidden>
-                    <span>Y field</span>
-                    <select id="table-plot-y" class="ps-table-select"></select>
-                  </label>
-                </div>
-                <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
-                  Plots use only loaded rows that pass the current browser filters.
-                </p>
-              </section>
-
-              <div id="table-data-surface" class="plot-frame ps-frame ps-frame--table plot-frame--table">
-                <div id="stream-grid" class="table-grid ps-tablegrid ps-stream-grid"></div>
-              </div>
-              <div id="table-plot-output" class="ps-table-plot-root" aria-live="polite" hidden></div>
-            </div>
+            {render_table_explorer(
+                grid_html=(
+                    '<div id="stream-grid" '
+                    'class="table-grid ps-tablegrid ps-stream-grid"></div>'
+                ),
+                search_placeholder="Search retained rows…",
+            )}
 
             <section
               class="ps-stream-returning"

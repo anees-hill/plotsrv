@@ -54,6 +54,10 @@
     return mode === "table" || mode === "plot";
   }
 
+  function hasTableExplorer(jsonRoot) {
+    return !!(jsonRoot && jsonRoot.querySelector('[data-json-panel="table"]'));
+  }
+
   function isJsonTreeMode(mode) {
     return mode === "json" || mode === "simple";
   }
@@ -101,7 +105,10 @@
     if (!jsonRoot) return;
 
     const allowed = new Set(["json", "simple", "text", "table", "plot"]);
-    const nextMode = allowed.has(mode) ? mode : "json";
+    const requestedMode = allowed.has(mode) ? mode : "json";
+    const nextMode = isExplorerMode(requestedMode) && !hasTableExplorer(jsonRoot)
+      ? "json"
+      : requestedMode;
 
     getPanels(jsonRoot).forEach((panel) => {
       const panelMode = String(panel.getAttribute("data-json-panel") || "");
@@ -115,6 +122,10 @@
 
     if (isExplorerMode(nextMode) && typeof core.setTablePlotMode === "function") {
       core.setTablePlotMode(nextMode, { redraw: nextMode === "table" });
+    } else if (typeof core.setTablePlotMode === "function") {
+      // A hidden JSON explorer must not keep smart updates paused as though
+      // its plot were still visible.
+      core.setTablePlotMode("table", { redraw: false });
     }
 
     if (nextMode === "text") {
@@ -129,11 +140,9 @@
       closePinnedModal(root);
     }
 
-    if (!isExplorerMode(nextMode)) {
-      const prefs = getJsonPrefs();
-      prefs.mode = nextMode;
-      saveJsonPrefs(prefs);
-    }
+    const prefs = getJsonPrefs();
+    prefs.mode = nextMode;
+    saveJsonPrefs(prefs);
   }
 
   function parseStoredJsonText(raw) {
@@ -549,7 +558,9 @@
     }
 
     applyTextModeContent(root);
-    const preferredMode = isJsonTreeMode(prefs.mode) || prefs.mode === "text"
+    const preferredMode = ["json", "simple", "text", "table", "plot"].includes(
+      prefs.mode
+    )
       ? prefs.mode
       : "json";
     setMode(root, preferredMode);
@@ -704,7 +715,11 @@
     const tableData = parseStoredJsonText(String(dataEl.textContent || ""));
     if (!tableData || typeof tableData !== "object") return;
 
-    core.initializeEmbeddedTableExplorer({ grid: grid, data: tableData });
+    core.initializeEmbeddedTableExplorer({
+      grid: grid,
+      data: tableData,
+      plotCapabilities: { sources: ["table"] },
+    });
   }
 
   function initArtifactEnhancements(root) {

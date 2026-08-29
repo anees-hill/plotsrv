@@ -14,6 +14,41 @@
   const PLOT_PREFERENCE_PREFIX = "plotsrv:v1:table_plot:";
   const PLOT_TYPES = ["bar", "line", "scatter"];
 
+  function normalizeCapabilities(raw) {
+    const value = raw && typeof raw === "object" ? raw : {};
+    const requestedSources = Array.isArray(value.sources) ? value.sources : ["table"];
+    const sources = ["table"];
+    if (requestedSources.includes("summary")) sources.push("summary");
+    return {
+      sources: sources,
+      tableLabel: typeof value.tableLabel === "string" && value.tableLabel
+        ? value.tableLabel
+        : "Filtered loaded rows",
+      summaryLabel: typeof value.summaryLabel === "string" && value.summaryLabel
+        ? value.summaryLabel
+        : "Derived summary windows",
+      tableScopeDescription:
+        typeof value.tableScopeDescription === "string"
+          ? value.tableScopeDescription
+          : "",
+      summaryScopeDescription:
+        typeof value.summaryScopeDescription === "string"
+          ? value.summaryScopeDescription
+          : "Stream source: currently loaded derived summary windows with their displayed aggregate bounds.",
+    };
+  }
+
+  function capabilities() {
+    if (!state.tablePlotCapabilities) {
+      state.tablePlotCapabilities = normalizeCapabilities(null);
+    }
+    return state.tablePlotCapabilities;
+  }
+
+  function setTablePlotCapabilities(raw) {
+    state.tablePlotCapabilities = normalizeCapabilities(raw);
+  }
+
   function preferenceKey() {
     return PLOT_PREFERENCE_PREFIX + String(config.activeViewId || "default");
   }
@@ -107,7 +142,8 @@
 
   function normalizePreferences() {
     const prefs = preferences();
-    const source = config.kind === "stream" && prefs.source === "summary"
+    const availableSources = capabilities().sources;
+    const source = prefs.source === "summary" && availableSources.includes("summary")
       ? "summary"
       : "table";
     const allFields = sourceFields(source);
@@ -184,10 +220,17 @@
     if (!type || !source || !category || !x || !y) return;
 
     const prefs = normalizePreferences();
+    const availableCapabilities = capabilities();
     type.value = prefs.type;
     source.value = prefs.source;
-    const isStream = config.kind === "stream";
-    if (sourceControl) sourceControl.hidden = !isStream;
+    const sourceOptions = Array.from(source.options || []);
+    sourceOptions.forEach(function (option) {
+      if (option.value === "table") option.textContent = availableCapabilities.tableLabel;
+      if (option.value === "summary") option.textContent = availableCapabilities.summaryLabel;
+      option.hidden = !availableCapabilities.sources.includes(option.value);
+    });
+    source.disabled = availableCapabilities.sources.length < 2;
+    if (sourceControl) sourceControl.hidden = availableCapabilities.sources.length < 2;
     const availableFields = sourceFields(prefs.source);
     const availableNumericFields = sourceNumericFields(prefs.source);
     populateSelect(category, availableFields, prefs.categoryField, "Choose a category");
@@ -201,8 +244,25 @@
     if (scopeNotice) {
       scopeNotice.textContent = prefs.source === "summary"
         ? "Derived summary plots use only the currently loaded aggregate windows; they are not source log rows and raw-table filters do not apply."
-        : "Plots use only loaded rows that pass the current browser filters.";
+        : availableCapabilities.tableScopeDescription ||
+          "Plots use only loaded rows that pass the current browser filters.";
     }
+  }
+
+  function renderControllerError(output) {
+    output.replaceChildren();
+    const notice = document.createElement("section");
+    notice.className = "ps-table-plot__notice ps-table-plot__notice--error";
+    notice.dataset.plotState = "error";
+    const title = document.createElement("h2");
+    title.className = "ps-table-plot__notice-title";
+    title.textContent = "Unable to render plot";
+    const detail = document.createElement("p");
+    detail.className = "ps-table-plot__notice-detail";
+    detail.textContent = "Return to the table or change the plot selections and try again.";
+    notice.appendChild(title);
+    notice.appendChild(detail);
+    output.appendChild(notice);
   }
 
   function refreshTablePlot() {
@@ -224,10 +284,17 @@
         ? state.tablePlotSummaryRows
         : [];
       options.scopeKind = "summary";
-      options.scopeDescription =
-        "Stream source: currently loaded derived summary windows with their displayed aggregate bounds.";
+      options.scopeDescription = capabilities().summaryScopeDescription;
+    } else {
+      options.scopeDescription = capabilities().tableScopeDescription;
     }
-    return core.renderTablePlot(options);
+    try {
+      return core.renderTablePlot(options);
+    } catch (error) {
+      console.error("Unable to render table plot", error);
+      renderControllerError(output);
+      return { ok: false, reason: "renderer_error", rowCount: 0, plottedCount: 0 };
+    }
   }
 
   function applyMode(mode, options) {
@@ -406,5 +473,6 @@
   core.configureTablePlotSurface = configureTablePlotSurface;
   core.refreshTablePlot = refreshTablePlot;
   core.setTablePlotMode = applyMode;
+  core.setTablePlotCapabilities = setTablePlotCapabilities;
   core.setTablePlotSummaryRows = setTablePlotSummaryRows;
 })();

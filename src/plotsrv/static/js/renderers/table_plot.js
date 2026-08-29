@@ -9,7 +9,6 @@
   };
 
   const core = window.PLOTSRV.core;
-  const config = window.PLOTSRV.config;
 
   // These limits deliberately refuse to render rather than selecting a
   // subset. Keep them local to the browser renderer: this feature must not
@@ -123,10 +122,6 @@
       typeof settings.scopeDescription === "string"
         ? settings.scopeDescription.trim()
         : "";
-    if (!sourceDescription && config.kind === "stream" && !isSummary) {
-      sourceDescription =
-        "Stream source: the retained recent raw observation window currently loaded in this table.";
-    }
     if (sourceDescription) text += " " + sourceDescription;
     return text;
   }
@@ -493,7 +488,9 @@
       return refusal(
         container,
         "no_rows",
-        "No loaded rows pass the current filters. Change or clear filters to plot data.",
+        settings.scopeKind === "summary"
+          ? "No derived summary windows are currently loaded. Raw-table filters do not apply to this source."
+          : "No loaded rows pass the current filters. Change or clear filters to plot data.",
         settings,
         0
       );
@@ -502,9 +499,14 @@
       return refusal(
         container,
         "source_limit",
-        "This plot has " + rows.length + " filtered loaded rows (limit " +
+        "This plot has " + rows.length +
+          (settings.scopeKind === "summary"
+            ? " loaded derived summary windows (limit "
+            : " filtered loaded rows (limit ") +
           TABLE_PLOT_LIMITS.maxSourceRows +
-          "). Filter the table before plotting; no rows were sampled or plotted.",
+          (settings.scopeKind === "summary"
+            ? "). Select a narrower summary source; no windows were sampled or plotted."
+            : "). Filter the table before plotting; no rows were sampled or plotted."),
         settings,
         rows.length
       );

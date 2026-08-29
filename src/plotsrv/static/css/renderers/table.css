@@ -293,6 +293,17 @@
   width: 100%;
 }
 
+.ps-table-simple-view {
+  width: 100%;
+}
+
+.ps-table-simple-view__notice {
+  margin: 0 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
 .ps-table--simple table {
   width: 100%;
   border-collapse: collapse;

@@ -100,6 +100,7 @@
   state.browserUpdateApplying = false;
   state.initialViewLoadComplete = false;
   state.tabulatorInstance = null;
+  state.tablePlotCapabilities = null;
   state.streamTabulatorInstance = null;
   state.streamCursor = null;
   state.streamSessionId = null;

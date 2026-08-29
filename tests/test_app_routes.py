@@ -104,6 +104,9 @@ def test_index_table_simple_embeds_table_html(client: TestClient) -> None:
 
     # Don't look for "table-grid" substring
     assert 'id="table-grid"' not in text
+    assert "Simple table mode is read-only" in text
+    assert 'id="table-search-input"' not in text
+    assert 'id="table-mode-plot-btn"' not in text
     assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" not in text
 
 

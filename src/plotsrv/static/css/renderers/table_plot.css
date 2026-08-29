@@ -100,7 +100,8 @@
   background: #fffdfd;
 }
 
-.ps-table-plot__notice--refused {
+.ps-table-plot__notice--refused,
+.ps-table-plot__notice--error {
   border-color: #ead7df;
   background: #fcf7f9;
 }

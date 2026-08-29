@@ -281,6 +281,15 @@
       rows: rows,
       fields: fields,
       columnDefs: buildColumns(fields),
+      plotCapabilities: {
+        sources: ["table", "summary"],
+        tableLabel: "Filtered retained rows",
+        summaryLabel: "Derived summary windows",
+        tableScopeDescription:
+          "Stream source: the retained recent raw observation window currently loaded in this table.",
+        summaryScopeDescription:
+          "Stream source: currently loaded derived summary windows with their displayed aggregate bounds.",
+      },
     });
   }
 

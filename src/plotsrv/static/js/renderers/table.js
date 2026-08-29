@@ -1398,6 +1398,9 @@
     state.tableColumnDefs = Array.isArray(settings.columnDefs)
       ? settings.columnDefs
       : [];
+    if (typeof core.setTablePlotCapabilities === "function") {
+      core.setTablePlotCapabilities(settings.plotCapabilities || { sources: ["table"] });
+    }
 
     if (typeof table.on === "function" && !table._plotsrvUpdatePolicyBound) {
       table.on("dataSorted", function () {
@@ -1473,6 +1476,7 @@
       rows: rows,
       fields: fields,
       columnDefs: columns,
+      plotCapabilities: settings.plotCapabilities || { sources: ["table"] },
     });
     state.embeddedTableExplorer = true;
     return true;
@@ -1550,6 +1554,7 @@
         rows: rows,
         fields: data.columns || [],
         columnDefs: columns,
+        plotCapabilities: { sources: ["table"] },
       });
       return;
     }
@@ -1588,6 +1593,7 @@
       rows: rows,
       fields: data.columns || [],
       columnDefs: columns,
+      plotCapabilities: { sources: ["table"] },
     });
   }
 

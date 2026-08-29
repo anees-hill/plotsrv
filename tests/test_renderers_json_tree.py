@@ -71,6 +71,8 @@ def test_json_tree_renders_bounded_table_and_plot_modes_for_rectangular_json() -
     assert 'data-json-panel="table"' in out.html
     assert 'data-json-table-grid="1"' in out.html
     assert 'data-json-table-data="1"' in out.html
+    assert 'id="table-search-input"' in out.html
+    assert 'id="table-plot-controls"' in out.html
 
 
 def test_json_tree_keeps_non_rectangular_json_out_of_the_table_explorer() -> None:
