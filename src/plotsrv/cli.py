@@ -21,6 +21,7 @@ from .storage.backend import (
     list_snapshots,
     list_stored_views,
 )
+from .storage.streams import FileStreamStorageBackend
 from .storage.latest import (
     list_latest_views,
     get_latest_stats,
@@ -267,6 +268,17 @@ def _get_restore_latest_hook():
     from .server import restore_latest_views_from_storage as _restore_latest
 
     return _restore_latest
+
+
+def _get_restore_streams_hook():
+    """Resolve compact-stream restore hook in a monkeypatch-friendly way."""
+    restore = globals().get("restore_streams_from_storage")
+    if callable(restore):
+        return restore
+
+    from .server import restore_streams_from_storage as _restore_streams
+
+    return _restore_streams
 
 
 def _find_project_root(start: Path) -> Path | None:
@@ -553,10 +565,12 @@ def _run_store_stats() -> int:
     root = config.get_storage_root_dir()
     snap_stats = get_storage_stats(root_dir=root)
     latest_stats = get_latest_stats(root_dir=root)
+    stream_stats = FileStreamStorageBackend(root_dir=root).get_storage_stats()
 
     snapshot_bytes = int(snap_stats.get("total_bytes") or 0)
     latest_bytes = int(latest_stats.get("total_bytes") or 0)
-    total_bytes = snapshot_bytes + latest_bytes
+    stream_bytes = int(stream_stats.get("total_bytes") or 0)
+    total_bytes = snapshot_bytes + latest_bytes + stream_bytes
 
     print(f"root_dir: {snap_stats['root_dir']}")
     print(f"snapshot_view_count: {snap_stats['view_count']}")
@@ -564,12 +578,16 @@ def _run_store_stats() -> int:
     print(f"snapshot_bytes: {snapshot_bytes} ({_fmt_bytes(snapshot_bytes)})")
     print(f"latest_count: {latest_stats['latest_count']}")
     print(f"latest_bytes: {latest_bytes} ({_fmt_bytes(latest_bytes)})")
+    print(f"stream_view_count: {stream_stats['view_count']}")
+    print(f"stream_session_count: {stream_stats['session_count']}")
+    print(f"stream_bytes: {stream_bytes} ({_fmt_bytes(stream_bytes)})")
     print(f"total_bytes: {total_bytes} ({_fmt_bytes(total_bytes)})")
     return 0
 
 
 def _run_store_list(*, view_id: str | None) -> int:
     root = config.get_storage_root_dir()
+    stream_backend = FileStreamStorageBackend(root_dir=root)
 
     if view_id:
         latest_items = list_latest_views(root_dir=root)
@@ -588,26 +606,48 @@ def _run_store_list(*, view_id: str | None) -> int:
             print(f"{updated}  {kind}  {size}  {exists}  {payload}")
 
         snaps = list_snapshots(root_dir=root, view_id=view_id)
+        stream_view = next(
+            (
+                item
+                for item in stream_backend.list_stored_views()
+                if item.view_id == view_id
+            ),
+            None,
+        )
         print("")
         print(f"snapshot_count: {len(snaps)}")
-        print("")
 
         if not snaps:
             print("(no snapshots)")
-            return 0
+        else:
+            print("")
+            for s in snaps:
+                created = s.created_at or s.snapshot_id
+                kind = s.kind or "unknown"
+                size = _fmt_bytes(int(s.size_bytes or 0))
+                exists = "ok" if s.payload_exists else "missing"
+                print(
+                    f"{s.snapshot_id}  {created}  {kind}  {size}  {exists}  {s.payload_filename}"
+                )
 
-        for s in snaps:
-            created = s.created_at or s.snapshot_id
-            kind = s.kind or "unknown"
-            size = _fmt_bytes(int(s.size_bytes or 0))
-            exists = "ok" if s.payload_exists else "missing"
+        if stream_view is not None:
+            print("")
+            print("streams:")
             print(
-                f"{s.snapshot_id}  {created}  {kind}  {size}  {exists}  {s.payload_filename}"
+                "sessions={sessions}  size={size}  raw_blocks={raw_blocks}  "
+                "incomplete_sessions={incomplete}  last={last}".format(
+                    sessions=stream_view.session_count,
+                    size=_fmt_bytes(stream_view.total_bytes),
+                    raw_blocks=stream_view.raw_block_count,
+                    incomplete=stream_view.incomplete_session_count,
+                    last=stream_view.last_updated_at or "—",
+                )
             )
         return 0
 
     latest_views = list_latest_views(root_dir=root)
     snapshot_views = list_stored_views(root_dir=root)
+    stream_views = stream_backend.list_stored_views()
 
     print(f"root_dir: {root}")
     print("")
@@ -631,9 +671,25 @@ def _run_store_list(*, view_id: str | None) -> int:
             count = int(v.get("snapshot_count") or 0)
             size = _fmt_bytes(int(v.get("total_bytes") or 0))
             print(f"{v['view_id']}  snapshots={count}  size={size}  last={last}")
-        return 0
 
-    if not latest_views:
+        print("")
+
+    if stream_views:
+        print("streams:")
+        for view in stream_views:
+            print(
+                "{view_id}  sessions={sessions}  size={size}  raw_blocks={raw_blocks}  "
+                "incomplete_sessions={incomplete}  last={last}".format(
+                    view_id=view.view_id,
+                    sessions=view.session_count,
+                    size=_fmt_bytes(view.total_bytes),
+                    raw_blocks=view.raw_block_count,
+                    incomplete=view.incomplete_session_count,
+                    last=view.last_updated_at or "—",
+                )
+            )
+
+    if not latest_views and not snapshot_views and not stream_views:
         print("(no stored views)")
 
     return 0
@@ -651,24 +707,26 @@ def _run_store_clear(*, view_id: str | None, clear_all: bool, assume_yes: bool) 
     if clear_all:
         if not assume_yes:
             if not _confirm(
-                f"Delete ALL stored latest state and snapshots under {root}?"
+                f"Delete ALL stored latest state, snapshots, and stream history under {root}?"
             ):
                 print("Aborted.")
                 return 0
 
         removed_snapshots = delete_all_snapshots(root_dir=root)
         removed_latest = delete_all_latest(root_dir=root)
-        removed = removed_snapshots + removed_latest
+        removed_streams = FileStreamStorageBackend(root_dir=root).delete_all()
+        removed = removed_snapshots + removed_latest + removed_streams
 
         print(
             f"Removed {removed} file(s) from {root} "
-            f"({removed_latest} latest, {removed_snapshots} snapshots)"
+            f"({removed_latest} latest, {removed_snapshots} snapshots, "
+            f"{removed_streams} stream files)"
         )
         return 0
 
     if not assume_yes:
         if not _confirm(
-            f"Delete stored latest state and snapshots for view {view_id!r}?"
+            f"Delete stored latest state, snapshots, and stream history for view {view_id!r}?"
         ):
             print("Aborted.")
             return 0
@@ -677,11 +735,15 @@ def _run_store_clear(*, view_id: str | None, clear_all: bool, assume_yes: bool) 
     removed_snapshots = delete_all_snapshots_for_view(
         root_dir=root, view_id=str(view_id)
     )
-    removed = removed_latest + removed_snapshots
+    removed_streams = FileStreamStorageBackend(root_dir=root).delete_all_for_view(
+        view_id=str(view_id)
+    )
+    removed = removed_latest + removed_snapshots + removed_streams
 
     print(
         f"Removed {removed} file(s) for view {view_id!r} "
-        f"({removed_latest} latest, {removed_snapshots} snapshots)"
+        f"({removed_latest} latest, {removed_snapshots} snapshots, "
+        f"{removed_streams} stream files)"
     )
     return 0
 
@@ -867,6 +929,7 @@ def _run_passive_server_forever(
 
     start_server, stop_server = _get_server_hooks()
     restore_latest = _get_restore_latest_hook()
+    restore_streams = _get_restore_streams_hook()
 
     client_host = _client_host_for_bind_host(host)
 
@@ -885,6 +948,7 @@ def _run_passive_server_forever(
     _passive_register_views(scan_root, excludes=excludes, includes=includes)
 
     restore_latest()
+    restore_streams()
 
     if watch_configs:
         register_watch_views(watch_configs, activate_first_if_none=True)
@@ -944,6 +1008,7 @@ def _run_watch_mode(
 ) -> int:
 
     start_server, stop_server = _get_server_hooks()
+    restore_streams = _get_restore_streams_hook()
 
     p = Path(path).expanduser().resolve()
     if not p.exists() or not p.is_file():
@@ -1022,6 +1087,10 @@ def _run_watch_mode(
 
         store.set_active_view(vid)
 
+    # Restore only after the watch view has claimed its normal catalogue entry,
+    # matching passive mode.  Restored stream sessions remain historical and
+    # therefore cannot become the watch producer's live transport state.
+    restore_streams()
     start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
 
     if not _wait_for_server(client_host, port, timeout_s=5.0):
@@ -1330,6 +1399,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # mode == "callable"
     start_server, stop_server = _get_server_hooks()
+    restore_streams = _get_restore_streams_hook()
 
     client_host = _client_host_for_bind_host(args.host)
 
@@ -1346,6 +1416,7 @@ def main(argv: list[str] | None = None) -> int:
 
     restore_latest = _get_restore_latest_hook()
     restore_latest()
+    restore_streams()
 
     if not _wait_for_server(client_host, args.port, timeout_s=5.0):
         stop_server(join=False)
@@ -1384,11 +1455,15 @@ def main(argv: list[str] | None = None) -> int:
             keep_alive=keep_alive,
             stop_event=stop_event,
         )
-        return 0
     except KeyboardInterrupt:
         stop_event.set()
+    finally:
+        # A successful one-shot callable can close a stream and return before
+        # its independently admitted compact write runs.  Normal CLI exit is
+        # therefore a server shutdown boundary too, which boundedly drains the
+        # stream-only worker before its daemon thread can disappear.
         stop_server(join=False)
-        return 0
+    return 0
 
 
 if __name__ == "__main__":

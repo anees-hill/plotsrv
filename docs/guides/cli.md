@@ -290,7 +290,8 @@ plotsrv config populate freshness . --yes
 
 ## Store commands
 
-Storage commands inspect and clear persisted plotsrv output.
+Storage commands inspect and clear persisted plotsrv output, including bounded
+stream-session history when it is enabled.
 
 Show storage statistics:
 
@@ -324,7 +325,7 @@ plotsrv store clear --all
 
 !!! warning
 
-    `plotsrv store clear --all` removes stored material, including latest restored state and snapshot history.
+    `plotsrv store clear --all` removes stored material, including latest restored state, snapshot history, and stream-session history. `--view` clears only that logical view across all three storage kinds.
 
 ## Common command patterns
 

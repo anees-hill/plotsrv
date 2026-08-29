@@ -399,8 +399,18 @@ def test_run_watch_mode_waits_for_server_before_publish(
         calls.append(f"publish:{kwargs['host']}:{kwargs['port']}")
         raise KeyboardInterrupt
 
+    def fake_restore_streams() -> int:
+        calls.append("restore_streams")
+        return 0
+
     monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
     monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+    monkeypatch.setattr(
+        cli_mod,
+        "restore_streams_from_storage",
+        fake_restore_streams,
+        raising=False,
+    )
     monkeypatch.setattr(cli_mod, "_wait_for_server", fake_wait_for_server)
     monkeypatch.setattr(cli_mod, "_publish_watch_payload", fake_publish_watch_payload)
 
@@ -422,7 +432,8 @@ def test_run_watch_mode_waits_for_server_before_publish(
     )
 
     assert rc == 0
-    assert calls[:3] == [
+    assert calls[:4] == [
+        "restore_streams",
         "start:0.0.0.0:8356",
         "wait:127.0.0.1:8356",
         "publish:127.0.0.1:8356",
@@ -445,8 +456,18 @@ def test_run_watch_mode_returns_clean_error_when_server_not_ready(
     def fake_stop_server(**kwargs: Any) -> None:
         calls.append("stop")
 
+    def fake_restore_streams() -> int:
+        calls.append("restore_streams")
+        return 0
+
     monkeypatch.setattr(cli_mod, "start_server", fake_start_server, raising=False)
     monkeypatch.setattr(cli_mod, "stop_server", fake_stop_server, raising=False)
+    monkeypatch.setattr(
+        cli_mod,
+        "restore_streams_from_storage",
+        fake_restore_streams,
+        raising=False,
+    )
     monkeypatch.setattr(cli_mod, "_wait_for_server", lambda *a, **k: False)
 
     rc = cli_mod._run_watch_mode(
@@ -469,7 +490,7 @@ def test_run_watch_mode_returns_clean_error_when_server_not_ready(
     captured = capsys.readouterr()
 
     assert rc == 2
-    assert calls == ["start", "stop"]
+    assert calls == ["restore_streams", "start", "stop"]
     assert "server did not become ready" in captured.err
     assert "http://127.0.0.1:8356/status" in captured.err
 
@@ -489,6 +510,10 @@ def test_run_passive_server_registers_before_restore(
         calls.append("restore")
         return 0
 
+    def fake_restore_streams() -> int:
+        calls.append("restore_streams")
+        return 0
+
     def fake_passive_register_views(*args: Any, **kwargs: Any) -> None:
         calls.append("register")
 
@@ -498,6 +523,12 @@ def test_run_passive_server_registers_before_restore(
         cli_mod,
         "restore_latest_views_from_storage",
         fake_restore_latest,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        cli_mod,
+        "restore_streams_from_storage",
+        fake_restore_streams,
         raising=False,
     )
     monkeypatch.setattr(cli_mod, "_passive_register_views", fake_passive_register_views)
@@ -518,9 +549,10 @@ def test_run_passive_server_registers_before_restore(
     )
 
     assert rc == 0
-    assert calls[:3] == [
+    assert calls[:4] == [
         "register",
         "restore",
+        "restore_streams",
         "start:restore_latest=False",
     ]
 
@@ -538,6 +570,21 @@ def test_get_restore_latest_hook_uses_cli_global_when_present(
     hook = cli_mod._get_restore_latest_hook()
 
     assert hook() == 123
+
+
+def test_get_restore_streams_hook_uses_cli_global_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_restore() -> int:
+        return 456
+
+    monkeypatch.setattr(
+        cli_mod, "restore_streams_from_storage", fake_restore, raising=False
+    )
+
+    hook = cli_mod._get_restore_streams_hook()
+
+    assert hook() == 456
 
 
 def test_run_passive_server_uses_client_host_for_watch_threads(
@@ -736,6 +783,7 @@ def test_main_callable_uses_client_host_for_callable_loop(
     assert rc == 0
     assert "start:0.0.0.0" in calls
     assert "callable:127.0.0.1:8356" in calls
+    assert "stop" in calls
 
 
 def test_cli_watch_rejects_both_watch_max_mb_and_bytes(
