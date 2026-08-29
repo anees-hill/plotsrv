@@ -255,7 +255,7 @@ def _restore_latest_loaded_view(loaded: Any) -> None:
         if not isinstance(obj, (bytes, bytearray)):
             return
 
-        store.set_plot(bytes(obj), view_id=view_id)
+        store.set_plot(bytes(obj), view_id=view_id, record_arrival=False)
         _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
         return
 
@@ -284,6 +284,7 @@ def _restore_latest_loaded_view(loaded: Any) -> None:
             view_id=view_id,
             total_rows=total_rows,
             returned_rows=returned_rows,
+            record_arrival=False,
         )
         _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
         return
@@ -294,6 +295,7 @@ def _restore_latest_loaded_view(loaded: Any) -> None:
         label=meta.label,
         section=meta.section,
         view_id=view_id,
+        record_arrival=False,
     )
     _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
 

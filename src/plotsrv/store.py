@@ -1,7 +1,8 @@
 # src/plotsrv/store.py
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import wraps
 import threading
@@ -25,6 +26,8 @@ IconKey = Literal[
     "traceback",
     "exception",  # legacy alias
 ]
+
+MAX_DATA_ACTIVITY_EVENTS = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +67,9 @@ class ViewState:
     artifact: Artifact | None = None
     watched_file: WatchedFileMeta | None = None
     render_revision: int = 0
+    data_activity: deque[dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=MAX_DATA_ACTIVITY_EVENTS)
+    )
 
     # publish throttling
     last_publish_at: float | None = None  # epoch seconds
@@ -212,6 +218,24 @@ def _touch_render_revision(st: ViewState) -> None:
 def _touch_view_menu_revision() -> None:
     global _VIEW_MENU_REVISION
     _VIEW_MENU_REVISION += 1
+
+
+def _record_data_arrival(
+    st: ViewState,
+    *,
+    received_at: str | None = None,
+    count: int = 1,
+    source: str = "ordinary",
+) -> None:
+    at = received_at or _now_iso()
+    st.data_activity.append(
+        {
+            "received_at": at,
+            "count": max(1, int(count)),
+            "source": source if source in {"stream", "watch"} else "ordinary",
+        }
+    )
+    st.status["last_updated"] = at
 
 
 def normalize_view_id(
@@ -441,6 +465,7 @@ def set_plot(
     *,
     view_id: str | None = None,
     publish_source: str | None = None,
+    record_arrival: bool = True,
 ) -> None:
     vid = view_id or _ACTIVE_VIEW_ID
     _require_ordinary_publishable_view(vid)
@@ -458,6 +483,12 @@ def set_plot(
     )
 
     st.status["last_updated"] = _now_iso()
+    if record_arrival:
+        _record_data_arrival(
+            st,
+            received_at=st.status["last_updated"],
+            source=_normalize_publish_source(publish_source),
+        )
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
@@ -493,6 +524,7 @@ def set_table(
     total_rows: int | None = None,
     returned_rows: int | None = None,
     publish_source: str | None = None,
+    record_arrival: bool = True,
 ) -> None:
     vid = view_id or _ACTIVE_VIEW_ID
     _require_ordinary_publishable_view(vid)
@@ -514,6 +546,12 @@ def set_table(
     )
 
     st.status["last_updated"] = _now_iso()
+    if record_arrival:
+        _record_data_arrival(
+            st,
+            received_at=st.status["last_updated"],
+            source=_normalize_publish_source(publish_source),
+        )
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
@@ -538,6 +576,7 @@ def set_artifact(
     view_id: str | None = None,
     truncation: Truncation | None = None,
     publish_source: str | None = None,
+    record_arrival: bool = True,
 ) -> None:
     vid = view_id or _ACTIVE_VIEW_ID
     _require_ordinary_publishable_view(vid)
@@ -556,6 +595,12 @@ def set_artifact(
     )
 
     st.status["last_updated"] = _now_iso()
+    if record_arrival:
+        _record_data_arrival(
+            st,
+            received_at=st.status["last_updated"],
+            source=_normalize_publish_source(publish_source),
+        )
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
@@ -631,6 +676,36 @@ def mark_success(
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
+
+
+def record_data_arrival(
+    *,
+    view_id: str,
+    received_at: str | None = None,
+    count: int = 1,
+    source: str = "ordinary",
+) -> None:
+    """Retain one bounded process-lifetime data-arrival event."""
+    st = get_view_state(view_id)
+    _record_data_arrival(
+        st,
+        received_at=received_at,
+        count=count,
+        source=source,
+    )
+
+
+def get_data_activity(*, view_id: str | None = None) -> dict[str, Any]:
+    st = get_view_state(view_id)
+    events = [dict(event) for event in st.data_activity]
+    return {
+        "scope": "process_lifetime",
+        "bounded": True,
+        "limit": MAX_DATA_ACTIVITY_EVENTS,
+        "event_count": len(events),
+        "represented_item_count": sum(int(event["count"]) for event in events),
+        "events": events,
+    }
 
 
 def mark_error(message: str, *, view_id: str | None = None) -> None:
@@ -941,6 +1016,8 @@ for _store_api_name in (
     "get_table_html_simple",
     "get_table_counts",
     "mark_success",
+    "record_data_arrival",
+    "get_data_activity",
     "mark_error",
     "mark_restored",
     "get_status",

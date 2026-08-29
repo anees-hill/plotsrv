@@ -688,6 +688,10 @@ def note_file_backed_watch_change(
             view_id=registered.view_id,
             publish_source="watch",
         )
+        store.record_data_arrival(
+            view_id=registered.view_id,
+            source="watch",
+        )
     else:
         store.mark_error(error, view_id=registered.view_id)
 

@@ -45,6 +45,7 @@ from .http_snapshots import (
     _storage_root,
 )
 from .http_streams import router as stream_router
+from .streams.server_state import stream_registry, UnknownStreamError
 from .runtime import (
     FileBackedLoadBusyError,
     acquire_file_backed_load_slot,
@@ -624,6 +625,46 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     s["view_id"] = vid
     s["view_menu_revision"] = store.get_view_menu_revision()
     s["freshness"] = store.get_freshness(view_id=vid)
+
+    kind = store.get_kind(vid)
+    activity = store.get_data_activity(view_id=vid)
+    activity["represents"] = (
+        "accepted_stream_records" if kind == "stream" else "published_updates"
+    )
+    activity["retention_note"] = (
+        "Bounded activity observed during this plotsrv process lifetime; "
+        "it does not survive restart."
+    )
+    events = activity.get("events")
+    s["data_activity"] = activity
+    s["last_data_arrival_at"] = (
+        events[-1].get("received_at")
+        if isinstance(events, list) and events and isinstance(events[-1], dict)
+        else None
+    )
+
+    if kind == "stream":
+        try:
+            s["stream_status"] = stream_registry.status(view_id=vid)
+        except UnknownStreamError:
+            s["stream_status"] = None
+        s["data_source"] = {"type": "stream", "label": "Stream producer"}
+    elif store.has_watched_file_meta(view_id=vid):
+        materialization = str(
+            (_watched_file_meta_dict(vid) or {}).get("materialization") or "memory"
+        )
+        s["stream_status"] = None
+        s["data_source"] = {
+            "type": "watched_file",
+            "label": (
+                "Watched file (source-backed)"
+                if materialization == "file"
+                else "Watched file"
+            ),
+        }
+    else:
+        s["stream_status"] = None
+        s["data_source"] = {"type": "publish", "label": "Python/API publish"}
 
     watched_file = _watched_file_meta_dict(vid)
     s["watched_file"] = watched_file

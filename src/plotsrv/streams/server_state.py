@@ -620,6 +620,12 @@ class StreamRegistry:
             state.accepted_batches += 1
             state.next_batch_sequence += 1
             self._record_activity(state, lifecycle=LIVE, pending_delivery=False)
+            store.record_data_arrival(
+                view_id=append.view_id,
+                received_at=observed_at.isoformat(),
+                count=len(append.records),
+                source="stream",
+            )
             return StreamAppendResult(
                 view_id=append.view_id,
                 batch_sequence=append.batch_sequence,
