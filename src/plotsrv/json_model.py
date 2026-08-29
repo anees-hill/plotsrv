@@ -1,8 +1,10 @@
 # src/plotsrv/json_model.py
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
+import math
 from typing import Any
 
 try:  # pragma: no cover
@@ -34,6 +36,41 @@ class JsonModelLimits:
     max_list_items: int = 200
     max_preview_chars: int = 120
     max_string_chars: int = 1000
+
+
+@dataclass(frozen=True, slots=True)
+class RectangularJsonLimits:
+    """Hard bounds for the optional JSON-to-table eligibility check."""
+
+    max_rows: int = 5_000
+    max_columns: int = 200
+
+
+@dataclass(frozen=True, slots=True)
+class RectangularJsonClassification:
+    """Deterministic result of checking a top-level JSON array for table use."""
+
+    eligible: bool
+    reason: str | None
+    row_count: int
+    columns: tuple[str, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "eligible": self.eligible,
+            "reason": self.reason,
+            "row_count": self.row_count,
+            "column_count": len(self.columns),
+            "columns": list(self.columns),
+        }
+
+
+DEFAULT_RECTANGULAR_JSON_LIMITS = RectangularJsonLimits()
+
+# JSON integers become JavaScript Numbers in the optional browser table data.
+# Keep the adaptation lossless by declining values that cannot be represented
+# exactly there; the rich JSON view remains available for every such payload.
+MAX_JAVASCRIPT_SAFE_INTEGER = (1 << 53) - 1
 
 
 @dataclass(slots=True)
@@ -83,6 +120,10 @@ def build_json_document(
     """
     lim = _coerce_limits(limits)
     ctx = _BuildCtx(limits=lim)
+    table_candidate = classify_rectangular_json(obj)
+    table_data = build_rectangular_json_table_data(
+        obj, classification=table_candidate
+    )
 
     root = _build_node(
         obj,
@@ -102,13 +143,182 @@ def build_json_document(
         "raw_text": raw_text,
         "pretty_text": pretty_text,
         "root": root,
+        "table_data": table_data,
         "meta": {
             "node_count": ctx.nodes_seen,
             "max_depth_seen": ctx.max_depth_seen,
             "truncated": ctx.truncated,
             "hit": ctx.hit,
             "source_filename": source_filename,
+            "table_candidate": table_candidate.as_dict(),
         },
+    }
+
+
+def classify_rectangular_json(
+    obj: Any,
+    *,
+    limits: RectangularJsonLimits | None = None,
+) -> RectangularJsonClassification:
+    """
+    Identify the only JSON shape eligible for later tabular adaptation.
+
+    Eligibility is deliberately conservative: the payload must be a bounded,
+    non-empty top-level list of non-empty object records with the exact same
+    string keys, and every cell must be a finite JSON scalar.  Nested values
+    are rejected rather than flattened or inferred.  This function classifies
+    only; it does not create a table or change the JSON renderer.
+    """
+    lim = limits or DEFAULT_RECTANGULAR_JSON_LIMITS
+    if lim.max_rows < 1 or lim.max_columns < 1:
+        raise ValueError("rectangular JSON limits must be positive")
+
+    if not isinstance(obj, list):
+        return RectangularJsonClassification(
+            eligible=False,
+            reason="not_top_level_array",
+            row_count=0,
+        )
+
+    row_count = len(obj)
+    if row_count == 0:
+        return RectangularJsonClassification(
+            eligible=False,
+            reason="empty_array",
+            row_count=0,
+        )
+
+    if row_count > lim.max_rows:
+        return RectangularJsonClassification(
+            eligible=False,
+            reason="row_limit_exceeded",
+            row_count=row_count,
+        )
+
+    first_row = obj[0]
+    if not isinstance(first_row, Mapping):
+        return RectangularJsonClassification(
+            eligible=False,
+            reason="row_not_object",
+            row_count=row_count,
+        )
+
+    if not first_row:
+        return RectangularJsonClassification(
+            eligible=False,
+            reason="empty_object",
+            row_count=row_count,
+        )
+
+    if not all(isinstance(column, str) for column in first_row):
+        return RectangularJsonClassification(
+            eligible=False,
+            reason="invalid_column_name",
+            row_count=row_count,
+        )
+
+    columns = tuple(first_row)
+    if len(columns) > lim.max_columns:
+        return RectangularJsonClassification(
+            eligible=False,
+            reason="column_limit_exceeded",
+            row_count=row_count,
+        )
+
+    expected_columns = set(columns)
+    for row in obj:
+        if not isinstance(row, Mapping):
+            return RectangularJsonClassification(
+                eligible=False,
+                reason="row_not_object",
+                row_count=row_count,
+            )
+
+        if (
+            len(row) != len(columns)
+            or not all(isinstance(column, str) for column in row)
+            or set(row) != expected_columns
+        ):
+            return RectangularJsonClassification(
+                eligible=False,
+                reason="inconsistent_columns",
+                row_count=row_count,
+            )
+
+        for value in row.values():
+            if isinstance(value, (dict, list, tuple, set)):
+                return RectangularJsonClassification(
+                    eligible=False,
+                    reason="nested_value",
+                    row_count=row_count,
+                )
+            if not _is_finite_json_scalar(value):
+                return RectangularJsonClassification(
+                    eligible=False,
+                    reason="unsupported_value",
+                    row_count=row_count,
+                )
+
+    return RectangularJsonClassification(
+        eligible=True,
+        reason=None,
+        row_count=row_count,
+        columns=columns,
+    )
+
+
+def _is_finite_json_scalar(value: Any) -> bool:
+    if value is None or isinstance(value, (str, bool)):
+        return True
+    if isinstance(value, int):
+        return -MAX_JAVASCRIPT_SAFE_INTEGER <= value <= MAX_JAVASCRIPT_SAFE_INTEGER
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def build_rectangular_json_table_data(
+    obj: Any,
+    *,
+    classification: RectangularJsonClassification | None = None,
+) -> dict[str, Any] | None:
+    """
+    Copy an eligible JSON array into the common browser table payload shape.
+
+    The input is only copied after the conservative classifier accepts it, so
+    this boundary cannot flatten nested values or create an unbounded table.
+    """
+    result = classification or classify_rectangular_json(obj)
+    if not result.eligible:
+        return None
+
+    columns = result.columns
+    if not isinstance(obj, list):
+        return None
+
+    rows: list[dict[str, Any]] = []
+    for row in obj:
+        if not isinstance(row, Mapping) or set(row) != set(columns):
+            return None
+        if not all(_is_finite_json_scalar(value) for value in row.values()):
+            return None
+        try:
+            rows.append({column: row[column] for column in columns})
+        except KeyError:
+            return None
+
+    # The classifier has already established the exact row count and shape.
+    # Retain this guard so a caller-supplied classification can never turn a
+    # changed or malformed object into a partial table silently.
+    if len(rows) != result.row_count:
+        return None
+
+    return {
+        "columns": list(columns),
+        "rows": rows,
+        "total_rows": result.row_count,
+        "returned_rows": result.row_count,
+        "loaded_rows": result.row_count,
+        "total_rows_known": True,
+        "meta": {"source": "rectangular_json"},
     }
 
 

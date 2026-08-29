@@ -7,10 +7,13 @@ from typing import Any
 import pytest
 
 from plotsrv.json_model import (
+    RectangularJsonLimits,
     JsonModelLimits,
     _coerce_limits,
+    build_rectangular_json_table_data,
     build_json_document,
     build_pretty_text,
+    classify_rectangular_json,
     classify_json_value,
     looks_like_image_payload,
 )
@@ -59,6 +62,99 @@ def test_build_json_document_preserves_raw_text_and_filename() -> None:
 
     assert doc["raw_text"] == '{"a": 1}'
     assert doc["meta"]["source_filename"] == "x.json"
+
+
+def test_build_json_document_classifies_rectangular_top_level_array() -> None:
+    doc = build_json_document(
+        [{"time": 1, "status": "ok"}, {"status": "warn", "time": 2}],
+        source_format="json_file",
+    )
+
+    assert doc["meta"]["table_candidate"] == {
+        "eligible": True,
+        "reason": None,
+        "row_count": 2,
+        "column_count": 2,
+        "columns": ["time", "status"],
+    }
+    assert doc["table_data"] == {
+        "columns": ["time", "status"],
+        "rows": [
+            {"time": 1, "status": "ok"},
+            {"time": 2, "status": "warn"},
+        ],
+        "total_rows": 2,
+        "returned_rows": 2,
+        "loaded_rows": 2,
+        "total_rows_known": True,
+        "meta": {"source": "rectangular_json"},
+    }
+
+
+@pytest.mark.parametrize(
+    ("payload", "reason"),
+    [
+        ({"records": [{"time": 1}]}, "not_top_level_array"),
+        ([], "empty_array"),
+        ([1, 2], "row_not_object"),
+        ([{"time": 1}, {"time": 2, "status": "ok"}], "inconsistent_columns"),
+        ([{"time": 1, "detail": {"source": "nested"}}], "nested_value"),
+        ([{"time": 1, "points": [1, 2]}], "nested_value"),
+    ],
+)
+def test_classify_rectangular_json_rejects_unsupported_shapes(
+    payload: Any, reason: str
+) -> None:
+    result = classify_rectangular_json(payload)
+
+    assert result.eligible is False
+    assert result.reason == reason
+    assert result.columns == ()
+
+
+def test_classify_rectangular_json_applies_row_and_column_bounds() -> None:
+    row_limited = classify_rectangular_json(
+        [{"a": 1}, {"a": 2}, {"a": 3}],
+        limits=RectangularJsonLimits(max_rows=2, max_columns=2),
+    )
+    column_limited = classify_rectangular_json(
+        [{"a": 1, "b": 2, "c": 3}],
+        limits=RectangularJsonLimits(max_rows=2, max_columns=2),
+    )
+
+    assert row_limited.eligible is False
+    assert row_limited.reason == "row_limit_exceeded"
+    assert column_limited.eligible is False
+    assert column_limited.reason == "column_limit_exceeded"
+
+
+def test_classify_rectangular_json_rejects_nonfinite_and_invalid_limits() -> None:
+    result = classify_rectangular_json([{"measurement": float("nan")}])
+
+    assert result.eligible is False
+    assert result.reason == "unsupported_value"
+    with pytest.raises(ValueError, match="must be positive"):
+        classify_rectangular_json(
+            [{"a": 1}], limits=RectangularJsonLimits(max_rows=0)
+        )
+
+
+@pytest.mark.parametrize("value", [2**53, -(2**53)])
+def test_classify_rectangular_json_rejects_integers_outside_javascript_safe_range(
+    value: int,
+) -> None:
+    payload = [{"identifier": value}]
+
+    result = classify_rectangular_json(payload)
+    document = build_json_document(payload, source_format="json_file")
+
+    assert result.eligible is False
+    assert result.reason == "unsupported_value"
+    assert document["table_data"] is None
+
+
+def test_build_rectangular_json_table_data_refuses_ineligible_payloads() -> None:
+    assert build_rectangular_json_table_data([{"a": {"nested": True}}]) is None
 
 
 def test_build_json_document_truncates_by_depth() -> None:
