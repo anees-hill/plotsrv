@@ -799,6 +799,7 @@ def render_index(
         ui.logo_url or "/static/plotsrv_title_logo_ui-white-bk.png"
     )
     header_status_html = ""
+    status_modal_html = ""
     if ui.show_freshness or ui.show_history_banner:
         header_status_html = """
           <div id="header-status" class="ps-header-status">
@@ -806,31 +807,127 @@ def render_index(
               id="header-status-button"
               type="button"
               class="ps-header-status__button"
+              aria-haspopup="dialog"
               aria-expanded="false"
-              aria-controls="header-status-details">
+              aria-controls="status-modal">
               <span id="header-status-dot" class="ps-header-status__dot" aria-hidden="true"></span>
               <span id="header-status-label" class="ps-header-status__label">Latest</span>
               <span id="header-status-context" class="ps-header-status__context">Checking status…</span>
               <span class="ps-header-status__chevron" aria-hidden="true">⌄</span>
             </button>
-            <div id="header-status-details" class="ps-header-status__details" hidden>
-              <strong id="header-status-details-title">Latest view</strong>
-              <span id="header-status-details-copy">Checking the latest data status.</span>
-              <button
-                id="header-status-apply-update"
-                type="button"
-                class="ps-header-status__return"
-                hidden>
-                Update view
-              </button>
-              <button
-                id="header-status-return-latest"
-                type="button"
-                class="ps-header-status__return"
-                hidden>
-                Return to latest
-              </button>
-            </div>
+          </div>
+        """
+        status_modal_html = """
+          <div id="status-modal-backdrop" class="ps-status-modal-backdrop" hidden>
+            <section
+              id="status-modal"
+              class="ps-status-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="status-modal-title"
+              aria-describedby="status-modal-intro"
+              tabindex="-1">
+              <header class="ps-status-modal__header">
+                <div>
+                  <h2 id="status-modal-title">Live data status</h2>
+                  <p id="status-modal-intro">What plotsrv and this browser currently know about this view.</p>
+                </div>
+                <button
+                  id="status-modal-close-icon"
+                  class="ps-status-modal__close-icon"
+                  type="button"
+                  aria-label="Close live data status">×</button>
+              </header>
+
+              <div class="ps-status-modal__body">
+                <section class="ps-status-modal__summary" aria-label="Current status summary">
+                  <div class="ps-status-fact">
+                    <span class="ps-status-fact__label">Viewing</span>
+                    <strong id="status-modal-viewing">Latest data</strong>
+                    <span id="status-modal-viewing-detail">This view follows live updates.</span>
+                  </div>
+                  <div class="ps-status-fact">
+                    <span class="ps-status-fact__label">Last data received</span>
+                    <strong id="status-modal-received">Not yet</strong>
+                    <span id="status-modal-received-detail">No process-lifetime arrival recorded.</span>
+                  </div>
+                  <div class="ps-status-fact">
+                    <span class="ps-status-fact__label">Browser view</span>
+                    <strong id="status-modal-browser">Loading</strong>
+                    <span id="status-modal-browser-detail">Checking browser state.</span>
+                  </div>
+                  <div class="ps-status-fact">
+                    <span class="ps-status-fact__label">Freshness</span>
+                    <strong id="status-modal-freshness">Checking</strong>
+                    <span id="status-modal-freshness-detail">Checking freshness policy.</span>
+                  </div>
+                </section>
+
+                <section class="ps-status-modal__policy" aria-labelledby="status-modal-policy-title">
+                  <div>
+                    <h3 id="status-modal-policy-title">Freshness policy</h3>
+                    <p id="status-modal-policy-copy">Freshness thresholds are loading.</p>
+                  </div>
+                  <dl id="status-modal-policy-values" class="ps-status-policy-values"></dl>
+                </section>
+
+                <section id="status-modal-stream" class="ps-status-modal__stream" aria-labelledby="status-modal-stream-title" hidden>
+                  <h3 id="status-modal-stream-title">Stream observation</h3>
+                  <div class="ps-status-modal__stream-grid">
+                    <p><span>Producer lifecycle</span><strong id="status-modal-stream-lifecycle">Unknown</strong></p>
+                    <p><span>Last heartbeat</span><strong id="status-modal-stream-heartbeat">Unknown</strong></p>
+                    <p><span>Source continuity</span><strong id="status-modal-stream-continuity">Unknown</strong></p>
+                  </div>
+                  <p id="status-modal-stream-caveat" class="ps-status-modal__caveat">This describes the producer connection observed by plotsrv, not the application’s full state.</p>
+                </section>
+
+                <section class="ps-status-modal__activity" aria-labelledby="status-modal-activity-title">
+                  <div class="ps-status-modal__activity-header">
+                    <div>
+                      <h3 id="status-modal-activity-title">Data received over time</h3>
+                      <p id="status-modal-activity-copy">Each dot represents a published update.</p>
+                    </div>
+                    <label class="ps-status-range">
+                      <span>Time range</span>
+                      <select id="status-modal-range">
+                        <option value="auto">Auto</option>
+                        <option value="900">Last 15 minutes</option>
+                        <option value="3600">Last hour</option>
+                        <option value="21600">Last 6 hours</option>
+                        <option value="86400">Last 24 hours</option>
+                        <option value="604800">Last 7 days</option>
+                        <option value="all">All retained activity</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div class="ps-arrival-chart" role="img" aria-labelledby="status-modal-activity-title status-modal-activity-description">
+                    <div id="status-modal-activity-dots" class="ps-arrival-chart__track"></div>
+                    <div class="ps-arrival-chart__axis">
+                      <span id="status-modal-range-start">—</span>
+                      <span id="status-modal-range-end">Now</span>
+                    </div>
+                  </div>
+                  <p id="status-modal-activity-empty" class="ps-arrival-chart__empty" hidden>No arrivals in this range.</p>
+                  <p id="status-modal-activity-description" class="ps-status-modal__caveat">Activity is bounded to this plotsrv process lifetime and does not survive restart.</p>
+                </section>
+
+                <details class="ps-status-modal__technical">
+                  <summary>Technical details</summary>
+                  <dl>
+                    <div><dt>View ID</dt><dd id="status-modal-view-id">—</dd></div>
+                    <div><dt>Data source</dt><dd id="status-modal-source">—</dd></div>
+                    <div><dt>Browser applied</dt><dd id="status-modal-applied">Not known</dd></div>
+                    <div><dt>Activity retained</dt><dd id="status-modal-retained">0 events</dd></div>
+                  </dl>
+                </details>
+              </div>
+
+              <footer class="ps-status-modal__footer">
+                <button id="status-modal-return-latest" type="button" class="ps-btn" hidden>Return to latest</button>
+                <button id="status-modal-update-now" type="button" class="ps-btn ps-btn--primary" hidden>Update now</button>
+                <button id="status-modal-close" type="button" class="ps-btn">Close</button>
+              </footer>
+            </section>
           </div>
         """
 
@@ -888,6 +985,7 @@ def render_index(
           {content_html}
         </section>
       </main>
+      {status_modal_html}
       {footer_html}
 
     </body>

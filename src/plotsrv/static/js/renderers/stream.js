@@ -1034,6 +1034,9 @@
       try {
         await resetStreamSessionPresentation();
         await loadStream();
+        if (typeof core.markBrowserViewApplied === "function") {
+          core.markBrowserViewApplied();
+        }
         if (typeof core.notifyUpdateEligibilityChanged === "function") {
           core.notifyUpdateEligibilityChanged();
         }
@@ -1041,6 +1044,19 @@
         showStreamError();
       }
     };
+  }
+
+  async function returnToCurrentStream() {
+    state.streamHistoricalSessionId = null;
+    if (typeof core.renderHeaderStatus === "function") core.renderHeaderStatus();
+    await resetStreamSessionPresentation();
+    await loadStream();
+    if (typeof core.markBrowserViewApplied === "function") {
+      core.markBrowserViewApplied();
+    }
+    if (typeof core.notifyUpdateEligibilityChanged === "function") {
+      core.notifyUpdateEligibilityChanged();
+    }
   }
 
   function loadHistoryCatalogue(data) {
@@ -1218,6 +1234,7 @@
   }
 
   core.loadStream = loadStream;
+  core.returnToCurrentStream = returnToCurrentStream;
   window.refreshStream = function () {
     return loadStream();
   };

@@ -35,19 +35,16 @@ def test_snapshot_presentation_overrides_age_and_new_data_presentation() -> None
     assert 'label: "New data available"' in status_source
 
 
-def test_header_status_has_a_working_extensible_details_interaction() -> None:
+def test_header_status_opens_the_shared_accessible_modal() -> None:
     status_source = _read("core/status.js")
+    modal_source = _read("core/status_modal.js")
     app_source = _read("core/app.js")
-    bind_source = status_source.split("function bindHeaderStatus()", 1)[1].split(
-        "function setFileBackedIndicator", 1
-    )[0]
 
     assert 'button.addEventListener("click"' in status_source
-    assert 'event.key === "Escape"' in status_source
-    assert (
-        'const returnLatest = document.getElementById("header-status-return-latest");'
-        in bind_source
-    )
-    assert 'returnLatest.addEventListener("click"' in bind_source
-    assert "core.returnToLive()" in status_source
+    assert "core.openStatusModal()" in status_source
+    assert 'event.key === "Escape"' in modal_source
+    assert 'event.key !== "Tab"' in modal_source
+    assert "state.statusModalReturnFocus" in modal_source
+    assert "core.returnToLive()" in modal_source
     assert "core.bindHeaderStatus()" in app_source
+    assert "core.bindStatusModal()" in app_source

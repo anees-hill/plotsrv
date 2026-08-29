@@ -365,23 +365,15 @@
     wrap.hidden = !presentation.visible;
     wrap.setAttribute("data-status-tone", presentation.tone);
 
-    if (!presentation.visible) closeHeaderStatusDetails();
+    if (!presentation.visible && typeof core.closeStatusModal === "function") {
+      core.closeStatusModal();
+    }
 
     const label = document.getElementById("header-status-label");
     const context = document.getElementById("header-status-context");
-    const title = document.getElementById("header-status-details-title");
-    const copy = document.getElementById("header-status-details-copy");
-    const applyUpdate = document.getElementById("header-status-apply-update");
-    const returnLatest = document.getElementById("header-status-return-latest");
     if (label) label.textContent = presentation.label;
     if (context) context.textContent = presentation.context;
-    if (title) title.textContent = presentation.title;
-    if (copy) copy.textContent = presentation.copy;
-    if (applyUpdate) {
-      applyUpdate.hidden = state.headerStatus.browserData !== "update_available" ||
-        state.headerStatus.viewMode === "snapshot" || !!state.streamHistoricalSessionId;
-    }
-    if (returnLatest) returnLatest.hidden = state.headerStatus.viewMode !== "snapshot";
+    if (typeof core.renderStatusModal === "function") core.renderStatusModal();
   }
 
   function setHeaderViewState(viewMode, snapshot) {
@@ -402,6 +394,7 @@
   }
 
   function setHeaderLatestStatus(statusPayload) {
+    state.latestStatusPayload = statusPayload || null;
     state.headerStatus.latestData = {
       lastUpdated: statusPayload && statusPayload.last_updated
         ? statusPayload.last_updated
@@ -444,52 +437,14 @@
     renderHeaderStatus();
   }
 
-  function closeHeaderStatusDetails() {
-    const button = document.getElementById("header-status-button");
-    const details = document.getElementById("header-status-details");
-    if (!button || !details) return;
-    details.hidden = true;
-    button.setAttribute("aria-expanded", "false");
-  }
-
   function bindHeaderStatus() {
     const button = document.getElementById("header-status-button");
-    const details = document.getElementById("header-status-details");
-    const applyUpdate = document.getElementById("header-status-apply-update");
-    const returnLatest = document.getElementById("header-status-return-latest");
-    if (!button || !details) return;
+    if (!button) return;
 
     renderHeaderStatus();
     button.addEventListener("click", function () {
-      const willOpen = details.hidden;
-      details.hidden = !willOpen;
-      button.setAttribute("aria-expanded", willOpen ? "true" : "false");
+      if (typeof core.openStatusModal === "function") core.openStatusModal();
     });
-    document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape" && !details.hidden) {
-        closeHeaderStatusDetails();
-        button.focus();
-      }
-    });
-    document.addEventListener("click", function (event) {
-      if (!details.hidden && !button.closest("#header-status").contains(event.target)) {
-        closeHeaderStatusDetails();
-      }
-    });
-    if (returnLatest) {
-      returnLatest.addEventListener("click", function () {
-        closeHeaderStatusDetails();
-        if (typeof core.returnToLive === "function") core.returnToLive();
-      });
-    }
-    if (applyUpdate) {
-      applyUpdate.addEventListener("click", function () {
-        closeHeaderStatusDetails();
-        if (typeof core.applyPendingUpdate === "function") {
-          core.applyPendingUpdate({ force: true });
-        }
-      });
-    }
     if (state.headerFreshnessTimer == null) {
       state.headerFreshnessTimer = window.setInterval(refreshLocalFreshness, 10000);
     }

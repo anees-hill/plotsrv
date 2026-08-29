@@ -84,6 +84,10 @@
   };
 
   core.bootstrap = function () {
+    if (typeof core.bindStatusModal === "function") {
+      core.bindStatusModal();
+    }
+
     if (typeof core.bindHeaderStatus === "function") {
       core.bindHeaderStatus();
     }
@@ -121,6 +125,9 @@
       })
       .then(function () {
         if (typeof core.markInitialViewLoaded === "function") core.markInitialViewLoaded();
+        if (typeof core.markBrowserViewApplied === "function") {
+          core.markBrowserViewApplied();
+        }
         if (typeof core.showPendingSnapshotNotice === "function") {
           core.showPendingSnapshotNotice();
         }

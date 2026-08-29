@@ -75,6 +75,9 @@
 
   function finishAppliedUpdate(revision) {
     state.appliedUpdateRevision = Math.max(state.appliedUpdateRevision, revision);
+    if (typeof core.markBrowserViewApplied === "function") {
+      core.markBrowserViewApplied();
+    }
     if (state.pendingBrowserUpdate &&
         state.pendingBrowserUpdate.revision <= state.appliedUpdateRevision) {
       state.pendingBrowserUpdate = null;

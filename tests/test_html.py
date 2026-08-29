@@ -239,9 +239,12 @@ def test_render_index_uses_shared_accessible_header_status_for_every_view_kind(
     )
 
     assert rendered.count('id="header-status-button"') == 1
-    assert 'aria-controls="header-status-details"' in rendered
-    assert 'id="header-status-details"' in rendered
-    assert 'id="header-status-return-latest"' in rendered
+    assert 'aria-haspopup="dialog"' in rendered
+    assert 'aria-controls="status-modal"' in rendered
+    assert 'id="status-modal"' in rendered
+    assert 'role="dialog"' in rendered
+    assert 'aria-modal="true"' in rendered
+    assert 'id="status-modal-return-latest"' in rendered
     assert "header-history" not in rendered
     assert "header-freshness-dot" not in rendered
     header_right = rendered.split(

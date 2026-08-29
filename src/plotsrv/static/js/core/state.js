@@ -69,6 +69,10 @@
 
   state.historyItems = [];
   state.currentSnapshot = readSnapshotFromUrl();
+  state.latestStatusPayload = null;
+  state.browserLastAppliedAt = null;
+  state.statusModalOpen = false;
+  state.statusModalReturnFocus = null;
   // Header status has three independent axes. Rendered classes and text are
   // always derived from this model; they are never read back as state.
   state.headerStatus = {

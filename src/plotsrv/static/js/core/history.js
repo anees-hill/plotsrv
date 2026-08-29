@@ -232,7 +232,11 @@
     }
 
     if (typeof core.reloadCurrentView === "function") {
-      core.reloadCurrentView();
+      Promise.resolve(core.reloadCurrentView()).then(function () {
+        if (typeof core.markBrowserViewApplied === "function") {
+          core.markBrowserViewApplied();
+        }
+      });
     }
 
     if (typeof core.restoreAutoRefreshState === "function") {
@@ -255,7 +259,11 @@
       }
 
       if (typeof core.reloadCurrentView === "function") {
-        core.reloadCurrentView();
+        Promise.resolve(core.reloadCurrentView()).then(function () {
+          if (typeof core.markBrowserViewApplied === "function") {
+            core.markBrowserViewApplied();
+          }
+        });
       }
     });
 
