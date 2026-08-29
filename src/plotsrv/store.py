@@ -10,6 +10,7 @@ from typing import Any, Callable, Literal
 import pandas as pd
 from . import config
 from .artifacts import Artifact, ArtifactKind, Truncation
+from .browser_updates import browser_update_hub
 
 IconKey = Literal[
     "unknown",
@@ -280,6 +281,7 @@ def register_view(
     _VIEW_META[vid] = next_meta
     if next_meta != previous_meta:
         _touch_view_menu_revision()
+        browser_update_hub.publish_catalogue()
 
     global _ACTIVE_VIEW_ID
     if (
@@ -395,6 +397,12 @@ def set_watched_file_meta(meta: WatchedFileMeta) -> None:
         _VIEW_META[meta.view_id] = next_meta
         if next_meta != existing:
             _touch_view_menu_revision()
+            browser_update_hub.publish_catalogue()
+    browser_update_hub.publish(
+        view_id=meta.view_id,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
+    )
 
 
 def has_watched_file_meta(*, view_id: str | None = None) -> bool:
@@ -410,9 +418,15 @@ def get_watched_file_meta(*, view_id: str | None = None) -> WatchedFileMeta:
 
 
 def clear_watched_file_meta(*, view_id: str | None = None) -> None:
-    st = get_view_state(view_id)
+    vid = view_id or _ACTIVE_VIEW_ID
+    st = get_view_state(vid)
     st.watched_file = None
     _touch_render_revision(st)
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
+    )
 
 
 # Backwards-compatible single-view API (uses active view)
@@ -451,6 +465,11 @@ def set_plot(
 
     register_view(
         view_id=vid, kind="plot", icon_key=st.icon_key, activate_if_first=False
+    )
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
     )
 
 
@@ -503,6 +522,11 @@ def set_table(
     register_view(
         view_id=vid, kind="table", icon_key=st.icon_key, activate_if_first=False
     )
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
+    )
 
 
 def set_artifact(
@@ -539,6 +563,11 @@ def set_artifact(
 
     register_view(
         view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
+    )
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
     )
 
 
@@ -605,9 +634,15 @@ def mark_success(
 
 
 def mark_error(message: str, *, view_id: str | None = None) -> None:
-    st = get_view_state(view_id)
+    vid = view_id or _ACTIVE_VIEW_ID
+    st = get_view_state(vid)
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = message
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
+    )
 
 
 def mark_restored(
@@ -860,6 +895,7 @@ def reset() -> None:
         "service_refresh_rate_s": None,
     }
     _SERVICE_STOP_HOOK = None
+    browser_update_hub.clear()
 
     # Stream rows are deliberately kept in their own bounded registry rather
     # than the snapshot store, but reset() promises test/process-local state

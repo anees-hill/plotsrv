@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from . import config, store
+from .browser_updates import browser_update_hub
 from .http_security import require_local_request
 from .storage.stream_worker import (
     get_stream_storage_worker,
@@ -39,6 +40,18 @@ from .streams.server_state import (
 
 
 router = APIRouter()
+
+
+def notify_stream_browser(view_id: str, *, change_type: str = "stream") -> None:
+    """Publish a de-duplicated notification for meaningful stream state."""
+    metadata = stream_registry.browser_update_metadata(view_id=view_id)
+    fingerprint = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+    browser_update_hub.publish(
+        view_id=view_id,
+        change_type=change_type,
+        metadata=metadata,
+        fingerprint=fingerprint,
+    )
 
 
 def _submit_stream_persistence(
@@ -338,6 +351,8 @@ async def register_stream(request: Request) -> dict[str, Any]:
     if current_active not in known_view_ids:
         store.set_active_view(registration.view_id)
 
+    notify_stream_browser(registration.view_id)
+
     return {
         "ok": True,
         "protocol_version": STREAM_PROTOCOL_VERSION,
@@ -403,6 +418,7 @@ async def append_stream(request: Request) -> dict[str, Any]:
         ),
         raw_records=result.accepted_raw_records,
     )
+    notify_stream_browser(result.view_id)
 
     return {
         "ok": True,
@@ -443,6 +459,7 @@ async def heartbeat_stream(request: Request) -> dict[str, Any]:
         view_id=result.view_id,
         session_id=heartbeat.session_id,
     )
+    notify_stream_browser(result.view_id)
     return {
         "ok": True,
         "protocol_version": STREAM_PROTOCOL_VERSION,
@@ -474,6 +491,7 @@ async def close_stream(request: Request) -> dict[str, Any]:
         view_id=result.view_id,
         session_id=close.session_id,
     )
+    notify_stream_browser(result.view_id)
     return {
         "ok": True,
         "protocol_version": STREAM_PROTOCOL_VERSION,

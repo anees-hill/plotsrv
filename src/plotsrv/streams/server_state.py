@@ -954,6 +954,32 @@ class StreamRegistry:
                 "durable_history": state.durable_history.as_browser_dict(),
             }
 
+    def browser_update_metadata(self, *, view_id: str) -> dict[str, Any]:
+        """Return the small, stable state represented by one browser notice."""
+        with self._lock:
+            state = self._streams.get(view_id)
+            if state is None:
+                raise UnknownStreamError("stream view has not been registered")
+            if not state.historical:
+                self._expire_state_if_needed(state, self._monotonic_clock())
+                self._enforce_raw_retention(state, self._observed_now())
+            return {
+                "kind": "stream",
+                "session_id": state.registration.session_id,
+                "next_browser_sequence": state.next_browser_sequence,
+                "schema_revision": state.schema.revision,
+                "summary_revision": state.summary_revision,
+                "noteworthy_revision": state.noteworthy_revision,
+                "lifecycle": state.lifecycle,
+                "pending_delivery": state.pending_delivery,
+                "source_status": {
+                    "source_available": state.source_status.source_available,
+                    "source_transition": state.source_status.source_transition,
+                    "continuity_warning": state.source_status.continuity_warning,
+                },
+                "source_health": state.source_health.as_dict(),
+            }
+
     def set_persistence_enabled(self, *, view_id: str, enabled: bool) -> None:
         """Reflect the master storage setting without changing live state."""
         with self._lock:
