@@ -134,6 +134,11 @@ Missing or malformed references are ignored. When no configured references
 match an available view, the Featured area is omitted. Featured views only
 change presentation in the selector; they do not create or copy views.
 
+Anyone using the page can also pin views from the selector. Pinned view IDs are
+kept in that browser's local storage and appear in a **Pinned views** section in
+Grouped mode. Pins do not change server configuration, are not sent with HTTP
+requests, and are automatically reconciled when views are added or removed.
+
 ## Combine with storage and freshness
 
 UI customisation works well with storage and freshness settings.

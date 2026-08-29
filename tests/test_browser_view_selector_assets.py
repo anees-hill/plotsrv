@@ -18,8 +18,14 @@ _SOURCE = (
 )
 
 
-def test_view_selector_source_keeps_navigation_explicit_and_recent_bounded() -> None:
+def test_view_selector_source_keeps_navigation_explicit_and_local_lists_safe() -> None:
     source = _SOURCE.read_text(encoding="utf-8")
+    storage = (
+        _SOURCE.parent / "storage.js"
+    ).read_text(encoding="utf-8")
+    controls = (
+        Path(__file__).parents[1] / "src" / "plotsrv" / "static" / "css" / "controls.css"
+    ).read_text(encoding="utf-8")
 
     assert "const MAX_RECENT_VIEWS = 4" in source
     assert (
@@ -32,6 +38,12 @@ def test_view_selector_source_keeps_navigation_explicit_and_recent_bounded() -> 
     assert "event.stopPropagation()" in source
     assert 'const modes = [["grouped", "Grouped"], ["az", "A–Z"]]' in source
     assert '"ps-viewselect__group ps-viewselect__group--featured"' in source
+    assert 'appendGroup(fragment, "Pinned views"' in source
+    assert 'event.target.closest("[data-pin-view]")' in source
+    assert "core.togglePinnedView" in source
+    assert 'viewSelectorPinned: "plotsrv:v1:view_selector_pinned"' in storage
+    assert "document.cookie" not in source
+    assert ".ps-viewselect__pin--active" in controls
     assert "core.updateViewSelectorCatalogue" in source
 
 
@@ -78,6 +90,22 @@ if (features.length !== 1 || features[0].title !== "Featured Zulu") {
 }
 if (core.initialViewSelectorMode(true) !== "grouped") {
   throw new Error("Grouped was not the default when featured views exist");
+}
+let pinned = core.togglePinnedView("reports:alpha", views);
+if (pinned.join(",") !== "reports:alpha" || core.loadPinnedViews(views).join(",") !== "reports:alpha") {
+  throw new Error("pin preference was not persisted");
+}
+pinned = core.togglePinnedView("ops:zulu", views);
+if (pinned.join(",") !== "ops:zulu,reports:alpha") {
+  throw new Error("most recently pinned view was not placed first");
+}
+pinned = core.togglePinnedView("reports:alpha", views);
+if (pinned.join(",") !== "ops:zulu") {
+  throw new Error("unpin did not remove the view");
+}
+localStorage.setItem("plotsrv:v1:view_selector_pinned", JSON.stringify(["missing", "ops:zulu"]));
+if (core.loadPinnedViews(views).join(",") !== "ops:zulu") {
+  throw new Error("stale pinned view IDs were not removed");
 }
 core.saveViewSelectorMode("az");
 if (core.initialViewSelectorMode(true) !== "az" || core.initialViewSelectorMode(false) !== "az") {

@@ -224,6 +224,44 @@
     return bounded;
   }
 
+  function pinnedStorageKey() {
+    return storageKey("viewSelectorPinned", "plotsrv:v1:view_selector_pinned");
+  }
+
+  function loadPinnedViews(catalogue) {
+    const valid = new Set(catalogue.map(function (view) { return view.view_id; }));
+    try {
+      const parsed = JSON.parse(localStorage.getItem(pinnedStorageKey()) || "[]");
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map(String)
+        .filter(function (viewId, index, items) {
+          return valid.has(viewId) && items.indexOf(viewId) === index;
+        });
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function savePinnedViews(viewIds) {
+    try {
+      localStorage.setItem(pinnedStorageKey(), JSON.stringify(viewIds));
+    } catch (e) {
+      // ignore
+    }
+  }
+
+  function togglePinnedView(viewId, catalogue) {
+    const current = loadPinnedViews(catalogue);
+    const existing = current.indexOf(viewId);
+    if (existing >= 0) current.splice(existing, 1);
+    else if (catalogue.some(function (view) { return view.view_id === viewId; })) {
+      current.unshift(viewId);
+    }
+    savePinnedViews(current);
+    return current;
+  }
+
   function iconUrl(view) {
     return ICONS[view.icon_key] || ICONS.unknown;
   }
@@ -237,7 +275,7 @@
 
   function applySelection(button, view) {
     const selected = view.view_id === config.activeViewId;
-    button.setAttribute("aria-selected", selected ? "true" : "false");
+    button.setAttribute("data-selected", selected ? "true" : "false");
     if (selected) button.setAttribute("aria-current", "page");
     else button.removeAttribute("aria-current");
   }
@@ -248,10 +286,35 @@
     }
   }
 
-  function makeViewItem(view, includeSection) {
+  function makePinButton(view, pinned) {
+    const button = element(
+      "button",
+      "ps-viewselect__pin" + (pinned ? " ps-viewselect__pin--active" : ""),
+      pinned ? "★" : "☆"
+    );
+    const action = pinned ? "Unpin" : "Pin";
+    button.type = "button";
+    button.setAttribute("data-pin-view", view.view_id);
+    button.setAttribute("aria-pressed", pinned ? "true" : "false");
+    button.setAttribute("aria-label", action + " " + view.label);
+    button.title = action + " " + view.label;
+    return button;
+  }
+
+  function wrapViewEntry(button, view, pinned, feature) {
+    const entry = element(
+      "div",
+      "ps-viewselect__entry" + (feature ? " ps-viewselect__entry--feature" : "")
+    );
+    entry.appendChild(button);
+    entry.appendChild(makePinButton(view, pinned));
+    entry.setAttribute("role", "listitem");
+    return entry;
+  }
+
+  function makeViewItem(view, includeSection, pinned) {
     const button = element("button", "ps-viewselect__item");
     button.type = "button";
-    button.setAttribute("role", "option");
     button.setAttribute("data-plotsrv-view", view.view_id);
     button.setAttribute("data-view-section", view.section);
     button.setAttribute("data-view-kind", view.kind);
@@ -281,7 +344,7 @@
     check.setAttribute("aria-hidden", "true");
     button.appendChild(check);
     applyFreshness(button, view);
-    return button;
+    return wrapViewEntry(button, view, pinned, false);
   }
 
   function makeFeatureFallback(view) {
@@ -293,11 +356,10 @@
     return fallback;
   }
 
-  function makeFeatureItem(feature) {
+  function makeFeatureItem(feature, pinned) {
     const view = feature.view;
     const button = element("button", "ps-viewselect__feature");
     button.type = "button";
-    button.setAttribute("role", "option");
     button.setAttribute("data-plotsrv-view", view.view_id);
     applySelection(button, view);
 
@@ -336,17 +398,19 @@
     check.setAttribute("aria-hidden", "true");
     button.appendChild(check);
     applyFreshness(button, view);
-    return button;
+    return wrapViewEntry(button, view, pinned, true);
   }
 
-  function appendGroup(fragment, label, views, includeSection) {
+  function appendGroup(fragment, label, views, includeSection, pinnedIds) {
     if (!views.length) return;
     const group = element("section", "ps-viewselect__group");
-    group.setAttribute("role", "group");
     group.setAttribute("aria-label", label);
     group.appendChild(element("h3", "ps-viewselect__group-label", label));
     const items = element("div", "ps-viewselect__group-items");
-    for (const view of views) items.appendChild(makeViewItem(view, includeSection));
+    items.setAttribute("role", "list");
+    for (const view of views) {
+      items.appendChild(makeViewItem(view, includeSection, pinnedIds.has(view.view_id)));
+    }
     group.appendChild(items);
     fragment.appendChild(group);
   }
@@ -364,6 +428,7 @@
       mode: "grouped",
       query: "",
       recent: [],
+      pinned: [],
       renderFrame: null,
     };
     controller.mode = initialViewSelectorMode();
@@ -371,6 +436,8 @@
       config.activeViewId,
       controller.catalogue
     );
+    controller.pinned = loadPinnedViews(controller.catalogue);
+    savePinnedViews(controller.pinned);
 
     function availableFeatures() {
       return resolveFeaturedViews(controller.catalogue, config.featuredViews);
@@ -398,20 +465,23 @@
       renderTabs();
       const fragment = document.createDocumentFragment();
       const query = controller.query.trim();
+      const pinnedIds = new Set(controller.pinned);
 
       if (query) {
         appendGroup(
           fragment,
           "Search results",
           filterViewCatalogue(controller.catalogue, query).sort(compareViews),
-          true
+          true,
+          pinnedIds
         );
       } else if (controller.mode === "az") {
         appendGroup(
           fragment,
           "All views",
           controller.catalogue.slice().sort(compareViews),
-          true
+          true,
+          pinnedIds
         );
       } else {
         const featuredIds = new Set(features.map(function (feature) {
@@ -422,14 +492,16 @@
             "section",
             "ps-viewselect__group ps-viewselect__group--featured"
           );
-          featuredGroup.setAttribute("role", "group");
           featuredGroup.setAttribute("aria-label", "Featured");
           featuredGroup.appendChild(
             element("h3", "ps-viewselect__group-label", "Featured")
           );
           const featureList = element("div", "ps-viewselect__features");
+          featureList.setAttribute("role", "list");
           for (const feature of features) {
-            featureList.appendChild(makeFeatureItem(feature));
+            featureList.appendChild(
+              makeFeatureItem(feature, pinnedIds.has(feature.view.view_id))
+            );
           }
           featuredGroup.appendChild(featureList);
           fragment.appendChild(featuredGroup);
@@ -438,21 +510,26 @@
         const byId = new Map(controller.catalogue.map(function (view) {
           return [view.view_id, view];
         }));
+        const pinned = controller.pinned
+          .map(function (viewId) { return byId.get(viewId); })
+          .filter(Boolean);
+        appendGroup(fragment, "Pinned views", pinned, true, pinnedIds);
+
         const recent = controller.recent
           .map(function (viewId) { return byId.get(viewId); })
           .filter(function (view) {
-            return view && !featuredIds.has(view.view_id);
+            return view && !featuredIds.has(view.view_id) && !pinnedIds.has(view.view_id);
           });
-        appendGroup(fragment, "Recent", recent, true);
+        appendGroup(fragment, "Recent", recent, true, pinnedIds);
 
         const groups = new Map();
         for (const view of controller.catalogue) {
-          if (featuredIds.has(view.view_id)) continue;
+          if (featuredIds.has(view.view_id) || pinnedIds.has(view.view_id)) continue;
           if (!groups.has(view.section)) groups.set(view.section, []);
           groups.get(view.section).push(view);
         }
         groups.forEach(function (views, section) {
-          appendGroup(fragment, section, views, false);
+          appendGroup(fragment, section, views, false, pinnedIds);
         });
       }
 
@@ -468,7 +545,7 @@
       results.replaceChildren(fragment);
       const items = Array.from(results.querySelectorAll("[data-plotsrv-view]"));
       const roving = items.find(function (item) {
-        return item.getAttribute("aria-selected") === "true";
+        return item.getAttribute("aria-current") === "page";
       }) || items[0];
       items.forEach(function (item) { item.tabIndex = item === roving ? 0 : -1; });
     }
@@ -526,6 +603,8 @@
       controller.catalogue = normalizeViewCatalogue(views);
       config.viewCatalogue = controller.catalogue;
       controller.recent = loadRecentViews(controller.catalogue);
+      controller.pinned = loadPinnedViews(controller.catalogue);
+      savePinnedViews(controller.pinned);
       render();
     };
 
@@ -585,6 +664,23 @@
       items[index].focus();
     });
     results.addEventListener("click", function (event) {
+      const pin = event.target.closest && event.target.closest("[data-pin-view]");
+      if (pin) {
+        event.preventDefault();
+        event.stopPropagation();
+        const pinnedViewId = pin.getAttribute("data-pin-view");
+        controller.pinned = togglePinnedView(
+          pinnedViewId,
+          controller.catalogue
+        );
+        render();
+        const pinButtons = Array.from(results.querySelectorAll("[data-pin-view]"));
+        const nextPin = pinButtons.find(function (button) {
+          return button.getAttribute("data-pin-view") === pinnedViewId;
+        });
+        if (nextPin) nextPin.focus();
+        return;
+      }
       const item = event.target.closest && event.target.closest("[data-plotsrv-view]");
       if (!item) return;
       const viewId = item.getAttribute("data-plotsrv-view");
@@ -643,6 +739,8 @@
   core.resolveFeaturedViews = resolveFeaturedViews;
   core.initialViewSelectorMode = initialViewSelectorMode;
   core.saveViewSelectorMode = saveViewSelectorMode;
+  core.loadPinnedViews = loadPinnedViews;
+  core.togglePinnedView = togglePinnedView;
   core.updateViewSelectorCatalogue = updateViewSelectorCatalogue;
   core.bindViewDropdown = bindViewDropdown;
 })();

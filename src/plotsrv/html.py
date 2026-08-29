@@ -280,22 +280,26 @@ def render_index(
         freshness_title = _freshness_title(v)
 
         return f"""
-          <button type="button"
-                  class="ps-viewselect__item{freshness_class}"
-                  role="option"
-                  aria-selected="{selected}"{current}
-                  data-plotsrv-view="{view_id_attr}"
-                  data-view-section="{_escape_attr(section)}"
-                  data-view-kind="{_escape_attr(v.kind)}"
-                  data-view-icon="{_escape_attr(v.icon_key)}"{freshness_title}>
-            <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{view_id_attr}" hidden aria-hidden="true"></span>
-            <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
-            <span class="ps-viewselect__itemcopy">
-              <span class="ps-viewselect__itemlabel">{label_html}</span>
-              <span class="ps-viewselect__itemmeta">{_escape_html(secondary)}</span>
-            </span>
-            <span class="ps-viewselect__check" aria-hidden="true">✓</span>
-          </button>
+          <div class="ps-viewselect__entry" role="listitem">
+            <button type="button"
+                    class="ps-viewselect__item{freshness_class}"
+                    data-selected="{selected}"{current}
+                    data-plotsrv-view="{view_id_attr}"
+                    data-view-section="{_escape_attr(section)}"
+                    data-view-kind="{_escape_attr(v.kind)}"
+                    data-view-icon="{_escape_attr(v.icon_key)}"{freshness_title}>
+              <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{view_id_attr}" hidden aria-hidden="true"></span>
+              <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
+              <span class="ps-viewselect__itemcopy">
+                <span class="ps-viewselect__itemlabel">{label_html}</span>
+                <span class="ps-viewselect__itemmeta">{_escape_html(secondary)}</span>
+              </span>
+              <span class="ps-viewselect__check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="ps-viewselect__pin" data-pin-view="{view_id_attr}"
+                    aria-pressed="false" aria-label="Pin {_escape_attr(v.label)}"
+                    title="Pin {_escape_attr(v.label)}">☆</button>
+          </div>
         """
 
     configured_featured = tuple(getattr(ui, "featured_views", ()))
@@ -330,20 +334,25 @@ def render_index(
             if caption
             else ""
         )
+        view_id_attr = _escape_attr(view.view_id)
         return f"""
-          <button type="button"
-                  class="ps-viewselect__feature{freshness_class}"
-                  role="option"
-                  aria-selected="{selected}"{current}
-                  data-plotsrv-view="{_escape_attr(view.view_id)}"{freshness_title}>
-            {visual}
-            <span class="ps-viewselect__feature-copy">
-              <span class="ps-viewselect__feature-title">{_escape_html(title)}</span>
-              {caption_html}
-              <span class="ps-viewselect__feature-kind">{_escape_html(_view_type_label(view))}</span>
-            </span>
-            <span class="ps-viewselect__check" aria-hidden="true">✓</span>
-          </button>
+          <div class="ps-viewselect__entry ps-viewselect__entry--feature" role="listitem">
+            <button type="button"
+                    class="ps-viewselect__feature{freshness_class}"
+                    data-selected="{selected}"{current}
+                    data-plotsrv-view="{view_id_attr}"{freshness_title}>
+              {visual}
+              <span class="ps-viewselect__feature-copy">
+                <span class="ps-viewselect__feature-title">{_escape_html(title)}</span>
+                {caption_html}
+                <span class="ps-viewselect__feature-kind">{_escape_html(_view_type_label(view))}</span>
+              </span>
+              <span class="ps-viewselect__check" aria-hidden="true">✓</span>
+            </button>
+            <button type="button" class="ps-viewselect__pin" data-pin-view="{view_id_attr}"
+                    aria-pressed="false" aria-label="Pin {_escape_attr(view.label)}"
+                    title="Pin {_escape_attr(view.label)}">☆</button>
+          </div>
         """
 
     dropdown_html = ""
@@ -373,9 +382,9 @@ def render_index(
         if valid_featured:
             menu_parts.extend(
                 [
-                    '<section class="ps-viewselect__group ps-viewselect__group--featured" role="group" aria-labelledby="view-selector-featured">',
+                    '<section class="ps-viewselect__group ps-viewselect__group--featured" aria-labelledby="view-selector-featured">',
                     '<h3 id="view-selector-featured" class="ps-viewselect__group-label">Featured</h3>',
-                    '<div class="ps-viewselect__features">',
+                    '<div class="ps-viewselect__features" role="list">',
                     *(
                         _featured_item_html(feature, view)
                         for feature, view in valid_featured
@@ -390,12 +399,12 @@ def render_index(
                 continue
             heading_id = f"view-selector-group-{index}"
             menu_parts.append(
-                f'<section class="ps-viewselect__group" role="group" aria-labelledby="{heading_id}">'
+                f'<section class="ps-viewselect__group" aria-labelledby="{heading_id}">'
             )
             menu_parts.append(
                 f'<h3 id="{heading_id}" class="ps-viewselect__group-label">{_escape_html(sec)}</h3>'
             )
-            menu_parts.append('<div class="ps-viewselect__group-items">')
+            menu_parts.append('<div class="ps-viewselect__group-items" role="list">')
             menu_parts.extend(_view_item_html(v) for v in section_views)
             menu_parts.append("</div></section>")
 
@@ -435,7 +444,7 @@ def render_index(
                   {''.join(tab_parts)}
                 </div>
               </div>
-              <div id="view-selector-results" class="ps-viewselect__results" role="listbox" aria-label="Views" aria-live="polite">
+              <div id="view-selector-results" class="ps-viewselect__results" role="region" aria-label="Views" aria-live="polite">
                 {''.join(menu_parts)}
               </div>
             </div>

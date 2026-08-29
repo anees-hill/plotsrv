@@ -51,7 +51,8 @@ def test_render_index_includes_view_dropdown_and_selected_option_basic() -> None
     # New custom selector exists
     assert 'data-plotsrv-viewselect="1"' in html
     assert 'class="ps-viewselect__btn"' in html
-    assert 'role="listbox"' in html
+    assert 'role="region" aria-label="Views"' in html
+    assert 'role="list"' in html
 
     # Both items present
     assert 'data-plotsrv-view="etl-1:import"' in html
@@ -59,7 +60,7 @@ def test_render_index_includes_view_dropdown_and_selected_option_basic() -> None
 
     # Selected state present for active view
     assert (
-        'data-plotsrv-view="etl-1:metrics"' in html and 'aria-selected="true"' in html
+        'data-plotsrv-view="etl-1:metrics"' in html and 'data-selected="true"' in html
     )
 
 
@@ -365,7 +366,7 @@ def test_view_browser_renders_grouped_and_az_modes_without_empty_featured_tab() 
     assert 'data-view-mode="featured"' not in rendered
     assert rendered.index(">Reports</h3>") < rendered.index(">Operations</h3>")
     assert 'data-plotsrv-view="reports:daily"' in rendered
-    assert 'aria-selected="true" aria-current="page"' in rendered
+    assert 'data-selected="true" aria-current="page"' in rendered
     assert 'role="dialog" aria-label="Browse views"' in rendered
 
 

@@ -21,6 +21,7 @@
    textPrefsPrefix: "plotsrv:v2:text_prefs:",
    viewSelectorMode: "plotsrv:v1:view_selector_mode",
    viewSelectorRecent: "plotsrv:v1:view_selector_recent",
+   viewSelectorPinned: "plotsrv:v1:view_selector_pinned",
  };   
 
   core.loadPref = function (key, fallbackValue) {
