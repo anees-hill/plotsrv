@@ -149,6 +149,13 @@ def _ensure_assets_mount() -> None:
         # backwards compatibility: if assets_dir is actually a file, use it
         if ui.assets_dir.exists() and ui.assets_dir.is_file():
             asset_files.append(ui.assets_dir)
+    for asset_file in getattr(ui, "asset_files", ()):
+        if (
+            asset_file.exists()
+            and asset_file.is_file()
+            and asset_file not in asset_files
+        ):
+            asset_files.append(asset_file)
 
     # Rebuild cache dir
     if not asset_files:

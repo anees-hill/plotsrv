@@ -154,3 +154,51 @@ ui-settings:
 
     assert s2 is s1
     assert s2.page_title == "One"
+
+
+def test_featured_views_are_optional_validated_and_resolve_local_thumbnails(
+    tmp_path: Path,
+) -> None:
+    thumbnail = tmp_path / "overview.png"
+    thumbnail.write_bytes(b"png")
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+ui-settings:
+  featured_views:
+    - view: reports:overview
+      title: Daily overview
+      caption: The latest reporting summary
+      thumbnail: overview.png
+    - reports:detail
+    - view: reports:overview
+      title: Duplicate ignored
+    - title: Missing reference
+    - 123
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    s = ui.load_ui_settings()
+
+    assert [item.view_id for item in s.featured_views] == [
+        "reports:overview",
+        "reports:detail",
+    ]
+    assert s.featured_views[0].title == "Daily overview"
+    assert s.featured_views[0].caption == "The latest reporting summary"
+    assert s.featured_views[0].thumbnail_url == "/assets/overview.png"
+    assert s.featured_views[1].title is None
+    assert s.asset_files == (thumbnail.resolve(),)
+
+
+def test_invalid_featured_views_setting_degrades_to_empty(tmp_path: Path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        "ui-settings:\n  featured_views: definitely-not-a-list\n",
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert ui.load_ui_settings().featured_views == ()

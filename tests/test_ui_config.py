@@ -28,6 +28,8 @@ def test_load_ui_settings_defaults_when_no_config(monkeypatch, tmp_path: Path) -
     assert ui.page_title == ui_config.DEFAULT_PAGE_TITLE
     assert ui.favicon_url == ui_config.DEFAULT_FAVICON_URL
     assert ui.show_view_selector is True
+    assert ui.featured_views == ()
+    assert ui.asset_files == ()
 
 
 def test_load_ui_settings_reads_page_title_and_favicon_from_yaml(
