@@ -1,4 +1,5 @@
 .ps-table-plot {
+  position: relative;
   width: 100%;
   margin: 0;
   padding: 0.85rem;
@@ -72,25 +73,107 @@
 }
 
 .ps-table-plot__bar {
-  fill: #d55970;
+  transition: opacity 120ms ease, filter 120ms ease;
 }
 
 .ps-table-plot__line {
-  stroke: #d55970;
   stroke-width: 2.2;
   stroke-linejoin: round;
   stroke-linecap: round;
 }
 
 .ps-table-plot__point {
-  fill: #7a3950;
   fill-opacity: 0.72;
+  transition: r 120ms ease, fill-opacity 120ms ease;
 }
 
 .ps-table-plot__point--line {
   fill: #fff;
   stroke: #d55970;
   stroke-width: 1.6;
+}
+
+.ps-table-plot__bar:hover,
+.ps-table-plot__bar:focus-visible,
+.ps-table-plot__bar.is-highlighted {
+  opacity: 0.78;
+  filter: saturate(1.18);
+  outline: none;
+}
+
+.ps-table-plot__point:hover,
+.ps-table-plot__point.is-highlighted {
+  fill-opacity: 1;
+}
+
+.ps-table-plot__tooltip {
+  position: absolute;
+  z-index: 4;
+  max-width: min(22rem, calc(100% - 1rem));
+  padding: 0.38rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--ps-surface-raised, #fff);
+  box-shadow: 0 5px 16px rgba(20, 23, 26, 0.16);
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.ps-table-plot__tooltip[hidden] {
+  display: none !important;
+}
+
+.ps-table-plot__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ps-table-plot__body--legend-right {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.8rem;
+}
+
+.ps-table-plot__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  padding-top: 0.55rem;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.ps-table-plot__legend--top {
+  order: -1;
+}
+
+.ps-table-plot__legend--right {
+  flex-direction: column;
+  max-width: 12rem;
+  padding-top: 1rem;
+}
+
+.ps-table-plot__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 3px;
+}
+
+.ps-table-plot__legend-item:focus-visible {
+  outline: 2px solid var(--ps-accent, #d55970);
+  outline-offset: 2px;
+}
+
+.ps-table-plot__legend-swatch {
+  width: 0.68rem;
+  height: 0.68rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
 }
 
 .ps-table-plot__notice {
@@ -113,5 +196,14 @@
 
   .ps-table-plot__category {
     font-size: 12px;
+  }
+
+  .ps-table-plot__body--legend-right {
+    display: flex;
+  }
+
+  .ps-table-plot__legend--right {
+    max-width: none;
+    flex-direction: row;
   }
 }

@@ -231,6 +231,7 @@
 
     for (const field of fields) {
       let numericHits = 0;
+      let datetimeHits = 0;
       let textHits = 0;
 
       for (const row of sampleRows) {
@@ -245,12 +246,23 @@
         const n = Number(value);
         if (typeof value === "string" && value.trim() !== "" && Number.isFinite(n)) {
           numericHits += 1;
+        } else if (
+          typeof value === "string" &&
+          /^\d{4}-\d{2}-\d{2}(?:[T ][^\s]+)?/.test(value.trim()) &&
+          Number.isFinite(Date.parse(value))
+        ) {
+          datetimeHits += 1;
         } else {
           textHits += 1;
         }
       }
 
-      out[field] = numericHits > 0 && textHits === 0 ? "number" : "text";
+      out[field] =
+        numericHits > 0 && datetimeHits === 0 && textHits === 0
+          ? "number"
+          : datetimeHits > 0 && numericHits === 0 && textHits === 0
+            ? "datetime"
+            : "text";
     }
 
     return out;
@@ -342,8 +354,10 @@
     updateTableStatus(state.tableLastPayload, getActiveRowCount());
   }
 
-  function refreshActiveTablePlot() {
-    if (typeof core.refreshTablePlot === "function") {
+  function refreshActiveTablePlot(immediate) {
+    if (immediate && typeof core.refreshTablePlotImmediately === "function") {
+      core.refreshTablePlotImmediately();
+    } else if (typeof core.refreshTablePlot === "function") {
       core.refreshTablePlot();
     }
   }
@@ -832,7 +846,8 @@
     return rows.filter(rowMatchesCurrentTableFilters);
   }
 
-  function applyAllTableFilters() {
+  function applyAllTableFilters(options) {
+    const immediatePlot = !!(options && options.immediatePlot);
     if (!state.tabulatorInstance) return;
 
     const searchQuery = getSearchQuery().trim().toLowerCase();
@@ -842,14 +857,14 @@
     if (!searchQuery && !filters.length) {
       state.tabulatorInstance.clearFilter(true);
       refreshTableStatus();
-      refreshActiveTablePlot();
+      refreshActiveTablePlot(immediatePlot);
       return;
     }
 
     state.tabulatorInstance.setFilter(rowMatchesCurrentTableFilters);
 
     refreshTableStatus();
-    refreshActiveTablePlot();
+    refreshActiveTablePlot(immediatePlot);
   }
 
   function getColumnComponentByField(field) {
@@ -959,7 +974,7 @@
     renderFilterRows();
     renderActiveFilters();
     syncFilterPanelUi();
-    applyAllTableFilters();
+    applyAllTableFilters({ immediatePlot: true });
   }
 
   function removeFilter(filterId) {
@@ -972,7 +987,7 @@
     renderFilterRows();
     renderActiveFilters();
     syncFilterPanelUi();
-    applyAllTableFilters();
+    applyAllTableFilters({ immediatePlot: true });
   }
 
   function updateFilter(filterId, part, value, options) {
@@ -1023,7 +1038,7 @@
 
     renderActiveFilters();
     syncFilterPanelUi();
-    applyAllTableFilters();
+    applyAllTableFilters({ immediatePlot: true });
   }
 
   function toggleColumnVisibility(field, shouldBeVisible) {
@@ -1085,7 +1100,7 @@
 
         if (timer) clearTimeout(timer);
         timer = setTimeout(function () {
-          applyAllTableFilters();
+          applyAllTableFilters({ immediatePlot: true });
         }, 120);
       });
 
@@ -1143,7 +1158,7 @@
         syncColumnsPanelUi();
         applyColumnVisibilityState();
         applyTableGrouping();
-        applyAllTableFilters();
+        applyAllTableFilters({ immediatePlot: true });
       });
 
       resetBtn.dataset.plotsrvBound = "1";

@@ -137,6 +137,11 @@ def test_plot_controls_have_a_matching_remembered_disclosure() -> None:
     assert 'toggle.textContent = collapsed ? "+" : "−"' in controls
     assert 'localStorage.setItem(' in controls
     assert ".ps-table-plot-controls.is-collapsed" in css
+    disclosure = css.split(
+        ".ps-table-plot-controls > .ps-pane-disclosure {", 1
+    )[1].split("}", 1)[0]
+    assert "position: absolute" in disclosure
+    assert "right:" in disclosure
 
 
 def test_plot_sources_are_capabilities_not_renderer_kind_branches() -> None:
@@ -175,8 +180,101 @@ def test_shared_plot_failures_remain_readable() -> None:
 
     assert '"No loaded rows pass the current filters.' in renderer
     assert '"No derived summary windows are currently loaded.' in renderer
-    assert '"Choose numeric x and y fields' in renderer
+    assert '"Choose numeric or timestamp X and numeric Y fields' in renderer
     assert '"point_limit"' in renderer
-    assert '"category_limit"' in renderer
+    assert '"series_limit"' in renderer
+    assert 'label: "Other"' in renderer
     assert 'notice.dataset.plotState = "error"' in controls
     assert 'reason: "renderer_error"' in controls
+
+
+def test_balanced_plot_explorer_controls_and_palettes_are_shared() -> None:
+    rendered = _render_index("table")
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+    renderer = (STATIC_JS / "renderers" / "table_plot.js").read_text(
+        encoding="utf-8"
+    )
+
+    for element_id in (
+        "table-plot-aggregation",
+        "table-plot-value",
+        "table-plot-histogram",
+        "table-plot-bins",
+        "table-plot-series",
+        "table-plot-palette-button",
+        "table-plot-sort",
+        "table-plot-limit",
+        "table-plot-display",
+        "table-plot-advanced",
+        "table-plot-reset",
+    ):
+        assert f'id="{element_id}"' in rendered
+
+    assert '<option value="histogram">Histogram</option>' in rendered
+    assert 'const PALETTES = ["plotsrv", "ocean", "forest", "sunset", "violet", "neutral"]' in controls
+    assert 'option.dataset.plotPalette = key' in controls
+    assert 'maxSeries: 8' in renderer
+    assert 'label: "Other"' in renderer
+    assert 'settings.display === "stacked"' in renderer
+    assert 'Math.ceil(Math.sqrt(values.length))' in renderer
+
+
+def test_plot_preferences_are_backward_compatible_and_per_view() -> None:
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'PLOT_PREFERENCE_PREFIX + String(config.activeViewId || "default")' in controls
+    assert 'palette: "plotsrv"' in controls
+    assert 'aggregation: "count"' in controls
+    assert 'parsed && PALETTES.includes(parsed.palette)' in controls
+    assert 'state.tablePlotPreferences = defaultPreferences()' in controls
+
+
+def test_plot_x_fields_recognise_conservative_iso_timestamps() -> None:
+    table = (STATIC_JS / "renderers" / "table.js").read_text(encoding="utf-8")
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+    renderer = (STATIC_JS / "renderers" / "table_plot.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'datetimeHits += 1' in table
+    assert '? "datetime"' in table
+    assert 'types[field] === "number" || types[field] === "datetime"' in controls
+    assert 'settings.xKind === "datetime"' in renderer
+    assert "new Intl.DateTimeFormat" in renderer
+
+
+def test_stream_plot_redraws_are_coalesced_without_kind_branching() -> None:
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+    stream = (STATIC_JS / "renderers" / "stream.js").read_text(encoding="utf-8")
+
+    assert "STREAM_PLOT_REDRAW_MS = 2000" in controls
+    assert "if (state.tablePlotRefreshTimer) return null" in controls
+    assert "capabilities().liveUpdates" in controls
+    assert 'config.kind === "stream"' not in controls
+    assert "liveUpdates: true" in stream
+    assert "cancelScheduledTablePlotRefresh" in stream
+
+
+def test_plot_export_uses_existing_bottom_menu_and_current_theme() -> None:
+    rendered = _render_index("table")
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+    bottom_bar = (STATIC_JS / "core" / "bottom_bar.js").read_text(encoding="utf-8")
+
+    assert 'data-export-scope="plot-svg"' in rendered
+    assert 'data-export-scope="plot-png"' in rendered
+    assert 'id="plot-export-items"' in rendered
+    assert 'state.tablePlotMode === "plot"' in bottom_bar
+    assert 'core.exportTablePlot(action === "plot-svg" ? "svg" : "png")' in bottom_bar
+    assert 'canvas.width = exported.width * 2' in controls
+    assert 'window.getComputedStyle(figure).backgroundColor' in controls
+    assert 'new XMLSerializer().serializeToString(clone)' in controls

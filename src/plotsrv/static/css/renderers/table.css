@@ -59,6 +59,12 @@
   gap: 0.45rem;
 }
 
+.ps-table-toolbar__search .ps-table-input,
+.ps-table-toolbar__grouping .ps-table-select {
+  box-sizing: border-box;
+  height: 32px;
+}
+
 .ps-table-toolbar__label {
   font-size: 0.85rem;
   color: var(--muted);

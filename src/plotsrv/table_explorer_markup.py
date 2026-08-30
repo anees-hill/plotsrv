@@ -8,7 +8,7 @@ TableModeSwitch = Literal["visible", "hidden"]
 
 def render_table_grouping_control(
     *,
-    label: str = "Group",
+    label: str = "Grouping",
     wrapper_class: str = "ps-table-toolbar__grouping",
 ) -> str:
     """Render the single grouping control owned by the shared table controller."""
@@ -67,9 +67,10 @@ def render_table_plot_controls() -> str:
             <label class="ps-table-plot-control">
               <span>Plot type</span>
               <select id="table-plot-type" class="ps-table-select">
-                <option value="bar">Count bar</option>
+                <option value="bar">Bar</option>
                 <option value="line">Line</option>
                 <option value="scatter">Scatter</option>
+                <option value="histogram">Histogram</option>
               </select>
             </label>
             <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
@@ -91,7 +92,91 @@ def render_table_plot_controls() -> str:
               <span>Y field</span>
               <select id="table-plot-y" class="ps-table-select"></select>
             </label>
+            <label id="table-plot-aggregation-control" class="ps-table-plot-control">
+              <span>Aggregate</span>
+              <select id="table-plot-aggregation" class="ps-table-select">
+                <option value="count">Count</option>
+                <option value="sum">Sum</option>
+                <option value="mean">Mean</option>
+                <option value="min">Min</option>
+                <option value="max">Max</option>
+              </select>
+            </label>
+            <label id="table-plot-value-control" class="ps-table-plot-control" hidden>
+              <span>Value field</span>
+              <select id="table-plot-value" class="ps-table-select"></select>
+            </label>
+            <label id="table-plot-histogram-control" class="ps-table-plot-control" hidden>
+              <span>Numeric field</span>
+              <select id="table-plot-histogram" class="ps-table-select"></select>
+            </label>
+            <label id="table-plot-bins-control" class="ps-table-plot-control ps-table-plot-control--compact" hidden>
+              <span>Bins</span>
+              <select id="table-plot-bins" class="ps-table-select">
+                <option value="auto">Auto</option>
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="20">20</option>
+                <option value="40">40</option>
+              </select>
+            </label>
+            <label id="table-plot-series-control" class="ps-table-plot-control" hidden>
+              <span>Series</span>
+              <select id="table-plot-series" class="ps-table-select"></select>
+            </label>
           </div>
+          <div class="ps-table-plot-controls__fields ps-table-plot-controls__fields--secondary">
+            <div class="ps-table-plot-control ps-table-plot-palette-control">
+              <span id="table-plot-palette-label">Palette</span>
+              <div id="table-plot-palette" class="ps-table-plot-palette">
+                <button id="table-plot-palette-button" class="ps-table-select ps-table-plot-palette__button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="table-plot-palette-menu" aria-labelledby="table-plot-palette-label table-plot-palette-name">
+                  <span id="table-plot-palette-preview" class="ps-table-plot-palette__preview" aria-hidden="true"></span>
+                  <span id="table-plot-palette-name">Plotsrv</span>
+                  <span class="ps-table-plot-palette__chevron" aria-hidden="true">⌄</span>
+                </button>
+                <div id="table-plot-palette-menu" class="ps-table-plot-palette__menu" role="listbox" aria-labelledby="table-plot-palette-label" hidden></div>
+              </div>
+            </div>
+            <label id="table-plot-sort-control" class="ps-table-plot-control">
+              <span>Order</span>
+              <select id="table-plot-sort" class="ps-table-select">
+                <option value="value-desc">Value, high to low</option>
+                <option value="value-asc">Value, low to high</option>
+                <option value="category-asc">Category, A to Z</option>
+                <option value="category-desc">Category, Z to A</option>
+              </select>
+            </label>
+            <label id="table-plot-limit-control" class="ps-table-plot-control ps-table-plot-control--compact">
+              <span>Categories</span>
+              <select id="table-plot-limit" class="ps-table-select">
+                <option value="5">Top 5</option>
+                <option value="10">Top 10</option>
+                <option value="20">Top 20</option>
+                <option value="40">Top 40</option>
+              </select>
+            </label>
+            <label id="table-plot-display-control" class="ps-table-plot-control ps-table-plot-control--compact" hidden>
+              <span>Display</span>
+              <select id="table-plot-display" class="ps-table-select">
+                <option value="grouped">Grouped</option>
+                <option value="stacked">Stacked</option>
+              </select>
+            </label>
+          </div>
+          <details id="table-plot-advanced" class="ps-table-plot-advanced">
+            <summary>Advanced</summary>
+            <div class="ps-table-plot-advanced__fields">
+              <label class="ps-table-plot-control"><span>Custom title</span><input id="table-plot-title" class="ps-table-input" type="text" placeholder="Automatic title"></label>
+              <label class="ps-table-plot-control"><span>X-axis label</span><input id="table-plot-x-label" class="ps-table-input" type="text" placeholder="Automatic label"></label>
+              <label class="ps-table-plot-control"><span>Y-axis label</span><input id="table-plot-y-label" class="ps-table-input" type="text" placeholder="Automatic label"></label>
+              <label id="table-plot-x-scale-control" class="ps-table-plot-control ps-table-plot-control--compact"><span>X scale</span><select id="table-plot-x-scale" class="ps-table-select"><option value="linear">Linear</option><option value="log">Log</option></select></label>
+              <label id="table-plot-y-scale-control" class="ps-table-plot-control ps-table-plot-control--compact"><span>Y scale</span><select id="table-plot-y-scale" class="ps-table-select"><option value="linear">Linear</option><option value="log">Log</option></select></label>
+              <label id="table-plot-zero-control" class="ps-table-plot-check"><input id="table-plot-zero" type="checkbox"><span>Include zero baseline</span></label>
+              <label id="table-plot-points-control" class="ps-table-plot-check" hidden><input id="table-plot-points" type="checkbox" checked><span>Show line points</span></label>
+              <label id="table-plot-legend-control" class="ps-table-plot-control ps-table-plot-control--compact" hidden><span>Legend</span><select id="table-plot-legend" class="ps-table-select"><option value="top">Top</option><option value="right">Right</option><option value="bottom">Bottom</option></select></label>
+              <button id="table-plot-reset" class="ps-btn ps-table-plot-reset" type="button">Reset plot options</button>
+            </div>
+          </details>
           <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
             Plots use only loaded rows that pass the current browser filters.
           </p>
@@ -107,7 +192,6 @@ def render_table_explorer(
     mode_switch: TableModeSwitch = "visible",
     embedded_json: bool = False,
     leading_html: str = "",
-    show_grouping: bool = True,
     trailing_html: str = "",
 ) -> str:
     """Render the one rich-table explorer shell shared by all table surfaces."""
@@ -117,7 +201,7 @@ def render_table_explorer(
         shell_classes += " ps-json-table-shell"
         shell_attributes = ' data-json-table-explorer="1"'
 
-    grouping_html = render_table_grouping_control() if show_grouping else ""
+    grouping_html = render_table_grouping_control()
 
     return f"""
       <div class="{shell_classes}"{shell_attributes}>
