@@ -34,12 +34,14 @@ CSS_SOURCES = (
     "css/renderers/html.css",
     "css/renderers/markdown.css",
     "css/renderers/traceback.css",
+    "css/themes.css",
 )
 
 JS_SOURCES = (
     "js/core/dom.js",
     "js/core/state.js",
     "js/core/storage.js",
+    "js/core/settings.js",
     "js/core/history.js",
     "js/core/status.js",
     "js/core/status_modal.js",

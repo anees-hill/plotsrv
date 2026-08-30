@@ -84,6 +84,10 @@
   };
 
   core.bootstrap = function () {
+    if (typeof core.bindSettings === "function") {
+      core.bindSettings();
+    }
+
     if (typeof core.bindStatusModal === "function") {
       core.bindStatusModal();
     }

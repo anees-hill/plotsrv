@@ -22,6 +22,7 @@
    viewSelectorMode: "plotsrv:v1:view_selector_mode",
    viewSelectorRecent: "plotsrv:v1:view_selector_recent",
    viewSelectorPinned: "plotsrv:v1:view_selector_pinned",
+   theme: "plotsrv:v1:theme",
  };   
 
   core.loadPref = function (key, fallbackValue) {

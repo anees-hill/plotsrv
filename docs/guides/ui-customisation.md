@@ -139,6 +139,16 @@ kept in that browser's local storage and appear in a **Pinned views** section in
 Grouped mode. Pins do not change server configuration, are not sent with HTTP
 requests, and are automatically reconciled when views are added or removed.
 
+## Browser colour theme
+
+Open **Settings** from the cog beside the live-data status to choose Light,
+Dark, or System appearance. The choice is kept in that browser's local storage;
+it is not a server setting and is not sent with requests.
+
+Themes apply to plotsrv's controls and readable text surfaces, including tables,
+JSON, source code, plain text, Markdown, and tracebacks. Rendered plot images and
+sandboxed HTML or Markdown documents retain their own colours.
+
 ## Combine with storage and freshness
 
 UI customisation works well with storage and freshness settings.

@@ -1,6 +1,7 @@
 # src/plotsrv/html.py
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version as distribution_version
 from typing import Literal
 import json
 
@@ -11,6 +12,13 @@ from .ui_assets import get_ui_assets
 from .ui_config import UISettings, get_ui_settings
 
 ViewKind = Literal["none", "plot", "table", "artifact", "stream"]
+
+
+def _plotsrv_version() -> str:
+    try:
+        return distribution_version("plotsrv")
+    except PackageNotFoundError:
+        return "development"
 
 
 def _escape_html(s: object) -> str:
@@ -764,6 +772,105 @@ def render_index(
           </div>
         """
 
+    plotsrv_version = _escape_html(_plotsrv_version())
+    settings_html = f"""
+      <section
+        id="settings-page"
+        class="ps-settings-page"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        aria-describedby="settings-intro"
+        tabindex="-1"
+        hidden>
+        <header class="ps-settings-page__header">
+          <div>
+            <p class="ps-settings-page__eyebrow">plotsrv</p>
+            <h1 id="settings-title">Settings</h1>
+            <p id="settings-intro">Personalise how this browser displays plotsrv.</p>
+          </div>
+          <button
+            id="settings-close"
+            class="ps-settings-page__close"
+            type="button"
+            aria-label="Close settings">×</button>
+        </header>
+
+        <main class="ps-settings-page__body">
+          <section class="ps-settings-section" aria-labelledby="settings-appearance-title">
+            <div class="ps-settings-section__intro">
+              <h2 id="settings-appearance-title">Appearance</h2>
+              <p>Choose a colour theme for the plotsrv interface in this browser.</p>
+            </div>
+            <div class="ps-theme-options" role="group" aria-label="Colour theme">
+              <button type="button" class="ps-theme-option" data-theme-option="light" aria-pressed="true">
+                <span class="ps-theme-preview ps-theme-preview--light" aria-hidden="true">
+                  <span class="ps-theme-preview__bar"></span>
+                  <span class="ps-theme-preview__panel"></span>
+                  <span class="ps-theme-preview__lines"></span>
+                </span>
+                <span class="ps-theme-option__copy">
+                  <strong>Light</strong>
+                  <span>Bright, neutral surfaces</span>
+                </span>
+                <span class="ps-theme-option__check" aria-hidden="true">✓</span>
+              </button>
+              <button type="button" class="ps-theme-option" data-theme-option="dark" aria-pressed="false">
+                <span class="ps-theme-preview ps-theme-preview--dark" aria-hidden="true">
+                  <span class="ps-theme-preview__bar"></span>
+                  <span class="ps-theme-preview__panel"></span>
+                  <span class="ps-theme-preview__lines"></span>
+                </span>
+                <span class="ps-theme-option__copy">
+                  <strong>Dark</strong>
+                  <span>Low-light, high-contrast surfaces</span>
+                </span>
+                <span class="ps-theme-option__check" aria-hidden="true">✓</span>
+              </button>
+              <button type="button" class="ps-theme-option" data-theme-option="system" aria-pressed="false">
+                <span class="ps-theme-preview ps-theme-preview--system" aria-hidden="true">
+                  <span class="ps-theme-preview__bar"></span>
+                  <span class="ps-theme-preview__panel"></span>
+                  <span class="ps-theme-preview__lines"></span>
+                </span>
+                <span class="ps-theme-option__copy">
+                  <strong>System</strong>
+                  <span>Follow this device’s appearance</span>
+                </span>
+                <span class="ps-theme-option__check" aria-hidden="true">✓</span>
+              </button>
+            </div>
+            <p class="ps-settings-section__note">
+              Themes change plotsrv controls and readable text surfaces. Plot pixels,
+              images, and embedded HTML reports keep their original colours.
+            </p>
+          </section>
+
+          <section class="ps-settings-section" aria-labelledby="settings-about-title">
+            <div class="ps-settings-section__intro">
+              <h2 id="settings-about-title">About plotsrv</h2>
+              <p>Package and support information for this server.</p>
+            </div>
+            <dl class="ps-settings-about">
+              <div>
+                <dt>Version</dt>
+                <dd><code>{plotsrv_version}</code></dd>
+              </div>
+              <div>
+                <dt>Documentation</dt>
+                <dd>
+                  <a href="https://docs.plotsrv.com/" target="_blank" rel="noopener noreferrer">
+                    docs.plotsrv.com
+                    <span aria-hidden="true">↗</span>
+                  </a>
+                </dd>
+              </div>
+            </dl>
+          </section>
+        </main>
+      </section>
+    """
+
     view_catalogue = [
         {
             "view_id": v.view_id,
@@ -821,6 +928,22 @@ def render_index(
       <title>{page_title}</title>
       <link rel="icon" href="{favicon_url}">
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <script>
+        (function () {{
+          var theme = "light";
+          try {{
+            var stored = localStorage.getItem("plotsrv:v1:theme");
+            if (stored === "light" || stored === "dark" || stored === "system") {{
+              theme = stored;
+            }}
+          }} catch (error) {{
+            theme = "light";
+          }}
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.style.colorScheme =
+            theme === "system" ? "light dark" : theme;
+        }})();
+      </script>
       <link rel="stylesheet" href="{assets.css}">
       <script>
         window.PLOTSRV_CONFIG = {cfg_json};
@@ -832,13 +955,23 @@ def render_index(
           data-kind="{kind}"
           data-view="{active_view_id_attr}"
           data-table-mode="{table_view_mode}">
-      <header class="header ps-header" style="background:{header_fill};">
+      <header class="header ps-header" style="--ps-configured-header-fill:{header_fill};">
         <div class="header-left ps-header__left">
           <img src="{logo_url}" alt="plotsrv logo" class="header-logo ps-header__logo" />
           <div class="header-title ps-header__title">{header_text}</div>
         </div>
 
         <div class="header-right ps-header__right">
+          <button
+            id="settings-button"
+            class="ps-settings-trigger"
+            type="button"
+            aria-label="Open settings"
+            aria-haspopup="dialog"
+            aria-controls="settings-page"
+            aria-expanded="false">
+            <img src="/static/settings-cog.png" alt="" aria-hidden="true" />
+          </button>
           {header_status_html}
           {dropdown_html}
         </div>
@@ -849,6 +982,7 @@ def render_index(
           {content_html}
         </section>
       </main>
+      {settings_html}
       {status_modal_html}
       {footer_html}
 

@@ -1,5 +1,5 @@
 .header {
-  background: #ffffff;
+  background: var(--ps-header-fill, var(--ps-configured-header-fill, #ffffff));
   border-bottom: 1px solid var(--border);
   padding: 0.5rem 1rem;
   display: flex;
@@ -166,7 +166,7 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
     order: 3;
     width: 100%;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto;
     margin-left: 0;
   }
 

@@ -184,8 +184,9 @@ def test_rich_table_loads_local_tabulator_before_plotsrv_bundle() -> None:
     loaded = _static_requests(response.text)
     assert assets.tabulator_js in loaded
     assert response.text.index(assets.tabulator_js) < response.text.index(assets.js)
-    assert "http://" not in response.text
-    assert "https://" not in response.text
+    assert re.search(
+        r'<(?:script|link)\b[^>]*(?:src|href)="https?://', response.text
+    ) is None
 
 
 def test_built_assets_are_served_by_the_application() -> None:
