@@ -1,10 +1,39 @@
 .header {
+  position: relative;
   background: var(--ps-header-fill, var(--ps-configured-header-fill, #ffffff));
   border-bottom: 1px solid var(--border);
   padding: 0.5rem 1rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.ps-header[data-status-accent]::after {
+  position: absolute;
+  z-index: 1;
+  right: clamp(1rem, 4vw, 3.5rem);
+  bottom: -1px;
+  left: clamp(1rem, 4vw, 3.5rem);
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ps-header-status-accent) 12%,
+    var(--ps-header-status-accent) 88%,
+    transparent 100%
+  );
+  box-shadow: 0 1px 7px var(--ps-header-status-accent);
+  content: "";
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.ps-header[data-status-accent="new-data"] {
+  --ps-header-status-accent: #f2c200;
+}
+
+.ps-header[data-status-accent="history"] {
+  --ps-header-status-accent: #8b72b8;
 }
 
 .header-left {

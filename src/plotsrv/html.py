@@ -7,7 +7,10 @@ import json
 
 from .config import TableViewMode
 from .store import ViewMeta
-from .table_explorer_markup import render_table_explorer
+from .table_explorer_markup import (
+    render_table_explorer,
+    render_table_grouping_control,
+)
 from .ui_assets import get_ui_assets
 from .ui_config import UISettings, get_ui_settings
 
@@ -509,94 +512,213 @@ def render_index(
         footer_html = _footer_html(kind)
 
     elif kind == "stream":
-        content_html = f"""
-          <div class="ps-stream-shell">
-            <div class="ps-stream-topbar">
-              <span id="stream-lifecycle-badge" class="ps-stream-badge ps-stream-badge--live">LIVE OBSERVATION</span>
-              <p id="stream-status-inline" class="ps-stream-status" aria-live="polite">
-                Waiting for appended JSON objects.
-              </p>
-              <p id="stream-health-inline" class="ps-stream-health" aria-live="polite"></p>
+        stream_controls_html = f"""
+          <section class="ps-stream-controls" aria-labelledby="stream-controls-title">
+            <div class="ps-stream-controls__identity">
+              <h2 id="stream-controls-title">Stream controls</h2>
             </div>
 
-            <section
-              id="stream-history-picker"
-              class="ps-stream-history-picker"
-              aria-labelledby="stream-history-picker-title"
-              hidden>
-              <div>
-                <h2 id="stream-history-picker-title" class="ps-stream-history-picker__title">Stored sessions</h2>
-                <p id="stream-history-picker-status" class="ps-stream-history-picker__notice">
-                  Select a stored session to inspect bounded historical observations.
-                </p>
+            <div id="stream-controls-content" class="ps-stream-controls__content">
+              <div id="stream-history-picker" class="ps-stream-session">
+                <span id="stream-session-label" class="ps-table-toolbar__label">Run</span>
+                <div class="ps-stream-session__control">
+                  <select
+                    id="stream-history-session-select"
+                    class="ps-table-select"
+                    aria-labelledby="stream-session-label"
+                    aria-label="Run. Checking stored-run availability."
+                    disabled>
+                    <option value="">Current run</option>
+                  </select>
+                  <span
+                    id="stream-history-info"
+                    class="ps-snapshots__info ps-stream-session__info"
+                    role="img"
+                    tabindex="0"
+                    aria-label="Checking stored-run availability."
+                    title="Checking stored-run availability.">i</span>
+                </div>
+                <span id="stream-history-picker-status" class="ps-visually-hidden" aria-live="polite">
+                  Checking stored-run availability.
+                </span>
               </div>
-              <label class="ps-stream-history-picker__control">
-                <span>Session</span>
-                <select id="stream-history-session-select"></select>
-              </label>
-            </section>
 
+              {render_table_grouping_control(
+                  label="Grouping",
+                  wrapper_class="ps-stream-controls__grouping",
+              )}
+
+              <div class="ps-stream-controls__actions">
+                <button
+                  id="stream-pause-button"
+                  class="ps-btn ps-stream-pause-button"
+                  type="button"
+                  aria-pressed="false"
+                  aria-label="Pause stream"
+                  title="Pause stream"
+                  disabled>
+                  <span class="ps-stream-pause-button__icon" aria-hidden="true">Ⅱ</span>
+                  <span id="stream-pause-label">Pause stream</span>
+                </button>
+
+                <button
+                  id="stream-insights-button"
+                  class="ps-btn ps-stream-insights-button"
+                  type="button"
+                  aria-haspopup="dialog"
+                  aria-controls="stream-insights-drawer"
+                  aria-expanded="false">
+                  <span aria-hidden="true">▥</span>
+                  <span>Insights</span>
+                  <span aria-hidden="true">›</span>
+                </button>
+              </div>
+            </div>
+
+            <button
+              id="stream-controls-toggle"
+              class="ps-pane-disclosure"
+              type="button"
+              aria-expanded="true"
+              aria-controls="stream-controls-content"
+              aria-label="Collapse Stream controls"
+              title="Collapse Stream controls">−</button>
+          </section>
+        """
+        content_html = f"""
+          <div class="ps-stream-shell">
             {render_table_explorer(
                 grid_html=(
+                    '<p id="stream-raw-history-notice" '
+                    'class="ps-stream-raw-history-notice" role="status" hidden></p>'
                     '<div id="stream-grid" '
                     'class="table-grid ps-tablegrid ps-stream-grid"></div>'
                 ),
                 search_placeholder="Search retained rows…",
+                leading_html=stream_controls_html,
+                show_grouping=False,
             )}
 
-            <section
-              class="ps-stream-returning"
-              aria-labelledby="stream-since-visit-title"
-              data-returning-kind="since-last-visit">
-              <div class="ps-stream-returning__header">
+            <aside
+              id="stream-insights-drawer"
+              class="ps-stream-insights"
+              role="dialog"
+              aria-modal="false"
+              aria-labelledby="stream-insights-title"
+              hidden>
+              <header class="ps-stream-insights__header">
                 <div>
-                  <h2 id="stream-since-visit-title" class="ps-stream-returning__title">Since last visit</h2>
-                  <p class="ps-stream-returning__notice">
-                    Exact changes are shown only when this browser has a compatible checkpoint for the current plotsrv stream state.
-                  </p>
+                  <h2 id="stream-insights-title">Stream insights</h2>
+                  <p>Context for the current stream observation.</p>
                 </div>
-                <p id="stream-since-visit-status" class="ps-stream-returning__status" aria-live="polite">
-                  Waiting for current stream state.
-                </p>
-              </div>
-              <div id="stream-since-visit-details" class="ps-stream-returning__details"></div>
-            </section>
+                <button
+                  id="stream-insights-close"
+                  class="ps-stream-insights__close"
+                  type="button"
+                  aria-label="Close stream insights">×</button>
+              </header>
 
-            <section
-              class="ps-stream-noteworthy"
-              aria-labelledby="stream-noteworthy-title"
-              data-noteworthy-kind="stream-noteworthy">
-              <div class="ps-stream-noteworthy__header">
-                <div>
-                  <h2 id="stream-noteworthy-title" class="ps-stream-noteworthy__title">Noteworthy observations</h2>
-                  <p class="ps-stream-noteworthy__notice">
-                    This is a bounded retained selection, not a complete source-log history.
-                  </p>
-                </div>
-                <p id="stream-noteworthy-status" class="ps-stream-noteworthy__status" aria-live="polite">
-                  No noteworthy state received yet.
+              <div class="ps-stream-insights__status">
+                <p id="stream-status-inline" class="ps-stream-status" aria-live="polite">
+                  Waiting for appended JSON objects.
                 </p>
+                <p id="stream-health-inline" class="ps-stream-health" aria-live="polite"></p>
               </div>
-              <div id="stream-noteworthy-items" class="ps-stream-noteworthy__items"></div>
-            </section>
 
-            <section
-              class="ps-stream-summary"
-              aria-labelledby="stream-summary-title"
-              data-summary-kind="derived-stream-history">
-              <div class="ps-stream-summary__header">
-                <div>
-                  <h2 id="stream-summary-title" class="ps-stream-summary__title">Derived compact history</h2>
-                  <p class="ps-stream-summary__notice">
-                    Aggregated windows are derived from older observations and are not source log rows.
-                  </p>
-                </div>
-                <p id="stream-summary-status" class="ps-stream-summary__status" aria-live="polite">
-                  No derived windows yet.
-                </p>
+              <div class="ps-stream-insights__tabs" role="tablist" aria-label="Stream insight sections">
+                <button
+                  id="stream-insights-tab-since"
+                  type="button"
+                  role="tab"
+                  aria-selected="true"
+                  aria-controls="stream-insights-panel-since"
+                  tabindex="0"
+                  data-stream-insights-tab="since">Since last visit</button>
+                <button
+                  id="stream-insights-tab-noteworthy"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="stream-insights-panel-noteworthy"
+                  tabindex="-1"
+                  data-stream-insights-tab="noteworthy">Noteworthy</button>
+                <button
+                  id="stream-insights-tab-history"
+                  type="button"
+                  role="tab"
+                  aria-selected="false"
+                  aria-controls="stream-insights-panel-history"
+                  tabindex="-1"
+                  data-stream-insights-tab="history">History</button>
               </div>
-              <div id="stream-summary-windows" class="ps-stream-summary__windows"></div>
-            </section>
+
+              <div class="ps-stream-insights__body">
+                <section
+                  id="stream-insights-panel-since"
+                  class="ps-stream-insights__panel ps-stream-returning"
+                  role="tabpanel"
+                  aria-labelledby="stream-insights-tab-since"
+                  data-returning-kind="since-last-visit"
+                  data-stream-insights-panel="since">
+                  <div class="ps-stream-returning__header">
+                    <div>
+                      <h3 id="stream-since-visit-title" class="ps-stream-returning__title">Since last visit</h3>
+                      <p class="ps-stream-returning__notice">
+                        A simple comparison with this browser’s previous compatible visit.
+                      </p>
+                    </div>
+                    <p id="stream-since-visit-status" class="ps-stream-returning__status" aria-live="polite">
+                      Waiting for current stream state.
+                    </p>
+                  </div>
+                  <div id="stream-since-visit-details" class="ps-stream-returning__details"></div>
+                </section>
+
+                <section
+                  id="stream-insights-panel-noteworthy"
+                  class="ps-stream-insights__panel ps-stream-noteworthy"
+                  role="tabpanel"
+                  aria-labelledby="stream-insights-tab-noteworthy"
+                  data-noteworthy-kind="stream-noteworthy"
+                  data-stream-insights-panel="noteworthy"
+                  hidden>
+                  <div class="ps-stream-noteworthy__header">
+                    <div>
+                      <h3 id="stream-noteworthy-title" class="ps-stream-noteworthy__title">Noteworthy</h3>
+                      <p class="ps-stream-noteworthy__notice">
+                        A bounded recent selection of deterministic observations, not a complete event history.
+                      </p>
+                    </div>
+                    <p id="stream-noteworthy-status" class="ps-stream-noteworthy__status" aria-live="polite">
+                      Loading noteworthy activity…
+                    </p>
+                  </div>
+                  <div id="stream-noteworthy-items" class="ps-stream-noteworthy__items"></div>
+                </section>
+
+                <section
+                  id="stream-insights-panel-history"
+                  class="ps-stream-insights__panel ps-stream-summary"
+                  role="tabpanel"
+                  aria-labelledby="stream-insights-tab-history"
+                  data-summary-kind="derived-stream-history"
+                  data-stream-insights-panel="history"
+                  hidden>
+                  <div class="ps-stream-summary__header">
+                    <div>
+                      <h3 id="stream-summary-title" class="ps-stream-summary__title">History</h3>
+                      <p class="ps-stream-summary__notice">
+                        Older observations may be summarised as they leave the recent-data window. These summaries are not original rows and do not use the table’s filters.
+                      </p>
+                    </div>
+                    <p id="stream-summary-status" class="ps-stream-summary__status" aria-live="polite">
+                      Loading history…
+                    </p>
+                  </div>
+                  <div id="stream-summary-windows" class="ps-stream-summary__windows"></div>
+                </section>
+              </div>
+            </aside>
           </div>
         """
         footer_html = _footer_html(kind)
@@ -683,28 +805,28 @@ def render_index(
               <div class="ps-status-modal__body">
                 <section class="ps-status-modal__summary" aria-label="Current status summary">
                   <div class="ps-status-fact">
-                    <span class="ps-status-fact__label">Viewing</span>
+                    <span id="status-modal-viewing-label" class="ps-status-fact__label">Viewing</span>
                     <strong id="status-modal-viewing">Latest data</strong>
                     <span id="status-modal-viewing-detail">This view follows live updates.</span>
                   </div>
                   <div class="ps-status-fact">
-                    <span class="ps-status-fact__label">Last data received</span>
+                    <span id="status-modal-received-label" class="ps-status-fact__label">Last data received</span>
                     <strong id="status-modal-received">Not yet</strong>
                     <span id="status-modal-received-detail">No process-lifetime arrival recorded.</span>
                   </div>
                   <div class="ps-status-fact">
-                    <span class="ps-status-fact__label">Browser view</span>
+                    <span id="status-modal-browser-label" class="ps-status-fact__label">Browser view</span>
                     <strong id="status-modal-browser">Loading</strong>
                     <span id="status-modal-browser-detail">Checking browser state.</span>
                   </div>
                   <div class="ps-status-fact">
-                    <span class="ps-status-fact__label">Freshness</span>
+                    <span id="status-modal-freshness-label" class="ps-status-fact__label">Freshness</span>
                     <strong id="status-modal-freshness">Checking</strong>
                     <span id="status-modal-freshness-detail">Checking freshness policy.</span>
                   </div>
                 </section>
 
-                <section class="ps-status-modal__policy" aria-labelledby="status-modal-policy-title">
+                <section id="status-modal-policy" class="ps-status-modal__policy" aria-labelledby="status-modal-policy-title">
                   <div>
                     <h3 id="status-modal-policy-title">Freshness policy</h3>
                     <p id="status-modal-policy-copy">Freshness thresholds are loading.</p>
@@ -741,13 +863,14 @@ def render_index(
                       </select>
                     </label>
                   </div>
-                  <div class="ps-arrival-chart" role="img" aria-labelledby="status-modal-activity-title status-modal-activity-description">
+                  <div class="ps-arrival-chart" role="group" aria-labelledby="status-modal-activity-title status-modal-activity-description">
                     <div id="status-modal-activity-dots" class="ps-arrival-chart__track"></div>
                     <div class="ps-arrival-chart__axis">
                       <span id="status-modal-range-start">—</span>
                       <span id="status-modal-range-end">Now</span>
                     </div>
                   </div>
+                  <p id="status-modal-activity-hover" class="ps-arrival-chart__detail" aria-live="polite" hidden></p>
                   <p id="status-modal-activity-empty" class="ps-arrival-chart__empty" hidden>No arrivals in this range.</p>
                   <p id="status-modal-activity-description" class="ps-status-modal__caveat">Activity is bounded to this plotsrv process lifetime and does not survive restart.</p>
                 </section>
@@ -955,7 +1078,7 @@ def render_index(
           data-kind="{kind}"
           data-view="{active_view_id_attr}"
           data-table-mode="{table_view_mode}">
-      <header class="header ps-header" style="--ps-configured-header-fill:{header_fill};">
+      <header id="site-header" class="header ps-header" style="--ps-configured-header-fill:{header_fill};">
         <div class="header-left ps-header__left">
           <img src="{logo_url}" alt="plotsrv logo" class="header-logo ps-header__logo" />
           <div class="header-title ps-header__title">{header_text}</div>

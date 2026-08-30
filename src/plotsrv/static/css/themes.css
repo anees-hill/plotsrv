@@ -715,6 +715,7 @@ body.ps-settings-open {
 .plot-frame--table,
 .ps-table-filter-panel,
 .ps-table-plot-controls,
+.ps-table-supporting-data__header,
 .ps-table-mode-switch {
   border-color: var(--ps-border);
   background: var(--ps-surface-soft);

@@ -11,6 +11,7 @@
   const core = window.PLOTSRV.core;
   const state = window.PLOTSRV.state;
   const config = window.PLOTSRV.config;
+  const STREAM_STATUS_GRACE_MS = 2500;
 
   function fmtLocalTime(iso) {
     if (!iso) return "—";
@@ -218,6 +219,30 @@
     return age ? age.replace(/ old$/, " ago") : "";
   }
 
+  function streamHeaderStatusKey(value) {
+    const stream = value || {};
+    return [
+      stream.lifecycle || "unknown",
+      stream.sourceAvailable === false ? "source-unavailable" : "source-available",
+      stream.continuityWarning || "continuous",
+    ].join("|");
+  }
+
+  function clearHeaderStreamTransition() {
+    if (state.headerStreamTransitionTimer != null) {
+      window.clearTimeout(state.headerStreamTransitionTimer);
+    }
+    state.headerStreamTransitionTimer = null;
+    state.headerStreamPendingStatus = null;
+  }
+
+  function applyHeaderStreamStatus(value) {
+    const changed = streamHeaderStatusKey(state.headerStatus.stream) !==
+      streamHeaderStatusKey(value);
+    state.headerStatus.stream = value;
+    if (changed) renderHeaderStatus();
+  }
+
   function deriveHeaderStatus(model) {
     if (model.viewMode === "snapshot") {
       const createdAt = model.snapshot && model.snapshot.createdAt;
@@ -231,6 +256,110 @@
           ? "Viewing the snapshot saved " + fmtLocalTime(createdAt) + ". Freshness applies only to the latest data."
           : "Viewing a historical snapshot. Freshness applies only to the latest data.",
       };
+    }
+
+    if (config.kind === "stream") {
+      const stream = model.stream || {};
+      if (stream.historical) {
+        return {
+          visible: config.showHeaderHistory,
+          tone: "history",
+          label: "Stored run",
+          context: "",
+          title: "Stored stream run",
+          copy: "Viewing a fixed historical stream run, not the current producer.",
+        };
+      }
+
+      if (state.streamPaused && model.browserData === "update_available") {
+        return {
+          visible: config.showHeaderFreshness,
+          tone: "new-data",
+          label: "New data",
+          context: "Live table updates are paused",
+          title: "New stream data available",
+          copy: "The producer has sent newer data. Resume live table updates to apply it.",
+        };
+      }
+
+      if (state.streamPaused) {
+        return {
+          visible: config.showHeaderFreshness,
+          tone: "neutral",
+          label: "Stream paused",
+          context: "Table updates are held",
+          title: "Stream table updates paused",
+          copy: "The table is fixed at its current state. Resume the stream to apply subsequent data.",
+        };
+      }
+
+      const lifecycle = String(stream.lifecycle || "unknown").toLowerCase();
+      if (stream.continuityWarning) {
+        return {
+          visible: config.showHeaderFreshness,
+          tone: "warn",
+          label: "Continuity uncertain",
+          context: "Stream needs attention",
+          title: "Stream continuity is uncertain",
+          copy: stream.continuityWarning,
+        };
+      }
+
+      const terminalLifecycle = lifecycle === "ended" || lifecycle === "disconnected" ||
+        lifecycle === "incomplete";
+      if (stream.sourceAvailable === false && !terminalLifecycle) {
+        return {
+          visible: config.showHeaderFreshness,
+          tone: "warn",
+          label: "Source unavailable",
+          context: "Waiting for the source",
+          title: "Stream source unavailable",
+          copy: "The active stream source is unavailable; plotsrv is waiting for it to return.",
+        };
+      }
+
+      const presentations = {
+        live: {
+          tone: "live",
+          label: "Stream active",
+          title: "Stream active",
+          copy: "plotsrv is receiving a live producer stream.",
+        },
+        retrying: {
+          tone: "warn",
+          label: "Stream retrying",
+          title: "Stream delivery is retrying",
+          copy: "Recent observations may still be awaiting delivery.",
+        },
+        disconnected: {
+          tone: "error",
+          label: "Stream disconnected",
+          title: "Stream producer disconnected",
+          copy: "Producer heartbeats have stopped; application state is unknown.",
+        },
+        incomplete: {
+          tone: "error",
+          label: "Stream incomplete",
+          title: "Stream observation is incomplete",
+          copy: "Some observations may still be pending.",
+        },
+        ended: {
+          tone: "neutral",
+          label: "Stream ended",
+          title: "Stream observation ended",
+          copy: "The producer explicitly ended this observation.",
+        },
+      };
+      const presentation = presentations[lifecycle] || {
+        tone: "neutral",
+        label: "Stream connecting",
+        title: "Waiting for stream status",
+        copy: "plotsrv has not yet observed the producer state.",
+      };
+      return Object.assign(
+        { visible: config.showHeaderFreshness, context: "" },
+        presentation
+      );
     }
 
     if (model.browserData === "update_available") {
@@ -296,7 +425,7 @@
 
     return {
       visible: config.showHeaderFreshness,
-      tone: freshnessState === "ok" ? "live" : "neutral",
+      tone: "live",
       label: freshnessState === "ok" ? "Live" : "Latest",
       context: freshnessState === "ok" && freshness && freshness.age_s < 10
         ? "Updated just now"
@@ -315,6 +444,15 @@
     const presentation = deriveHeaderStatus(state.headerStatus);
     wrap.hidden = !presentation.visible;
     wrap.setAttribute("data-status-tone", presentation.tone);
+    const header = document.getElementById("site-header");
+    if (header) {
+      const accent = presentation.visible &&
+        (presentation.tone === "new-data" || presentation.tone === "history")
+        ? presentation.tone
+        : null;
+      if (accent) header.setAttribute("data-status-accent", accent);
+      else header.removeAttribute("data-status-accent");
+    }
 
     if (!presentation.visible && typeof core.closeStatusModal === "function") {
       core.closeStatusModal();
@@ -323,7 +461,12 @@
     const label = document.getElementById("header-status-label");
     const context = document.getElementById("header-status-context");
     if (label) label.textContent = presentation.label;
-    if (context) context.textContent = presentation.context;
+    if (context) {
+      context.textContent = presentation.context;
+      context.hidden = !presentation.context;
+    }
+    const button = document.getElementById("header-status-button");
+    if (button) button.setAttribute("aria-label", presentation.title);
     if (typeof core.renderStatusModal === "function") core.renderStatusModal();
   }
 
@@ -338,9 +481,11 @@
   // Slice 2 can call this when it detects a newer server version without
   // coupling that mechanism to header DOM details.
   function setHeaderBrowserDataState(browserData) {
-    state.headerStatus.browserData = browserData === "update_available"
+    const next = browserData === "update_available"
       ? "update_available"
       : "current";
+    if (state.headerStatus.browserData === next) return;
+    state.headerStatus.browserData = next;
     renderHeaderStatus();
   }
 
@@ -354,6 +499,69 @@
         ? statusPayload.freshness
         : null,
     };
+    if (config.kind === "stream" && statusPayload && statusPayload.stream_status) {
+      setHeaderStreamStatus(statusPayload.stream_status);
+      return;
+    }
+    renderHeaderStatus();
+  }
+
+  function setHeaderStreamStatus(streamPayload) {
+    const stream = streamPayload && typeof streamPayload === "object"
+      ? streamPayload
+      : {};
+    const next = Object.assign({}, state.headerStatus.stream, {
+      lifecycle: typeof stream.lifecycle === "string" ? stream.lifecycle : null,
+      lastHeartbeatAt: stream.last_heartbeat_at || null,
+      sourceAvailable: typeof stream.source_available === "boolean"
+        ? stream.source_available
+        : null,
+      continuityWarning: typeof stream.continuity_warning === "string"
+        ? stream.continuity_warning
+        : null,
+    });
+
+    const currentKey = streamHeaderStatusKey(state.headerStatus.stream);
+    const nextKey = streamHeaderStatusKey(next);
+    const healthy = next.lifecycle === "live" &&
+      next.sourceAvailable !== false && !next.continuityWarning;
+
+    // Healthy traffic wins immediately. A less healthy state must remain
+    // stable for the grace window before changing the compact header; this
+    // prevents transient heartbeat boundaries from making it flicker.
+    if (healthy || nextKey === currentKey) {
+      clearHeaderStreamTransition();
+      applyHeaderStreamStatus(next);
+      return;
+    }
+
+    const pending = state.headerStreamPendingStatus;
+    if (pending && streamHeaderStatusKey(pending) === nextKey) {
+      state.headerStreamPendingStatus = next;
+      return;
+    }
+
+    clearHeaderStreamTransition();
+    state.headerStreamPendingStatus = next;
+    state.headerStreamTransitionTimer = window.setTimeout(function () {
+      const settled = state.headerStreamPendingStatus;
+      state.headerStreamPendingStatus = null;
+      state.headerStreamTransitionTimer = null;
+      if (settled) applyHeaderStreamStatus(settled);
+    }, STREAM_STATUS_GRACE_MS);
+  }
+
+  function setHeaderStreamSessionState(historical) {
+    const nextHistorical = historical === true;
+    if (state.headerStatus.stream.historical === nextHistorical) return;
+    clearHeaderStreamTransition();
+    state.headerStatus.stream = Object.assign({}, state.headerStatus.stream, {
+      historical: nextHistorical,
+    });
+    renderHeaderStatus();
+  }
+
+  function notifyHeaderStreamPauseChanged() {
     renderHeaderStatus();
   }
 
@@ -389,7 +597,7 @@
     button.addEventListener("click", function () {
       if (typeof core.openStatusModal === "function") core.openStatusModal();
     });
-    if (state.headerFreshnessTimer == null) {
+    if (config.kind !== "stream" && state.headerFreshnessTimer == null) {
       state.headerFreshnessTimer = window.setInterval(refreshLocalFreshness, 10000);
     }
   }
@@ -468,6 +676,9 @@
       }
 
         await refreshViewIcons(s.view_menu_revision);
+        if (typeof core.renderStatusModal === "function") {
+          core.renderStatusModal();
+        }
       } catch (e) {
         // ignore
       }
@@ -494,6 +705,9 @@
   core.setHeaderViewState = setHeaderViewState;
   core.setHeaderBrowserDataState = setHeaderBrowserDataState;
   core.setHeaderLatestStatus = setHeaderLatestStatus;
+  core.setHeaderStreamStatus = setHeaderStreamStatus;
+  core.setHeaderStreamSessionState = setHeaderStreamSessionState;
+  core.notifyHeaderStreamPauseChanged = notifyHeaderStreamPauseChanged;
   core.refreshLocalFreshness = refreshLocalFreshness;
   core.bindHeaderStatus = bindHeaderStatus;
   core.refreshViewIcons = refreshViewIcons;

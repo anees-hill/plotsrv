@@ -18,6 +18,8 @@ SHARED_EXPLORER_IDS = (
     "table-columns-panel",
     "table-plot-controls",
     "table-plot-output",
+    "table-supporting-data",
+    "table-supporting-data-toggle",
 )
 
 
@@ -64,6 +66,77 @@ def test_explorer_markup_has_one_python_owner() -> None:
     assert 'id="table-search-input"' not in json_source
     assert "render_table_explorer(" in html_source
     assert "render_table_explorer(" in json_source
+
+
+def test_plot_mode_is_explicitly_plot_plus_data_and_orders_plot_before_table() -> None:
+    ordinary = _render_index("table")
+    helper = (ROOT / "src" / "plotsrv" / "table_explorer_markup.py").read_text(
+        encoding="utf-8"
+    )
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Plot + data" in ordinary
+    assert 'aria-label="Data view mode"' in ordinary
+    assert ordinary.index('id="table-plot-controls"') < ordinary.index(
+        'id="table-plot-output"'
+    )
+    assert ordinary.index('id="table-plot-output"') < ordinary.index(
+        'id="table-supporting-data"'
+    )
+    assert ordinary.index('id="table-supporting-data-header"') < ordinary.index(
+        'id="table-data-surface"'
+    )
+    assert "Supporting table" in helper
+    assert 'surface.hidden = collapsed' in controls
+    assert 'header.hidden = !isPlot' in controls
+    assert 'toggle.textContent = collapsed ? "Show table" : "Hide table"' in controls
+    assert 'window.matchMedia("(max-width: 640px)").matches' in controls
+    assert 'localStorage.setItem(' in controls
+
+
+def test_plot_controls_attach_to_plot_and_supporting_table_is_separate() -> None:
+    css = (
+        ROOT
+        / "src"
+        / "plotsrv"
+        / "static"
+        / "css"
+        / "renderers"
+        / "table_plot_controls.css"
+    ).read_text(encoding="utf-8")
+
+    assert ".ps-table-plot-controls:not([hidden])" in css
+    assert "margin-bottom: -0.5rem" in css
+    assert ".ps-table-plot-controls + .ps-table-plot-root > .ps-table-plot" in css
+    assert ".ps-table-supporting-data__header" in css
+    assert ".ps-table-supporting-data.is-plot-support #table-data-surface" in css
+
+
+def test_plot_controls_have_a_matching_remembered_disclosure() -> None:
+    rendered = _render_index("table")
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+    css = (
+        ROOT
+        / "src"
+        / "plotsrv"
+        / "static"
+        / "css"
+        / "renderers"
+        / "table_plot_controls.css"
+    ).read_text(encoding="utf-8")
+
+    assert 'id="table-plot-controls-title">Plot controls</h2>' in rendered
+    assert 'id="table-plot-controls-content"' in rendered
+    assert 'id="table-plot-controls-toggle"' in rendered
+    assert 'aria-label="Collapse Plot controls"' in rendered
+    assert 'document.getElementById("table-plot-controls-toggle")' in controls
+    assert 'toggle.textContent = collapsed ? "+" : "−"' in controls
+    assert 'localStorage.setItem(' in controls
+    assert ".ps-table-plot-controls.is-collapsed" in css
 
 
 def test_plot_sources_are_capabilities_not_renderer_kind_branches() -> None:

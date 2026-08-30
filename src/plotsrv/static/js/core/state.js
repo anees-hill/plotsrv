@@ -88,10 +88,19 @@
       freshness: null,
     },
     browserData: "current",
+    stream: {
+      historical: false,
+      lifecycle: null,
+      lastHeartbeatAt: null,
+      sourceAvailable: null,
+      continuityWarning: null,
+    },
     snapshot: state.currentSnapshot
       ? { id: state.currentSnapshot, createdAt: null }
       : null,
   };
+  state.headerStreamPendingStatus = null;
+  state.headerStreamTransitionTimer = null;
   state.plotObjectUrl = null;
   state.reloadCurrentViewPromise = null;
   state.statusRefreshPromise = null;
@@ -103,23 +112,53 @@
   state.appliedUpdateRevision = config.browserUpdateRevision;
   state.pendingBrowserUpdate = null;
   state.browserUpdateSource = null;
+  state.browserUpdateLastEventAt = null;
+  state.browserUpdateWatchdogTimer = null;
+  state.browserUpdateReconnectTimer = null;
   state.browserUpdateApplying = false;
+  state.browserUpdateRetryTimer = null;
+  state.browserUpdateRetryAttempt = 0;
   state.initialViewLoadComplete = false;
   state.tabulatorInstance = null;
   state.tablePlotCapabilities = null;
+  state.tablePlotSupportingCollapsed = null;
+  state.tablePlotControlsCollapsed = null;
   state.streamTabulatorInstance = null;
   state.streamCursor = null;
   state.streamSessionId = null;
   state.streamHistoricalSessionId = null;
+  // Pausing is deliberately browser-local and ephemeral. The server keeps
+  // accepting records while this table holds its current presentation.
+  state.streamPaused = false;
+  state.streamPauseAvailable = false;
+  state.streamControlsCollapsed = null;
+  // Every stream-data request owns one generation. Starting a newer request,
+  // or beginning a current/stored session transition, invalidates older
+  // responses before they can mutate the table or browser checkpoint.
+  state.streamLoadGeneration = 0;
+  state.streamLoadController = null;
+  state.streamLoadTimeoutTimer = null;
+  state.streamTableMutationPromise = null;
   state.streamHistorySessions = [];
   state.streamHistoryCatalogPromise = null;
   state.streamHistoryCatalogViewId = null;
+  state.streamHistoryCatalogRevision = null;
+  state.streamHistoryCatalogRefreshRequested = false;
+  state.streamHistoryCatalogRefreshTimer = null;
+  state.streamHistoryControlData = null;
+  state.streamInsightsOpen = false;
+  state.streamInsightsTab = "since";
+  state.streamInsightsReturnFocus = null;
   // A current/history session boundary must replace Tabulator data even when
   // the response's browser cursor happens to be valid for its own session.
   state.streamForceTableReplace = false;
   state.streamSchemaRevision = null;
   state.streamSummaryRevision = null;
+  state.streamSummaryScopeKey = null;
+  state.streamSummaryGeneration = 0;
   state.streamSummaryLoadPromise = null;
+  state.streamSummaryLoadController = null;
+  state.streamSummaryDesired = null;
   // The first valid response of a page visit establishes its comparison
   // baseline. It must not move on every live poll or the eventual UI would
   // silently turn “since last visit” into “since the last second”. The latest

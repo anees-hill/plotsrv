@@ -23,13 +23,52 @@
 }
 
 .ps-table-plot-controls {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "identity content collapse";
+  align-items: start;
   gap: 0.55rem;
   padding: 0.72rem 0.8rem;
   border: 1px solid #ead7df;
-  border-radius: 8px;
+  border-radius: 8px 8px 0 0;
   background: linear-gradient(180deg, #fcf7f9 0%, #f8f1f4 100%);
+}
+
+.ps-table-plot-controls.is-collapsed {
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "identity collapse";
+  align-items: center;
+  padding-block: 0.38rem;
+}
+
+.ps-table-plot-controls__identity {
+  grid-area: identity;
+}
+
+.ps-table-plot-controls__content {
+  grid-area: content;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.ps-table-plot-controls__content[hidden] {
+  display: none !important;
+}
+
+.ps-table-plot-controls > .ps-pane-disclosure {
+  grid-area: collapse;
+}
+
+.ps-table-plot-controls:not([hidden]) {
+  margin-bottom: -0.5rem;
+}
+
+.ps-table-plot-controls + .ps-table-plot-root > .ps-table-plot,
+.ps-table-plot-controls + .ps-table-plot-root > .ps-table-plot__notice {
+  border-top: 0;
+  border-radius: 0 0 8px 8px;
 }
 
 .ps-table-plot-controls[hidden],
@@ -69,6 +108,57 @@
   width: 100%;
 }
 
+.ps-table-supporting-data {
+  display: grid;
+  min-width: 0;
+}
+
+.ps-table-supporting-data__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.62rem 0.72rem;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+  border-radius: 8px 8px 0 0;
+  background: var(--button-bg);
+}
+
+.ps-table-supporting-data__header[hidden] {
+  display: none !important;
+}
+
+.ps-table-supporting-data__header h2,
+.ps-table-supporting-data__header p {
+  margin: 0;
+}
+
+.ps-table-supporting-data__header h2 {
+  color: var(--text);
+  font-size: 0.92rem;
+}
+
+.ps-table-supporting-data__header p {
+  margin-top: 0.16rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.ps-table-supporting-data.is-plot-support #table-data-surface {
+  border-radius: 0 0 8px 8px;
+}
+
+.ps-table-supporting-data.is-collapsed {
+  border-radius: 8px;
+}
+
+.ps-table-supporting-data.is-collapsed .ps-table-supporting-data__header {
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 @media (max-width: 900px) {
   .ps-table-mode-switch {
     width: 100%;
@@ -84,5 +174,9 @@
 
   .ps-table-plot-control {
     flex: 1 1 100%;
+  }
+
+  .ps-table-supporting-data__header {
+    align-items: flex-start;
   }
 }

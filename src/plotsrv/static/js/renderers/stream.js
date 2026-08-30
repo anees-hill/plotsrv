@@ -13,26 +13,178 @@
   const config = window.PLOTSRV.config;
   const LIFECYCLE_PRESENTATION = {
     live: {
-      badge: "LIVE OBSERVATION",
       text: "Live observation — producer heartbeats are current.",
     },
     retrying: {
-      badge: "RETRYING DELIVERY",
       text: "Retrying delivery — recent observations may still be pending.",
     },
     ended: {
-      badge: "OBSERVATION ENDED",
       text: "Observation ended — the producer explicitly stopped after its bounded final drain.",
     },
     disconnected: {
-      badge: "OBSERVER DISCONNECTED",
       text: "Observer disconnected — heartbeats stopped; application state is unknown.",
     },
     incomplete: {
-      badge: "INCOMPLETE OBSERVATION",
       text: "Incomplete observation — some observations may be pending; application state is unknown.",
     },
   };
+  const INSIGHTS_TABS = ["since", "noteworthy", "history"];
+  const STREAM_DATA_REQUEST_TIMEOUT_MS = 15000;
+  const STREAM_CONTROLS_PREFERENCE_PREFIX = "plotsrv:v1:stream_controls:";
+
+  function streamControlsPreferenceKey() {
+    return STREAM_CONTROLS_PREFERENCE_PREFIX + String(config.activeViewId || "default");
+  }
+
+  function streamControlsCollapsed() {
+    if (typeof state.streamControlsCollapsed === "boolean") {
+      return state.streamControlsCollapsed;
+    }
+    let collapsed = false;
+    try {
+      collapsed = localStorage.getItem(streamControlsPreferenceKey()) === "collapsed";
+    } catch (e) {
+      collapsed = false;
+    }
+    state.streamControlsCollapsed = collapsed;
+    return collapsed;
+  }
+
+  function syncStreamControlsDisclosure() {
+    const panel = document.querySelector(".ps-stream-controls");
+    const content = document.getElementById("stream-controls-content");
+    const toggle = document.getElementById("stream-controls-toggle");
+    if (!panel || !content || !toggle) return;
+    const collapsed = streamControlsCollapsed();
+    content.hidden = collapsed;
+    if (panel.classList && typeof panel.classList.toggle === "function") {
+      panel.classList.toggle("is-collapsed", collapsed);
+    }
+    toggle.textContent = collapsed ? "+" : "−";
+    toggle.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    toggle.setAttribute(
+      "aria-label",
+      (collapsed ? "Expand" : "Collapse") + " Stream controls"
+    );
+    toggle.title = (collapsed ? "Expand" : "Collapse") + " Stream controls";
+  }
+
+  function setStreamControlsCollapsed(collapsed) {
+    state.streamControlsCollapsed = collapsed === true;
+    try {
+      localStorage.setItem(
+        streamControlsPreferenceKey(),
+        state.streamControlsCollapsed ? "collapsed" : "expanded"
+      );
+    } catch (e) {
+      // The disclosure still works when browser-local preferences are blocked.
+    }
+    syncStreamControlsDisclosure();
+  }
+
+  function bindStreamControlsDisclosure() {
+    const toggle = document.getElementById("stream-controls-toggle");
+    if (!toggle) return;
+    if (!toggle.dataset.plotsrvBound) {
+      toggle.addEventListener("click", function () {
+        setStreamControlsCollapsed(!streamControlsCollapsed());
+      });
+      toggle.dataset.plotsrvBound = "1";
+    }
+    syncStreamControlsDisclosure();
+  }
+
+  function normalizeInsightsTab(value) {
+    const tab = String(value || "");
+    return INSIGHTS_TABS.includes(tab) ? tab : "since";
+  }
+
+  function setStreamInsightsTab(value, options) {
+    const tab = normalizeInsightsTab(value);
+    state.streamInsightsTab = tab;
+    document.querySelectorAll("[data-stream-insights-tab]").forEach(function (button) {
+      const selected = button.getAttribute("data-stream-insights-tab") === tab;
+      button.setAttribute("aria-selected", selected ? "true" : "false");
+      button.tabIndex = selected ? 0 : -1;
+      if (selected && options && options.focus === true) button.focus();
+    });
+    document.querySelectorAll("[data-stream-insights-panel]").forEach(function (panel) {
+      panel.hidden = panel.getAttribute("data-stream-insights-panel") !== tab;
+    });
+    return tab;
+  }
+
+  function openStreamInsights(value) {
+    const drawer = document.getElementById("stream-insights-drawer");
+    const trigger = document.getElementById("stream-insights-button");
+    const close = document.getElementById("stream-insights-close");
+    if (!drawer) return;
+
+    state.streamInsightsReturnFocus = document.activeElement;
+    state.streamInsightsOpen = true;
+    drawer.hidden = false;
+    if (trigger) trigger.setAttribute("aria-expanded", "true");
+    setStreamInsightsTab(value || state.streamInsightsTab);
+    if (close) close.focus();
+    else drawer.focus();
+  }
+
+  function closeStreamInsights(options) {
+    const drawer = document.getElementById("stream-insights-drawer");
+    const trigger = document.getElementById("stream-insights-button");
+    if (!drawer || drawer.hidden) return;
+
+    drawer.hidden = true;
+    state.streamInsightsOpen = false;
+    if (trigger) trigger.setAttribute("aria-expanded", "false");
+    if (!options || options.restoreFocus !== false) {
+      const target = state.streamInsightsReturnFocus;
+      if (target && typeof target.focus === "function") target.focus();
+      else if (trigger) trigger.focus();
+    }
+  }
+
+  function bindStreamInsights() {
+    const drawer = document.getElementById("stream-insights-drawer");
+    const trigger = document.getElementById("stream-insights-button");
+    const close = document.getElementById("stream-insights-close");
+    if (!drawer || !trigger || drawer.dataset.plotsrvBound === "1") return;
+
+    trigger.addEventListener("click", function () {
+      if (drawer.hidden) openStreamInsights();
+      else closeStreamInsights();
+    });
+    if (close) close.addEventListener("click", function () { closeStreamInsights(); });
+
+    const tabs = Array.from(drawer.querySelectorAll("[data-stream-insights-tab]"));
+    tabs.forEach(function (tabButton) {
+      tabButton.addEventListener("click", function () {
+        setStreamInsightsTab(tabButton.getAttribute("data-stream-insights-tab"));
+      });
+      tabButton.addEventListener("keydown", function (event) {
+        const current = INSIGHTS_TABS.indexOf(
+          normalizeInsightsTab(tabButton.getAttribute("data-stream-insights-tab"))
+        );
+        let next = null;
+        if (event.key === "ArrowRight") next = (current + 1) % INSIGHTS_TABS.length;
+        else if (event.key === "ArrowLeft") {
+          next = (current - 1 + INSIGHTS_TABS.length) % INSIGHTS_TABS.length;
+        } else if (event.key === "Home") next = 0;
+        else if (event.key === "End") next = INSIGHTS_TABS.length - 1;
+        if (next === null) return;
+        event.preventDefault();
+        setStreamInsightsTab(INSIGHTS_TABS[next], {focus: true});
+      });
+    });
+
+    drawer.addEventListener("keydown", function (event) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      closeStreamInsights();
+    });
+    setStreamInsightsTab(state.streamInsightsTab);
+    drawer.dataset.plotsrvBound = "1";
+  }
 
   function stableJson(value) {
     if (value === null) return "null";
@@ -110,6 +262,12 @@
       });
       return result;
     }, []);
+  }
+
+  function validStreamDataPayload(data) {
+    return !!data && typeof data === "object" && !Array.isArray(data) &&
+      Array.isArray(data.records) && Array.isArray(data.columns) &&
+      typeof data.session_id === "string" && !!data.session_id;
   }
 
   function firstAvailableSequence(data) {
@@ -232,15 +390,37 @@
     await Promise.all(additions);
   }
 
+  function queueStreamTableMutation(operation) {
+    const previous = state.streamTableMutationPromise || Promise.resolve();
+    const queued = previous
+      .catch(function () {
+        // A failed older mutation must not prevent a newer session boundary
+        // from clearing and replacing the table.
+      })
+      .then(operation);
+    state.streamTableMutationPromise = queued;
+    function finish() {
+      if (state.streamTableMutationPromise === queued) {
+        state.streamTableMutationPromise = null;
+      }
+    }
+    queued.then(finish, finish);
+    return queued;
+  }
+
   async function replaceTableData(table, rows) {
     if (!table || typeof table.replaceData !== "function") return;
-    await Promise.resolve(table.replaceData(rows));
+    await queueStreamTableMutation(function () {
+      return Promise.resolve(table.replaceData(rows));
+    });
   }
 
   async function appendTableData(table, rows) {
     if (!rows.length) return;
     if (table && typeof table.addData === "function") {
-      await Promise.resolve(table.addData(rows));
+      await queueStreamTableMutation(function () {
+        return Promise.resolve(table.addData(rows));
+      });
       return;
     }
     // This only supports reduced test doubles and older Tabulator surfaces;
@@ -407,7 +587,6 @@
 
   function setInlineStatus(data) {
     const target = document.getElementById("stream-status-inline");
-    const badge = document.getElementById("stream-lifecycle-badge");
     const healthTarget = document.getElementById("stream-health-inline");
     if (!target) return;
 
@@ -420,10 +599,16 @@
     const sourceUnavailable = data.source_available === false;
     const historical = data.historical === true;
     if (historical) {
-      if (badge) {
-        badge.className = "ps-stream-badge ps-stream-badge--historical";
-        badge.textContent = "STORED SESSION";
-      }
+      state.streamPauseAvailable = false;
+      syncStreamPauseControl();
+    }
+    if (typeof core.setHeaderStreamSessionState === "function") {
+      core.setHeaderStreamSessionState(historical);
+    }
+    if (!historical && typeof core.setHeaderStreamStatus === "function") {
+      core.setHeaderStreamStatus(data);
+    }
+    if (historical) {
       target.textContent = "Stored historical session — no current producer is represented.";
       if (healthTarget) {
         const details = [];
@@ -436,17 +621,12 @@
       return;
     }
     const sourcePresentation = continuityWarning
-      ? { badge: "CONTINUITY UNCERTAIN", text: continuityWarning }
+      ? { text: continuityWarning }
       : sourceUnavailable
         ? {
-            badge: "SOURCE UNAVAILABLE",
             text: "Active JSONL source is unavailable; waiting for it to return.",
           }
         : presentation;
-    if (badge) {
-      badge.className = "ps-stream-badge ps-stream-badge--" + lifecycle;
-      badge.textContent = sourcePresentation ? sourcePresentation.badge : "STATUS UNAVAILABLE";
-    }
     const recordSummary = accepted <= 0
       ? " Waiting for appended JSON objects."
       : rawWindowSummary(data);
@@ -505,34 +685,130 @@
     paragraph.className = className;
     paragraph.textContent = text;
     parent.appendChild(paragraph);
+    return paragraph;
+  }
+
+  function countLabel(value, singular, plural) {
+    const count = exactCountText(value);
+    return count + " " + (count === "1" ? singular : plural);
+  }
+
+  function formatObservedTime(value) {
+    if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+      return "Time unavailable";
+    }
+    if (typeof core.fmtLocalTime === "function") return core.fmtLocalTime(value);
+    return new Date(value).toLocaleString();
+  }
+
+  function appendTechnicalDetails(parent, rows, rawValue) {
+    const details = document.createElement("details");
+    details.className = "ps-stream-technical";
+    const summary = document.createElement("summary");
+    summary.textContent = "Technical details";
+    details.appendChild(summary);
+
+    const list = document.createElement("dl");
+    list.className = "ps-stream-technical__facts";
+    for (const row of rows) {
+      if (!Array.isArray(row) || row.length !== 2 || row[1] == null || row[1] === "") continue;
+      const item = document.createElement("div");
+      const term = document.createElement("dt");
+      const description = document.createElement("dd");
+      term.textContent = String(row[0]);
+      description.textContent = String(row[1]);
+      item.appendChild(term);
+      item.appendChild(description);
+      list.appendChild(item);
+    }
+    details.appendChild(list);
+
+    if (rawValue !== undefined) {
+      const rawLabel = document.createElement("p");
+      rawLabel.className = "ps-stream-technical__raw-label";
+      rawLabel.textContent = "Raw observed data";
+      details.appendChild(rawLabel);
+      const raw = document.createElement("pre");
+      raw.className = "ps-stream-technical__raw";
+      raw.textContent = stableJson(rawValue);
+      details.appendChild(raw);
+    }
+    parent.appendChild(details);
+    return details;
   }
 
   function comparisonUnavailableExplanation(reason) {
     if (reason === "session_changed") {
-      return "the producer session changed";
+      return "the producer started a different stream session";
     }
     if (reason === "stream_state_changed") {
-      return "plotsrv's in-memory stream state was recreated";
+      return "plotsrv restarted its observation of this stream";
     }
     if (reason === "checkpoint_missing") {
-      return "this browser has no earlier compatible checkpoint";
+      return "this browser has no earlier visit to compare with yet";
     }
     if (reason === "checkpoint_storage_unavailable") {
-      return "this browser could not read its saved checkpoint";
+      return "this browser could not read the previous visit information";
     }
     if (reason === "counter_regressed") {
-      return "the saved and current counters cannot be compared safely";
+      return "the earlier and current stream counts do not form a safe comparison";
     }
     if (reason === "continuity_uncertain") {
-      return "plotsrv reported a continuity gap while you were away";
+      return "stream continuity may have been interrupted while you were away";
     }
     if (reason === "checkpoint_continuity_insufficient") {
-      return "the prior browser checkpoint recorded incomplete source continuity";
+      return "continuity during the previous visit was not certain";
     }
     if (reason === "source_unavailable") {
       return "the source is currently unavailable";
     }
-    return "the saved browser checkpoint is not compatible with the current observation state";
+    return "the previous visit information is not compatible with the current stream";
+  }
+
+  function unavailableVisitTitle(reason, incomplete) {
+    if (reason === "session_changed") return "A new stream session is active";
+    if (reason === "stream_state_changed") return "The comparison has restarted";
+    if (reason === "checkpoint_missing") return "Comparison starts with this visit";
+    if (reason === "checkpoint_storage_unavailable") return "Previous visit unavailable";
+    if (reason === "source_unavailable") return "The stream source is unavailable";
+    if (reason === "continuity_uncertain" ||
+        reason === "checkpoint_continuity_insufficient") {
+      return "Some activity may be missing";
+    }
+    return incomplete ? "An exact comparison is not possible" : "No reliable comparison yet";
+  }
+
+  function visitTechnicalRows(comparison, data) {
+    const deltas = comparison && comparison.deltas;
+    const checkpoint = comparison && comparison.checkpoint_identity;
+    const current = comparison && comparison.current_identity;
+    const cumulative = data && data.cumulative;
+    const rows = [
+      ["Comparison status", comparison && comparison.status],
+      ["Exact deltas", comparison && comparison.exact_deltas === true ? "yes" : "no"],
+      ["Checkpoint reason", comparison && comparison.unavailable_reason],
+      ["Continuity", comparison && comparison.continuity && comparison.continuity.status],
+      ["Continuity detail", comparison && comparison.continuity && comparison.continuity.warning],
+      ["Checkpoint session", checkpoint && checkpoint.session_id],
+      ["Current session", current && current.session_id],
+      ["Checkpoint stream instance", checkpoint && checkpoint.stream_instance_id],
+      ["Current stream instance", current && current.stream_instance_id],
+      ["Counter schema", current && current.counter_schema_version],
+      ["Accepted-record delta", deltas && deltas.total_records],
+      ["Noteworthy-item delta", deltas && deltas.noteworthy_items],
+      ["Recognised-severity delta", deltas && deltas.recognized_severity_records],
+      ["Rejected-record delta", deltas && deltas.rejected_source_records],
+      ["Continuity-event delta", deltas && deltas.continuity_events],
+      ["Latest sequence delta", deltas && deltas.latest_server_sequence],
+      ["First session observation", cumulative && cumulative.first_observed_at],
+      ["Latest session observation", cumulative && cumulative.last_observed_at],
+    ];
+    if (deltas && deltas.recognized_severity_counts) {
+      for (const severity of ["warning", "emergency", "alert", "critical", "fatal", "error"]) {
+        rows.push([severity + " delta", deltas.recognized_severity_counts[severity]]);
+      }
+    }
+    return rows;
   }
 
   function validVisitDeltas(comparison) {
@@ -567,7 +843,7 @@
     return deltas;
   }
 
-  function renderVisitComparison(comparison) {
+  function renderVisitComparison(comparison, data) {
     const status = document.getElementById("stream-since-visit-status");
     const target = document.getElementById("stream-since-visit-details");
     if (!status || !target) return;
@@ -584,97 +860,146 @@
       const reason = comparison && typeof comparison.unavailable_reason === "string"
         ? comparison.unavailable_reason
         : "checkpoint_missing";
+      const title = unavailableVisitTitle(reason, incomplete);
       detail.className = "ps-stream-returning__detail ps-stream-returning__detail--unavailable";
       addSurfaceText(
         detail,
         "ps-stream-returning__detail-title",
-        incomplete ? "Exact comparison incomplete" : "Exact comparison unavailable"
+        title
       );
-      const message = "Exact since-last-visit comparison is " +
-        (incomplete ? "incomplete" : "unavailable") + " because " +
-        comparisonUnavailableExplanation(reason) + ". No zero-change conclusion is shown.";
-      status.textContent = message;
+      const message = "plotsrv cannot give an exact since-last-visit count because " +
+        comparisonUnavailableExplanation(reason) + ".";
+      status.textContent = title;
       addSurfaceText(detail, "ps-stream-returning__detail-copy", message);
+      const latest = data && data.cumulative && data.cumulative.last_observed_at;
+      if (latest) {
+        addSurfaceText(
+          detail,
+          "ps-stream-returning__detail-meta",
+          "Latest observed stream activity: " + formatObservedTime(latest) + "."
+        );
+      }
+      addSurfaceText(
+        detail,
+        "ps-stream-returning__detail-note",
+        "No record count is shown: an unavailable comparison is not the same as no change."
+      );
+      appendTechnicalDetails(detail, visitTechnicalRows(comparison, data));
       target.appendChild(detail);
       return;
     }
 
     detail.className = "ps-stream-returning__detail ps-stream-returning__detail--available";
-    addSurfaceText(detail, "ps-stream-returning__detail-title", "Exact accepted-observation change");
     const total = exactCountText(deltas.total_records);
-    const severity = exactCountText(deltas.recognized_severity_records);
-    const continuity = comparison && comparison.continuity;
-    const continuityStatus = continuity && typeof continuity.status === "string"
-      ? continuity.status
-      : "unknown";
-    const base = "Exact change since this browser's last compatible visit: " +
-      total + " source observation(s) accepted by plotsrv, including " + severity +
-      " recognised severity observation(s).";
-    let caveat = "";
-    if (continuityStatus === "continuity_uncertain") {
-      caveat = " Source continuity is uncertain; plotsrv may not have observed every source event while you were away.";
-      if (continuity && typeof continuity.warning === "string" && continuity.warning) {
-        caveat += " " + continuity.warning;
-      }
-    } else if (continuityStatus === "source_unavailable") {
-      caveat = " The source is currently unavailable; these counts cover only observations plotsrv accepted.";
-    } else {
-      caveat = " This does not establish that plotsrv observed every source event.";
-    }
-    const message = base + caveat;
-    status.textContent = message;
-    addSurfaceText(detail, "ps-stream-returning__detail-copy", message);
+    const title = total === "0"
+      ? "No new records observed"
+      : countLabel(total, "new record", "new records");
+    status.textContent = title;
+    addSurfaceText(detail, "ps-stream-returning__detail-title", title);
+    addSurfaceText(
+      detail,
+      "ps-stream-returning__detail-copy",
+      total === "0"
+        ? "plotsrv accepted no new records during this exact comparison."
+        : "plotsrv accepted these records since this browser's previous compatible visit."
+    );
 
-    const severityCounts = deltas.recognized_severity_counts;
-    const labels = [];
-    for (const severityName of ["warning", "emergency", "alert", "critical", "fatal", "error"]) {
-      const count = exactCountText(severityCounts[severityName]);
-      if (count !== "0" && count !== "unknown") {
-        labels.push(severityName + " " + count);
-      }
-    }
-    if (labels.length) {
-      addSurfaceText(
-        detail,
-        "ps-stream-returning__detail-copy",
-        "Recognised severity breakdown: " + labels.join(", ") + "."
-      );
-    }
-    const rejected = exactCountText(deltas.rejected_source_records);
-    if (rejected !== "0" && rejected !== "unknown") {
-      addSurfaceText(
-        detail,
-        "ps-stream-returning__detail-copy",
-        rejected + " malformed or oversized completed source record(s) were reported while you were away."
-      );
-    }
     const noteworthy = exactCountText(deltas.noteworthy_items);
-    if (noteworthy !== "0" && noteworthy !== "unknown") {
+    if (noteworthy === "0") {
       addSurfaceText(
         detail,
         "ps-stream-returning__detail-copy",
-        noteworthy + " noteworthy observation(s) were classified; the retained Noteworthy selection is bounded."
+        "No noteworthy activity was classified during this comparison."
+      );
+    } else if (noteworthy !== "unknown") {
+      addSurfaceText(
+        detail,
+        "ps-stream-returning__detail-copy",
+        countLabel(noteworthy, "noteworthy item was", "noteworthy items were") +
+          " observed; the Noteworthy tab shows the retained selection."
       );
     }
+
+    const latest = data && data.cumulative && data.cumulative.last_observed_at;
+    if (total !== "0" && latest) {
+      addSurfaceText(
+        detail,
+        "ps-stream-returning__detail-meta",
+        "Latest relevant activity: " + formatObservedTime(latest) + "."
+      );
+    }
+    addSurfaceText(
+      detail,
+      "ps-stream-returning__detail-note",
+      "No continuity interruption was reported for this comparison."
+    );
+    appendTechnicalDetails(detail, visitTechnicalRows(comparison, data));
     target.appendChild(detail);
   }
 
-  function renderHistoricalVisitNotice() {
+  function renderHistoricalVisitNotice(data) {
     const status = document.getElementById("stream-since-visit-status");
     const target = document.getElementById("stream-since-visit-details");
-    if (status) {
-      status.textContent = "Stored sessions are fixed historical observations, not live continuity state.";
-    }
-    if (target) target.replaceChildren();
+    if (status) status.textContent = "Stored session selected";
+    if (!target) return;
+    target.replaceChildren();
+    const detail = document.createElement("article");
+    detail.className = "ps-stream-returning__detail ps-stream-returning__detail--historical";
+    detail.dataset.comparisonStatus = "historical";
+    addSurfaceText(detail, "ps-stream-returning__detail-title", "Since last visit does not apply");
+    addSurfaceText(
+      detail,
+      "ps-stream-returning__detail-copy",
+      "You are viewing a fixed stored session rather than the current live stream."
+    );
+    appendTechnicalDetails(detail, [
+      ["Session mode", "stored historical session"],
+      ["Session ID", data && data.session_id],
+      ["Stored update", data && data.historical_updated_at],
+      ["Lifecycle at storage", data && data.lifecycle],
+    ]);
+    target.appendChild(detail);
   }
 
   function systemNoticeLabel(event) {
-    if (event === "source_continuity_uncertain") return "Source continuity is uncertain";
+    if (event === "source_continuity_uncertain") return "Continuity may have been interrupted";
     if (event === "source_continuity_transition") return "Source continuity changed";
-    if (event === "source_record_rejection_reported") return "Source record rejection reported";
-    if (event === "source_rejection_counter_reset") return "Source rejection counter reset";
-    if (event === "stream_schema_changed") return "Retained stream schema changed";
-    return "plotsrv system event";
+    if (event === "source_record_rejection_reported") return "Some source records were skipped";
+    if (event === "source_rejection_counter_reset") return "Source parser count restarted";
+    if (event === "stream_schema_changed") return "Data structure changed";
+    return "Stream notice";
+  }
+
+  function systemNoticeExplanation(item) {
+    const event = item && item.event;
+    if (event === "source_continuity_uncertain") {
+      return "plotsrv could not confirm uninterrupted observation of the source.";
+    }
+    if (event === "source_continuity_transition") {
+      return "The observed source was replaced, truncated, or otherwise changed.";
+    }
+    if (event === "source_record_rejection_reported") {
+      const rejected = exactCountText(item.rejected_record_count);
+      return rejected === "unknown"
+        ? "The source parser reported records it could not accept."
+        : countLabel(rejected, "completed source record was", "completed source records were") +
+          " malformed or too large to accept.";
+    }
+    if (event === "source_rejection_counter_reset") {
+      return "The producer's rejected-record counter began a new count.";
+    }
+    if (event === "stream_schema_changed") {
+      return "One or more fields appeared in the retained stream data.";
+    }
+    return "plotsrv retained a typed stream event this browser does not yet recognise.";
+  }
+
+  function systemNoticeCategory(event) {
+    if (event === "source_continuity_uncertain" ||
+        event === "source_continuity_transition" ||
+        event === "source_record_rejection_reported") return "warning";
+    if (event === "stream_schema_changed") return "information";
+    return "neutral";
   }
 
   function recognizedStructuredSeverity(data) {
@@ -690,18 +1015,57 @@
     return null;
   }
 
-  function noteworthySourceLabel(item) {
+  function sentenceCase(value) {
+    const text = String(value || "");
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : text;
+  }
+
+  function friendlyObservedValue(value) {
+    const rendered = stableJson(value);
+    return rendered.length > 100 ? rendered.slice(0, 97) + "…" : rendered;
+  }
+
+  function noteworthySourcePresentation(item) {
     const reason = typeof item.noteworthy_reason === "string" ? item.noteworthy_reason : "";
     const field = typeof item.field_name === "string" ? item.field_name : "field";
     if (reason === "structured_severity") {
-      return "Source record — recognised severity: " + item.severity;
+      const severity = sentenceCase(item.severity || "Warning");
+      return {
+        title: severity + " received",
+        explanation: "A source record reported the recognised structured severity “" +
+          String(item.severity) + "”.",
+        category: item.severity === "warning" ? "warning" : "critical",
+      };
     }
     if (reason === "first_low_cardinality_value") {
-      return "Source record — first retained " + field + " value";
+      return {
+        title: "New " + field + " appeared",
+        explanation: "plotsrv observed the value " + friendlyObservedValue(item.field_value) +
+          " for “" + field + "” for the first time in this session.",
+        category: "information",
+      };
     }
-    if (reason === "numeric_minimum") return "Source record — new " + field + " minimum";
-    if (reason === "numeric_maximum") return "Source record — new " + field + " maximum";
-    return "Source record — noteworthy observation";
+    if (reason === "numeric_minimum") {
+      return {
+        title: "A new low value was observed",
+        explanation: "“" + field + "” reached a new observed low of " +
+          friendlyObservedValue(item.field_value) + ".",
+        category: "information",
+      };
+    }
+    if (reason === "numeric_maximum") {
+      return {
+        title: "A new high value was observed",
+        explanation: "“" + field + "” reached a new observed high of " +
+          friendlyObservedValue(item.field_value) + ".",
+        category: "information",
+      };
+    }
+    return {
+      title: "Noteworthy source record",
+      explanation: "plotsrv retained this record using a classification this browser does not yet recognise.",
+      category: "neutral",
+    };
   }
 
   function appendNoteworthySourceItem(target, item) {
@@ -718,18 +1082,31 @@
       return false;
     }
     const article = document.createElement("article");
-    article.className = "ps-stream-noteworthy__item ps-stream-noteworthy__item--source";
+    const presentation = noteworthySourcePresentation(item);
+    article.className = "ps-stream-noteworthy__item ps-stream-noteworthy__item--" +
+      presentation.category;
     article.dataset.noteworthyKind = "source_record";
     article.dataset.noteworthyObjectType = String(item.object_type || "unknown");
-    addSurfaceText(article, "ps-stream-noteworthy__item-title", noteworthySourceLabel(item));
+    article.dataset.noteworthyCategory = presentation.category;
+    addSurfaceText(article, "ps-stream-noteworthy__item-title", presentation.title);
+    addSurfaceText(article, "ps-stream-noteworthy__item-copy", presentation.explanation);
     const sequence = exactCountText(item.source_browser_sequence);
     const observedAt = typeof item.observed_at === "string" ? item.observed_at : "time unavailable";
     addSurfaceText(
       article,
       "ps-stream-noteworthy__item-meta",
-      "Source browser sequence " + sequence + "; observed " + observedAt + "."
+      "Observed " + formatObservedTime(observedAt) + "."
     );
-    addSurfaceText(article, "ps-stream-noteworthy__item-data", stableJson(item.data));
+    appendTechnicalDetails(article, [
+      ["Object type", item.object_type],
+      ["Noteworthy reason", item.noteworthy_reason],
+      ["Noteworthy sequence", item.noteworthy_sequence],
+      ["Source browser sequence", sequence],
+      ["Observed at", observedAt],
+      ["Structured severity", item.severity],
+      ["Field", item.field_name],
+      ["Observed field value", item.field_value === undefined ? null : stableJson(item.field_value)],
+    ], item.data);
     target.appendChild(article);
     return true;
   }
@@ -739,36 +1116,74 @@
       return false;
     }
     const article = document.createElement("article");
-    article.className = "ps-stream-noteworthy__item ps-stream-noteworthy__item--system";
+    const category = systemNoticeCategory(item.event);
+    article.className = "ps-stream-noteworthy__item ps-stream-noteworthy__item--" + category;
     article.dataset.noteworthyKind = "system_notice";
     article.dataset.noteworthyObjectType = String(item.object_type || "unknown");
+    article.dataset.noteworthyCategory = category;
+    addSurfaceText(article, "ps-stream-noteworthy__item-title", systemNoticeLabel(item.event));
+    addSurfaceText(article, "ps-stream-noteworthy__item-copy", systemNoticeExplanation(item));
     addSurfaceText(
       article,
-      "ps-stream-noteworthy__item-title",
-      "plotsrv system notice — " + systemNoticeLabel(item.event)
+      "ps-stream-noteworthy__item-meta",
+      "Observed " + formatObservedTime(item.observed_at) + "."
     );
-    const facts = [];
-    if (typeof item.continuity_warning === "string" && item.continuity_warning) {
-      facts.push(item.continuity_warning);
-    }
-    if (typeof item.source_transition === "string" && item.source_transition) {
-      facts.push("Source transition: " + item.source_transition + ".");
-    }
-    const rejected = safeNonNegativeInteger(item.rejected_record_count);
-    if (rejected !== null) {
-      facts.push(rejected + " rejected completed source record(s) reported.");
-    }
-    const schemaRevision = safeNonNegativeInteger(item.schema_revision);
-    if (schemaRevision !== null) {
-      facts.push("Retained schema revision: " + schemaRevision + ".");
-    }
-    if (!facts.length) facts.push("plotsrv reported this system event.");
-    addSurfaceText(article, "ps-stream-noteworthy__item-meta", facts.join(" "));
+    appendTechnicalDetails(article, [
+      ["Object type", item.object_type],
+      ["Event type", item.event],
+      ["Noteworthy sequence", item.noteworthy_sequence],
+      ["Observed at", item.observed_at],
+      ["Source transition", item.source_transition],
+      ["Continuity detail", item.continuity_warning],
+      ["Rejected-record count", item.rejected_record_count],
+      ["Schema revision", item.schema_revision],
+    ], item);
     target.appendChild(article);
     return true;
   }
 
-  function renderNoteworthy(payload) {
+  function appendUnknownNoteworthyItem(target, item) {
+    if (typeof item.object_type !== "string" || !item.object_type ||
+        typeof item.kind !== "string" || !item.kind) return false;
+    const article = document.createElement("article");
+    article.className = "ps-stream-noteworthy__item ps-stream-noteworthy__item--neutral";
+    article.dataset.noteworthyKind = "unknown";
+    article.dataset.noteworthyObjectType = item.object_type;
+    article.dataset.noteworthyCategory = "neutral";
+    addSurfaceText(article, "ps-stream-noteworthy__item-title", "Noteworthy stream item");
+    addSurfaceText(
+      article,
+      "ps-stream-noteworthy__item-copy",
+      "plotsrv retained an item type this browser does not yet recognise."
+    );
+    addSurfaceText(
+      article,
+      "ps-stream-noteworthy__item-meta",
+      "Observed " + formatObservedTime(item.observed_at) + "."
+    );
+    appendTechnicalDetails(article, [
+      ["Object type", item.object_type],
+      ["Item kind", item.kind],
+      ["Observed at", item.observed_at],
+    ], item);
+    target.appendChild(article);
+    return true;
+  }
+
+  function decimalCountGreaterThan(left, right) {
+    const leftText = exactCountText(left);
+    const rightText = exactCountText(right);
+    if (leftText === "unknown" || rightText === "unknown" || typeof BigInt !== "function") {
+      return false;
+    }
+    try {
+      return BigInt(leftText) > BigInt(rightText);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function renderNoteworthy(payload, cumulative) {
     const status = document.getElementById("stream-noteworthy-status");
     const target = document.getElementById("stream-noteworthy-items");
     if (!status || !target) return;
@@ -776,89 +1191,326 @@
     target.replaceChildren();
     if (!payload || payload.object_type !== "stream_noteworthy_collection" ||
         !Array.isArray(payload.items)) {
-      status.textContent = "Noteworthy state is unavailable or invalid; no conclusion is drawn from it.";
+      status.textContent = "Noteworthy activity could not be loaded.";
+      const empty = document.createElement("div");
+      empty.className = "ps-stream-insight-empty ps-stream-insight-empty--error";
+      addSurfaceText(empty, "ps-stream-insight-empty__title", "Unable to show noteworthy activity");
+      addSurfaceText(
+        empty,
+        "ps-stream-insight-empty__copy",
+        "The stream itself may still be available. Try reopening Insights after the next update."
+      );
+      target.appendChild(empty);
       return;
     }
 
     let shown = 0;
+    let invalid = 0;
     for (const item of payload.items) {
-      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
-      if (item.kind === "source_record") {
-        shown += appendNoteworthySourceItem(target, item) ? 1 : 0;
-      } else if (item.kind === "system_notice") {
-        shown += appendNoteworthySystemItem(target, item) ? 1 : 0;
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        invalid += 1;
+        continue;
       }
+      let appended = false;
+      if (item.object_type === "stream_noteworthy_source_record") {
+        appended = appendNoteworthySourceItem(target, item);
+      } else if (item.object_type === "stream_system_notice") {
+        appended = appendNoteworthySystemItem(target, item);
+      } else {
+        appended = appendUnknownNoteworthyItem(target, item);
+      }
+      shown += appended ? 1 : 0;
+      invalid += appended ? 0 : 1;
     }
 
     const maximum = safeNonNegativeInteger(payload.max_retained_items);
+    const retained = safeNonNegativeInteger(payload.retained_item_count);
+    const total = cumulative && cumulative.noteworthy_items;
     if (shown === 0) {
-      status.textContent = "No noteworthy items are retained in the current bounded selection; earlier items may have aged out.";
+      const agedOut = decimalCountGreaterThan(total, "0");
+      status.textContent = agedOut ? "No recent noteworthy items" : "Nothing noteworthy retained yet";
+      const empty = document.createElement("div");
+      empty.className = "ps-stream-insight-empty";
+      addSurfaceText(
+        empty,
+        "ps-stream-insight-empty__title",
+        agedOut ? "Earlier items have aged out" : "No noteworthy activity yet"
+      );
+      addSurfaceText(
+        empty,
+        "ps-stream-insight-empty__copy",
+        agedOut
+          ? "Noteworthy activity occurred earlier in this session, but it is no longer in the bounded selection."
+          : "plotsrv has not retained any deterministically classified noteworthy items for this session."
+      );
+      if (invalid > 0) {
+        addSurfaceText(
+          empty,
+          "ps-stream-insight-empty__note",
+          "Some retained item data was incomplete and could not be displayed."
+        );
+      }
+      target.appendChild(empty);
       return;
     }
-    status.textContent = shown + " retained noteworthy item" + (shown === 1 ? " is" : "s are") +
-      " shown from a bounded selection" +
-      (maximum === null ? "." : " (maximum " + maximum + ").");
+    status.textContent = countLabel(shown, "recent item to review", "recent items to review");
+    const agedOut = decimalCountGreaterThan(total, retained === null ? shown : retained);
+    if (agedOut || invalid > 0) {
+      const note = document.createElement("p");
+      note.className = "ps-stream-noteworthy__retention-note";
+      const messages = [];
+      if (agedOut) messages.push("Earlier noteworthy items have aged out of this bounded selection.");
+      if (invalid > 0) messages.push("Some retained item data was incomplete and could not be displayed.");
+      if (maximum !== null) messages.push("Up to " + maximum + " items are retained.");
+      note.textContent = messages.join(" ");
+      target.appendChild(note);
+    }
   }
 
   function addSummaryText(parent, className, text) {
-    const paragraph = document.createElement("p");
-    paragraph.className = className;
-    paragraph.textContent = text;
-    parent.appendChild(paragraph);
+    return addSurfaceText(parent, className, text);
   }
 
-  function appendSummaryFields(windowElement, fields) {
+  function friendlyDuration(seconds) {
+    const value = safeNonNegativeInteger(seconds);
+    if (value === null) return "resolution unavailable";
+    if (value < 60) return value + "-second summaries";
+    if (value % 86400 === 0) {
+      const days = value / 86400;
+      return days + "-day summaries";
+    }
+    if (value % 3600 === 0) {
+      const hours = value / 3600;
+      return hours + "-hour summaries";
+    }
+    if (value % 60 === 0) {
+      const minutes = value / 60;
+      return minutes + "-minute summaries";
+    }
+    return value + "-second summaries";
+  }
+
+  function friendlySummaryResolution(window) {
+    const resolution = window && window.resolution;
+    if (!resolution || typeof resolution !== "object") return "Resolution unavailable";
+    if (resolution.kind === "cumulative") return "Combined oldest period";
+    return friendlyDuration(resolution.seconds);
+  }
+
+  function friendlyFractionText(value) {
+    if (!value || typeof value !== "object") return "not available";
+    const numerator = typeof value.numerator === "string" ? value.numerator : null;
+    const denominator = typeof value.denominator === "string" ? value.denominator : null;
+    if (!numerator || !denominator || denominator === "0") return "not available";
+    if (denominator === "1") return numerator;
+    const approximate = Number(numerator) / Number(denominator);
+    if (!Number.isFinite(approximate)) return exactFractionText(value);
+    return "≈" + String(Math.round(approximate * 1000) / 1000);
+  }
+
+  function sumWindowCounts(windows) {
+    if (typeof BigInt !== "function") return "unknown";
+    let total = BigInt(0);
+    try {
+      for (const window of windows) {
+        const count = exactCountText(window.record_count);
+        if (count === "unknown") return "unknown";
+        total += BigInt(count);
+      }
+    } catch (e) {
+      return "unknown";
+    }
+    return total.toString();
+  }
+
+  function appendSummaryOverview(target, payload, windows, data) {
+    const historical = payload.historical === true || (data && data.historical === true);
+    const overview = document.createElement("article");
+    overview.className = "ps-stream-summary__overview";
+    overview.dataset.sessionMode = historical ? "stored" : "current";
+    addSummaryText(
+      overview,
+      "ps-stream-summary__overview-title",
+      historical ? "History for this stored session" : "Older history is available"
+    );
+    addSummaryText(
+      overview,
+      "ps-stream-summary__overview-copy",
+      historical
+        ? "These summaries describe older observations retained with this fixed session."
+        : "Older observations have been summarised as they left the recent-data window."
+    );
+
+    let from = null;
+    let until = null;
+    for (const window of windows) {
+      const range = window && window.observation_window;
+      const candidateFrom = range && typeof range.from === "string" ? range.from : null;
+      const candidateUntil = range && typeof range.until === "string" ? range.until : null;
+      if (candidateFrom && Number.isFinite(Date.parse(candidateFrom)) &&
+          (!from || Date.parse(candidateFrom) < Date.parse(from))) {
+        from = candidateFrom;
+      }
+      if (candidateUntil && Number.isFinite(Date.parse(candidateUntil)) &&
+          (!until || Date.parse(candidateUntil) > Date.parse(until))) {
+        until = candidateUntil;
+      }
+    }
+    const resolutions = [];
+    for (const window of windows) {
+      const label = friendlySummaryResolution(window);
+      if (!resolutions.includes(label)) resolutions.push(label);
+    }
+    const facts = document.createElement("dl");
+    facts.className = "ps-stream-summary__overview-facts";
+    const factRows = [
+      ["Period", from && until
+        ? formatObservedTime(from) + " to " + formatObservedTime(until)
+        : "Time range unavailable"],
+      ["Older records represented", exactCountText(sumWindowCounts(windows))],
+      ["Detail", resolutions.join(", ")],
+      ["Session", historical ? "Stored session" : "Current session"],
+    ];
+    for (const row of factRows) {
+      const item = document.createElement("div");
+      const term = document.createElement("dt");
+      const description = document.createElement("dd");
+      term.textContent = row[0];
+      description.textContent = row[1];
+      item.appendChild(term);
+      item.appendChild(description);
+      facts.appendChild(item);
+    }
+    overview.appendChild(facts);
+
+    const durable = data && data.durable_history;
+    if (durable && durable.state === "incomplete") {
+      addSummaryText(
+        overview,
+        "ps-stream-summary__caveat ps-stream-summary__caveat--warning",
+        historical
+          ? "Some persisted history for this stored session is incomplete."
+          : "Live observation continues, but some history could not be saved."
+      );
+    }
+    if (data && (data.continuity_warning || data.source_transition === "replaced" ||
+        data.source_transition === "truncated")) {
+      addSummaryText(
+        overview,
+        "ps-stream-summary__caveat",
+        "Source continuity may be incomplete for part of this history."
+      );
+    }
+    const truncated = windows.some(function (window) {
+      const truncation = window && window.truncation;
+      const count = exactCountText(truncation && truncation.untracked_field_observations);
+      return count !== "unknown" && count !== "0";
+    });
+    if (truncated) {
+      addSummaryText(
+        overview,
+        "ps-stream-summary__caveat",
+        "Some field-level detail was omitted to keep this history bounded."
+      );
+    }
+
+    const retention = payload.summary_retention || {};
+    appendTechnicalDetails(overview, [
+      ["Object type", payload.object_type],
+      ["Session ID", payload.session_id],
+      ["Session mode", historical ? "stored" : "current"],
+      ["Summary revision", payload.summary_revision],
+      ["Summary window count", payload.summary_window_count],
+      ["Maximum fine windows", retention.max_fine_windows],
+      ["Maximum coarse windows", retention.max_coarse_windows],
+      ["Maximum retained windows", retention.max_retained_windows],
+      ["Coarse window factor", retention.coarse_window_factor],
+      ["Maximum fields per window", retention.max_fields_per_window],
+      ["Maximum categories per field", retention.max_categories_per_field],
+      ["Persistent history state", durable && durable.state],
+      ["Persistent history error", durable && durable.last_error],
+    ], retention);
+    target.appendChild(overview);
+  }
+
+  function appendPrimarySummaryFields(windowElement, fields) {
     if (!Array.isArray(fields) || fields.length === 0) return;
     const list = document.createElement("ul");
-    list.className = "ps-stream-summary__fields";
+    list.className = "ps-stream-summary__highlights";
+    let shown = 0;
     for (const field of fields) {
-      if (!field || typeof field !== "object") continue;
+      if (!field || typeof field !== "object" || !field.numeric ||
+          typeof field.numeric !== "object") continue;
       const name = typeof field.field === "string" ? field.field : "unnamed field";
       const item = document.createElement("li");
-      item.className = "ps-stream-summary__field";
-      const lines = ["Field “" + name + "”: " + exactCountText(field.observed_count) + " observation(s)."];
       const numeric = field.numeric;
-      if (numeric && typeof numeric === "object") {
-        lines.push(
-          "Numeric (" + exactCountText(numeric.included_finite_count) + " finite): " +
-          "sum " + exactFractionText(numeric.sum) +
-          ", mean " + exactFractionText(numeric.mean) +
-          ", min " + exactFractionText(numeric.minimum) +
-          ", max " + exactFractionText(numeric.maximum) +
-          ", first " + exactFractionText(numeric.first) +
-          ", last " + exactFractionText(numeric.last) + "."
-        );
-      }
-      const categorical = field.categorical;
-      if (categorical && typeof categorical === "object") {
-        const tracked = Array.isArray(categorical.tracked_values)
-          ? categorical.tracked_values.map(function (entry) {
-              if (!entry || typeof entry !== "object") return null;
-              const value = typeof entry.value_json === "string" ? entry.value_json : "?";
-              return value + " (" + exactCountText(entry.count) + ")";
-            }).filter(Boolean)
-          : [];
-        const untracked = exactCountText(categorical.untracked_observations);
-        lines.push(
-          "Opaque scalar counts: " +
-          (tracked.length ? tracked.join(", ") : "no retained exact values") +
-          "; " + untracked + " untracked/other observation(s). " +
-          (categorical.exact_per_value_counts_complete === true
-            ? "Per-value counts are complete."
-            : "Per-value counts are incomplete after categorical reduction.")
-        );
-      }
-      const nonScalar = exactCountText(field.non_scalar_observations);
-      if (nonScalar !== "unknown" && nonScalar !== "0") {
-        lines.push(nonScalar + " nested value(s) were not semantically summarised.");
-      }
-      item.textContent = lines.join(" ");
+      item.className = "ps-stream-summary__highlight";
+      item.textContent = "“" + name + "”: average " + friendlyFractionText(numeric.mean) +
+        ", range " + friendlyFractionText(numeric.minimum) + "–" +
+        friendlyFractionText(numeric.maximum) + ".";
       list.appendChild(item);
+      shown += 1;
+      if (shown >= 3) break;
     }
-    windowElement.appendChild(list);
+    if (shown > 0) windowElement.appendChild(list);
   }
 
-  function renderSummary(payload) {
+  function summaryWindowTitle(window) {
+    const tier = window && window.tier;
+    if (tier === "cumulative") return "Oldest available period";
+    if (tier === "coarse") return "Earlier activity";
+    if (tier === "fine") return "Recent older activity";
+    return "Older activity summary";
+  }
+
+  function appendSummaryWindow(target, window) {
+    const rawTier = typeof window.tier === "string" ? window.tier : "unknown";
+    const tier = ["fine", "coarse", "cumulative"].includes(rawTier)
+      ? rawTier
+      : "unknown";
+    const article = document.createElement("article");
+    article.className = "ps-stream-summary__window ps-stream-summary__window--" + tier;
+    article.dataset.derivedSummary = "true";
+    article.dataset.summaryObjectType = String(window.object_type || "unknown");
+    addSummaryText(article, "ps-stream-summary__window-title", summaryWindowTitle(window));
+    const range = window.observation_window;
+    const from = range && typeof range.from === "string" ? range.from : null;
+    const until = range && typeof range.until === "string" ? range.until : null;
+    addSummaryText(
+      article,
+      "ps-stream-summary__window-meta",
+      countLabel(window.record_count, "older record", "older records") + " represented · " +
+        friendlySummaryResolution(window)
+    );
+    if (from && until) {
+      addSummaryText(
+        article,
+        "ps-stream-summary__window-period",
+        formatObservedTime(from) + " to " + formatObservedTime(until)
+      );
+    }
+    appendPrimarySummaryFields(article, window.fields);
+
+    const truncation = window.truncation || {};
+    appendTechnicalDetails(article, [
+      ["Object type", window.object_type],
+      ["Derived aggregate", window.derived === true ? "yes" : "no"],
+      ["Internal tier", summaryTierLabel(window)],
+      ["Internal resolution", summaryResolutionLabel(window)],
+      ["Boundary from", from],
+      ["Boundary until", until],
+      ["Record count", window.record_count],
+      ["Record bytes", window.record_bytes],
+      ["First browser sequence", window.first_browser_sequence],
+      ["Last browser sequence", window.last_browser_sequence],
+      ["Field observation count", window.field_observation_count],
+      ["Maximum tracked fields", truncation.max_fields],
+      ["Untracked field observations", truncation.untracked_field_observations],
+    ], window);
+    target.appendChild(article);
+  }
+
+  function renderSummary(payload, data) {
     if (typeof core.setTablePlotSummaryRows === "function") {
       core.setTablePlotSummaryRows(payload);
     }
@@ -866,97 +1518,181 @@
     const target = document.getElementById("stream-summary-windows");
     if (!status || !target) return;
 
-    const windows = Array.isArray(payload && payload.windows) ? payload.windows : [];
+    const rawWindows = Array.isArray(payload && payload.windows) ? payload.windows : [];
+    const windows = rawWindows.filter(function (window) {
+      return window && typeof window === "object" && !Array.isArray(window) &&
+        window.derived === true &&
+        window.object_type === "derived_stream_summary_window";
+    });
     target.replaceChildren();
     if (!windows.length) {
-      status.textContent = "No derived windows yet; the table above contains only recent raw observations.";
+      const invalid = rawWindows.length > 0;
+      status.textContent = invalid ? "History information could not be read" : "No older history yet";
+      const empty = document.createElement("div");
+      empty.className = invalid
+        ? "ps-stream-insight-empty ps-stream-insight-empty--error"
+        : "ps-stream-insight-empty";
+      addSummaryText(
+        empty,
+        "ps-stream-insight-empty__title",
+        invalid ? "Unable to show older history" : "No older history yet"
+      );
+      addSummaryText(
+        empty,
+        "ps-stream-insight-empty__copy",
+        invalid
+          ? "The returned summary data was not in a recognised derived-history format."
+          : data && data.historical === true
+            ? "This stored session has no older summary windows."
+            : "Recent records remain in the table. Older records will be summarised here as the recent-data window advances."
+      );
+      appendTechnicalDetails(empty, [
+        ["Session", payload && payload.session_id],
+        ["Session mode", data && data.historical === true ? "stored" : "current"],
+        ["Summary revision", payload && payload.summary_revision],
+        ["Returned window count", rawWindows.length],
+        ["Persistent history state", data && data.durable_history && data.durable_history.state],
+      ]);
+      target.appendChild(empty);
       return;
     }
 
-    status.textContent = windows.length + " derived window" +
-      (windows.length === 1 ? " is" : "s are") +
-      " shown below; none are source log rows.";
+    const historical = payload.historical === true || (data && data.historical === true);
+    status.textContent = countLabel(
+      windows.length,
+      historical ? "summary for this stored session" : "older summary available",
+      historical ? "summaries for this stored session" : "older summaries available"
+    );
+    appendSummaryOverview(target, payload, windows, data);
     for (const window of windows) {
-      if (!window || typeof window !== "object" || window.derived !== true) continue;
-      const tier = typeof window.tier === "string" ? window.tier : "unknown";
-      const article = document.createElement("article");
-      article.className = "ps-stream-summary__window ps-stream-summary__window--" + tier;
-      article.dataset.derivedSummary = "true";
-      article.dataset.summaryObjectType = String(window.object_type || "unknown");
-      addSummaryText(article, "ps-stream-summary__window-title", summaryTierLabel(window));
-      const range = window.observation_window;
-      const from = range && typeof range.from === "string" ? range.from : "unknown start";
-      const until = range && typeof range.until === "string" ? range.until : "unknown end";
-      const first = exactCountText(window.first_browser_sequence);
-      const last = exactCountText(window.last_browser_sequence);
-      addSummaryText(
-        article,
-        "ps-stream-summary__window-meta",
-        "Derived boundary: " + from + " to " + until + ". " +
-        summaryResolutionLabel(window) + ". " +
-        exactCountText(window.record_count) + " source observation(s) aggregated" +
-        (first === "unknown" || last === "unknown" ? "." : " (browser sequences " + first + "–" + last + ").")
-      );
-      const truncation = window.truncation;
-      const untrackedFields = exactCountText(
-        truncation && truncation.untracked_field_observations
-      );
-      const maxFields = safeNonNegativeInteger(truncation && truncation.max_fields);
-      if (untrackedFields === "unknown" || maxFields === null) {
-        addSummaryText(article, "ps-stream-summary__truncation", "Truncation details unavailable.");
-      } else if (untrackedFields !== "0") {
-        addSummaryText(
-          article,
-          "ps-stream-summary__truncation",
-          "Truncation: " + untrackedFields + " field observation(s) are untracked after the " +
-          maxFields + "-field summary limit."
-        );
-      } else {
-        addSummaryText(
-          article,
-          "ps-stream-summary__truncation",
-          "Truncation: no field observations were omitted by the " + maxFields + "-field limit."
-        );
-      }
-      appendSummaryFields(article, window.fields);
-      target.appendChild(article);
+      appendSummaryWindow(target, window);
     }
   }
 
   function showSummaryError() {
     const status = document.getElementById("stream-summary-status");
-    if (status) status.textContent = "Unable to load derived compact history; recent raw observations remain separate above.";
+    const target = document.getElementById("stream-summary-windows");
+    if (status) status.textContent = "Unable to load history";
+    if (target && target.children.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "ps-stream-insight-empty ps-stream-insight-empty--error";
+      addSummaryText(empty, "ps-stream-insight-empty__title", "History could not be loaded");
+      addSummaryText(
+        empty,
+        "ps-stream-insight-empty__copy",
+        "Recent raw records remain available in the table."
+      );
+      target.appendChild(empty);
+    }
   }
 
-  function loadSummaryIfChanged(data) {
-    if (data && data.historical === true && data.historical_summary) {
-      const payload = data.historical_summary;
-      if (!payload || payload.derived !== true || payload.object_type !== "derived_stream_summary_collection") {
-        return Promise.reject(new Error("historical summary response is invalid"));
-      }
-      renderSummary(payload);
-      state.streamSummaryRevision = summaryRevision(payload);
-      return Promise.resolve();
-    }
-    const revision = summaryRevision(data);
-    if (revision === null || revision === state.streamSummaryRevision) {
-      return Promise.resolve();
-    }
-    if (state.streamSummaryLoadPromise) return state.streamSummaryLoadPromise;
+  function summaryScope(data) {
+    const historical = !!(data && data.historical === true);
+    const sessionId = data && typeof data.session_id === "string" && data.session_id
+      ? data.session_id
+      : null;
+    return {
+      historical: historical,
+      sessionId: sessionId,
+      key: (historical ? "stored:" : "current:") + (sessionId || "unknown"),
+    };
+  }
 
-    const url = "/stream/summary?view=" + encodeURIComponent(config.activeViewId) + "&_ts=" + Date.now();
-    const request = fetch(url)
-      .then(function (response) {
+  function invalidateStreamSummaryLoads() {
+    state.streamSummaryGeneration = Number.isSafeInteger(state.streamSummaryGeneration)
+      ? state.streamSummaryGeneration + 1
+      : 1;
+    state.streamSummaryDesired = null;
+    const controller = state.streamSummaryLoadController;
+    state.streamSummaryLoadController = null;
+    state.streamSummaryLoadPromise = null;
+    if (controller && typeof controller.abort === "function") controller.abort();
+  }
+
+  function summaryWorkIsCurrent(work) {
+    if (!work || work.generation !== state.streamSummaryGeneration) return false;
+    const selected = selectedHistoricalSessionId();
+    return work.scope.historical
+      ? selected === work.scope.sessionId
+      : selected === null;
+  }
+
+  function startSummaryDrain() {
+    const generation = Number.isSafeInteger(state.streamSummaryGeneration)
+      ? state.streamSummaryGeneration
+      : 0;
+    const request = (async function () {
+      while (state.streamSummaryDesired && generation === state.streamSummaryGeneration) {
+        const desired = state.streamSummaryDesired;
+        if (desired.generation !== generation || !summaryWorkIsCurrent(desired)) return;
+        if (state.streamSummaryScopeKey === desired.scope.key &&
+            Number.isSafeInteger(state.streamSummaryRevision) &&
+            state.streamSummaryRevision >= desired.revision) {
+          if (state.streamSummaryDesired === desired) state.streamSummaryDesired = null;
+          continue;
+        }
+
+        const controller = typeof window.AbortController === "function"
+          ? new window.AbortController()
+          : null;
+        state.streamSummaryLoadController = controller;
+        const url = "/stream/summary?view=" + encodeURIComponent(config.activeViewId) +
+          "&_ts=" + Date.now();
+        let response;
+        try {
+          response = await fetch(
+            url,
+            controller ? {signal: controller.signal} : undefined
+          );
+        } catch (error) {
+          if (!summaryWorkIsCurrent(desired) || (error && error.name === "AbortError")) {
+            return;
+          }
+          throw error;
+        } finally {
+          if (state.streamSummaryLoadController === controller) {
+            state.streamSummaryLoadController = null;
+          }
+        }
+        if (!summaryWorkIsCurrent(desired)) return;
         if (!response.ok) throw new Error("summary request failed");
-        return response.json();
-      })
-      .then(function (payload) {
-        if (!payload || payload.derived !== true || payload.object_type !== "derived_stream_summary_collection") {
+        let payload;
+        try {
+          payload = await response.json();
+        } catch (error) {
+          if (!summaryWorkIsCurrent(desired)) return;
+          throw error;
+        }
+        if (!summaryWorkIsCurrent(desired)) return;
+        if (!payload || payload.derived !== true ||
+            payload.object_type !== "derived_stream_summary_collection") {
           throw new Error("summary response is not derived history");
         }
-        renderSummary(payload);
-        state.streamSummaryRevision = summaryRevision(payload);
-      });
+        const payloadRevision = summaryRevision(payload);
+        const payloadSessionId = typeof payload.session_id === "string"
+          ? payload.session_id
+          : null;
+        if (payloadRevision === null || (desired.scope.sessionId &&
+            payloadSessionId !== desired.scope.sessionId)) {
+          throw new Error("summary response identity is invalid");
+        }
+
+        const latest = state.streamSummaryDesired;
+        if (!latest || latest.generation !== generation ||
+            latest.scope.key !== desired.scope.key) {
+          continue;
+        }
+        if (payloadRevision < latest.revision) {
+          // A newer data response arrived while this summary was loading. Keep
+          // draining immediately; do not wait for another stream event.
+          continue;
+        }
+        renderSummary(payload, latest.data);
+        state.streamSummaryRevision = payloadRevision;
+        state.streamSummaryScopeKey = latest.scope.key;
+        if (state.streamSummaryDesired === latest) state.streamSummaryDesired = null;
+      }
+    })();
     state.streamSummaryLoadPromise = request;
     function finish() {
       if (state.streamSummaryLoadPromise === request) {
@@ -967,27 +1703,207 @@
     return request;
   }
 
+  function loadSummaryIfChanged(data) {
+    const scope = summaryScope(data);
+    if (scope.historical && data.historical_summary) {
+      const payload = data.historical_summary;
+      if (!payload || payload.derived !== true ||
+          payload.object_type !== "derived_stream_summary_collection" ||
+          (scope.sessionId && payload.session_id !== scope.sessionId)) {
+        return Promise.reject(new Error("historical summary response is invalid"));
+      }
+      renderSummary(payload, data);
+      state.streamSummaryRevision = summaryRevision(payload);
+      state.streamSummaryScopeKey = scope.key;
+      return Promise.resolve();
+    }
+    const revision = summaryRevision(data);
+    if (revision === null || (state.streamSummaryScopeKey === scope.key &&
+        Number.isSafeInteger(state.streamSummaryRevision) &&
+        state.streamSummaryRevision >= revision)) {
+      return Promise.resolve();
+    }
+    state.streamSummaryDesired = {
+      generation: Number.isSafeInteger(state.streamSummaryGeneration)
+        ? state.streamSummaryGeneration
+        : 0,
+      scope: scope,
+      revision: revision,
+      data: data,
+    };
+    if (state.streamSummaryLoadPromise) return state.streamSummaryLoadPromise;
+    return startSummaryDrain();
+  }
+
   function historicalSessionLabel(session) {
-    const id = session && typeof session.session_id === "string"
-      ? session.session_id
-      : "unknown session";
     const updated = session && typeof session.updated_at === "string" && session.updated_at
-      ? session.updated_at
+      ? typeof core.fmtLocalTime === "function"
+        ? core.fmtLocalTime(session.updated_at)
+        : session.updated_at
       : "time unavailable";
     const incomplete = session && session.durable_history && session.durable_history.state === "incomplete"
-      ? " — persistence incomplete"
+      ? " — incomplete"
       : "";
-    return id + " — " + updated + incomplete;
+    return "Past run — " + updated + incomplete;
+  }
+
+  function selectedHistoricalSessionId() {
+    return typeof state.streamHistoricalSessionId === "string" &&
+      state.streamHistoricalSessionId
+      ? state.streamHistoricalSessionId
+      : null;
+  }
+
+  function syncStreamPauseControl() {
+    const button = document.getElementById("stream-pause-button");
+    if (!button) return;
+    const label = document.getElementById("stream-pause-label");
+    const icon = button.querySelector
+      ? button.querySelector(".ps-stream-pause-button__icon")
+      : null;
+    const paused = state.streamPaused === true;
+    const historical = !!selectedHistoricalSessionId();
+    const available = state.streamPauseAvailable === true && !historical;
+    const action = paused ? "Resume stream" : "Pause stream";
+    const description = historical
+      ? "Live table updates are unavailable while viewing a stored session"
+      : paused
+        ? "Resume stream"
+        : "Pause stream";
+
+    button.disabled = !available;
+    button.setAttribute("aria-pressed", paused ? "true" : "false");
+    button.setAttribute("aria-label", description);
+    button.title = description;
+    if (label) label.textContent = action;
+    if (icon) icon.textContent = paused ? "▶" : "Ⅱ";
+  }
+
+  function setStreamPaused(paused) {
+    const next = paused === true;
+    if (!state.streamPauseAvailable || selectedHistoricalSessionId()) {
+      syncStreamPauseControl();
+      return false;
+    }
+    if (state.streamPaused === next) {
+      syncStreamPauseControl();
+      return next;
+    }
+
+    state.streamPaused = next;
+    syncStreamPauseControl();
+    if (typeof core.notifyHeaderStreamPauseChanged === "function") {
+      core.notifyHeaderStreamPauseChanged();
+    }
+    if (next) {
+      // Stop a response already on the wire as well as future automatic
+      // updates. auto_refresh keeps its revision pending when this clean
+      // cancellation resolves.
+      invalidateStreamLoads();
+      if (state.pendingBrowserUpdate &&
+          typeof core.setHeaderBrowserDataState === "function") {
+        core.setHeaderBrowserDataState("update_available");
+      }
+      return true;
+    }
+
+    if (state.pendingBrowserUpdate &&
+        typeof core.notifyUpdateEligibilityChanged === "function") {
+      core.notifyUpdateEligibilityChanged();
+    } else if (typeof core.setHeaderBrowserDataState === "function") {
+      core.setHeaderBrowserDataState("current");
+    }
+    return false;
+  }
+
+  function bindStreamPauseControl() {
+    const button = document.getElementById("stream-pause-button");
+    if (!button) return;
+    button.onclick = function () {
+      setStreamPaused(state.streamPaused !== true);
+    };
+    syncStreamPauseControl();
+  }
+
+  function invalidateStreamLoads() {
+    state.streamLoadGeneration = Number.isSafeInteger(state.streamLoadGeneration)
+      ? state.streamLoadGeneration + 1
+      : 1;
+    const controller = state.streamLoadController;
+    state.streamLoadController = null;
+    if (state.streamLoadTimeoutTimer != null &&
+        typeof window.clearTimeout === "function") {
+      window.clearTimeout(state.streamLoadTimeoutTimer);
+    }
+    state.streamLoadTimeoutTimer = null;
+    if (controller && typeof controller.abort === "function") {
+      controller.abort();
+    }
+  }
+
+  function beginStreamLoad(historicalSessionId) {
+    invalidateStreamLoads();
+    const generation = state.streamLoadGeneration;
+    const controller = typeof window.AbortController === "function"
+      ? new window.AbortController()
+      : null;
+    state.streamLoadController = controller;
+    const load = {
+      generation: generation,
+      historicalSessionId: historicalSessionId,
+      controller: controller,
+      timedOut: false,
+      timeoutTimer: null,
+    };
+    if (controller && typeof window.setTimeout === "function") {
+      load.timeoutTimer = window.setTimeout(function () {
+        if (!streamLoadIsCurrent(load) || state.streamLoadController !== controller) return;
+        load.timedOut = true;
+        controller.abort();
+      }, STREAM_DATA_REQUEST_TIMEOUT_MS);
+      state.streamLoadTimeoutTimer = load.timeoutTimer;
+    }
+    return load;
+  }
+
+  function streamLoadIsCurrent(load) {
+    return !!load && load.generation === state.streamLoadGeneration &&
+      load.historicalSessionId === selectedHistoricalSessionId();
+  }
+
+  function clearStreamLoadTimeout(load) {
+    if (load && load.timeoutTimer != null && typeof window.clearTimeout === "function") {
+      window.clearTimeout(load.timeoutTimer);
+      if (state.streamLoadTimeoutTimer === load.timeoutTimer) {
+        state.streamLoadTimeoutTimer = null;
+      }
+      load.timeoutTimer = null;
+    }
+  }
+
+  function finishStreamLoad(load) {
+    clearStreamLoadTimeout(load);
+    if (load && state.streamLoadController === load.controller) {
+      state.streamLoadController = null;
+    }
   }
 
   async function resetStreamSessionPresentation() {
+    // Invalidate before the first await. Otherwise an older live response can
+    // finish while the table is being cleared and overwrite the newly selected
+    // stored session (or vice versa).
+    invalidateStreamLoads();
+    invalidateStreamSummaryLoads();
     state.streamCursor = null;
     state.streamSessionId = null;
     state.streamSchemaRevision = null;
     state.streamSummaryRevision = null;
+    state.streamSummaryScopeKey = null;
     state.streamColumnsSignature = null;
     state.streamRowsBySequence = Object.create(null);
     state.streamForceTableReplace = true;
+    state.streamPauseAvailable = false;
+    syncStreamPauseControl();
 
     // Browser sequence numbers are session-local. Clear the visible table
     // before loading another stored session (or returning to the current
@@ -996,31 +1912,50 @@
     await replaceTableData(state.streamTabulatorInstance, []);
   }
 
-  function renderHistoryPicker(data, sessions) {
+  function syncSessionControl(data) {
+    const select = document.getElementById("stream-history-session-select");
+    const status = document.getElementById("stream-history-picker-status");
+    if (!select) return;
+
+    const showingHistorical = data && data.historical === true;
+    select.value = state.streamHistoricalSessionId || "";
+    if (status && showingHistorical) {
+      status.textContent = "Viewing a stored run. Stored runs are not live producers.";
+    }
+  }
+
+  function renderHistoryPicker(data, sessions, capability) {
     const picker = document.getElementById("stream-history-picker");
     const select = document.getElementById("stream-history-session-select");
+    const info = document.getElementById("stream-history-info");
     const status = document.getElementById("stream-history-picker-status");
     if (!picker || !select) return;
 
-    const items = Array.isArray(sessions) ? sessions : [];
+    const items = (Array.isArray(sessions) ? sessions : []).filter(function (session) {
+      return session && typeof session.session_id === "string" && session.session_id;
+    });
     state.streamHistorySessions = items;
-    if (!items.length) {
-      picker.hidden = true;
-      return;
-    }
 
     const showingHistorical = data && data.historical === true;
     if (showingHistorical && !state.streamHistoricalSessionId &&
         typeof data.session_id === "string" && data.session_id) {
       state.streamHistoricalSessionId = data.session_id;
     }
-    picker.hidden = false;
+    const durable = data && data.durable_history;
+    const enabled = capability && typeof capability.enabled === "boolean"
+      ? capability.enabled
+      : !(durable && durable.state === "disabled");
+    const unavailableReason = !enabled
+      ? String(
+          (capability && capability.message) ||
+          "Stored runs are unavailable because plotsrv disk storage is disabled in configuration."
+        )
+      : "";
+    picker.dataset.state = enabled ? (items.length ? "enabled" : "empty") : "unavailable";
     select.replaceChildren();
-    // Keep a route back to the current observation while browsing history.
-    // A live producer may have registered after this stored session was saved.
     const current = document.createElement("option");
     current.value = "";
-    current.textContent = "Current observation";
+    current.textContent = "Current run";
     select.appendChild(current);
     for (const session of items) {
       if (!session || typeof session.session_id !== "string" || !session.session_id) continue;
@@ -1030,16 +1965,39 @@
       select.appendChild(option);
     }
     select.value = state.streamHistoricalSessionId || "";
+    select.disabled = !enabled;
+    select.title = unavailableReason;
+    if (typeof select.setAttribute === "function") {
+      select.setAttribute(
+        "aria-label",
+        unavailableReason ? "Run. " + unavailableReason : "Run"
+      );
+    }
+    if (info) {
+      info.hidden = !unavailableReason;
+      info.title = unavailableReason;
+      if (typeof info.setAttribute === "function") {
+        info.setAttribute("aria-label", unavailableReason || "Stored runs are available.");
+      }
+    }
     if (status) {
-      status.textContent = showingHistorical
-        ? "Viewing stored history. Stored sessions are not live producers."
-        : items.length + " stored session" + (items.length === 1 ? " is" : "s are") + " available to inspect.";
+      status.textContent = unavailableReason || (showingHistorical
+        ? "Viewing a stored run. Stored runs are not live producers."
+        : items.length
+          ? items.length + " past run" + (items.length === 1 ? " is" : "s are") + " available to inspect."
+          : "Current run. No past runs have been saved yet.");
     }
     select.onchange = async function () {
       const next = select.value || null;
       if (next === state.streamHistoricalSessionId) return;
       state.streamHistoricalSessionId = next;
-      if (typeof core.renderHeaderStatus === "function") core.renderHeaderStatus();
+      select.disabled = true;
+      if (typeof select.setAttribute === "function") {
+        select.setAttribute("aria-busy", "true");
+      }
+      if (typeof core.setHeaderStreamSessionState === "function") {
+        core.setHeaderStreamSessionState(!!next);
+      }
       try {
         await resetStreamSessionPresentation();
         await loadStream();
@@ -1051,13 +2009,31 @@
         }
       } catch (error) {
         showStreamError();
+      } finally {
+        select.disabled = false;
+        if (typeof select.removeAttribute === "function") {
+          select.removeAttribute("aria-busy");
+        }
       }
     };
   }
 
+  function renderRawHistoryNotice(data, records) {
+    const notice = document.getElementById("stream-raw-history-notice");
+    if (!notice) return;
+    const unavailable = data && data.historical === true &&
+      (!Array.isArray(records) || records.length === 0);
+    notice.hidden = !unavailable;
+    notice.textContent = unavailable
+      ? "No original log rows are available for this stored run. Its compact summaries and noteworthy history remain available in Insights."
+      : "";
+  }
+
   async function returnToCurrentStream() {
     state.streamHistoricalSessionId = null;
-    if (typeof core.renderHeaderStatus === "function") core.renderHeaderStatus();
+    if (typeof core.setHeaderStreamSessionState === "function") {
+      core.setHeaderStreamSessionState(false);
+    }
     await resetStreamSessionPresentation();
     await loadStream();
     if (typeof core.markBrowserViewApplied === "function") {
@@ -1068,28 +2044,64 @@
     }
   }
 
-  function loadHistoryCatalogue(data) {
-    if (state.streamHistoryCatalogPromise) return state.streamHistoryCatalogPromise;
+  function rememberHistoryControlData(data) {
+    if (!data || typeof data !== "object") return;
+    state.streamHistoryControlData = {
+      historical: data.historical === true,
+      session_id: typeof data.session_id === "string" ? data.session_id : null,
+      durable_history: data.durable_history || null,
+    };
+  }
+
+  function loadHistoryCatalogue(data, options) {
+    rememberHistoryControlData(data);
+    if (state.streamHistoryCatalogPromise) {
+      if (options && options.force) state.streamHistoryCatalogRefreshRequested = true;
+      return state.streamHistoryCatalogPromise;
+    }
     const url = "/stream/history?view=" + encodeURIComponent(config.activeViewId) + "&_ts=" + Date.now();
     const request = fetch(url)
       .then(function (response) {
-        if (response.status === 404) return [];
+        if (response.status === 404) return {sessions: [], capability: null};
         if (!response.ok) throw new Error("stream history request failed");
         return response.json();
       })
       .then(function (payload) {
         const sessions = payload && Array.isArray(payload.sessions) ? payload.sessions : [];
         state.streamHistoryCatalogViewId = config.activeViewId;
-        renderHistoryPicker(data, sessions);
+        state.streamHistoryCatalogRevision = payload && Number.isSafeInteger(payload.revision)
+          ? payload.revision
+          : state.streamHistoryCatalogRevision;
+        renderHistoryPicker(
+          data || state.streamHistoryControlData,
+          sessions,
+          payload && payload.capability
+        );
       });
     state.streamHistoryCatalogPromise = request;
     function finish() {
       if (state.streamHistoryCatalogPromise === request) {
         state.streamHistoryCatalogPromise = null;
       }
+      if (state.streamHistoryCatalogRefreshRequested) {
+        state.streamHistoryCatalogRefreshRequested = false;
+        window.setTimeout(function () {
+          loadHistoryCatalogue(state.streamHistoryControlData, {force: true}).catch(function () {});
+        }, 0);
+      }
     }
     request.then(finish, finish);
     return request;
+  }
+
+  function scheduleStreamHistoryCatalogueRefresh() {
+    if (state.streamHistoryCatalogRefreshTimer != null) return;
+    state.streamHistoryCatalogRefreshTimer = window.setTimeout(function () {
+      state.streamHistoryCatalogRefreshTimer = null;
+      loadHistoryCatalogue(state.streamHistoryControlData, {force: true}).catch(function () {
+        // A transient history failure never interrupts the current live table.
+      });
+    }, 250);
   }
 
   function showStreamError() {
@@ -1100,16 +2112,19 @@
     if (typeof core.setStatusMessage === "function") {
       core.setStatusMessage("Unable to load the live stream.");
     }
+    const noteworthyItems = document.getElementById("stream-noteworthy-items");
+    if (noteworthyItems && noteworthyItems.children.length === 0) {
+      renderNoteworthy(null, null);
+    }
+    showSummaryError();
   }
 
   async function loadStream() {
     const grid = document.getElementById("stream-grid");
-    if (!grid) return;
+    if (!grid) return false;
 
-    const historicalSessionId = typeof state.streamHistoricalSessionId === "string" &&
-      state.streamHistoricalSessionId
-      ? state.streamHistoricalSessionId
-      : null;
+    const historicalSessionId = selectedHistoricalSessionId();
+    const load = beginStreamLoad(historicalSessionId);
     let url = historicalSessionId
       ? "/stream/history?view=" + encodeURIComponent(config.activeViewId) +
         "&session_id=" + encodeURIComponent(historicalSessionId)
@@ -1122,19 +2137,56 @@
     }
     url += "&_ts=" + Date.now();
 
-    const response = await fetch(url);
+    let response;
+    try {
+      response = await fetch(
+        url,
+        load.controller ? {signal: load.controller.signal} : undefined
+      );
+    } catch (error) {
+      if (load.timedOut && streamLoadIsCurrent(load)) {
+        finishStreamLoad(load);
+        showStreamError();
+        throw new Error("stream data request timed out");
+      }
+      if (!streamLoadIsCurrent(load) || (error && error.name === "AbortError")) {
+        finishStreamLoad(load);
+        return false;
+      }
+      finishStreamLoad(load);
+      throw error;
+    }
+    if (!streamLoadIsCurrent(load)) {
+      finishStreamLoad(load);
+      return false;
+    }
     if (!response.ok) {
+      finishStreamLoad(load);
       showStreamError();
-      return;
+      throw new Error("stream data request failed with status " + response.status);
     }
 
-    const payload = await response.json();
+    let payload;
+    try {
+      payload = await response.json();
+    } catch (error) {
+      finishStreamLoad(load);
+      throw error;
+    }
+    if (!streamLoadIsCurrent(load)) {
+      finishStreamLoad(load);
+      return false;
+    }
+    // The liveness bound covers the network response and JSON parsing. Table
+    // mutations are local and already serialize through one bounded chain.
+    clearStreamLoadTimeout(load);
     const data = historicalSessionId
       ? payload && payload.data
       : payload;
-    if (!data || typeof data !== "object") {
+    if (!validStreamDataPayload(data)) {
+      finishStreamLoad(load);
       showStreamError();
-      return;
+      throw new Error("stream data response is invalid");
     }
     if (historicalSessionId) {
       data.historical_summary = payload.summary;
@@ -1145,15 +2197,25 @@
     }
     const records = normaliseRecords(data.records);
     const columns = Array.isArray(data.columns) ? data.columns : [];
+    const serverSessionId = typeof data.session_id === "string" ? data.session_id : null;
+    const sessionChanged =
+      !!state.streamSessionId &&
+      !!serverSessionId &&
+      state.streamSessionId !== serverSessionId;
+    rememberHistoryControlData(data);
+    renderRawHistoryNotice(data, records);
     let visitComparison = null;
     if (data.historical === true) {
-      renderHistoricalVisitNotice();
+      renderHistoricalVisitNotice(data);
     } else if (typeof core.updateStreamVisitComparison === "function") {
       visitComparison = core.updateStreamVisitComparison(data);
     }
-    if (data.historical !== true) renderVisitComparison(visitComparison);
-    renderNoteworthy(data.noteworthy);
+    if (data.historical !== true) renderVisitComparison(visitComparison, data);
+    renderNoteworthy(data.noteworthy, data.cumulative);
     setInlineStatus(data);
+    // Keep selection aligned immediately when a return-to-current action
+    // originates outside the selector, without rebuilding an open dropdown.
+    syncSessionControl(data);
     loadSummaryIfChanged(data).catch(showSummaryError);
     if (state.streamHistoryCatalogViewId !== config.activeViewId || data.historical === true) {
       loadHistoryCatalogue(data).catch(function () {
@@ -1163,15 +2225,11 @@
     }
 
     if (typeof Tabulator === "undefined") {
+      finishStreamLoad(load);
       showStreamError();
-      return;
+      throw new Error("Tabulator is not available");
     }
 
-    const serverSessionId = typeof data.session_id === "string" ? data.session_id : null;
-    const sessionChanged =
-      !!state.streamSessionId &&
-      !!serverSessionId &&
-      state.streamSessionId !== serverSessionId;
     const resetRequired = data.reset_required === true || sessionChanged ||
       state.streamForceTableReplace === true;
     const firstAvailable = firstAvailableSequence(data);
@@ -1202,7 +2260,10 @@
       state.streamSessionId = serverSessionId;
       state.streamForceTableReplace = false;
       updateCursor(data, records, true);
-      return;
+      finishStreamLoad(load);
+      state.streamPauseAvailable = data.historical !== true;
+      syncStreamPauseControl();
+      return true;
     }
 
     const table = state.streamTabulatorInstance;
@@ -1211,6 +2272,10 @@
       // Add schema extensions without recreating existing columns: that is
       // what keeps a user's column order and visibility choices intact.
       await extendColumns(table, columns);
+      if (!streamLoadIsCurrent(load)) {
+        finishStreamLoad(load);
+        return false;
+      }
     }
 
     let rows;
@@ -1219,6 +2284,10 @@
       // A reset is an explicit loss of continuity, so replacement is correct;
       // Tabulator retains active filters and explicit sorting across replaceData.
       await replaceTableData(table, rows);
+      if (!streamLoadIsCurrent(load)) {
+        finishStreamLoad(load);
+        return false;
+      }
     } else {
       const merged = mergeStreamRows(records, firstAvailable);
       rows = streamRowsFromState();
@@ -1228,6 +2297,10 @@
         await replaceTableData(table, rows);
       } else {
         await appendTableData(table, merged.additions);
+      }
+      if (!streamLoadIsCurrent(load)) {
+        finishStreamLoad(load);
+        return false;
       }
     }
 
@@ -1240,10 +2313,28 @@
     state.streamSessionId = serverSessionId;
     state.streamForceTableReplace = false;
     updateCursor(data, records, resetRequired);
+    finishStreamLoad(load);
+    state.streamPauseAvailable = data.historical !== true;
+    syncStreamPauseControl();
+    return true;
   }
 
   core.loadStream = loadStream;
   core.returnToCurrentStream = returnToCurrentStream;
+  core.normalizeInsightsTab = normalizeInsightsTab;
+  core.setStreamInsightsTab = setStreamInsightsTab;
+  core.openStreamInsights = openStreamInsights;
+  core.closeStreamInsights = closeStreamInsights;
+  core.bindStreamInsights = bindStreamInsights;
+  core.bindStreamPauseControl = bindStreamPauseControl;
+  core.bindStreamControlsDisclosure = bindStreamControlsDisclosure;
+  core.loadStreamHistoryCatalogue = loadHistoryCatalogue;
+  core.scheduleStreamHistoryCatalogueRefresh = scheduleStreamHistoryCatalogueRefresh;
+  core.setStreamPaused = setStreamPaused;
+  core.renderStreamVisitComparison = renderVisitComparison;
+  core.renderHistoricalStreamVisitNotice = renderHistoricalVisitNotice;
+  core.renderStreamNoteworthy = renderNoteworthy;
+  core.renderStreamSummary = renderSummary;
   window.refreshStream = function () {
     return loadStream();
   };

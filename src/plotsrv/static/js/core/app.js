@@ -10,12 +10,20 @@
 
   const core = window.PLOTSRV.core;
   const state = window.PLOTSRV.state;
+  const config = window.PLOTSRV.config;
 
   function refreshChromeAfterLoad() {
     if (typeof core.configureBottomBar === "function") {
       core.configureBottomBar();
     }
     if (typeof core.refreshStatus === "function") {
+      // Stream updates can arrive many times per second. Their data response
+      // already carries lifecycle state, so do not mirror every event with a
+      // second /status request. The first load and opening the detail modal
+      // still fetch a complete status snapshot.
+      if (config.kind === "stream" && state.latestStatusPayload) {
+        return Promise.resolve();
+      }
       return core.refreshStatus();
     }
     return Promise.resolve();
@@ -35,7 +43,9 @@
 
     if (document.getElementById("stream-grid")) {
       if (typeof core.loadStream === "function") {
-        return core.loadStream().then(refreshChromeAfterLoad);
+        return core.loadStream().then(function (applied) {
+          return refreshChromeAfterLoad().then(function () { return applied; });
+        });
       }
       return Promise.resolve();
     }
@@ -86,6 +96,18 @@
   core.bootstrap = function () {
     if (typeof core.bindSettings === "function") {
       core.bindSettings();
+    }
+
+    if (typeof core.bindStreamInsights === "function") {
+      core.bindStreamInsights();
+    }
+
+    if (typeof core.bindStreamPauseControl === "function") {
+      core.bindStreamPauseControl();
+    }
+
+    if (typeof core.bindStreamControlsDisclosure === "function") {
+      core.bindStreamControlsDisclosure();
     }
 
     if (typeof core.bindStatusModal === "function") {

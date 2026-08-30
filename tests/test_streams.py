@@ -181,20 +181,26 @@ def test_stream_page_uses_bundled_live_grid_and_exposes_ordered_records(
     assert page.status_code == 200
     assert 'data-kind="stream"' in page.text
     assert 'id="stream-grid"' in page.text
-    assert 'id="stream-lifecycle-badge"' in page.text
+    assert 'id="stream-lifecycle-badge"' not in page.text
+    assert 'id="stream-pause-button"' in page.text
     assert 'id="stream-health-inline"' in page.text
     assert 'id="stream-history-picker"' in page.text
     assert 'id="stream-history-session-select"' in page.text
-    assert "Stored sessions" in page.text
+    assert "Current run" in page.text
+    assert 'id="stream-history-info"' in page.text
+    assert 'id="stream-insights-button"' in page.text
+    assert 'id="stream-insights-drawer"' in page.text
+    assert 'role="tablist" aria-label="Stream insight sections"' in page.text
     assert 'data-returning-kind="since-last-visit"' in page.text
     assert 'id="stream-since-visit-status"' in page.text
     assert "Since last visit" in page.text
     assert 'data-noteworthy-kind="stream-noteworthy"' in page.text
     assert 'id="stream-noteworthy-items"' in page.text
-    assert "Noteworthy observations" in page.text
+    assert ">Noteworthy</h3>" in page.text
     assert 'data-summary-kind="derived-stream-history"' in page.text
     assert 'id="stream-summary-windows"' in page.text
-    assert "Derived compact history" in page.text
+    assert ">History</h3>" in page.text
+    assert "do not use the table’s filters" in page.text
     assert 'id="table-search-input"' in page.text
     assert 'id="table-group-by-select"' in page.text
     assert "No grouping" in page.text
@@ -1140,8 +1146,8 @@ def test_stream_renderer_is_bundled() -> None:
     assert "STORED SESSION" in bundle
     assert "renderVisitComparison" in bundle
     assert "renderNoteworthy" in bundle
-    assert "No zero-change conclusion is shown." in bundle
-    assert "plotsrv system notice" in bundle
+    assert "an unavailable comparison is not the same as no change" in bundle
+    assert "Continuity may have been interrupted" in bundle
 
 
 def test_stream_renderer_keeps_valid_cursor_updates_incremental() -> None:
@@ -1169,17 +1175,16 @@ def test_stream_renderer_keeps_valid_cursor_updates_incremental() -> None:
     assert "Durable history incomplete: this stored session has a persistence gap" in stream_source
     assert '"/stream/history?view="' in stream_source
     assert "state.streamForceTableReplace = true" in stream_source
-    assert 'current.textContent = "Current observation"' in stream_source
-    assert "Stored sessions are fixed historical observations" in stream_source
+    assert 'current.textContent = "Current run"' in stream_source
+    assert "Since last visit does not apply" in stream_source
     assert "visibilitychange" not in stream_source
     assert "refreshVisibleStream" not in stream_source
     assert "core.updateStreamVisitComparison(data)" in stream_source
-    assert "renderVisitComparison(visitComparison)" in stream_source
-    assert "renderNoteworthy(data.noteworthy)" in stream_source
+    assert "renderVisitComparison(visitComparison, data)" in stream_source
+    assert "renderNoteworthy(data.noteworthy, data.cumulative)" in stream_source
     assert "core.setTablePlotSummaryRows(payload)" in stream_source
-    assert "No zero-change conclusion is shown." in stream_source
-    assert "plotsrv may not have observed every source event while you were away." in stream_source
-    assert "This does not establish that plotsrv observed every source event." in stream_source
+    assert "an unavailable comparison is not the same as no change" in stream_source
+    assert "No continuity interruption was reported for this comparison." in stream_source
     assert 'article.dataset.noteworthyKind = "source_record"' in stream_source
     assert 'article.dataset.noteworthyKind = "system_notice"' in stream_source
     assert ".setColumns(" not in stream_source
@@ -1560,7 +1565,6 @@ function element() {
 }
 const status = element();
 const healthStatus = element();
-const lifecycleBadge = element();
 const sinceVisitStatus = element();
 const sinceVisitDetails = element();
 const noteworthyStatus = element();
@@ -1690,7 +1694,6 @@ const context = {
       "stream-grid": {},
       "stream-status-inline": status,
       "stream-health-inline": healthStatus,
-      "stream-lifecycle-badge": lifecycleBadge,
       "stream-since-visit-status": sinceVisitStatus,
       "stream-since-visit-details": sinceVisitDetails,
       "stream-noteworthy-status": noteworthyStatus,
@@ -1717,9 +1720,6 @@ context.window.PLOTSRV.core.loadStream().then(() => {
   if (options.data.length !== 25 || "pagination" in options) {
     throw new Error("the bounded live window was paginated or truncated");
   }
-  if (lifecycleBadge.className !== "ps-stream-badge ps-stream-badge--incomplete") {
-    throw new Error("incomplete lifecycle badge was not rendered");
-  }
   if (!status.textContent.includes("application state is unknown")) {
     throw new Error("incomplete lifecycle wording overstated application state");
   }
@@ -1729,9 +1729,8 @@ context.window.PLOTSRV.core.loadStream().then(() => {
   if (!healthStatus.textContent.includes("Parser: 1 malformed or oversized")) {
     throw new Error("parse status was not rendered from bounded source health");
   }
-  if (!sinceVisitStatus.textContent.includes("Exact since-last-visit comparison is incomplete") ||
-      !sinceVisitStatus.textContent.includes("continuity gap while you were away") ||
-      !sinceVisitStatus.textContent.includes("No zero-change conclusion is shown")) {
+  if (sinceVisitStatus.textContent !== "Some activity may be missing" ||
+      !sinceVisitDetails.children[0].children[1].textContent.includes("continuity may have been interrupted")) {
     throw new Error("returning-browser copy did not block a continuity-gap zero conclusion");
   }
   if (sinceVisitDetails.children[0].dataset.comparisonStatus !== "incomplete") {
@@ -1742,10 +1741,10 @@ context.window.PLOTSRV.core.loadStream().then(() => {
       noteworthyItems.children[1].dataset.noteworthyKind !== "system_notice") {
     throw new Error("source records and plotsrv system notices were not structurally distinguished");
   }
-  if (!noteworthyItems.children[0].children[0].textContent.includes("recognised severity: error")) {
+  if (noteworthyItems.children[0].children[0].textContent !== "Error received") {
     throw new Error("an allowlisted structured severity was not rendered from its source field");
   }
-  if (!noteworthyItems.children[1].children[0].textContent.includes("plotsrv system notice")) {
+  if (noteworthyItems.children[1].children[0].textContent !== "Continuity may have been interrupted") {
     throw new Error("plotsrv system notices were not visibly distinguished");
   }
   const nested = options.columns[2].formatter({getValue: () => options.data[0].nested});
@@ -1806,6 +1805,12 @@ const source = fs.readFileSync(process.argv[1], "utf8");
 const requestUrls = [];
 let tableRows = [];
 let replaceCalls = 0;
+let delayNextLive = false;
+let delayedLiveResolve = null;
+let visitComparisonCalls = 0;
+let delayedSummaryResolve = null;
+let summaryRequestCount = 0;
+const renderedSummarySessions = [];
 
 function element() {
   return {
@@ -1825,7 +1830,6 @@ const elements = {
   "stream-grid": {},
   "stream-status-inline": element(),
   "stream-health-inline": element(),
-  "stream-lifecycle-badge": element(),
   "stream-history-picker": element(),
   "stream-history-session-select": element(),
   "stream-history-picker-status": element(),
@@ -1842,6 +1846,7 @@ function streamData({session, historical, origin}) {
     session_id: session,
     historical,
     lifecycle: historical ? "ended" : "live",
+    summary_revision: historical ? 7 : 1,
     durable_history: {state: "complete"},
     first_available_browser_sequence: 1,
     last_available_browser_sequence: 1,
@@ -1849,10 +1854,37 @@ function streamData({session, historical, origin}) {
   };
 }
 
+function summaryData(session, revision, historical) {
+  return {
+    object_type: "derived_stream_summary_collection",
+    derived: true,
+    session_id: session,
+    historical,
+    summary_revision: revision,
+    summary_window_count: 0,
+    windows: [],
+  };
+}
+
 const context = {
   Promise,
   fetch: async (url) => {
     requestUrls.push(url);
+    if (url.includes("/stream/summary?")) {
+      summaryRequestCount += 1;
+      if (summaryRequestCount === 1) {
+        return new Promise((resolve) => {
+          delayedSummaryResolve = () => resolve({
+            ok: true,
+            json: async () => summaryData("live-now", 1, false),
+          });
+        });
+      }
+      return {
+        ok: true,
+        json: async () => summaryData("live-now", 1, false),
+      };
+    }
     if (url.includes("/stream/history?") && !url.includes("session_id=")) {
       return {ok: true, json: async () => ({sessions: [
         {session_id: "stored-one", updated_at: "2026-01-01T00:00:00+00:00", durable_history: {state: "complete"}},
@@ -1860,10 +1892,25 @@ const context = {
       ]})};
     }
     if (url.includes("session_id=stored-one")) {
-      return {ok: true, json: async () => ({data: streamData({session: "stored-one", historical: true, origin: "stored-one"})})};
+      return {ok: true, json: async () => ({
+        data: streamData({session: "stored-one", historical: true, origin: "stored-one"}),
+        summary: summaryData("stored-one", 7, true),
+      })};
     }
     if (url.includes("session_id=stored-two")) {
-      return {ok: true, json: async () => ({data: streamData({session: "stored-two", historical: true, origin: "stored-two"})})};
+      return {ok: true, json: async () => ({
+        data: streamData({session: "stored-two", historical: true, origin: "stored-two"}),
+        summary: summaryData("stored-two", 7, true),
+      })};
+    }
+    if (delayNextLive && url.includes("/stream/data?")) {
+      delayNextLive = false;
+      return new Promise((resolve) => {
+        delayedLiveResolve = () => resolve({
+          ok: true,
+          json: async () => streamData({session: "live-now", historical: false, origin: "late-live"}),
+        });
+      });
     }
     return {ok: true, json: async () => streamData({session: "live-now", historical: false, origin: "live-now"})};
   },
@@ -1877,7 +1924,15 @@ const context = {
   },
   window: {
     PLOTSRV: {
-      core: {},
+      core: {
+        updateStreamVisitComparison: () => {
+          visitComparisonCalls += 1;
+          return null;
+        },
+        setTablePlotSummaryRows: (payload) => {
+          renderedSummarySessions.push(payload.session_id);
+        },
+      },
       renderers: {},
       state: {},
       config: {activeViewId: "logs:history"},
@@ -1897,6 +1952,7 @@ function flush() {
 
 vm.runInNewContext(source, context, {filename: "stream.js"});
 const core = context.window.PLOTSRV.core;
+const state = context.window.PLOTSRV.state;
 const picker = elements["stream-history-session-select"];
 core.loadStream().then(flush).then(async () => {
   if (tableRows.length !== 1 || tableRows[0].origin !== "live-now") {
@@ -1905,11 +1961,39 @@ core.loadStream().then(flush).then(async () => {
   if (!picker.children.some((option) => option.value === "")) {
     throw new Error("current observation was not offered alongside stored history");
   }
+  const lateSummary = state.streamSummaryLoadPromise;
+  if (!lateSummary || !delayedSummaryResolve) {
+    throw new Error("the adversarial live summary response was not held open");
+  }
+  // Start an automatic/live refresh, leave its response unresolved, and then
+  // switch to history. Resolving the older request afterwards must not let it
+  // regain ownership of the table or update the live visit checkpoint.
+  delayNextLive = true;
+  const lateLive = core.loadStream();
+  await flush();
+  if (!delayedLiveResolve) {
+    throw new Error("the adversarial live response was not held open");
+  }
   picker.value = "stored-one";
   await picker.onchange();
   await flush();
   if (tableRows.length !== 1 || tableRows[0].origin !== "stored-one") {
     throw new Error("current rows leaked into the first historical session");
+  }
+  delayedLiveResolve();
+  await lateLive;
+  await flush();
+  if (tableRows.length !== 1 || tableRows[0].origin !== "stored-one") {
+    throw new Error("a late live response overwrote the selected historical session");
+  }
+  if (visitComparisonCalls !== 1) {
+    throw new Error("a stale live response updated the browser visit checkpoint");
+  }
+  delayedSummaryResolve();
+  await lateSummary;
+  await flush();
+  if (renderedSummarySessions[renderedSummarySessions.length - 1] !== "stored-one") {
+    throw new Error("a stale live summary overwrote the selected historical session");
   }
   picker.value = "stored-two";
   await picker.onchange();
@@ -1928,6 +2012,189 @@ core.loadStream().then(flush).then(async () => {
   }
   if (replaceCalls < 6 || !requestUrls[requestUrls.length - 1].includes("/stream/data?")) {
     throw new Error("session transitions did not replace rows and return to current observation");
+  }
+}).catch((error) => {
+  console.error(error.stack);
+  process.exitCode = 1;
+});
+'''
+    subprocess.run(
+        ["node", "-e", script, str(stream_source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_stream_summary_loader_drains_the_newest_revision() -> None:
+    """A summary update observed in flight must not wait for another stream event."""
+    stream_source = (
+        Path(__file__).parents[1]
+        / "src"
+        / "plotsrv"
+        / "static"
+        / "js"
+        / "renderers"
+        / "stream.js"
+    )
+    script = r'''
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(process.argv[1], "utf8");
+let dataRevision = 0;
+let summaryRequests = 0;
+let releaseFirstSummary = null;
+const renderedRevisions = [];
+
+function streamData(revision) {
+  return {
+    columns: ["value"],
+    records: [{browser_sequence: revision, data: {value: revision}}],
+    session_id: "live-session",
+    historical: false,
+    lifecycle: "live",
+    summary_revision: revision,
+    first_available_browser_sequence: 1,
+    last_available_browser_sequence: revision,
+    raw_window: {first_browser_sequence: 1, last_browser_sequence: revision, record_count: revision, max_record_count: 200},
+  };
+}
+
+function summaryData(revision) {
+  return {
+    object_type: "derived_stream_summary_collection",
+    derived: true,
+    session_id: "live-session",
+    historical: false,
+    summary_revision: revision,
+    summary_window_count: 0,
+    windows: [],
+  };
+}
+
+const context = {
+  Promise,
+  fetch: async (url) => {
+    if (url.includes("/stream/data?")) {
+      dataRevision += 1;
+      return {ok: true, json: async () => streamData(dataRevision)};
+    }
+    if (url.includes("/stream/summary?")) {
+      summaryRequests += 1;
+      if (summaryRequests === 1) {
+        return new Promise((resolve) => {
+          releaseFirstSummary = () => resolve({
+            ok: true,
+            json: async () => summaryData(1),
+          });
+        });
+      }
+      return {ok: true, json: async () => summaryData(2)};
+    }
+    if (url.includes("/stream/history?")) return {ok: false, status: 404};
+    throw new Error("unexpected request: " + url);
+  },
+  Tabulator: function (_selector, options) {
+    this.rows = options.data.slice();
+    this.addData = (rows) => { this.rows = this.rows.concat(rows); };
+    this.replaceData = (rows) => { this.rows = rows.slice(); };
+  },
+  window: {
+    PLOTSRV: {
+      core: {
+        setTablePlotSummaryRows: (payload) => {
+          renderedRevisions.push(payload.summary_revision);
+        },
+      },
+      renderers: {},
+      state: {},
+      config: {activeViewId: "logs:summary-drain"},
+    },
+  },
+  document: {
+    hidden: false,
+    addEventListener: () => {},
+    createElement: () => ({appendChild: () => {}, dataset: {}}),
+    getElementById: (id) => (id === "stream-grid" ? {} : null),
+  },
+};
+
+vm.runInNewContext(source, context, {filename: "stream.js"});
+const core = context.window.PLOTSRV.core;
+const state = context.window.PLOTSRV.state;
+
+core.loadStream().then(async () => {
+  const drain = state.streamSummaryLoadPromise;
+  if (!drain || !releaseFirstSummary || summaryRequests !== 1) {
+    throw new Error("the first summary request was not held open");
+  }
+  await core.loadStream();
+  if (summaryRequests !== 1) {
+    throw new Error("the summary loader did not coalesce the in-flight request");
+  }
+  releaseFirstSummary();
+  await drain;
+  await Promise.resolve();
+  if (summaryRequests !== 2) {
+    throw new Error("the queued newer summary revision was not fetched immediately");
+  }
+  if (renderedRevisions.length !== 1 || renderedRevisions[0] !== 2) {
+    throw new Error("an obsolete summary revision was rendered");
+  }
+}).catch((error) => {
+  console.error(error.stack);
+  process.exitCode = 1;
+});
+'''
+    subprocess.run(
+        ["node", "-e", script, str(stream_source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_stream_data_http_failure_rejects_browser_refresh() -> None:
+    stream_source = (
+        Path(__file__).parents[1]
+        / "src"
+        / "plotsrv"
+        / "static"
+        / "js"
+        / "renderers"
+        / "stream.js"
+    )
+    script = r'''
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const status = {textContent: ""};
+const context = {
+  Promise,
+  fetch: async () => ({ok: false, status: 503}),
+  window: {
+    PLOTSRV: {
+      core: {setStatusMessage: (message) => { status.textContent = message; }},
+      renderers: {},
+      state: {},
+      config: {activeViewId: "logs:failed-refresh"},
+    },
+  },
+  document: {
+    addEventListener: () => {},
+    createElement: () => ({appendChild: () => {}, children: []}),
+    getElementById: (id) => id === "stream-grid" ? {} : null,
+  },
+};
+vm.runInNewContext(source, context, {filename: "stream.js"});
+context.window.PLOTSRV.core.loadStream().then(() => {
+  throw new Error("an unsuccessful stream response resolved as applied");
+}, (error) => {
+  if (!String(error.message).includes("status 503")) throw error;
+  if (status.textContent !== "Unable to load the live stream.") {
+    throw new Error("the failed request was not still presented to the user");
   }
 }).catch((error) => {
   console.error(error.stack);
