@@ -6,6 +6,8 @@ import subprocess
 
 import pytest
 
+from plotsrv import html as html_mod
+
 
 ROOT = Path(__file__).parents[1]
 STATIC = ROOT / "src" / "plotsrv" / "static"
@@ -29,6 +31,36 @@ def test_modal_markup_is_labelled_scrollable_and_shared_by_all_status_states() -
     assert "max-height: calc(100vh - 3rem)" in css_source
     assert ".ps-status-modal__body" in css_source
     assert "overflow: auto" in css_source
+
+
+def test_regular_summary_drops_browser_card_and_gives_freshness_double_width() -> None:
+    regular = html_mod.render_index(
+        kind="table",
+        table_view_mode="rich",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+    )
+    stream = html_mod.render_index(
+        kind="stream",
+        table_view_mode="rich",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+    )
+    css = _read("css/status.css")
+
+    assert "ps-status-modal__summary--regular" in regular
+    assert 'id="status-modal-browser"' not in regular
+    assert ">Browser view<" not in regular
+    assert 'class="ps-status-fact ps-status-fact--freshness"' in regular
+    assert "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr)" in css
+    assert ".ps-status-modal__summary--regular .ps-status-fact--freshness" in css
+
+    assert "ps-status-modal__summary--stream" in stream
+    assert 'id="status-modal-browser"' in stream
+    assert ">Browser stream<" in stream
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr))" in css
 
 
 def test_modal_interaction_traps_focus_restores_focus_and_dismisses_with_escape() -> None:

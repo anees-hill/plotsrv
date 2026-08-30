@@ -138,6 +138,27 @@ Anyone using the page can also pin views from the selector. Pinned view IDs are
 kept in that browser's local storage and appear in a **Pinned views** section in
 Grouped mode. Pins do not change server configuration, are not sent with HTTP
 requests, and are automatically reconciled when views are added or removed.
+The **Recent** heading also has a small Hide/Show action; that choice is kept in
+the same browser-local storage.
+
+## Compact views
+
+Supplementary views can remain available without taking the full height of a
+normal selector entry:
+
+```yaml title="plotsrv.yaml"
+ui-settings:
+  compact_views:
+    - "operations:resources"
+    - view: "logs:detail"
+      title: "Supporting logs"
+```
+
+A compact entry shows its title and renderer type without the normal icon. It
+remains searchable, pinnable, and keyboard accessible, and selecting it has the
+same effect as selecting a normal entry. `title` is optional. Missing and
+malformed references are ignored. If a view is configured as both featured and
+compact, its featured presentation takes precedence.
 
 ## Browser colour theme
 

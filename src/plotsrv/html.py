@@ -277,10 +277,16 @@ def render_index(
         }
         return labels.get(icon_key) or labels.get(kind) or "View"
 
-    def _view_item_html(v: ViewMeta, *, include_section: bool = False) -> str:
+    def _view_item_html(
+        v: ViewMeta,
+        *,
+        include_section: bool = False,
+        compact_title: str | None = None,
+        compact: bool = False,
+    ) -> str:
         view_id_attr = _escape_attr(v.view_id)
         icon = _safe_url_attr(_icon_url(v))
-        label_html = _escape_html(v.label)
+        label_html = _escape_html(compact_title or v.label)
         section = v.section or "default"
         type_label = _view_type_label(v)
         secondary = (
@@ -291,18 +297,25 @@ def render_index(
         current = ' aria-current="page"' if is_selected else ""
         freshness_class = _freshness_class(v)
         freshness_title = _freshness_title(v)
+        entry_class = " ps-viewselect__entry--compact" if compact else ""
+        item_class = " ps-viewselect__item--compact" if compact else ""
+        icon_html = (
+            ""
+            if compact
+            else f'<img class="ps-viewselect__itemicon" src="{icon}" alt="" />'
+        )
 
         return f"""
-          <div class="ps-viewselect__entry" role="listitem">
+          <div class="ps-viewselect__entry{entry_class}" role="listitem">
             <button type="button"
-                    class="ps-viewselect__item{freshness_class}"
+                    class="ps-viewselect__item{item_class}{freshness_class}"
                     data-selected="{selected}"{current}
                     data-plotsrv-view="{view_id_attr}"
                     data-view-section="{_escape_attr(section)}"
                     data-view-kind="{_escape_attr(v.kind)}"
                     data-view-icon="{_escape_attr(v.icon_key)}"{freshness_title}>
               <span class="ps-viewselect__freshness" data-plotsrv-view-freshness="{view_id_attr}" hidden aria-hidden="true"></span>
-              <img class="ps-viewselect__itemicon" src="{icon}" alt="" />
+              {icon_html}
               <span class="ps-viewselect__itemcopy">
                 <span class="ps-viewselect__itemlabel">{label_html}</span>
                 <span class="ps-viewselect__itemmeta">{_escape_html(secondary)}</span>
@@ -316,12 +329,18 @@ def render_index(
         """
 
     configured_featured = tuple(getattr(ui, "featured_views", ()))
+    configured_compact = tuple(getattr(ui, "compact_views", ()))
     views_by_id = {v.view_id: v for v in views}
     valid_featured = [
         (feature, views_by_id[feature.view_id])
         for feature in configured_featured
         if feature.view_id in views_by_id
     ]
+    compact_by_id = {
+        item.view_id: item
+        for item in configured_compact
+        if item.view_id in views_by_id
+    }
 
     def _featured_item_html(feature: object, view: ViewMeta) -> str:
         title = getattr(feature, "title", None) or view.label
@@ -418,7 +437,18 @@ def render_index(
                 f'<h3 id="{heading_id}" class="ps-viewselect__group-label">{_escape_html(sec)}</h3>'
             )
             menu_parts.append('<div class="ps-viewselect__group-items" role="list">')
-            menu_parts.extend(_view_item_html(v) for v in section_views)
+            menu_parts.extend(
+                _view_item_html(
+                    v,
+                    compact=v.view_id in compact_by_id,
+                    compact_title=(
+                        compact_by_id[v.view_id].title
+                        if v.view_id in compact_by_id
+                        else None
+                    ),
+                )
+                for v in section_views
+            )
             menu_parts.append("</div></section>")
 
         tab_parts: list[str] = []
@@ -753,6 +783,22 @@ def render_index(
     header_status_html = ""
     status_modal_html = ""
     if ui.show_freshness or ui.show_history_banner:
+        status_summary_modifier = (
+            " ps-status-modal__summary--stream"
+            if kind == "stream"
+            else " ps-status-modal__summary--regular"
+        )
+        status_browser_fact_html = (
+            """
+                  <div class="ps-status-fact">
+                    <span id="status-modal-browser-label" class="ps-status-fact__label">Browser stream</span>
+                    <strong id="status-modal-browser">Loading</strong>
+                    <span id="status-modal-browser-detail">Checking browser state.</span>
+                  </div>
+            """
+            if kind == "stream"
+            else ""
+        )
         header_status_html = """
           <div id="header-status" class="ps-header-status">
             <button
@@ -769,7 +815,7 @@ def render_index(
             </button>
           </div>
         """
-        status_modal_html = """
+        status_modal_html = f"""
           <div id="status-modal-backdrop" class="ps-status-modal-backdrop" hidden>
             <section
               id="status-modal"
@@ -792,7 +838,7 @@ def render_index(
               </header>
 
               <div class="ps-status-modal__body">
-                <section class="ps-status-modal__summary" aria-label="Current status summary">
+                <section class="ps-status-modal__summary{status_summary_modifier}" aria-label="Current status summary">
                   <div class="ps-status-fact">
                     <span id="status-modal-viewing-label" class="ps-status-fact__label">Viewing</span>
                     <strong id="status-modal-viewing">Latest data</strong>
@@ -803,12 +849,8 @@ def render_index(
                     <strong id="status-modal-received">Not yet</strong>
                     <span id="status-modal-received-detail">No process-lifetime arrival recorded.</span>
                   </div>
-                  <div class="ps-status-fact">
-                    <span id="status-modal-browser-label" class="ps-status-fact__label">Browser view</span>
-                    <strong id="status-modal-browser">Loading</strong>
-                    <span id="status-modal-browser-detail">Checking browser state.</span>
-                  </div>
-                  <div class="ps-status-fact">
+                  {status_browser_fact_html}
+                  <div class="ps-status-fact ps-status-fact--freshness">
                     <span id="status-modal-freshness-label" class="ps-status-fact__label">Freshness</span>
                     <strong id="status-modal-freshness">Checking</strong>
                     <span id="status-modal-freshness-detail">Checking freshness policy.</span>
@@ -1003,6 +1045,13 @@ def render_index(
         }
         for feature in configured_featured
     ]
+    compact_config = [
+        {
+            "view_id": item.view_id,
+            "title": item.title,
+        }
+        for item in configured_compact
+    ]
     cfg_json = json.dumps(
         {
             "active_view_id": active_view_id,
@@ -1019,6 +1068,7 @@ def render_index(
             "show_header_history": ui.show_history_banner,
             "view_catalogue": view_catalogue,
             "featured_views": featured_config,
+            "compact_views": compact_config,
         },
         ensure_ascii=False,
     )

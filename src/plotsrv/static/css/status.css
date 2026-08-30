@@ -298,6 +298,10 @@ body.ps-status-modal-open {
 
 .ps-status-modal__summary {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr);
+}
+
+.ps-status-modal__summary--stream {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
@@ -602,6 +606,10 @@ body.ps-status-modal-open {
 
   .ps-status-fact:nth-child(n + 3) {
     border-top: 1px solid #e7e9eb;
+  }
+
+  .ps-status-modal__summary--regular .ps-status-fact--freshness {
+    grid-column: 1 / -1;
   }
 
   .ps-status-modal__policy,

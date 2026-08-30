@@ -21,6 +21,7 @@
    textPrefsPrefix: "plotsrv:v2:text_prefs:",
    viewSelectorMode: "plotsrv:v1:view_selector_mode",
    viewSelectorRecent: "plotsrv:v1:view_selector_recent",
+   viewSelectorRecentVisible: "plotsrv:v1:view_selector_recent_visible",
    viewSelectorPinned: "plotsrv:v1:view_selector_pinned",
    theme: "plotsrv:v1:theme",
  };   

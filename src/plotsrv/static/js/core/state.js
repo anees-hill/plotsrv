@@ -69,6 +69,9 @@
   config.featuredViews = Array.isArray(raw.featured_views)
     ? raw.featured_views
     : [];
+  config.compactViews = Array.isArray(raw.compact_views)
+    ? raw.compact_views
+    : [];
   config.browserUpdateRevision = Number.isSafeInteger(raw.browser_update_revision)
     ? raw.browser_update_revision
     : 0;

@@ -5,7 +5,7 @@ from dataclasses import replace
 
 import pytest
 
-from plotsrv.ui_config import FeaturedView, UISettings
+from plotsrv.ui_config import CompactView, FeaturedView, UISettings
 from plotsrv.store import ViewMeta
 import plotsrv.html as html_mod
 
@@ -435,3 +435,95 @@ def test_view_browser_puts_featured_at_top_of_grouped_and_escapes_copy() -> None
     assert "Missing</span>" not in rendered
     assert "</script><b>caption</b>" not in rendered
     assert r"Safe \u003c/script\u003e\u003cb\u003ecaption\u003c/b\u003e" in rendered
+
+
+def test_view_browser_renders_configured_compact_entries_without_icons() -> None:
+    ui = UISettings(
+        page_title="test",
+        favicon_url="/static/x.png",
+        logo_url="/static/x.png",
+        header_text="",
+        header_fill_colour="#fff",
+        show_view_selector=True,
+        terminate_process_option=False,
+        auto_refresh_option=True,
+        export_image=True,
+        export_table=True,
+        show_history_controls=True,
+        show_history_banner=True,
+        show_freshness=True,
+        show_statusline=True,
+        show_help_note=True,
+        compact_views=(
+            CompactView(view_id="ops:resources", title="Computer resources"),
+        ),
+    )
+    views = [
+        ViewMeta(
+            view_id="ops:resources",
+            kind="artifact",
+            label="Resources",
+            section="Operations",
+            icon_key="json",
+        ),
+        ViewMeta(
+            view_id="ops:normal",
+            kind="table",
+            label="Normal table",
+            section="Operations",
+            icon_key="table",
+        ),
+    ]
+
+    rendered = html_mod.render_index(
+        kind="artifact",
+        table_view_mode="rich",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+        ui_settings=ui,
+        views=views,
+        active_view_id="ops:resources",
+    )
+
+    compact_start = rendered.index('class="ps-viewselect__entry ps-viewselect__entry--compact"')
+    compact_end = rendered.index("</button>", compact_start)
+    compact_markup = rendered[compact_start:compact_end]
+    assert 'class="ps-viewselect__item ps-viewselect__item--compact"' in compact_markup
+    assert 'data-plotsrv-view="ops:resources"' in compact_markup
+    assert 'aria-current="page"' in compact_markup
+    assert "Computer resources" in compact_markup
+    assert "JSON" in compact_markup
+    assert "ps-viewselect__itemicon" not in compact_markup
+    assert 'data-plotsrv-view="ops:normal"' in rendered
+    assert rendered.count("ps-viewselect__itemicon") == 1
+
+
+def test_featured_presentation_wins_over_compact_for_the_same_view() -> None:
+    base = html_mod.get_ui_settings()
+    ui = replace(
+        base,
+        featured_views=(FeaturedView(view_id="reports:daily"),),
+        compact_views=(CompactView(view_id="reports:daily"),),
+    )
+    view = ViewMeta(
+        view_id="reports:daily",
+        kind="table",
+        label="Daily report",
+        section="Reports",
+        icon_key="table",
+    )
+
+    rendered = html_mod.render_index(
+        kind="table",
+        table_view_mode="rich",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+        ui_settings=ui,
+        views=[view],
+        active_view_id=view.view_id,
+    )
+
+    assert 'class="ps-viewselect__feature' in rendered
+    assert "ps-viewselect__item--compact" not in rendered

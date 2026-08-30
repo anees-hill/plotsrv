@@ -42,8 +42,13 @@ def test_view_selector_source_keeps_navigation_explicit_and_local_lists_safe() -
     assert 'event.target.closest("[data-pin-view]")' in source
     assert "core.togglePinnedView" in source
     assert 'viewSelectorPinned: "plotsrv:v1:view_selector_pinned"' in storage
+    assert 'viewSelectorRecentVisible: "plotsrv:v1:view_selector_recent_visible"' in storage
     assert "document.cookie" not in source
     assert ".ps-viewselect__pin--active" in controls
+    assert ".ps-viewselect__group-action" in controls
+    assert ".ps-viewselect__item--compact" in controls
+    assert 'event.target.closest("[data-view-recent-toggle]")' in source
+    assert "core.resolveCompactViews" in source
     assert "core.updateViewSelectorCatalogue" in source
 
 
@@ -88,6 +93,26 @@ const features = core.resolveFeaturedViews(views, [
 if (features.length !== 1 || features[0].title !== "Featured Zulu") {
   throw new Error("featured references were not reconciled with the catalogue");
 }
+const compact = core.resolveCompactViews(views, [
+  "reports:alpha",
+  {view: "ops:zulu-2", title: "Small plot"},
+  {view: "ops:zulu-2", title: "Duplicate"},
+  {view: "missing"},
+]);
+if (compact.length !== 2 || compact[0].title !== "alpha" || compact[1].title !== "Small plot") {
+  throw new Error("compact references were not reconciled with the catalogue");
+}
+if (!core.loadRecentVisibility()) {
+  throw new Error("Recent should be visible by default");
+}
+core.saveRecentVisibility(false);
+if (core.loadRecentVisibility()) {
+  throw new Error("hidden Recent preference did not persist");
+}
+core.saveRecentVisibility(true);
+if (!core.loadRecentVisibility()) {
+  throw new Error("shown Recent preference did not persist");
+}
 if (core.initialViewSelectorMode(true) !== "grouped") {
   throw new Error("Grouped was not the default when featured views exist");
 }
@@ -114,14 +139,14 @@ if (core.initialViewSelectorMode(true) !== "az" || core.initialViewSelectorMode(
 const large = Array.from({length: 750}, (_, index) => ({
   view_id: "bulk:" + index,
   label: "View " + index,
-  section: "Batch " + (index % 10),
+  section: "Batch-" + (index % 10),
   kind: index % 2 ? "plot" : "table",
   icon_key: index % 2 ? "plot" : "table",
 }));
-if (core.filterViewCatalogue(large, "batch 7 table").length !== 0) {
+if (core.filterViewCatalogue(large, "batch-7 table").length !== 0) {
   throw new Error("multi-token filtering did not require every token");
 }
-if (core.filterViewCatalogue(large, "batch 7 plot").length !== 75) {
+if (core.filterViewCatalogue(large, "batch-7 plot").length !== 75) {
   throw new Error("large-catalogue metadata filtering returned the wrong count");
 }
 '''

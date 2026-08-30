@@ -588,6 +588,16 @@ body.ps-settings-open {
   color: var(--ps-muted);
 }
 
+.ps-viewselect__group-action {
+  color: var(--ps-muted);
+}
+
+.ps-viewselect__group-action:hover,
+.ps-viewselect__group-action:focus-visible {
+  background: var(--ps-surface-hover);
+  color: var(--ps-text);
+}
+
 .ps-viewselect__tab[aria-selected="true"] {
   background: var(--ps-surface-raised);
   color: var(--ps-text);
