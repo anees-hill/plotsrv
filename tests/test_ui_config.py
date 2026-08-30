@@ -30,6 +30,7 @@ def test_load_ui_settings_defaults_when_no_config(monkeypatch, tmp_path: Path) -
     assert ui.favicon_url == ui_config.DEFAULT_FAVICON_URL
     assert ui.show_view_selector is True
     assert ui.featured_views == ()
+    assert ui.compact_views == ()
     assert ui.asset_files == ()
 
 

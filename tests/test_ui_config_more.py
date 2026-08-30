@@ -202,3 +202,42 @@ def test_invalid_featured_views_setting_degrades_to_empty(tmp_path: Path) -> Non
     settings.set_runtime_context(config_path=yml)
 
     assert ui.load_ui_settings().featured_views == ()
+
+
+def test_compact_views_accept_ids_and_optional_titles(tmp_path: Path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        """
+ui-settings:
+  compact_views:
+    - system:resources
+    - view: logs:detail
+      title: Supporting logs
+    - view_id: system:resources
+      title: Duplicate ignored
+    - title: Missing view
+    - 123
+""".strip(),
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    loaded = ui.load_ui_settings()
+
+    assert [item.view_id for item in loaded.compact_views] == [
+        "system:resources",
+        "logs:detail",
+    ]
+    assert loaded.compact_views[0].title is None
+    assert loaded.compact_views[1].title == "Supporting logs"
+
+
+def test_invalid_compact_views_setting_degrades_to_empty(tmp_path: Path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        "ui-settings:\n  compact_views: definitely-not-a-list\n",
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert ui.load_ui_settings().compact_views == ()

@@ -25,6 +25,14 @@ class FeaturedView:
 
 
 @dataclass(frozen=True, slots=True)
+class CompactView:
+    """Presentation override for a supplementary selector entry."""
+
+    view_id: str
+    title: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class UISettings:
     # Page chrome
     page_title: str
@@ -58,6 +66,7 @@ class UISettings:
 
     # Optional view-browser presentation
     featured_views: tuple[FeaturedView, ...] = ()
+    compact_views: tuple[CompactView, ...] = ()
     asset_files: tuple[Path, ...] = ()
 
 
@@ -159,6 +168,38 @@ def _load_featured_views(
     return tuple(featured), tuple(asset_files)
 
 
+def _load_compact_views(raw: Any) -> tuple[CompactView, ...]:
+    """Parse optional compact selector entries, ignoring malformed values."""
+    if not isinstance(raw, list):
+        return ()
+
+    compact: list[CompactView] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if isinstance(entry, str):
+            view_id = _strip_quotes(entry).strip()
+            title = None
+        elif isinstance(entry, dict):
+            raw_id = entry.get("view", entry.get("view_id"))
+            view_id = (
+                _strip_quotes(raw_id).strip() if isinstance(raw_id, str) else ""
+            )
+            raw_title = entry.get("title")
+            title = (
+                _strip_quotes(raw_title).strip() or None
+                if isinstance(raw_title, str)
+                else None
+            )
+        else:
+            continue
+
+        if not view_id or view_id in seen:
+            continue
+        compact.append(CompactView(view_id=view_id, title=title))
+        seen.add(view_id)
+    return tuple(compact)
+
+
 _UI_SETTINGS: UISettings | None = None
 _UI_CACHE_KEY: tuple[str | None, str | None] | None = None
 
@@ -234,6 +275,7 @@ def load_ui_settings() -> UISettings:
             asset_files.append(ad2)
 
     featured_views, featured_assets = _load_featured_views(ui.get("featured_views"))
+    compact_views = _load_compact_views(ui.get("compact_views"))
     asset_files.extend(featured_assets)
 
     return UISettings(
@@ -254,6 +296,7 @@ def load_ui_settings() -> UISettings:
         show_help_note=show_help_note,
         assets_dir=assets_dir,
         featured_views=featured_views,
+        compact_views=compact_views,
         asset_files=tuple(dict.fromkeys(asset_files)),
     )
 
