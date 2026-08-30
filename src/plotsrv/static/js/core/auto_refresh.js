@@ -5,6 +5,39 @@
   const core = window.PLOTSRV.core;
   const state = window.PLOTSRV.state;
   const config = window.PLOTSRV.config;
+  const STREAM_UPDATE_RETRY_MIN_MS = 1500;
+  const STREAM_UPDATE_RETRY_MAX_MS = 15000;
+  // The server emits an observable heartbeat every 20 seconds. Waiting for
+  // more than two missed heartbeats avoids churn during brief suspension while
+  // still recovering a silently wedged proxy/browser connection.
+  const STREAM_UPDATE_STALE_MS = 55000;
+  const STREAM_UPDATE_WATCHDOG_MS = 20000;
+  const STREAM_UPDATE_RECONNECT_MS = 2000;
+
+  function clearStreamUpdateRetry() {
+    if (state.browserUpdateRetryTimer != null) {
+      window.clearTimeout(state.browserUpdateRetryTimer);
+    }
+    state.browserUpdateRetryTimer = null;
+    state.browserUpdateRetryAttempt = 0;
+  }
+
+  function scheduleStreamUpdateRetry() {
+    if (config.kind !== "stream" || state.browserUpdateRetryTimer != null ||
+        !state.pendingBrowserUpdate) return;
+    const attempt = Number.isSafeInteger(state.browserUpdateRetryAttempt)
+      ? state.browserUpdateRetryAttempt
+      : 0;
+    const delay = Math.min(
+      STREAM_UPDATE_RETRY_MAX_MS,
+      STREAM_UPDATE_RETRY_MIN_MS * Math.pow(2, Math.min(attempt, 4))
+    );
+    state.browserUpdateRetryAttempt = Math.min(attempt + 1, 5);
+    state.browserUpdateRetryTimer = window.setTimeout(function () {
+      state.browserUpdateRetryTimer = null;
+      applyPendingUpdate();
+    }, delay);
+  }
 
   function completeFilter(filter) {
     if (!filter || !filter.field || !filter.op) return false;
@@ -36,6 +69,13 @@
       blockers.push("snapshot");
     }
     if (state.streamHistoricalSessionId) blockers.push("historical_stream_session");
+    if (config.kind === "stream" && state.streamPaused) blockers.push("stream_paused");
+
+    // A live stream mutates Tabulator incrementally. Its sort, filter,
+    // grouping, column and plot state survive addData/replaceData, so the
+    // interaction blockers needed for wholesale ordinary-table replacement
+    // would only freeze the stream. Hidden tabs and history remain bounded.
+    if (config.kind === "stream") return blockers;
 
     const ui = state.tableUiState || {};
     if (String(ui.searchQuery || "").trim()) blockers.push("table_search");
@@ -57,7 +97,8 @@
   }
 
   function historicalBlocker(blocker) {
-    return blocker === "snapshot" || blocker === "historical_stream_session";
+    return blocker === "snapshot" || blocker === "historical_stream_session" ||
+      blocker === "stream_paused";
   }
 
   function canApplyPendingUpdate(options) {
@@ -68,12 +109,17 @@
   }
 
   function showPendingUpdate() {
+    // A queued live-stream revision is normal burst coalescing, not a
+    // user-actionable stale state. Showing it in the header causes rapid
+    // green/yellow flicker when records arrive faster than a fetch completes.
+    if (config.kind === "stream" && !state.streamPaused) return;
     if (typeof core.setHeaderBrowserDataState === "function") {
       core.setHeaderBrowserDataState("update_available");
     }
   }
 
   function finishAppliedUpdate(revision) {
+    clearStreamUpdateRetry();
     state.appliedUpdateRevision = Math.max(state.appliedUpdateRevision, revision);
     if (typeof core.markBrowserViewApplied === "function") {
       core.markBrowserViewApplied();
@@ -95,6 +141,13 @@
   function applyPendingUpdate(options) {
     const pending = state.pendingBrowserUpdate;
     if (!pending || state.browserUpdateApplying) return Promise.resolve(false);
+    const force = !!(options && options.force);
+    // While an endpoint is failing, incoming stream notices only replace the
+    // pending revision. They must not bypass the bounded retry backoff and
+    // turn a busy producer into a tight loop of failing HTTP requests.
+    if (config.kind === "stream" && state.browserUpdateRetryTimer != null && !force) {
+      return Promise.resolve(false);
+    }
     if (!state.initialViewLoadComplete || !canApplyPendingUpdate(options)) {
       showPendingUpdate();
       return Promise.resolve(false);
@@ -107,17 +160,36 @@
 
     state.browserUpdateApplying = true;
     const revision = pending.revision;
-    return Promise.resolve(core.reloadCurrentView())
-      .then(function () {
+    let retryImmediatelyWhenSettled = false;
+    let reloadResult;
+    try {
+      reloadResult = core.reloadCurrentView();
+    } catch (error) {
+      reloadResult = Promise.reject(error);
+    }
+    return Promise.resolve(reloadResult)
+      .then(function (applied) {
+        // A pause can invalidate a stream fetch after it starts. Do not
+        // acknowledge that revision merely because cancellation was clean.
+        if (applied === false || (config.kind === "stream" && state.streamPaused)) {
+          showPendingUpdate();
+          retryImmediatelyWhenSettled = true;
+          return false;
+        }
         finishAppliedUpdate(revision);
         return true;
       })
       .catch(function () {
         showPendingUpdate();
+        scheduleStreamUpdateRetry();
         return false;
       })
       .then(function (result) {
         state.browserUpdateApplying = false;
+        if (retryImmediatelyWhenSettled && state.pendingBrowserUpdate &&
+            canApplyPendingUpdate()) {
+          window.setTimeout(function () { applyPendingUpdate(); }, 0);
+        }
         return result;
       });
   }
@@ -133,6 +205,13 @@
       return;
     }
     if (payload.view_id && payload.view_id !== config.activeViewId) return;
+    if (payload.change_type === "stream_history" ||
+        payload.history_catalogue_changed === true) {
+      if (typeof core.scheduleStreamHistoryCatalogueRefresh === "function") {
+        core.scheduleStreamHistoryCatalogueRefresh();
+      }
+      if (payload.change_type === "stream_history") return;
+    }
 
     // A single assignment coalesces any burst while a fetch is in flight.
     state.pendingBrowserUpdate = payload;
@@ -143,19 +222,90 @@
     applyPendingUpdate();
   }
 
-  function bindUpdateNotifications() {
+  function noteUpdateSourceActivity(source) {
+    if (state.browserUpdateSource !== source) return;
+    state.browserUpdateLastEventAt = Date.now();
+  }
+
+  function clearUpdateSourceReconnect() {
+    if (state.browserUpdateReconnectTimer != null) {
+      window.clearTimeout(state.browserUpdateReconnectTimer);
+    }
+    state.browserUpdateReconnectTimer = null;
+  }
+
+  function connectUpdateSource() {
     if (state.browserUpdateSource || typeof window.EventSource !== "function") return;
     const url = "/updates?view=" + encodeURIComponent(config.activeViewId) +
       "&since=" + encodeURIComponent(state.observedUpdateRevision);
     const source = new window.EventSource(url);
     state.browserUpdateSource = source;
+    state.browserUpdateLastEventAt = Date.now();
+    source.addEventListener("open", function () {
+      noteUpdateSourceActivity(source);
+      clearUpdateSourceReconnect();
+    });
+    source.addEventListener("keepalive", function () {
+      noteUpdateSourceActivity(source);
+    });
     source.addEventListener("update", function (event) {
+      noteUpdateSourceActivity(source);
       try {
         receiveBrowserUpdate(JSON.parse(event.data));
       } catch (e) {
         // A malformed notice is safely ignored; EventSource still reconnects.
       }
     });
+    source.addEventListener("error", function () {
+      if (state.browserUpdateSource !== source || config.kind !== "stream") return;
+      // EventSource normally reconnects itself. A CLOSED source cannot do so,
+      // therefore replace only that terminal case; the watchdog handles a
+      // connection which remains CONNECTING or silently stalls.
+      if (source.readyState === 2) scheduleUpdateSourceReconnect();
+    });
+  }
+
+  function reconnectUpdateSource() {
+    clearUpdateSourceReconnect();
+    if (document.hidden || config.kind !== "stream") return;
+    const source = state.browserUpdateSource;
+    state.browserUpdateSource = null;
+    if (source && typeof source.close === "function") source.close();
+    connectUpdateSource();
+  }
+
+  function scheduleUpdateSourceReconnect() {
+    if (state.browserUpdateReconnectTimer != null || document.hidden ||
+        config.kind !== "stream") return;
+    state.browserUpdateReconnectTimer = window.setTimeout(
+      reconnectUpdateSource,
+      STREAM_UPDATE_RECONNECT_MS
+    );
+  }
+
+  function checkUpdateSourceLiveness() {
+    state.browserUpdateWatchdogTimer = null;
+    if (!document.hidden && config.kind === "stream" && state.browserUpdateSource) {
+      const lastEventAt = Number(state.browserUpdateLastEventAt);
+      if (!Number.isFinite(lastEventAt) || Date.now() - lastEventAt > STREAM_UPDATE_STALE_MS) {
+        reconnectUpdateSource();
+      }
+    }
+    scheduleUpdateSourceWatchdog();
+  }
+
+  function scheduleUpdateSourceWatchdog() {
+    if (config.kind !== "stream" || state.browserUpdateWatchdogTimer != null ||
+        typeof window.setTimeout !== "function") return;
+    state.browserUpdateWatchdogTimer = window.setTimeout(
+      checkUpdateSourceLiveness,
+      STREAM_UPDATE_WATCHDOG_MS
+    );
+  }
+
+  function bindUpdateNotifications() {
+    connectUpdateSource();
+    scheduleUpdateSourceWatchdog();
   }
 
   function markInitialViewLoaded() {
@@ -168,7 +318,13 @@
   }
 
   document.addEventListener("visibilitychange", function () {
-    if (!document.hidden) notifyUpdateEligibilityChanged();
+    if (document.hidden) return;
+    const lastEventAt = Number(state.browserUpdateLastEventAt);
+    if (config.kind === "stream" && state.browserUpdateSource &&
+        (!Number.isFinite(lastEventAt) || Date.now() - lastEventAt > STREAM_UPDATE_STALE_MS)) {
+      reconnectUpdateSource();
+    }
+    notifyUpdateEligibilityChanged();
   });
 
   core.getAutomaticUpdateBlockers = getAutomaticUpdateBlockers;
