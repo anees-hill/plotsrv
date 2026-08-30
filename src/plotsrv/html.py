@@ -7,10 +7,7 @@ import json
 
 from .config import TableViewMode
 from .store import ViewMeta
-from .table_explorer_markup import (
-    render_table_explorer,
-    render_table_grouping_control,
-)
+from .table_explorer_markup import render_table_explorer
 from .ui_assets import get_ui_assets
 from .ui_config import UISettings, get_ui_settings
 
@@ -178,6 +175,10 @@ def render_index(
                 </button>
                 <div id="export-menu" class="ps-export__menu" role="menu" hidden>
                   {items}
+                  <div id="plot-export-items" class="ps-export__plot-items" role="group" aria-label="Plot export" hidden>
+                    <button type="button" role="menuitem" data-export-scope="plot-svg" disabled>Plot as SVG</button>
+                    <button type="button" role="menuitem" data-export-scope="plot-png" disabled>Plot as PNG</button>
+                  </div>
                 </div>
               </div>
             """
@@ -207,6 +208,7 @@ def render_index(
         "unknown": "/static/logo_unknown.png",
         "plot": "/static/logo_plot.png",
         "table": "/static/logo_table.png",
+        "stream": "/static/logo_stream.png",
         "image": "/static/logo_image.png",
         "markdown": "/static/logo_markdown.png",
         "json": "/static/logo_json.png",
@@ -530,23 +532,11 @@ def render_index(
                     disabled>
                     <option value="">Current run</option>
                   </select>
-                  <span
-                    id="stream-history-info"
-                    class="ps-snapshots__info ps-stream-session__info"
-                    role="img"
-                    tabindex="0"
-                    aria-label="Checking stored-run availability."
-                    title="Checking stored-run availability.">i</span>
                 </div>
                 <span id="stream-history-picker-status" class="ps-visually-hidden" aria-live="polite">
                   Checking stored-run availability.
                 </span>
               </div>
-
-              {render_table_grouping_control(
-                  label="Grouping",
-                  wrapper_class="ps-stream-controls__grouping",
-              )}
 
               <div class="ps-stream-controls__actions">
                 <button
@@ -596,7 +586,6 @@ def render_index(
                 ),
                 search_placeholder="Search retained rows…",
                 leading_html=stream_controls_html,
-                show_grouping=False,
             )}
 
             <aside
@@ -759,7 +748,7 @@ def render_index(
     header_fill = _escape_attr(ui.header_fill_colour or "#ffffff")
     header_text = _escape_html(ui.header_text or "")
     logo_url = _safe_url_attr(
-        ui.logo_url or "/static/plotsrv_title_logo_ui-white-bk.png"
+        ui.logo_url or "/static/plotsrv_icon_title_colour_swash_logo.png"
     )
     header_status_html = ""
     status_modal_html = ""

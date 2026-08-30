@@ -172,6 +172,21 @@
   background: var(--button-bg-hover);
 }
 
+.ps-export__plot-items {
+  margin-top: 0.28rem;
+  padding-top: 0.28rem;
+  border-top: 1px solid var(--border);
+}
+
+.ps-export__plot-items[hidden] {
+  display: none !important;
+}
+
+.ps-export__menu button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .ps-snapshots {
   display: inline-flex;
   align-items: center;
@@ -299,8 +314,14 @@
 .ps-viewselect__icon {
   width: 14px;
   height: 14px;
+  object-fit: contain;
   opacity: 0.75;
   display: block;
+}
+
+.ps-viewselect__icon[src$="/logo_stream.png"] {
+  width: 17.5px;
+  height: 17.5px;
 }
 
 .ps-viewselect__label {
@@ -529,7 +550,13 @@
 .ps-viewselect__itemicon {
   width: 18px;
   height: 18px;
+  object-fit: contain;
   opacity: 0.75;
+}
+
+.ps-viewselect__itemicon[src$="/logo_stream.png"] {
+  width: 22.5px;
+  height: 22.5px;
 }
 
 .ps-viewselect__itemcopy,
@@ -663,6 +690,11 @@
   width: 28px;
   height: 28px;
   opacity: 0.68;
+}
+
+.ps-viewselect__feature-fallback img[src$="/logo_stream.png"] {
+  width: 35px;
+  height: 35px;
 }
 
 .ps-viewselect__feature-title {

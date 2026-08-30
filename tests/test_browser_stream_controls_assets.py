@@ -25,17 +25,21 @@ def _render(kind: html_mod.ViewKind) -> str:
     )
 
 
-def test_stream_controls_precede_ordinary_table_controls_and_move_grouping() -> None:
+def test_stream_controls_precede_shared_table_controls_and_grouping() -> None:
     rendered = _render("stream")
     stream_controls = rendered.index('class="ps-stream-controls"')
     table_controls = rendered.index('class="ps-table-topbar"')
 
     assert stream_controls < table_controls
     assert rendered.count('id="table-group-by-select"') == 1
-    assert 'class="ps-stream-controls__grouping"' in rendered
+    stream_panel = rendered[stream_controls:table_controls]
+    assert 'id="table-group-by-select"' not in stream_panel
+    assert rendered.index('id="table-search-input"') < rendered.index(
+        'id="table-group-by-select"'
+    ) < rendered.index('id="table-mode-table-btn"')
     assert '>Run</span>' in rendered
     assert 'id="stream-history-session-select"' in rendered
-    assert 'id="stream-history-info"' in rendered
+    assert 'id="stream-history-info"' not in rendered
     assert '>Current run</option>' in rendered
     assert 'id="stream-insights-button"' in rendered
     assert 'id="stream-pause-button"' in rendered
@@ -109,7 +113,7 @@ def test_run_control_has_truthful_disabled_empty_and_stored_states() -> None:
     assert 'current.textContent = "Current run"' in source
     assert 'picker.dataset.state = enabled ?' in source
     assert 'select.disabled = !enabled' in source
-    assert 'document.getElementById("stream-history-info")' in source
+    assert 'document.getElementById("stream-history-info")' not in source
     assert "plotsrv disk storage is disabled in configuration" in source
     assert "No past runs have been saved yet." in source
     assert 'return "Past run — " + updated + incomplete' in source
@@ -193,6 +197,32 @@ def test_stream_controls_use_a_remembered_accessible_disclosure() -> None:
     assert 'localStorage.setItem(' in source
     assert "core.bindStreamControlsDisclosure = bindStreamControlsDisclosure" in source
     assert "core.bindStreamControlsDisclosure()" in app
+
+
+def test_stream_disclosure_floats_above_the_right_aligned_actions() -> None:
+    source = (STATIC / "css" / "renderers" / "stream.css").read_text(
+        encoding="utf-8"
+    )
+    disclosure = source.split(
+        ".ps-stream-controls > .ps-pane-disclosure {", 1
+    )[1].split("}", 1)[0]
+    content = source.split(".ps-stream-controls__content {", 1)[1].split(
+        "}", 1
+    )[0]
+
+    assert "position: absolute" in disclosure
+    assert "right:" in disclosure
+    assert 'grid-template-areas: "session . actions"' in content
+    assert "minmax(260px, 360px)" in content
+
+
+def test_control_panes_share_a_neutral_theme_safe_grey_surface() -> None:
+    themes = (STATIC / "css" / "themes.css").read_text(encoding="utf-8")
+    shared = themes.split(".ps-stream-controls,", 1)[1].split("}", 1)[0]
+
+    assert ".ps-table-plot-controls" in shared
+    assert "border-color: var(--ps-border)" in shared
+    assert "background: var(--ps-surface-soft)" in shared
 
 
 def test_drawer_source_restores_focus_and_supports_keyboard_tabs() -> None:

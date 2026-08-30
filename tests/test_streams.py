@@ -180,6 +180,8 @@ def test_stream_page_uses_bundled_live_grid_and_exposes_ordered_records(
     page = client.get("/?view=logs:worker%20stream")
     assert page.status_code == 200
     assert 'data-kind="stream"' in page.text
+    assert 'data-view-icon="stream"' in page.text
+    assert 'src="/static/logo_stream.png"' in page.text
     assert 'id="stream-grid"' in page.text
     assert 'id="stream-lifecycle-badge"' not in page.text
     assert 'id="stream-pause-button"' in page.text
@@ -187,7 +189,7 @@ def test_stream_page_uses_bundled_live_grid_and_exposes_ordered_records(
     assert 'id="stream-history-picker"' in page.text
     assert 'id="stream-history-session-select"' in page.text
     assert "Current run" in page.text
-    assert 'id="stream-history-info"' in page.text
+    assert 'id="stream-history-info"' not in page.text
     assert 'id="stream-insights-button"' in page.text
     assert 'id="stream-insights-drawer"' in page.text
     assert 'role="tablist" aria-label="Stream insight sections"' in page.text
@@ -204,6 +206,9 @@ def test_stream_page_uses_bundled_live_grid_and_exposes_ordered_records(
     assert 'id="table-search-input"' in page.text
     assert 'id="table-group-by-select"' in page.text
     assert "No grouping" in page.text
+    assert page.text.index('id="table-search-input"') < page.text.index(
+        'id="table-group-by-select"'
+    ) < page.text.index('id="table-mode-table-btn"')
     assert 'id="table-mode-table-btn"' in page.text
     assert 'id="table-mode-plot-btn"' in page.text
     assert 'id="table-plot-controls"' in page.text

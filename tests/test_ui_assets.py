@@ -61,7 +61,8 @@ def test_table_plot_renderer_is_local_and_has_explicit_limits() -> None:
     assert "maxSourceRows" in renderer
     assert "maxPoints" in renderer
     assert "maxCategories" in renderer
-    assert "no categories were collapsed or sampled" in renderer
+    assert 'label: "Other"' in renderer
+    assert "maxSeries" in renderer
     assert "no points were sampled or plotted" in renderer
     assert "Raw-table filters do not apply" in renderer
     assert 'settings.scopeKind === "summary"' in renderer

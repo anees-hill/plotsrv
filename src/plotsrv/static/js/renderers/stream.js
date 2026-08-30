@@ -463,6 +463,7 @@
       columnDefs: buildColumns(fields),
       plotCapabilities: {
         sources: ["table", "summary"],
+        liveUpdates: true,
         tableLabel: "Filtered retained rows",
         summaryLabel: "Derived summary windows",
         tableScopeDescription:
@@ -1800,6 +1801,9 @@
       // updates. auto_refresh keeps its revision pending when this clean
       // cancellation resolves.
       invalidateStreamLoads();
+      if (typeof core.cancelScheduledTablePlotRefresh === "function") {
+        core.cancelScheduledTablePlotRefresh();
+      }
       if (state.pendingBrowserUpdate &&
           typeof core.setHeaderBrowserDataState === "function") {
         core.setHeaderBrowserDataState("update_available");
@@ -1894,6 +1898,9 @@
     // stored session (or vice versa).
     invalidateStreamLoads();
     invalidateStreamSummaryLoads();
+    if (typeof core.cancelScheduledTablePlotRefresh === "function") {
+      core.cancelScheduledTablePlotRefresh();
+    }
     state.streamCursor = null;
     state.streamSessionId = null;
     state.streamSchemaRevision = null;
@@ -1927,7 +1934,6 @@
   function renderHistoryPicker(data, sessions, capability) {
     const picker = document.getElementById("stream-history-picker");
     const select = document.getElementById("stream-history-session-select");
-    const info = document.getElementById("stream-history-info");
     const status = document.getElementById("stream-history-picker-status");
     if (!picker || !select) return;
 
@@ -1972,13 +1978,6 @@
         "aria-label",
         unavailableReason ? "Run. " + unavailableReason : "Run"
       );
-    }
-    if (info) {
-      info.hidden = !unavailableReason;
-      info.title = unavailableReason;
-      if (typeof info.setAttribute === "function") {
-        info.setAttribute("aria-label", unavailableReason || "Stored runs are available.");
-      }
     }
     if (status) {
       status.textContent = unavailableReason || (showingHistorical
