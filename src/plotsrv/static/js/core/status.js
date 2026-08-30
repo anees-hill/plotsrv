@@ -145,6 +145,7 @@
       unknown: "/static/logo_unknown.png",
       plot: "/static/logo_plot.png",
       table: "/static/logo_table.png",
+      stream: "/static/logo_stream.png",
       image: "/static/logo_image.png",
       markdown: "/static/logo_markdown.png",
       json: "/static/logo_json.png",

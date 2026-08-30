@@ -23,6 +23,7 @@ def test_load_ui_settings_defaults_when_no_config(monkeypatch, tmp_path: Path) -
     ui = ui_config.load_ui_settings()
 
     assert ui.logo_url == ui_config.DEFAULT_LOGO_URL
+    assert ui.logo_url == "/static/plotsrv_icon_title_colour_swash_logo.png"
     assert ui.header_text == ui_config.DEFAULT_HEADER_TEXT
     assert ui.header_fill_colour == ui_config.DEFAULT_HEADER_FILL
     assert ui.page_title == ui_config.DEFAULT_PAGE_TITLE

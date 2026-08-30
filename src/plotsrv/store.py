@@ -17,6 +17,7 @@ IconKey = Literal[
     "unknown",
     "plot",
     "table",
+    "stream",
     "text",
     "json",
     "python",
@@ -121,7 +122,7 @@ def _icon_for_view_kind(
     if k == "table":
         return "table"
     if k == "stream":
-        return "table"
+        return "stream"
 
     if k == "artifact":
         ak = (artifact_kind or "python").strip().lower()

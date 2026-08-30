@@ -7,7 +7,7 @@ from typing import Any
 
 from . import settings
 
-DEFAULT_LOGO_URL = "/static/plotsrv_title_logo_ui-white-bk.png"
+DEFAULT_LOGO_URL = "/static/plotsrv_icon_title_colour_swash_logo.png"
 DEFAULT_HEADER_TEXT = ""
 DEFAULT_HEADER_FILL = "#ffffff"
 DEFAULT_PAGE_TITLE = "plotsrv - live view"

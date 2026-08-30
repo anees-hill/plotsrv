@@ -506,7 +506,7 @@ class StreamRegistry:
                     label=registration.label,
                     section=registration.section,
                     kind="stream",
-                    icon_key="table",
+                    icon_key="stream",
                 )
             except store.ViewOwnershipError as error:
                 raise StreamConflictError(str(error)) from error
@@ -1355,7 +1355,7 @@ class StreamRegistry:
                     label=registration.label,
                     section=registration.section,
                     kind="stream",
-                    icon_key="table",
+                    icon_key="stream",
                 )
             except store.ViewOwnershipError as error:
                 raise StreamConflictError(str(error)) from error
