@@ -447,6 +447,7 @@ class StreamRegistry:
         self._observation_clock = observation_clock
         self._streams: dict[str, StreamViewState] = {}
         self._historical_streams: dict[str, dict[str, StreamViewState]] = {}
+        self._history_catalogue_revisions: dict[str, int] = {}
         self._lock = threading.RLock()
 
     @property
@@ -751,6 +752,8 @@ class StreamRegistry:
         with self._lock:
             states = self._historical_streams.get(view_id)
             if not states:
+                if view_id in self._streams:
+                    return []
                 raise UnknownStreamError("stream history has not been restored")
             sessions = [
                 self._historical_session_dict(state)
@@ -764,6 +767,59 @@ class StreamRegistry:
                 ),
                 reverse=True,
             )
+
+    def current_session_id(self, *, view_id: str) -> str | None:
+        """Return the live transport identity, excluding restored fallbacks."""
+        with self._lock:
+            state = self._streams.get(view_id)
+            return (
+                None
+                if state is None or state.historical
+                else state.registration.session_id
+            )
+
+    def session_is_current(self, *, view_id: str, session_id: str) -> bool:
+        with self._lock:
+            state = self._streams.get(view_id)
+            return (
+                state is not None
+                and not state.historical
+                and state.registration.session_id == session_id
+            )
+
+    def history_catalogue_revision(self, *, view_id: str) -> int:
+        with self._lock:
+            return self._history_catalogue_revisions.get(view_id, 0)
+
+    def reconcile_historical_sessions(
+        self, *, view_id: str, retained_session_ids: set[str]
+    ) -> bool:
+        """Drop in-memory history which bounded storage no longer exposes."""
+        with self._lock:
+            states = self._historical_streams.get(view_id)
+            if not states:
+                return False
+            removed = set(states).difference(retained_session_ids)
+            for session_id in removed:
+                states.pop(session_id, None)
+            if not states:
+                self._historical_streams.pop(view_id, None)
+            current = self._streams.get(view_id)
+            if current is not None and current.historical and (
+                current.registration.session_id in removed
+            ):
+                if states:
+                    self._streams[view_id] = max(
+                        states.values(),
+                        key=lambda item: item.historical_updated_at or "",
+                    )
+                else:
+                    self._streams.pop(view_id, None)
+            if removed:
+                self._history_catalogue_revisions[view_id] = (
+                    self._history_catalogue_revisions.get(view_id, 0) + 1
+                )
+            return bool(removed)
 
     def historical_data(
         self,
@@ -1002,6 +1058,7 @@ class StreamRegistry:
         noteworthy_items: Sequence[Mapping[str, Any]],
         raw_records: Sequence[Mapping[str, Any]] = (),
         history_incomplete_reason: str | None = None,
+        replace_existing: bool = False,
     ) -> bool:
         """Restore bounded compact history without reviving a live producer.
 
@@ -1225,7 +1282,7 @@ class StreamRegistry:
         except (TypeError, ValueError, StreamRecordValidationError) as error:
             raise StreamStateError(f"stored stream session is invalid: {error}") from error
 
-        return self._add_historical_state(state)
+        return self._add_historical_state(state, replace_existing=replace_existing)
 
     def restore_incomplete_marker(
         self,
@@ -1234,6 +1291,7 @@ class StreamRegistry:
         session_id: str,
         recorded_at: str,
         last_error: str,
+        replace_existing: bool = False,
     ) -> bool:
         """Restore a marker-only persistence gap as visible history.
 
@@ -1279,14 +1337,17 @@ class StreamRegistry:
             raise StreamStateError(
                 f"stored stream persistence gap is invalid: {error}"
             ) from error
-        return self._add_historical_state(state)
+        return self._add_historical_state(state, replace_existing=replace_existing)
 
-    def _add_historical_state(self, state: StreamViewState) -> bool:
+    def _add_historical_state(
+        self, state: StreamViewState, *, replace_existing: bool = False
+    ) -> bool:
         """Register one restored state without granting it a live owner role."""
         registration = state.registration
         with self._lock:
             historical = self._historical_streams.setdefault(registration.view_id, {})
-            if registration.session_id in historical:
+            existing = historical.get(registration.session_id)
+            if existing is not None and not replace_existing:
                 return False
             try:
                 store.register_view(
@@ -1299,6 +1360,15 @@ class StreamRegistry:
             except store.ViewOwnershipError as error:
                 raise StreamConflictError(str(error)) from error
             historical[registration.session_id] = state
+            changed = existing is None or (
+                existing.historical_updated_at != state.historical_updated_at
+                or len(existing.records) != len(state.records)
+                or existing.lifecycle != state.lifecycle
+            )
+            if changed:
+                self._history_catalogue_revisions[registration.view_id] = (
+                    self._history_catalogue_revisions.get(registration.view_id, 0) + 1
+                )
             current = self._streams.get(registration.view_id)
             # Preserve today's lightweight logical view catalogue while making
             # every retained session separately addressable through history.
@@ -1311,7 +1381,7 @@ class StreamRegistry:
                 < (state.historical_updated_at or "")
             ):
                 self._streams[registration.view_id] = state
-        return True
+        return changed
 
     def begin_persistence(self, *, view_id: str, session_id: str) -> None:
         """Record independent-worker admission before its task can complete."""
@@ -1429,6 +1499,7 @@ class StreamRegistry:
         with self._lock:
             self._streams.clear()
             self._historical_streams.clear()
+            self._history_catalogue_revisions.clear()
 
     def _owned_state_for_session(
         self, *, view_id: str, session_id: str

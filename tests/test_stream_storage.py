@@ -1265,6 +1265,91 @@ def test_storage_disabled_stream_routes_create_no_stream_history(
         assert worker.stats()["submitted"] == 0
         status = client.get("/stream/status", params={"view": "logs:persisted"}).json()
         assert status["durable_history"]["state"] == "disabled"
+        catalogue = client.get(
+            "/stream/history", params={"view": "logs:persisted"}
+        )
+        assert catalogue.status_code == 200
+        assert catalogue.json()["sessions"] == []
+        assert catalogue.json()["capability"] == {
+            "enabled": False,
+            "state": "unavailable",
+            "reason": "storage_disabled",
+            "message": (
+                "Stored runs are unavailable because plotsrv disk storage "
+                "is disabled in configuration."
+            ),
+        }
+    finally:
+        worker.stop(join=True)
+
+
+def test_completed_run_becomes_browseable_without_server_restart(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _configure_stream_storage(tmp_path)
+    worker = StreamStorageWorker(max_queue_size=8, max_pending_bytes=128_000)
+    monkeypatch.setattr(http_streams, "get_stream_storage_worker", lambda: worker)
+    try:
+        _register(client)
+        _append(client, batch_sequence=0, records=[{"level": "warning", "n": 1}])
+        close = client.post(
+            "/stream/close",
+            json={
+                "protocol_version": STREAM_PROTOCOL_VERSION,
+                "view_id": "logs:persisted",
+                "client_id": "storage-client",
+                "session_id": "storage-session",
+                "drain_completed": True,
+            },
+        )
+        assert close.status_code == 200
+        _wait_until(lambda: worker.stats()["processed"] >= 3)
+
+        current_only = client.get(
+            "/stream/history", params={"view": "logs:persisted"}
+        )
+        assert current_only.status_code == 200, current_only.text
+        assert current_only.json()["capability"]["enabled"] is True
+        # A completed producer remains the current run until another producer
+        # supersedes it; transport batches never become picker entries.
+        assert current_only.json()["sessions"] == []
+
+        register_next = client.post(
+            "/stream/register",
+            json={
+                "protocol_version": STREAM_PROTOCOL_VERSION,
+                "view_id": "logs:persisted",
+                "label": "persisted",
+                "section": "logs",
+                "client_id": "storage-client-next",
+                "session_id": "storage-session-next",
+            },
+        )
+        assert register_next.status_code == 200, register_next.text
+
+        catalogue = client.get(
+            "/stream/history", params={"view": "logs:persisted"}
+        )
+        assert catalogue.status_code == 200, catalogue.text
+        payload = catalogue.json()
+        assert payload["capability"]["enabled"] is True
+        assert payload["revision"] >= 1
+        assert [item["session_id"] for item in payload["sessions"]] == [
+            "storage-session"
+        ]
+        assert payload["sessions"][0]["raw_record_count"] == 0
+
+        historical = client.get(
+            "/stream/history",
+            params={
+                "view": "logs:persisted",
+                "session_id": "storage-session",
+            },
+        )
+        assert historical.status_code == 200, historical.text
+        assert historical.json()["data"]["historical"] is True
+        assert historical.json()["data"]["records"] == []
+        assert historical.json()["data"]["accepted_records"] == 1
     finally:
         worker.stop(join=True)
 

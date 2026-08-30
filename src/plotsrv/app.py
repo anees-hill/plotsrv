@@ -113,7 +113,10 @@ async def browser_updates(
                             notify_stream_browser(view)
                     except Exception:
                         pass
-                    yield ": keepalive\n\n"
+                    # A named event remains payload-free but lets browser code
+                    # distinguish a healthy, idle SSE connection from one
+                    # silently stalled by a proxy or a suspended network.
+                    yield "event: keepalive\ndata: {}\n\n"
                     continue
                 payload = json.dumps(event.as_dict(), separators=(",", ":"))
                 yield f"id: {event.revision}\nevent: update\ndata: {payload}\n\n"

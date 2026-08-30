@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from . import config, store
 from .browser_updates import browser_update_hub
 from .http_security import require_local_request
+from .storage.streams import FileStreamStorageBackend
 from .storage.stream_worker import (
     get_stream_storage_worker,
     schedule_stream_persistence_incomplete,
@@ -54,6 +55,118 @@ def notify_stream_browser(view_id: str, *, change_type: str = "stream") -> None:
     )
 
 
+def notify_stream_history_browser(view_id: str, *, session_id: str) -> None:
+    """Invalidate only the stored-run selector for browsers on this view."""
+    browser_update_hub.publish(
+        view_id=view_id,
+        change_type="stream_history",
+        metadata={
+            "kind": "stream",
+            "session_id": session_id,
+            "history_catalogue_changed": True,
+        },
+    )
+
+
+def _stream_history_capability(view_id: str) -> dict[str, Any]:
+    if not config.get_storage_enabled():
+        return {
+            "enabled": False,
+            "state": "unavailable",
+            "reason": "storage_disabled",
+            "message": (
+                "Stored runs are unavailable because plotsrv disk storage "
+                "is disabled in configuration."
+            ),
+        }
+    if not config.get_storage_stream_enabled(view_id):
+        return {
+            "enabled": False,
+            "state": "unavailable",
+            "reason": "stream_storage_disabled",
+            "message": "Stored runs are disabled for this stream view.",
+        }
+    return {
+        "enabled": True,
+        "state": "enabled",
+        "reason": None,
+        "message": "Stored runs are available for this stream view.",
+    }
+
+
+def _refresh_stored_stream_history(view_id: str) -> list[dict[str, Any]]:
+    """Reconcile one view's bounded in-memory history with durable storage."""
+    if not config.get_storage_stream_enabled(view_id):
+        return []
+
+    backend = FileStreamStorageBackend(root_dir=config.get_storage_root_dir())
+    current_session_id = stream_registry.current_session_id(view_id=view_id)
+    retained_session_ids: set[str] = set()
+
+    for session in backend.list_compact_sessions(view_id=view_id):
+        if session.session_id == current_session_id:
+            continue
+        try:
+            history_incomplete_reason: str | None = None
+            try:
+                raw_records = backend.load_raw_records(
+                    view_id=view_id, session_id=session.session_id
+                )
+            except LookupError:
+                raw_records = ()
+                history_incomplete_reason = (
+                    "Explicitly retained raw history could not be validated; "
+                    "those raw observations are unavailable."
+                )
+            stream_registry.restore_compact_session(
+                stored_metadata=session.metadata,
+                summary_windows=session.summary_windows,
+                noteworthy_items=session.noteworthy_items,
+                raw_records=raw_records,
+                history_incomplete_reason=history_incomplete_reason,
+                replace_existing=True,
+            )
+            retained_session_ids.add(session.session_id)
+        except StreamStateError:
+            continue
+
+    for gap in backend.list_marker_only_sessions(view_id=view_id):
+        if gap.session_id == current_session_id:
+            continue
+        try:
+            stream_registry.restore_incomplete_marker(
+                view_id=gap.view_id,
+                session_id=gap.session_id,
+                recorded_at=gap.recorded_at,
+                last_error=gap.last_error,
+                replace_existing=True,
+            )
+            retained_session_ids.add(gap.session_id)
+        except StreamStateError:
+            continue
+
+    stream_registry.reconcile_historical_sessions(
+        view_id=view_id,
+        retained_session_ids=retained_session_ids,
+    )
+    return stream_registry.historical_sessions(view_id=view_id)
+
+
+def _complete_stream_persistence(
+    *, view_id: str, session_id: str, success: bool, error: str | None
+) -> None:
+    stream_registry.complete_persistence(
+        view_id=view_id,
+        session_id=session_id,
+        success=success,
+        error=error,
+    )
+    if success and not stream_registry.session_is_current(
+        view_id=view_id, session_id=session_id
+    ):
+        notify_stream_history_browser(view_id, session_id=session_id)
+
+
 def _submit_stream_persistence(
     *,
     view_id: str,
@@ -94,7 +207,7 @@ def _submit_stream_persistence(
             noteworthy_items=snapshot["noteworthy_items"],
             raw_block_id=snapshot["raw_block_id"],
             raw_records=snapshot["raw_records"],
-            on_complete=lambda success, error: stream_registry.complete_persistence(
+            on_complete=lambda success, error: _complete_stream_persistence(
                 view_id=view_id,
                 session_id=session_id,
                 success=success,
@@ -336,6 +449,9 @@ async def register_stream(request: Request) -> dict[str, Any]:
         source_status=_source_status(payload),
         source_health=_source_health(payload),
     )
+    previous_session_id = stream_registry.current_session_id(
+        view_id=registration.view_id
+    )
     try:
         state = stream_registry.register(registration)
     except StreamStateError as error:
@@ -352,6 +468,11 @@ async def register_stream(request: Request) -> dict[str, Any]:
         store.set_active_view(registration.view_id)
 
     notify_stream_browser(registration.view_id)
+    if previous_session_id and previous_session_id != registration.session_id:
+        notify_stream_history_browser(
+            registration.view_id,
+            session_id=previous_session_id,
+        )
 
     return {
         "ok": True,
@@ -538,13 +659,25 @@ def get_stream_history(
     _configure_heartbeat_timeout()
     try:
         if session_id is None:
+            capability = _stream_history_capability(view)
+            if capability["enabled"]:
+                sessions = _refresh_stored_stream_history(view)
+            else:
+                # Preserve the route's unknown-view 404 while deliberately
+                # hiding any stale process-local history when storage is off.
+                stream_registry.historical_sessions(view_id=view)
+                sessions = []
             return {
                 "protocol_version": STREAM_PROTOCOL_VERSION,
                 "object_type": "stream_historical_session_collection",
                 "historical": True,
                 "view_id": view,
-                "sessions": stream_registry.historical_sessions(view_id=view),
+                "revision": stream_registry.history_catalogue_revision(view_id=view),
+                "capability": capability,
+                "sessions": sessions,
             }
+        if config.get_storage_stream_enabled(view):
+            _refresh_stored_stream_history(view)
         data = stream_registry.historical_data(
             view_id=view,
             session_id=session_id,

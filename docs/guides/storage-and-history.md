@@ -147,10 +147,11 @@ Common values are:
 
 When a JSONL stream is used with storage enabled, plotsrv stores bounded
 session metadata, derived summary windows, and noteworthy/continuity
-observations beneath the dedicated `streams/` storage namespace. On restart,
-each retained session is available from the stream view's **Stored sessions**
-selector. A stored session is marked as historical and is never presented as a
-live producer.
+observations beneath the dedicated `streams/` storage namespace. Once a
+producer run is superseded, its successfully stored session appears in the
+stream view's **Run** selector without requiring a server restart. Retained
+runs are restored there after later restarts as well. A stored run is marked as
+historical and is never presented as a live producer.
 
 Raw source rows remain opt-in. They can be retained only with a finite raw
 block policy; the history view shows those explicitly retained segments, not a

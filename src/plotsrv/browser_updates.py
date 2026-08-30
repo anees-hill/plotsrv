@@ -114,7 +114,9 @@ class BrowserUpdateHub:
         subscription = BrowserUpdateSubscription(
             view_id=view_id,
             loop=loop,
-            queue=asyncio.Queue(maxsize=1),
+            # Preserve one data, stored-run, and global-catalogue notice. Each
+            # class remains coalesced, so a slow browser has a strict bound.
+            queue=asyncio.Queue(maxsize=3),
         )
         with self._lock:
             if len(self._subscribers) >= self._max_subscribers:
@@ -179,12 +181,33 @@ class BrowserUpdateHub:
     ) -> None:
         queue = subscription.queue
         try:
-            if queue.full():
-                queue.get_nowait()
-            queue.put_nowait(event)
+            pending = [event]
+            while True:
+                pending.append(queue.get_nowait())
         except (asyncio.QueueEmpty, asyncio.QueueFull):
-            # A newer scheduled notification will represent the same state.
             pass
+
+        # These event classes describe independent state. Keep the newest of
+        # each and deliver them in revision order. Repeated stream writes still
+        # collapse to one notification.
+        newest: dict[str, BrowserUpdate] = {}
+        for candidate in pending:
+            category = (
+                "catalogue"
+                if candidate.change_type == "catalogue"
+                else "stream_history"
+                if candidate.change_type == "stream_history"
+                else "view"
+            )
+            previous = newest.get(category)
+            if previous is None or candidate.revision > previous.revision:
+                newest[category] = candidate
+        for candidate in sorted(newest.values(), key=lambda item: item.revision):
+            try:
+                queue.put_nowait(candidate)
+            except asyncio.QueueFull:
+                # The queue has a hard bound equal to the number of classes.
+                break
 
 
 browser_update_hub = BrowserUpdateHub()

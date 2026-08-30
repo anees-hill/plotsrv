@@ -35,6 +35,44 @@ def test_subscriber_queue_coalesces_to_the_latest_change_and_cleans_up() -> None
     asyncio.run(scenario())
 
 
+def test_subscriber_preserves_view_and_catalogue_change_classes() -> None:
+    async def scenario() -> None:
+        hub = BrowserUpdateHub()
+        subscription = hub.subscribe(
+            view_id="reports:daily", since=0, loop=asyncio.get_running_loop()
+        )
+        view_change = hub.publish(
+            view_id="reports:daily", change_type="stream", metadata={"n": 1}
+        )
+        catalogue_change = hub.publish_catalogue()
+        await asyncio.sleep(0)
+
+        assert view_change is not None
+        assert subscription.queue.qsize() == 2
+        assert subscription.queue.get_nowait() == view_change
+        assert subscription.queue.get_nowait() == catalogue_change
+        hub.unsubscribe(subscription)
+
+    asyncio.run(scenario())
+
+
+def test_subscriber_preserves_stream_history_as_an_independent_class() -> None:
+    async def scenario() -> None:
+        hub = BrowserUpdateHub()
+        subscription = hub.subscribe(
+            view_id="logs", since=0, loop=asyncio.get_running_loop()
+        )
+        data = hub.publish(view_id="logs", change_type="stream")
+        history = hub.publish(view_id="logs", change_type="stream_history")
+        catalogue = hub.publish_catalogue()
+        await asyncio.sleep(0)
+
+        assert list(subscription.queue._queue) == [data, history, catalogue]
+        hub.unsubscribe(subscription)
+
+    asyncio.run(scenario())
+
+
 def test_reconnect_gets_current_view_state_but_not_other_view_changes() -> None:
     async def scenario() -> None:
         hub = BrowserUpdateHub()
@@ -119,6 +157,40 @@ def test_sse_serializes_an_event_id_and_releases_its_subscription() -> None:
         chunk = await asyncio.wait_for(anext(iterator), timeout=1)
         assert f"id: {event.revision}\n" in chunk
         assert 'event: update\ndata: {"revision":' in chunk
+        await iterator.aclose()
+        assert browser_update_hub.subscriber_count() == baseline
+
+    asyncio.run(scenario())
+
+
+def test_sse_keepalive_is_observable_by_browser_code(monkeypatch) -> None:
+    async def no_event_before_heartbeat(awaitable, *args, **kwargs):
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        raise TimeoutError
+
+    monkeypatch.setattr("plotsrv.app.asyncio.wait_for", no_event_before_heartbeat)
+
+    async def scenario() -> None:
+        baseline = browser_update_hub.subscriber_count()
+        request = Request(
+            {
+                "type": "http",
+                "http_version": "1.1",
+                "method": "GET",
+                "scheme": "http",
+                "path": "/updates",
+                "raw_path": b"/updates",
+                "query_string": b"",
+                "headers": [],
+                "client": ("127.0.0.1", 1),
+                "server": ("testserver", 80),
+            }
+        )
+        response = await browser_updates(request=request, view="idle", since=0)
+        iterator = response.body_iterator
+        assert await anext(iterator) == "retry: 2000\n\n"
+        assert await anext(iterator) == "event: keepalive\ndata: {}\n\n"
         await iterator.aclose()
         assert browser_update_hub.subscriber_count() == baseline
 

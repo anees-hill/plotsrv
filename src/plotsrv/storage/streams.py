@@ -630,32 +630,42 @@ class FileStreamStorageBackend:
             noteworthy_items=tuple(noteworthy),
         )
 
-    def list_compact_sessions(self) -> list[StoredStreamSession]:
+    def list_compact_sessions(
+        self, *, view_id: str | None = None
+    ) -> list[StoredStreamSession]:
         """List valid compact sessions newest-first, skipping damaged files.
 
         Startup restoration is best effort just like storage writes. A corrupt
         session must not prevent another view's bounded history from loading.
+        Supplying a view identity confines discovery to that view's bounded
+        directory, which keeps live browser catalogue refreshes lightweight.
         """
         if not self.streams_root.exists():
             return []
+        if view_id is None:
+            pattern = f"*/*/{_SESSION_METADATA_NAME}"
+        else:
+            _require_identity(view_id, "view_id")
+            view_component = _path_component(view_id, label="view_id")
+            pattern = f"{view_component}/*/{_SESSION_METADATA_NAME}"
         sessions: list[StoredStreamSession] = []
-        for metadata_path in self.streams_root.glob(f"*/*/{_SESSION_METADATA_NAME}"):
+        for metadata_path in self.streams_root.glob(pattern):
             try:
                 raw = json.loads(metadata_path.read_text(encoding="utf-8"))
                 if not isinstance(raw, dict):
                     continue
-                view_id = raw.get("view_id")
+                stored_view_id = raw.get("view_id")
                 session_id = raw.get("session_id")
-                if not isinstance(view_id, str) or not isinstance(session_id, str):
+                if not isinstance(stored_view_id, str) or not isinstance(session_id, str):
                     continue
                 expected = self.session_paths(
-                    view_id=view_id, session_id=session_id
+                    view_id=stored_view_id, session_id=session_id
                 ).metadata
                 if expected != metadata_path:
                     continue
                 sessions.append(
                     self.load_compact_session(
-                        view_id=view_id, session_id=session_id
+                        view_id=stored_view_id, session_id=session_id
                     )
                 )
             except (LookupError, OSError, ValueError, json.JSONDecodeError):
@@ -666,7 +676,9 @@ class FileStreamStorageBackend:
             reverse=True,
         )
 
-    def list_marker_only_sessions(self) -> list[StoredStreamGap]:
+    def list_marker_only_sessions(
+        self, *, view_id: str | None = None
+    ) -> list[StoredStreamGap]:
         """List valid durable gaps that have no loadable compact counterpart.
 
         A valid marker is stronger evidence than a stale or damaged compact
@@ -676,10 +688,14 @@ class FileStreamStorageBackend:
         """
         if not self.streams_root.exists():
             return []
+        if view_id is None:
+            pattern = f"*/*/{_INCOMPLETE_MARKER_NAME}"
+        else:
+            _require_identity(view_id, "view_id")
+            view_component = _path_component(view_id, label="view_id")
+            pattern = f"{view_component}/*/{_INCOMPLETE_MARKER_NAME}"
         gaps: list[StoredStreamGap] = []
-        for marker_path in self.streams_root.glob(
-            f"*/*/{_INCOMPLETE_MARKER_NAME}"
-        ):
+        for marker_path in self.streams_root.glob(pattern):
             try:
                 gap = self._read_stored_gap(marker_path)
                 paths = self.session_paths(
