@@ -11,6 +11,7 @@ import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+import plotsrv.ui_assets as ui_assets_module
 from plotsrv import config, store
 from plotsrv.app import app
 from plotsrv.ui_assets import get_ui_assets
@@ -33,6 +34,43 @@ def test_manifest_only_exposes_existing_local_assets() -> None:
     assert assets.tabulator_js == "/static/vendor/tabulator/5.5.0/tabulator.min.js"
     for url in (assets.css, assets.js, assets.tabulator_js):
         assert (_STATIC / url.removeprefix("/static/")).is_file()
+
+
+def test_asset_manifest_rotation_is_visible_to_a_running_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    static = tmp_path / "static"
+    dist = static / "dist"
+    vendor = static / "vendor" / "tabulator" / "5.5.0"
+    dist.mkdir(parents=True)
+    vendor.mkdir(parents=True)
+    tabulator = vendor / "tabulator.min.js"
+    tabulator.write_text("tabulator", encoding="utf-8")
+
+    def publish(version: str) -> None:
+        (dist / f"plotsrv-ui.{version}.css").write_text(version, encoding="utf-8")
+        (dist / f"plotsrv-ui.{version}.js").write_text(version, encoding="utf-8")
+        (dist / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "css": f"/static/dist/plotsrv-ui.{version}.css",
+                    "js": f"/static/dist/plotsrv-ui.{version}.js",
+                    "tabulator_js": "/static/vendor/tabulator/5.5.0/tabulator.min.js",
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    monkeypatch.setattr(ui_assets_module, "_STATIC_DIR", static)
+    monkeypatch.setattr(ui_assets_module, "_MANIFEST_PATH", dist / "manifest.json")
+    publish("first")
+    assert get_ui_assets().css.endswith("plotsrv-ui.first.css")
+
+    publish("second")
+    (dist / "plotsrv-ui.first.css").unlink()
+    (dist / "plotsrv-ui.first.js").unlink()
+    assert get_ui_assets().css.endswith("plotsrv-ui.second.css")
+    assert get_ui_assets().js.endswith("plotsrv-ui.second.js")
 
 
 def test_committed_bundles_match_ui_sources() -> None:

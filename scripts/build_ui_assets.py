@@ -114,11 +114,21 @@ def build(*, check: bool) -> int:
 
     DIST.mkdir(parents=True, exist_ok=True)
     expected = set(outputs)
+    manifest_path = DIST / "manifest.json"
+
+    # Publish new fingerprinted files before switching the manifest. A running
+    # development server can therefore resolve either side of the rollover.
+    for path, data in outputs.items():
+        if path != manifest_path:
+            path.write_bytes(data)
+
+    manifest_temp = DIST / ".manifest.json.tmp"
+    manifest_temp.write_bytes(outputs[manifest_path])
+    manifest_temp.replace(manifest_path)
+
     for old in DIST.glob("plotsrv-ui.*"):
         if old not in expected and old.is_file():
             old.unlink()
-    for path, data in outputs.items():
-        path.write_bytes(data)
     print("Built " + ", ".join(path.name for path in outputs))
     return 0
 

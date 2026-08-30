@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import cast
 
@@ -27,9 +26,14 @@ def _static_asset_url(value: object, *, key: str) -> str:
     return url
 
 
-@lru_cache(maxsize=1)
 def get_ui_assets() -> UIAssets:
-    """Return verified, package-local URLs for the committed UI build."""
+    """Return verified, package-local URLs from the current UI manifest.
+
+    The manifest is intentionally read for each rendered page. Development
+    builds rotate fingerprinted bundle names while a smoke server may still be
+    running, so process-lifetime caching can leave new pages pointing at files
+    that the build has removed.
+    """
     try:
         raw = cast(dict[str, object], json.loads(_MANIFEST_PATH.read_text("utf-8")))
     except (OSError, ValueError, TypeError) as exc:
