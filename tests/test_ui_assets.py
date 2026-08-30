@@ -109,7 +109,7 @@ const context = {
   },
   document: {
     createElement: (tagName) => ({tagName, textContent: ""}),
-    getElementById: () => null,
+    getElementById: (id) => id === "table-grid" ? {} : null,
   },
   fetch: async () => ({ok: true, status: 200, json: async () => payload}),
   Tabulator: function (target, options) {
@@ -127,6 +127,10 @@ function assertSafeFlatColumns(mount, contextLabel) {
   }
   if (mount.options.data[0]["http.status"] !== 200) {
     throw new Error(contextLabel + " did not retain a dotted key");
+  }
+  if (mount.options.paginationSize !== 100 ||
+      !mount.options.paginationSizeSelector.includes(100)) {
+    throw new Error(contextLabel + " did not use the 100-row ordinary-table default");
   }
   const column = mount.options.columns[0];
   if (column.title !== "") {
@@ -159,6 +163,116 @@ core.loadTable().then(() => {
         capture_output=True,
         text=True,
     )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_table_status_counts_canonical_rows_across_filter_and_reset() -> None:
+    """Tabulator may report no active rows briefly while its mount settles."""
+    table_source = _STATIC / "js" / "renderers" / "table.js"
+    script = r'''
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const status = {innerHTML: ""};
+const inline = {innerHTML: ""};
+const state = {
+  tableUiState: {
+    searchQuery: "",
+    filtersOpen: false,
+    filters: [],
+    columnsOpen: false,
+    hiddenColumns: [],
+    groupBy: null,
+  },
+};
+const context = {
+  Date,
+  Promise,
+  localStorage: {getItem: () => null, setItem: () => {}},
+  window: {
+    PLOTSRV: {core: {}, renderers: {}, state, config: {activeViewId: "table:count"}},
+  },
+  document: {
+    getElementById: (id) => id === "status" ? status :
+      (id === "table-status-inline" ? inline : null),
+  },
+};
+const table = {
+  // Reproduce the transient result that previously produced "Showing 0".
+  getData: () => [],
+  on: () => {},
+  clearFilter: () => {},
+  setFilter: () => {},
+};
+const payload = {
+  columns: ["value"],
+  rows: [{value: 1}, {value: 2}, {value: 3}],
+  total_rows: 3,
+  returned_rows: 3,
+  loaded_rows: 3,
+  total_rows_known: true,
+};
+
+vm.runInNewContext(source, context, {filename: "table.js"});
+const core = context.window.PLOTSRV.core;
+function configure() {
+  core.configureTableExplorer({
+    table,
+    payload,
+    rows: payload.rows,
+    fields: payload.columns,
+    columnDefs: [],
+  });
+}
+
+configure();
+if (status.innerHTML !== "Showing 3 rows.") {
+  throw new Error("unfiltered status was incorrect: " + status.innerHTML);
+}
+
+state.tableUiState.filters = [{
+  id: "f_1", field: "value", op: "gt", value: "1", valueTo: "",
+}];
+configure();
+if (status.innerHTML !== "Showing 2 filtered rows of 3 loaded.") {
+  throw new Error("filtered status was incorrect: " + status.innerHTML);
+}
+if (core.getCurrentFilteredLoadedRows().length !== 2) {
+  throw new Error("filtered row source disagreed with the status");
+}
+
+state.tableUiState.filters = [];
+configure();
+if (status.innerHTML !== "Showing 3 rows.") {
+  throw new Error("cleared-filter status was incorrect: " + status.innerHTML);
+}
+'''
+
+    subprocess.run(
+        ["node", "-e", script, str(table_source)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_rich_table_lines_are_shared_and_empty_surface_is_theme_aware() -> None:
+    table_css = (_STATIC / "css" / "renderers" / "table.css").read_text("utf-8")
+    layout_css = (_STATIC / "css" / "layout.css").read_text("utf-8")
+    themes_css = (_STATIC / "css" / "themes.css").read_text("utf-8")
+    stream_js = (_STATIC / "js" / "renderers" / "stream.js").read_text("utf-8")
+
+    assert ".ps-table--rich.tabulator," in table_css
+    rich_rows = table_css.split(".ps-table--rich .tabulator-row {", 1)[1].split(
+        "}", 1
+    )[0]
+    assert "border-bottom: 0" in rich_rows
+    assert ".ps-table--rich.tabulator," in themes_css
+    assert ".plot-frame.empty" in layout_css
+    assert "background: var(--ps-surface-soft, #fcfcfc)" in layout_css
+    assert "--ps-surface-soft: #f8f9fa" in themes_css
+    assert "--ps-surface-soft: #141b21" in themes_css
+    assert "pagination:" not in stream_js
 
 
 def test_standard_page_uses_two_bundles_and_no_remote_assets() -> None:

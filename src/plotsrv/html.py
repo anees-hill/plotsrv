@@ -612,7 +612,7 @@ def render_index(
                     '<p id="stream-raw-history-notice" '
                     'class="ps-stream-raw-history-notice" role="status" hidden></p>'
                     '<div id="stream-grid" '
-                    'class="table-grid ps-tablegrid ps-stream-grid"></div>'
+                    'class="table-grid ps-tablegrid ps-table--rich ps-stream-grid"></div>'
                 ),
                 search_placeholder="Search retained rows…",
                 leading_html=stream_controls_html,

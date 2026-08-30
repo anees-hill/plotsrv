@@ -272,6 +272,7 @@
   min-height: 72vh;
 }
 
+.ps-table--rich.tabulator,
 .ps-table--rich .tabulator {
   border: 0;
   background: #fff;
@@ -288,6 +289,8 @@
 }
 
 .ps-table--rich .tabulator-row {
+  /* Keep ordinary and stream grids calm; cell edges provide the subtle grid. */
+  border-bottom: 0;
   background: #fff;
 }
 

@@ -762,6 +762,7 @@ body.ps-settings-open {
   background: var(--ps-surface-muted);
 }
 
+.ps-table--rich.tabulator,
 .ps-table--rich .tabulator {
   border-color: var(--ps-border) !important;
   background: var(--ps-surface) !important;

@@ -269,26 +269,15 @@
   }
 
   function getActiveRowCount() {
-    if (!state.tabulatorInstance) return null;
-
-    try {
-      const active = state.tabulatorInstance.getData("active");
-      if (Array.isArray(active)) return active.length;
-    } catch (e) {
-      // ignore
-    }
-
-    try {
-      const allRows = state.tabulatorInstance.getData();
-      if (Array.isArray(allRows)) return allRows.length;
-    } catch (e) {
-      // ignore
-    }
-
-    return null;
+    const rows = Array.isArray(state.tableRows) ? state.tableRows : [];
+    return rows.filter(rowMatchesCurrentTableFilters).length;
   }
 
-  function updateTableStatus(data, activeCount) {
+  function hasActiveTableFiltering() {
+    return getSearchQuery().trim() !== "" || hasActiveFilters();
+  }
+
+  function updateTableStatus(data, activeCount, filtering) {
     const status = document.getElementById("status");
     const inline = document.getElementById("table-status-inline");
 
@@ -308,7 +297,7 @@
       const isTrunc =
         !!(data.meta && data.meta.truncated) ||
         (totalKnown && returned < total);
-      const hasFilter = typeof activeCount === "number" && activeCount !== returned;
+      const hasFilter = filtering && typeof activeCount === "number";
 
       if (hasFilter) {
         html =
@@ -351,7 +340,11 @@
 
   function refreshTableStatus() {
     if (!state.tableLastPayload) return;
-    updateTableStatus(state.tableLastPayload, getActiveRowCount());
+    updateTableStatus(
+      state.tableLastPayload,
+      getActiveRowCount(),
+      hasActiveTableFiltering()
+    );
   }
 
   function refreshActiveTablePlot(immediate) {
@@ -832,16 +825,6 @@
   }
 
   function getCurrentFilteredLoadedRows() {
-    const table = state.tabulatorInstance;
-    if (table && typeof table.getData === "function") {
-      try {
-        const activeRows = table.getData("active");
-        if (Array.isArray(activeRows)) return activeRows.slice();
-      } catch (e) {
-        // Fall through to the shared predicate for reduced table surfaces.
-      }
-    }
-
     const rows = Array.isArray(state.tableRows) ? state.tableRows : [];
     return rows.filter(rowMatchesCurrentTableFilters);
   }
@@ -1470,7 +1453,7 @@
       height: "72vh",
       layout: "fitDataStretch",
       pagination: "local",
-      paginationSize: 20,
+      paginationSize: 100,
       paginationSizeSelector: [20, 50, 100, 200],
       movableColumns: true,
       // JSON object and table column names are flat keys. In particular,
@@ -1588,7 +1571,7 @@
       height: "72vh",
       layout: "fitDataStretch",
       pagination: "local",
-      paginationSize: 20,
+      paginationSize: 100,
       paginationSizeSelector: [20, 50, 100, 200],
       movableColumns: true,
       // Preserve literal dotted names for ordinary and embedded table data.

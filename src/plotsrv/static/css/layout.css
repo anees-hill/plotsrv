@@ -124,7 +124,7 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
 }
 
 .plot-frame.empty {
-  background: #fcfcfc;
+  background: var(--ps-surface-soft, #fcfcfc);
 }
 
 .plot-frame--table {
