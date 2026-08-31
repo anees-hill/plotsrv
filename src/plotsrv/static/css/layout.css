@@ -93,6 +93,16 @@ body[data-kind="table"] .plot-card {
   padding: 0.75rem;
 }
 
+body[data-kind="plot"] .page {
+  max-width: none;
+  margin: 0.9rem auto;
+  padding: 0 0.75rem calc(var(--ps-bottom-dock-height, 5.75rem) + 1.5rem);
+}
+
+body[data-kind="plot"] .plot-card {
+  padding: 0.75rem;
+}
+
 body[data-kind="artifact"] .page:has(.ps-json-shell) {
   max-width: none;
   margin: 0.9rem auto;
