@@ -24,6 +24,11 @@
   flex-wrap: wrap;
 }
 
+.ps-json-toolbar-group[data-json-toolbar-group="view"] {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .ps-json-toolbar-group[data-json-toolbar-group="pins"] .artifact-btn {
   background: #fff8d8;
   border-color: #ead27a;
@@ -444,11 +449,6 @@
   border-color: #d8d0d4;
 }
 
-.ps-json-entry.is-pinned-open > .ps-json-row {
-  border-color: #ead9df;
-  background: #fffafc;
-}
-
 .ps-json-actionbtn--pin.is-pinned {
   background: #fff4f6;
   border-color: #b9475f;
@@ -597,6 +597,10 @@
 
   .ps-json-toolbar-group {
     width: 100%;
+  }
+
+  .ps-json-toolbar-group[data-json-toolbar-group="view"] {
+    margin-left: 0;
   }
 
   .ps-json-rich-head {

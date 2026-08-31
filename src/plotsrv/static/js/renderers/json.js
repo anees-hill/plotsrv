@@ -222,12 +222,18 @@
         node.open = true;
       });
     } else {
-      const n = Number(levelLimit);
-      const limit = Number.isFinite(n) && n >= 1 ? n : 2;
+      const parsedLevel = Number(levelLimit);
+      const userLevel = Number.isFinite(parsedLevel) && parsedLevel >= 1
+        ? parsedLevel
+        : 2;
+      // Model depth is zero-based (root = 0), while the selector describes
+      // visible levels starting at one (root = Level 1). A container at depth
+      // d must open only when the selected level also includes its children.
+      const openDepth = userLevel - 1;
 
       detailsNodes.forEach((node) => {
         const depth = Number(node.getAttribute("data-json-depth") || "0");
-        node.open = depth < limit;
+        node.open = depth < openDepth;
       });
     }
 
@@ -251,10 +257,6 @@
     const prefs = getJsonPrefs();
     prefs.level_limit = "all";
     saveJsonPrefs(prefs);
-    root._plotsrvCollapseState = {
-      lastAction: "expand",
-      preservedPinned: [],
-    };
   }
 
   function collapseAll(root) {
@@ -262,40 +264,10 @@
     if (!isJsonTreeMode(mode)) return;
 
     const detailsNodes = getDetailsNodesForMode(root, mode);
-    const expandedPinned = getExpandedPinnedPaths(root);
-
-    const previousState = root._plotsrvCollapseState || {
-      lastAction: "",
-      preservedPinned: [],
-    };
-
-    const sameAsLast =
-      previousState.lastAction === "collapse-preserve" &&
-      Array.isArray(previousState.preservedPinned) &&
-      previousState.preservedPinned.length > 0;
 
     detailsNodes.forEach((node) => {
-      const depth = Number(node.getAttribute("data-json-depth") || "0");
-      node.open = depth < 1;
+      node.open = false;
     });
-
-    if (sameAsLast) {
-      previousState.preservedPinned.forEach((path) => {
-        setPinnedValueExpanded(root, path, false);
-      });
-      root._plotsrvCollapseState = {
-        lastAction: "collapse-full",
-        preservedPinned: [],
-      };
-    } else {
-      expandedPinned.forEach((path) => {
-        setPinnedValueExpanded(root, path, true);
-      });
-      root._plotsrvCollapseState = {
-        lastAction: "collapse-preserve",
-        preservedPinned: expandedPinned,
-      };
-    }
 
     const select = root.querySelector("[data-json-level-limit='1']");
     if (select) select.value = "1";
@@ -407,37 +379,6 @@
     const prefs = getJsonPrefs();
     prefs.pinned_values = Array.from(new Set((paths || []).map(String).filter(Boolean)));
     saveJsonPrefs(prefs);
-  }
-
-  function getExpandedPinnedPaths(root) {
-    const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot) return [];
-
-    const pinned = new Set(getPinnedPaths());
-
-    return Array.from(
-      jsonRoot.querySelectorAll(".ps-json-entry.is-pinned[data-json-path]")
-    )
-      .map((el) => String(el.getAttribute("data-json-path") || ""))
-      .filter((path) => {
-        if (!path || !pinned.has(path)) return false;
-        const entry = jsonRoot.querySelector(
-          '[data-json-path="' + CSS.escape(path) + '"]'
-        );
-        return !!entry;
-      });
-  }
-
-  function setPinnedValueExpanded(root, path, shouldOpen) {
-    const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot) return;
-
-    const entry = jsonRoot.querySelector(
-      '.ps-json-entry[data-json-path="' + CSS.escape(String(path)) + '"]'
-    );
-    if (!entry) return;
-
-    entry.classList.toggle("is-pinned-open", shouldOpen);
   }
 
   function isPinned(path) {
