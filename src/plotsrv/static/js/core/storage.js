@@ -138,6 +138,7 @@
     const fallback = {
       wrap_enabled: false,
       reverse_enabled: false,
+      style_preset: "auto",
       colour_enabled: true,
     };
   
@@ -147,6 +148,7 @@
         return {
           wrap_enabled: core.loadPref(core.storageKeys.textWrapEnabled, "0") === "1",
           reverse_enabled: false,
+          style_preset: "auto",
           colour_enabled: true,
         };
       }
@@ -154,6 +156,18 @@
       const parsed = JSON.parse(raw);
       if (!parsed || typeof parsed !== "object") return fallback;
   
+      const allowedStyles = [
+        "auto", "plain", "http", "application", "timestamp", "syslog",
+        "container", "test", "traceback", "keyvalue",
+      ];
+      const savedStyle =
+        typeof parsed.style_preset === "string" &&
+        allowedStyles.indexOf(parsed.style_preset) !== -1
+          ? parsed.style_preset
+          : parsed.colour_enabled === false
+            ? "plain"
+            : "auto";
+
       return {
         wrap_enabled:
           typeof parsed.wrap_enabled === "boolean"
@@ -163,10 +177,8 @@
           typeof parsed.reverse_enabled === "boolean"
             ? parsed.reverse_enabled
             : fallback.reverse_enabled,
-        colour_enabled:
-          typeof parsed.colour_enabled === "boolean"
-            ? parsed.colour_enabled
-            : fallback.colour_enabled,
+        style_preset: savedStyle,
+        colour_enabled: savedStyle !== "plain",
       };
     } catch (e) {
       return fallback;
@@ -174,11 +186,25 @@
   };
   
   core.saveTextPrefs = function (viewId, prefs) {
-  
+    const allowedStyles = [
+      "auto", "plain", "http", "application", "timestamp", "syslog",
+      "container", "test", "traceback", "keyvalue",
+    ];
+    const requestedStyle = prefs && prefs.style_preset;
+    const stylePreset =
+      typeof requestedStyle === "string" &&
+      allowedStyles.indexOf(requestedStyle) !== -1
+        ? requestedStyle
+        : prefs && prefs.colour_enabled === false
+          ? "plain"
+          : "auto";
+
     const payload = {
       wrap_enabled: !!(prefs && prefs.wrap_enabled),
       reverse_enabled: !!(prefs && prefs.reverse_enabled),
-      colour_enabled: prefs && prefs.colour_enabled !== false,
+      style_preset: stylePreset,
+      // Retained so preferences still make sense to older PlotSrv assets.
+      colour_enabled: stylePreset !== "plain",
     };
 
     try {

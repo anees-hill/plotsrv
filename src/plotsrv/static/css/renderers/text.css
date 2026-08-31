@@ -14,7 +14,7 @@
   padding: 0.48rem 0.68rem;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--ps-surface);
   margin-bottom: 0;
 }
 
@@ -26,9 +26,110 @@
 }
 
 .ps-text-toolbar .artifact-btn.is-active {
-  background: #f5eef2;
-  border-color: #d8c5ce;
+  background: var(--ps-accent-soft);
+  border-color: color-mix(in srgb, var(--ps-accent) 48%, var(--ps-border));
   box-shadow: inset 0 0 0 1px rgba(185, 71, 95, 0.08);
+}
+
+.ps-text-style-control {
+  position: relative;
+}
+
+.ps-text-style-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+}
+
+.ps-text-style-trigger__choice {
+  max-width: 6.5rem;
+  overflow: hidden;
+  color: var(--ps-muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ps-text-style-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 0.38rem);
+  left: 0;
+  width: min(19rem, calc(100vw - 2rem));
+  max-height: min(31rem, 72vh);
+  overflow-y: auto;
+  padding: 0.42rem;
+  border: 1px solid var(--ps-border);
+  border-radius: 9px;
+  background: var(--ps-surface-raised);
+  box-shadow: var(--ps-shadow);
+}
+
+.ps-text-style-menu[hidden] {
+  display: none !important;
+}
+
+.ps-text-style-menu__heading {
+  display: block;
+  padding: 0.28rem 0.5rem 0.42rem;
+  color: var(--ps-subtle);
+  font-size: 0.7rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ps-text-style-menu button {
+  position: relative;
+  display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.12rem 0.45rem;
+  padding: 0.46rem 1.8rem 0.46rem 0.52rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ps-text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.ps-text-style-menu button:hover,
+.ps-text-style-menu button:focus-visible {
+  outline: none;
+  background: var(--ps-surface-hover);
+}
+
+.ps-text-style-menu button.is-selected {
+  background: var(--ps-accent-soft);
+  color: var(--ps-accent-strong);
+}
+
+.ps-text-style-menu button.is-selected::after {
+  position: absolute;
+  top: 50%;
+  right: 0.62rem;
+  content: "✓";
+  font-weight: 800;
+  transform: translateY(-50%);
+}
+
+.ps-text-style-menu button span,
+.ps-text-style-menu button small {
+  grid-column: 1;
+}
+
+.ps-text-style-menu button span {
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.ps-text-style-menu button small {
+  color: var(--ps-muted);
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
 .ps-text-reverse-indicator {
@@ -135,39 +236,65 @@ body.ps-has-text-artifact .ps-artifact__content {
 
 /* Lightweight log colouring */
 .plotsrv-pre--coloured .ps-log-token {
-  font-weight: 700;
+  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
   border-radius: 3px;
   padding: 0 0.12rem;
+  font-weight: 700;
 }
 
 .plotsrv-pre--coloured .ps-log-token--critical {
-  color: #7f1d1d;
-  background: #fee2e2;
+  color: var(--ps-danger-text);
+  background: color-mix(in srgb, var(--ps-danger-bg) 78%, var(--ps-surface));
 }
 
 .plotsrv-pre--coloured .ps-log-token--error {
-  color: #9e2239;
-  background: #fff1f3;
+  color: var(--ps-danger-text);
+  background: var(--ps-danger-bg);
 }
 
 .plotsrv-pre--coloured .ps-log-token--warn {
-  color: #8a5a00;
-  background: #fff7dd;
+  color: var(--ps-history-text);
+  background: var(--ps-history-bg);
 }
 
-.plotsrv-pre--coloured .ps-log-token--info {
-  color: #315f8c;
-  background: #eef6ff;
+.plotsrv-pre--coloured .ps-log-token--info,
+.plotsrv-pre--coloured .ps-log-token--method,
+.plotsrv-pre--coloured .ps-log-token--stream {
+  color: var(--ps-accent-strong);
+  background: var(--ps-accent-soft);
 }
 
-.plotsrv-pre--coloured .ps-log-token--debug {
-  color: #6b5b7a;
-  background: #f5f2f8;
+.plotsrv-pre--coloured .ps-log-token--debug,
+.plotsrv-pre--coloured .ps-log-token--timestamp,
+.plotsrv-pre--coloured .ps-log-token--context {
+  color: var(--ps-muted);
+  background: var(--ps-surface-muted);
 }
 
 .plotsrv-pre--coloured .ps-log-token--success {
-  color: #286044;
-  background: #edf8f1;
+  color: var(--ps-token-string);
+  background: color-mix(in srgb, var(--ps-token-string) 14%, var(--ps-surface));
+}
+
+.plotsrv-pre--coloured .ps-log-token--path {
+  color: var(--ps-link);
+  background: color-mix(in srgb, var(--ps-link) 10%, var(--ps-surface));
+}
+
+.plotsrv-pre--coloured .ps-log-token--file,
+.plotsrv-pre--coloured .ps-log-token--test {
+  color: var(--ps-token-builtin);
+  background: color-mix(in srgb, var(--ps-token-builtin) 12%, var(--ps-surface));
+}
+
+.plotsrv-pre--coloured .ps-log-token--key {
+  color: var(--ps-token-keyword);
+  background: color-mix(in srgb, var(--ps-token-keyword) 11%, var(--ps-surface));
+}
+
+.plotsrv-pre--coloured .ps-log-token--constant {
+  color: var(--ps-token-constant);
+  background: color-mix(in srgb, var(--ps-token-constant) 12%, var(--ps-surface));
 }
 
 @media (max-width: 900px) {
@@ -182,6 +309,10 @@ body.ps-has-text-artifact .ps-artifact__content {
 
   .ps-text-toolbar__group {
     width: 100%;
+  }
+
+  .ps-text-style-menu {
+    max-height: 62vh;
   }
 }
 
