@@ -677,6 +677,10 @@
     if (root.querySelector('[data-plotsrv-toolbar="json"]')) {
       initJsonToolbar(root);
     }
+
+    if (typeof core.initArtifactScrollNav === "function") {
+      core.initArtifactScrollNav(root);
+    }
   }
 
   renderers.clearJsonHits = clearJsonHits;

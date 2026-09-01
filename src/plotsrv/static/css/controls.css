@@ -105,6 +105,65 @@
   min-width: 0;
 }
 
+/* Floating document navigation stays clear of the measured bottom dock. */
+.ps-scroll-nav {
+  position: fixed;
+  z-index: 38;
+  left: 50%;
+  bottom: calc(
+    var(
+      --ps-bottom-dock-clearance,
+      calc(var(--ps-bottom-dock-height, 3.25rem) + 0.7rem)
+    ) + 0.65rem
+  );
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--ps-border);
+  border-radius: 999px;
+  background: var(--ps-floating-bg);
+  box-shadow: 0 6px 18px rgba(31, 21, 27, 0.16);
+  backdrop-filter: blur(10px) saturate(125%);
+  transform: translateX(-50%);
+  transition: bottom 180ms ease, opacity 140ms ease;
+}
+
+.ps-scroll-nav[hidden] {
+  display: none !important;
+}
+
+.ps-scroll-nav button {
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ps-link);
+  cursor: pointer;
+  font-size: 1.02rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.ps-scroll-nav button + button {
+  border-left: 1px solid var(--ps-border);
+}
+
+.ps-scroll-nav button:hover:not(:disabled),
+.ps-scroll-nav button:focus-visible {
+  outline: none;
+  background: var(--ps-surface-hover);
+}
+
+.ps-scroll-nav button:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ps-focus);
+}
+
+.ps-scroll-nav button:disabled {
+  color: var(--ps-subtle);
+  cursor: default;
+  opacity: 0.38;
+}
+
 .ps-export {
   position: relative;
   flex: 0 0 auto;

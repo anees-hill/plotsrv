@@ -867,18 +867,6 @@ body.ps-settings-open {
   color: var(--ps-accent-strong);
 }
 
-.ps-text-jump-bottom {
-  border-color: var(--ps-border);
-  background: var(--ps-surface-raised);
-  color: var(--ps-accent);
-  box-shadow: var(--ps-shadow);
-}
-
-.ps-text-jump-bottom:hover {
-  border-color: var(--ps-accent);
-  background: var(--ps-surface-hover);
-}
-
 .ps-code,
 .plotsrv-markdown pre,
 .plotsrv-markdown__raw,

@@ -25,6 +25,24 @@ def test_text_styling_popover_and_tokens_use_theme_palette() -> None:
     assert "MAX_COLOURIZE_CHARS = 300000" in renderer
 
 
+def test_text_and_markdown_scroll_navigation_clears_the_bottom_dock() -> None:
+    controls = (STATIC / "css" / "controls.css").read_text("utf-8")
+    artifact = (STATIC / "js" / "renderers" / "artifact.js").read_text("utf-8")
+    enhancements = (STATIC / "js" / "renderers" / "json.js").read_text("utf-8")
+
+    scroll_nav = controls.split(".ps-scroll-nav {", 1)[1].split("}", 1)[0]
+    assert "position: fixed" in scroll_nav
+    assert "--ps-bottom-dock-clearance" in scroll_nav
+    assert "data-plotsrv-scroll-edge=\"top\"" in artifact
+    assert "data-plotsrv-scroll-edge=\"bottom\"" in artifact
+    assert ".plotsrv-markdown--sanitized" in artifact
+    assert "core.initArtifactScrollNav(root)" in enhancements
+    assert "ps-text-jump-bottom" not in controls
+
+    dock_logic = (STATIC / "js" / "core" / "bottom_bar.js").read_text("utf-8")
+    assert 'setProperty("--ps-bottom-dock-clearance"' in dock_logic
+
+
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_text_classifier_and_highlighter_cover_representative_formats() -> None:
     source = STATIC / "js" / "renderers" / "text.js"

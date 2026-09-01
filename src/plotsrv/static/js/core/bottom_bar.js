@@ -14,8 +14,12 @@
   function syncDockClearance() {
     const dock = document.querySelector(".ps-bottom-dock");
     if (!dock || !document.body) return;
-    const height = Math.ceil(dock.getBoundingClientRect().height);
+    const rect = dock.getBoundingClientRect();
+    const height = Math.ceil(rect.height);
+    const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+    const clearance = Math.ceil(Math.max(height, viewportHeight - rect.top));
     document.body.style.setProperty("--ps-bottom-dock-height", height + "px");
+    document.body.style.setProperty("--ps-bottom-dock-clearance", clearance + "px");
   }
 
   function bindDockClearance() {
