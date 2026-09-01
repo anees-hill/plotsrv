@@ -146,7 +146,43 @@ def _iframe_html(
         }}
 
         body {{
-          padding: 1.25rem;
+          padding: 1.25rem 1.25rem 4.5rem;
+        }}
+
+        .plotsrv-markdown-scroll-nav {{
+          position: fixed;
+          z-index: 10;
+          left: 50%;
+          bottom: 1rem;
+          display: inline-flex;
+          overflow: hidden;
+          border: 1px solid #d8dde1;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.9);
+          box-shadow: 0 6px 18px rgba(31, 21, 27, 0.16);
+          transform: translateX(-50%);
+        }}
+
+        .plotsrv-markdown-scroll-nav a {{
+          display: grid;
+          width: 36px;
+          height: 34px;
+          place-items: center;
+          color: #8d3148;
+          font-size: 1.02rem;
+          font-weight: 750;
+          line-height: 1;
+          text-decoration: none;
+        }}
+
+        .plotsrv-markdown-scroll-nav a + a {{
+          border-left: 1px solid #d8dde1;
+        }}
+
+        .plotsrv-markdown-scroll-nav a:hover,
+        .plotsrv-markdown-scroll-nav a:focus-visible {{
+          outline: none;
+          background: #f3f5f6;
         }}
 
         img {{
@@ -180,7 +216,13 @@ def _iframe_html(
       </style>
     </head>
     <body>
+      <span id="plotsrv-markdown-scroll-top"></span>
       {html_body}
+      <span id="plotsrv-markdown-scroll-bottom"></span>
+      <nav class="plotsrv-markdown-scroll-nav" aria-label="Document navigation">
+        <a href="#plotsrv-markdown-scroll-top" aria-label="Jump to top" title="Jump to top">↑</a>
+        <a href="#plotsrv-markdown-scroll-bottom" aria-label="Jump to bottom" title="Jump to bottom">↓</a>
+      </nav>
     </body>
     </html>
     """.strip()

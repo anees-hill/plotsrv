@@ -246,6 +246,9 @@ def test_markdown_config_sanitize_false_uses_iframe(
     assert "srcdoc=" in rr.html
     assert "allow-forms" in rr.html
     assert "<script" in rr.html.lower()
+    assert "plotsrv-markdown-scroll-nav" in rr.html
+    assert "Jump to top" in rr.html
+    assert "Jump to bottom" in rr.html
 
 
 def test_markdown_payload_sandbox_overrides_config_sandbox(
