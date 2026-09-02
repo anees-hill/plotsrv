@@ -1,4 +1,5 @@
 .plot-frame--table {
+  flex-direction: column;
   align-items: stretch;
   justify-content: stretch;
   padding: 0.25rem;

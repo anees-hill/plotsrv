@@ -54,14 +54,27 @@ def render_table_plot_controls() -> str:
         <div class="ps-table-plot-controls__identity">
           <h2 id="table-plot-controls-title">Plot controls</h2>
         </div>
-        <button
-          id="table-plot-controls-toggle"
-          class="ps-pane-disclosure"
-          type="button"
-          aria-expanded="true"
-          aria-controls="table-plot-controls-content"
-          aria-label="Collapse Plot controls"
-          title="Collapse Plot controls">−</button>
+        <div class="ps-table-plot-controls__actions">
+          <button
+            id="table-plot-controls-pin"
+            class="ps-table-plot-controls__pin"
+            type="button"
+            aria-pressed="false"
+            aria-label="Pin Plot controls while scrolling"
+            title="Pin Plot controls while scrolling">
+            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false">
+              <path d="M8.2 3.5h7.6l-1.25 5.1 2.85 2.85v1.45h-4.55V20l-.85 1-.85-1v-7.1H6.6v-1.45L9.45 8.6 8.2 3.5Z"></path>
+            </svg>
+          </button>
+          <button
+            id="table-plot-controls-toggle"
+            class="ps-pane-disclosure"
+            type="button"
+            aria-expanded="true"
+            aria-controls="table-plot-controls-content"
+            aria-label="Collapse Plot controls"
+            title="Collapse Plot controls">−</button>
+        </div>
         <div id="table-plot-controls-content" class="ps-table-plot-controls__content">
           <div class="ps-table-plot-controls__fields">
             <label class="ps-table-plot-control">
@@ -81,7 +94,7 @@ def render_table_plot_controls() -> str:
               </select>
             </label>
             <label id="table-plot-category-control" class="ps-table-plot-control">
-              <span>Category</span>
+              <span>Category <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Category: Groups rows by this field, creating one bar for each category." data-tooltip="Groups rows by this field, creating one bar for each category.">i</span></span>
               <select id="table-plot-category" class="ps-table-select"></select>
             </label>
             <label id="table-plot-x-control" class="ps-table-plot-control" hidden>
@@ -93,7 +106,7 @@ def render_table_plot_controls() -> str:
               <select id="table-plot-y" class="ps-table-select"></select>
             </label>
             <label id="table-plot-aggregation-control" class="ps-table-plot-control">
-              <span>Aggregate</span>
+              <span>Aggregate <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Aggregate: Chooses how values within each category and series are combined." data-tooltip="Chooses how values within each category and series are combined.">i</span></span>
               <select id="table-plot-aggregation" class="ps-table-select">
                 <option value="count">Count</option>
                 <option value="sum">Sum</option>
@@ -103,15 +116,15 @@ def render_table_plot_controls() -> str:
               </select>
             </label>
             <label id="table-plot-value-control" class="ps-table-plot-control" hidden>
-              <span>Value field</span>
+              <span>Value field <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Value field: Selects the numeric field used by the chosen aggregate." data-tooltip="Selects the numeric field used by the chosen aggregate.">i</span></span>
               <select id="table-plot-value" class="ps-table-select"></select>
             </label>
             <label id="table-plot-histogram-control" class="ps-table-plot-control" hidden>
-              <span>Numeric field</span>
+              <span>Numeric field <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Numeric field: Selects the values whose distribution the histogram shows." data-tooltip="Selects the values whose distribution the histogram shows.">i</span></span>
               <select id="table-plot-histogram" class="ps-table-select"></select>
             </label>
             <label id="table-plot-bins-control" class="ps-table-plot-control ps-table-plot-control--compact" hidden>
-              <span>Bins</span>
+              <span>Bins <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Bins: Sets how many value intervals the histogram uses; Auto adapts to the data." data-tooltip="Sets how many value intervals the histogram uses; Auto adapts to the data.">i</span></span>
               <select id="table-plot-bins" class="ps-table-select">
                 <option value="auto">Auto</option>
                 <option value="5">5</option>
@@ -121,7 +134,7 @@ def render_table_plot_controls() -> str:
               </select>
             </label>
             <label id="table-plot-series-control" class="ps-table-plot-control" hidden>
-              <span>Series</span>
+              <span>Series <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Series: Splits the plot by another field and identifies each group by colour." data-tooltip="Splits the plot by another field and identifies each group by colour.">i</span></span>
               <select id="table-plot-series" class="ps-table-select"></select>
             </label>
           </div>
@@ -131,14 +144,14 @@ def render_table_plot_controls() -> str:
               <div id="table-plot-palette" class="ps-table-plot-palette">
                 <button id="table-plot-palette-button" class="ps-table-select ps-table-plot-palette__button" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="table-plot-palette-menu" aria-labelledby="table-plot-palette-label table-plot-palette-name">
                   <span id="table-plot-palette-preview" class="ps-table-plot-palette__preview" aria-hidden="true"></span>
-                  <span id="table-plot-palette-name">Plotsrv</span>
+                  <span id="table-plot-palette-name">plotsrv</span>
                   <span class="ps-table-plot-palette__chevron" aria-hidden="true">⌄</span>
                 </button>
                 <div id="table-plot-palette-menu" class="ps-table-plot-palette__menu" role="listbox" aria-labelledby="table-plot-palette-label" hidden></div>
               </div>
             </div>
             <label id="table-plot-sort-control" class="ps-table-plot-control">
-              <span>Order</span>
+              <span>Order <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Order: Controls how bar-chart categories are arranged." data-tooltip="Controls how bar-chart categories are arranged.">i</span></span>
               <select id="table-plot-sort" class="ps-table-select">
                 <option value="value-desc">Value, high to low</option>
                 <option value="value-asc">Value, low to high</option>
@@ -147,7 +160,7 @@ def render_table_plot_controls() -> str:
               </select>
             </label>
             <label id="table-plot-limit-control" class="ps-table-plot-control ps-table-plot-control--compact">
-              <span>Categories</span>
+              <span>Categories <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Categories: Limits named bars; remaining categories are combined as Other." data-tooltip="Limits named bars; remaining categories are combined as Other.">i</span></span>
               <select id="table-plot-limit" class="ps-table-select">
                 <option value="5">Top 5</option>
                 <option value="10">Top 10</option>
@@ -167,6 +180,7 @@ def render_table_plot_controls() -> str:
             <summary>Advanced</summary>
             <div class="ps-table-plot-advanced__fields">
               <label class="ps-table-plot-control"><span>Custom title</span><input id="table-plot-title" class="ps-table-input" type="text" placeholder="Automatic title"></label>
+              <label class="ps-table-plot-control ps-table-plot-control--compact"><span>Title alignment</span><select id="table-plot-title-align" class="ps-table-select"><option value="left">Left</option><option value="center">Centred</option></select></label>
               <label class="ps-table-plot-control"><span>X-axis label</span><input id="table-plot-x-label" class="ps-table-input" type="text" placeholder="Automatic label"></label>
               <label class="ps-table-plot-control"><span>Y-axis label</span><input id="table-plot-y-label" class="ps-table-input" type="text" placeholder="Automatic label"></label>
               <label id="table-plot-x-scale-control" class="ps-table-plot-control ps-table-plot-control--compact"><span>X scale</span><select id="table-plot-x-scale" class="ps-table-select"><option value="linear">Linear</option><option value="log">Log</option></select></label>
@@ -174,6 +188,7 @@ def render_table_plot_controls() -> str:
               <label id="table-plot-zero-control" class="ps-table-plot-check"><input id="table-plot-zero" type="checkbox"><span>Include zero baseline</span></label>
               <label id="table-plot-points-control" class="ps-table-plot-check" hidden><input id="table-plot-points" type="checkbox" checked><span>Show line points</span></label>
               <label id="table-plot-legend-control" class="ps-table-plot-control ps-table-plot-control--compact" hidden><span>Legend</span><select id="table-plot-legend" class="ps-table-select"><option value="top">Top</option><option value="right">Right</option><option value="bottom">Bottom</option></select></label>
+              <label id="table-plot-point-selection-control" class="ps-table-plot-control"><span>When over point limit</span><select id="table-plot-point-selection" class="ps-table-select"><option value="refuse">Ask before plotting</option><option value="sample">Even sample</option><option value="first">First values</option><option value="latest">Latest values</option></select></label>
               <button id="table-plot-reset" class="ps-btn ps-table-plot-reset" type="button">Reset plot options</button>
             </div>
           </details>
@@ -296,6 +311,10 @@ def render_table_explorer(
             </button>
           </header>
           <div id="table-data-surface" class="plot-frame ps-frame ps-frame--table plot-frame--table">
+            <div id="table-filter-empty" class="ps-table-filter-empty" role="status" hidden>
+              <span>All data is filtered.</span>
+              <button id="table-reset-filters-btn" class="ps-btn" type="button">Reset filters</button>
+            </div>
             {grid_html}
           </div>
         </div>

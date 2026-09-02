@@ -15,6 +15,10 @@
   font-size: 1rem;
 }
 
+.ps-table-plot[data-plot-title-align="center"] .ps-table-plot__title {
+  text-align: center;
+}
+
 .ps-table-plot__detail,
 .ps-table-plot__scope,
 .ps-table-plot__notice-detail {
@@ -187,6 +191,17 @@
 .ps-table-plot__notice--error {
   border-color: #ead7df;
   background: #fcf7f9;
+}
+
+.ps-table-plot__notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.ps-table-plot__notice-action {
+  min-height: 2rem;
 }
 
 @media (max-width: 640px) {

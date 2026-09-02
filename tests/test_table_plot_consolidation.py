@@ -132,16 +132,19 @@ def test_plot_controls_have_a_matching_remembered_disclosure() -> None:
     assert 'id="table-plot-controls-title">Plot controls</h2>' in rendered
     assert 'id="table-plot-controls-content"' in rendered
     assert 'id="table-plot-controls-toggle"' in rendered
+    assert 'id="table-plot-controls-pin"' in rendered
     assert 'aria-label="Collapse Plot controls"' in rendered
     assert 'document.getElementById("table-plot-controls-toggle")' in controls
     assert 'toggle.textContent = collapsed ? "+" : "−"' in controls
     assert 'localStorage.setItem(' in controls
     assert ".ps-table-plot-controls.is-collapsed" in css
-    disclosure = css.split(
-        ".ps-table-plot-controls > .ps-pane-disclosure {", 1
+    actions = css.split(
+        ".ps-table-plot-controls__actions {", 1
     )[1].split("}", 1)[0]
-    assert "position: absolute" in disclosure
-    assert "right:" in disclosure
+    assert "position: absolute" in actions
+    assert "right:" in actions
+    assert ".ps-table-plot-controls.is-pinned" in css
+    assert 'panel.classList.toggle("is-pinned", pinned)' in controls
 
 
 def test_plot_sources_are_capabilities_not_renderer_kind_branches() -> None:
@@ -213,12 +216,60 @@ def test_balanced_plot_explorer_controls_and_palettes_are_shared() -> None:
         assert f'id="{element_id}"' in rendered
 
     assert '<option value="histogram">Histogram</option>' in rendered
-    assert 'const PALETTES = ["plotsrv", "ocean", "forest", "sunset", "violet", "neutral"]' in controls
+    assert 'label: "Discrete"' in controls
+    assert 'label: "Continuous"' in controls
+    assert 'name: "plotsrv", kind: "discrete"' in renderer
+    assert 'name: "Viridis", kind: "continuous"' in renderer
     assert 'option.dataset.plotPalette = key' in controls
     assert 'maxSeries: 8' in renderer
     assert 'label: "Other"' in renderer
     assert 'settings.display === "stacked"' in renderer
     assert 'Math.ceil(Math.sqrt(values.length))' in renderer
+
+
+def test_plot_controls_explain_fields_align_titles_and_bound_large_plots() -> None:
+    rendered = _render_index("table")
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+    renderer = (STATIC_JS / "renderers" / "table_plot.js").read_text(
+        encoding="utf-8"
+    )
+
+    for label in (
+        "Category:",
+        "Aggregate:",
+        "Value field:",
+        "Numeric field:",
+        "Bins:",
+        "Series:",
+        "Categories:",
+        "Order:",
+    ):
+        assert f'aria-label="{label}' in rendered
+    assert 'id="table-plot-title-align"' in rendered
+    assert 'id="table-plot-point-selection"' in rendered
+    assert 'titleAlign: "left"' in controls
+    assert "settings.titleAlign === \"center\"" in renderer
+    assert "maxSourceRows: 100000" in renderer
+    assert "Math.min(25000, configuredPointLimit)" in renderer
+    assert 'label: "Plot even sample"' in renderer
+    assert 'label: "Plot latest " + TABLE_PLOT_LIMITS.maxPoints' in renderer
+
+
+def test_filtered_empty_table_and_plot_offer_a_shared_reset_action() -> None:
+    rendered = _render_index("table")
+    table = (STATIC_JS / "renderers" / "table.js").read_text(encoding="utf-8")
+    controls = (STATIC_JS / "renderers" / "table_plot_controls.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'id="table-filter-empty"' in rendered
+    assert "All data is filtered." in rendered
+    assert 'id="table-reset-filters-btn"' in rendered
+    assert "function resetTableFilters()" in table
+    assert "core.resetTableFilters = resetTableFilters" in table
+    assert "core.hasActiveTableFiltering()" in controls
 
 
 def test_plot_preferences_are_backward_compatible_and_per_view() -> None:

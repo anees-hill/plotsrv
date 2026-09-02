@@ -2,15 +2,29 @@
   "use strict";
   window.PLOTSRV = window.PLOTSRV || {core: {}, renderers: {}, state: {}, config: {}};
   const core = window.PLOTSRV.core;
+  const config = window.PLOTSRV.config;
   const SVG_NS = "http://www.w3.org/2000/svg";
-  const TABLE_PLOT_LIMITS = {maxSourceRows: 10000, maxPoints: 1000, maxCategories: 40, maxSeries: 8};
+  const configuredPointLimit = Number(config.tablePlotMaxPoints);
+  const TABLE_PLOT_LIMITS = {
+    maxSourceRows: 100000,
+    maxPoints: Number.isSafeInteger(configuredPointLimit)
+      ? Math.max(1, Math.min(25000, configuredPointLimit))
+      : 5000,
+    maxCategories: 40,
+    maxSeries: 8,
+  };
   const TABLE_PLOT_PALETTES = {
-    plotsrv: {name: "Plotsrv", colours: ["#d55970", "#7a3950", "#e58a5f", "#4e8291", "#8e6aae", "#d4a72c"], darkColours: ["#f07b91", "#d9a0b2", "#f2a47c", "#72b7c7", "#b49ad4", "#e1c15c"]},
-    ocean: {name: "Ocean", colours: ["#2166ac", "#0891b2", "#0f766e", "#60a5fa", "#5ab4ac", "#164e63"], darkColours: ["#60a5fa", "#22d3ee", "#2dd4bf", "#93c5fd", "#7dd3fc", "#5eead4"]},
-    forest: {name: "Forest", colours: ["#1b7837", "#5aae61", "#8c6d31", "#4d9221", "#7f9f35", "#356859"], darkColours: ["#6ccf7f", "#a3d977", "#d1aa62", "#73c991", "#b4d568", "#83b9a4"]},
-    sunset: {name: "Sunset", colours: ["#b2182b", "#ef8a62", "#f1a340", "#d6604d", "#9970ab", "#c45d38"], darkColours: ["#f87171", "#fb9a78", "#f7bd65", "#ef7770", "#c4a2df", "#ee9465"]},
-    violet: {name: "Violet", colours: ["#6a51a3", "#807dba", "#54278f", "#9e6ab0", "#8c6bb1", "#b05c91"], darkColours: ["#a78bfa", "#c4b5fd", "#b89af5", "#d6a3e3", "#c6a9df", "#e19bc5"]},
-    neutral: {name: "Neutral", colours: ["#374151", "#6b7280", "#78716c", "#4b5563", "#9ca3af", "#57534e"], darkColours: ["#d1d5db", "#9ca3af", "#c4b8ad", "#b8c0cc", "#e5e7eb", "#aaa39d"]},
+    plotsrv: {name: "plotsrv", kind: "discrete", colours: ["#d55970", "#7a3950", "#e58a5f", "#4e8291", "#8e6aae", "#d4a72c"], darkColours: ["#f07b91", "#d9a0b2", "#f2a47c", "#72b7c7", "#b49ad4", "#e1c15c"]},
+    accessible: {name: "Accessible", kind: "discrete", colours: ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#d55e00", "#56b4e9", "#f0e442", "#000000"], darkColours: ["#56b4e9", "#f0b84f", "#4bc99c", "#e69ac8", "#ef8354", "#8bd3f2", "#f5e96b", "#e7edf2"]},
+    ocean: {name: "Ocean", kind: "discrete", colours: ["#2166ac", "#0891b2", "#0f766e", "#60a5fa", "#5ab4ac", "#164e63"], darkColours: ["#60a5fa", "#22d3ee", "#2dd4bf", "#93c5fd", "#7dd3fc", "#5eead4"]},
+    forest: {name: "Forest", kind: "discrete", colours: ["#1b7837", "#5aae61", "#8c6d31", "#4d9221", "#7f9f35", "#356859"], darkColours: ["#6ccf7f", "#a3d977", "#d1aa62", "#73c991", "#b4d568", "#83b9a4"]},
+    sunset: {name: "Sunset", kind: "discrete", colours: ["#b2182b", "#ef8a62", "#f1a340", "#d6604d", "#9970ab", "#c45d38"], darkColours: ["#f87171", "#fb9a78", "#f7bd65", "#ef7770", "#c4a2df", "#ee9465"]},
+    violet: {name: "Violet", kind: "discrete", colours: ["#6a51a3", "#807dba", "#54278f", "#9e6ab0", "#8c6bb1", "#b05c91"], darkColours: ["#a78bfa", "#c4b5fd", "#b89af5", "#d6a3e3", "#c6a9df", "#e19bc5"]},
+    neutral: {name: "Neutral", kind: "discrete", colours: ["#374151", "#6b7280", "#78716c", "#4b5563", "#9ca3af", "#57534e"], darkColours: ["#d1d5db", "#9ca3af", "#c4b8ad", "#b8c0cc", "#e5e7eb", "#aaa39d"]},
+    viridis: {name: "Viridis", kind: "continuous", colours: ["#440154", "#414487", "#2a788e", "#22a884", "#7ad151", "#fde725"], darkColours: ["#7b2f8e", "#6677b5", "#42a1b4", "#40c39d", "#98dc70", "#f5e85c"]},
+    plasma: {name: "Plasma", kind: "continuous", colours: ["#0d0887", "#6a00a8", "#b12a90", "#e16462", "#fca636", "#f0f921"], darkColours: ["#5b55c7", "#9b4dcc", "#db68b2", "#f18879", "#fcb95b", "#f3ef64"]},
+    blues: {name: "Blues", kind: "continuous", colours: ["#eff3ff", "#c6dbef", "#9ecae1", "#6baed6", "#3182bd", "#08519c"], darkColours: ["#d7e8f7", "#b9d8ef", "#89bee1", "#58a0cc", "#347eb2", "#8fc7ed"]},
+    ember: {name: "Ember", kind: "continuous", colours: ["#fff5eb", "#fdd0a2", "#fdae6b", "#fd8d3c", "#e6550d", "#a63603"], darkColours: ["#ffe0c2", "#ffc489", "#f9a45d", "#ef8240", "#df6230", "#f29a68"]},
   };
 
   function clear(node) { while (node && node.firstChild) node.removeChild(node.firstChild); }
@@ -79,12 +93,23 @@
     if (invalidCount) parts.push(invalidCount + " " + plural(invalidCount, "row") + " with invalid values");
     return parts.length ? "Excluded " + parts.join(" and ") + "." : "";
   }
-  function notice(container, reason, detail, settings, rowCount) {
+  function notice(container, reason, detail, settings, rowCount, actions) {
     clear(container);
     const root = html("section", "ps-table-plot__notice ps-table-plot__notice--refused");
     root.dataset.plotState = "refused";
     root.appendChild(html("h2", "ps-table-plot__notice-title", "Plot not rendered"));
     root.appendChild(html("p", "ps-table-plot__notice-detail", detail));
+    if (Array.isArray(actions) && actions.length) {
+      const actionRoot = html("div", "ps-table-plot__notice-actions");
+      actions.forEach(function (action) {
+        if (!action || typeof action.onClick !== "function") return;
+        const button = html("button", "ps-btn ps-table-plot__notice-action", action.label);
+        button.type = "button";
+        button.addEventListener("click", action.onClick);
+        actionRoot.appendChild(button);
+      });
+      root.appendChild(actionRoot);
+    }
     root.appendChild(html("p", "ps-table-plot__scope", scopeText(settings, rowCount, 0)));
     container.appendChild(root);
     return {ok: false, reason: reason, rowCount: rowCount, plottedCount: 0};
@@ -95,6 +120,7 @@
     figure.dataset.plotType = type;
     figure.dataset.plotState = "rendered";
     figure.dataset.plotPalette = settings.palette || "plotsrv";
+    figure.dataset.plotTitleAlign = settings.titleAlign === "center" ? "center" : "left";
     figure.appendChild(html("h2", "ps-table-plot__title", settings.title || automaticTitle));
     const tip = html("div", "ps-table-plot__tooltip");
     tip.hidden = true;
@@ -143,7 +169,22 @@
   }
   function paletteFor(settings) {
     const selected = TABLE_PLOT_PALETTES[settings.palette] || TABLE_PLOT_PALETTES.plotsrv;
-    return {name: selected.name, colours: darkThemeActive() ? selected.darkColours : selected.colours};
+    return {name: selected.name, kind: selected.kind || "discrete", colours: darkThemeActive() ? selected.darkColours : selected.colours};
+  }
+  function paletteColour(palette, index, count) {
+    if (palette.kind === "continuous" && count > 1) {
+      const position = index * (palette.colours.length - 1) / (count - 1);
+      const lower = Math.max(0, Math.min(palette.colours.length - 1, Math.floor(position)));
+      const upper = Math.min(palette.colours.length - 1, lower + 1);
+      const fraction = position - lower;
+      const from = palette.colours[lower].slice(1).match(/.{2}/g).map(function (part) { return parseInt(part, 16); });
+      const to = palette.colours[upper].slice(1).match(/.{2}/g).map(function (part) { return parseInt(part, 16); });
+      const channels = from.map(function (channel, channelIndex) {
+        return Math.round(channel + (to[channelIndex] - channel) * fraction).toString(16).padStart(2, "0");
+      });
+      return "#" + channels.join("");
+    }
+    return palette.colours[index % palette.colours.length];
   }
   function seriesFor(rows, field) {
     if (!field) return [{key: "__all__", label: "All rows"}];
@@ -160,7 +201,7 @@
       entry.tabIndex = 0;
       entry.title = item.label;
       const swatch = html("span", "ps-table-plot__legend-swatch");
-      swatch.style.backgroundColor = palette.colours[index % palette.colours.length];
+      swatch.style.backgroundColor = paletteColour(palette, index, series.length);
       entry.insertBefore(swatch, entry.firstChild);
       root.appendChild(entry);
     });
@@ -263,7 +304,9 @@
         const end = start + value;
         if (!grouped) { if (value >= 0) positive = end; else negative = end; }
         const x1 = x(start), x2 = x(end);
-        const mark = svg("rect", {x: Math.min(x1, x2), y: y, width: Math.max(1, Math.abs(x2 - x1)), height: height - 2, rx: 2, fill: palette.colours[seriesIndex % palette.colours.length], class: "ps-table-plot__bar"});
+        const colourIndex = series.length > 1 ? seriesIndex : categoryIndex;
+        const colourCount = series.length > 1 ? series.length : data.categories.length;
+        const mark = svg("rect", {x: Math.min(x1, x2), y: y, width: Math.max(1, Math.abs(x2 - x1)), height: height - 2, rx: 2, fill: paletteColour(palette, colourIndex, colourCount), class: "ps-table-plot__bar"});
         tooltip(mark, figure, category.label + (series.length > 1 ? " · " + group.label : "") + ": " + formatNumber(value) + (settings.aggregation === "count" || !values ? "" : " · " + values.count + " " + plural(values.count, "row")), true);
         drawing.appendChild(mark);
       });
@@ -287,6 +330,36 @@
     });
     const list = Array.from(groups.values()).filter(function (group) { return group.points.length > 0; });
     return {groups: list, points: list.flatMap(function (group) { return group.points; }), missing: missingCount, invalid: invalidCount};
+  }
+  function limitedPointData(data, limit, mode) {
+    if (!data || data.points.length <= limit) return data;
+    const ordered = data.points.slice().sort(function (a, b) { return a.index - b.index; });
+    let selected;
+    if (mode === "first") {
+      selected = ordered.slice(0, limit);
+    } else if (mode === "latest") {
+      selected = ordered.slice(-limit);
+    } else {
+      selected = Array.from({length: limit}, function (_, index) {
+        if (limit === 1) return ordered[0];
+        return ordered[Math.round(index * (ordered.length - 1) / (limit - 1))];
+      });
+    }
+    const retained = new Set(selected);
+    return {
+      groups: data.groups.map(function (group) {
+        return {
+          key: group.key,
+          label: group.label,
+          points: group.points.filter(function (point) { return retained.has(point); }),
+        };
+      }).filter(function (group) { return group.points.length > 0; }),
+      points: selected,
+      missing: data.missing,
+      invalid: data.invalid,
+      sampledFrom: data.points.length,
+      selectionMode: mode,
+    };
   }
   function axes(drawing, d, xDomain, yDomain, settings) {
     const right = d.width - d.right, bottom = d.height - d.bottom;
@@ -317,7 +390,7 @@
     const scales = axes(drawing, d, xDomain, yDomain, settings);
     data.groups.forEach(function (group, index) {
       const points = type === "line" ? group.points.slice().sort(function (a, b) { return a.x - b.x || a.index - b.index; }) : group.points;
-      const colour = palette.colours[index % palette.colours.length];
+      const colour = paletteColour(palette, index, data.groups.length);
       if (type === "line" && points.length > 1) drawing.appendChild(svg("polyline", {points: points.map(function (point) { return scales.x(point.x) + "," + scales.y(point.y); }).join(" "), fill: "none", stroke: colour, class: "ps-table-plot__line"}));
       if (type === "scatter" || settings.showPoints !== false) points.forEach(function (point) {
         const mark = svg("circle", {cx: scales.x(point.x), cy: scales.y(point.y), r: type === "line" ? 2.8 : 3.5, fill: type === "line" ? "var(--ps-surface, #fff)" : colour, stroke: colour, class: "ps-table-plot__point"});
@@ -353,7 +426,7 @@
     for (let index = 0; index <= 4; index += 1) { const value = max * index / 4, yy = y(value); drawing.appendChild(svg("line", {x1: d.left, y1: yy, x2: right, y2: yy, class: "ps-table-plot__grid-line"})); svgText(drawing, {x: d.left - 10, y: yy + 4, "text-anchor": "end", class: "ps-table-plot__tick"}, formatNumber(value)); }
     data.bins.forEach(function (bin, index) {
       const left = x(index), next = x(index + 1);
-      const mark = svg("rect", {x: left + 1, y: y(bin.count), width: Math.max(1, next - left - 2), height: bottom - y(bin.count), fill: palette.colours[0], class: "ps-table-plot__bar"});
+      const mark = svg("rect", {x: left + 1, y: y(bin.count), width: Math.max(1, next - left - 2), height: bottom - y(bin.count), fill: paletteColour(palette, index, data.bins.length), class: "ps-table-plot__bar"});
       tooltip(mark, figure, formatNumber(bin.start) + " to " + formatNumber(bin.end) + ": " + bin.count + " " + plural(bin.count, "row"), true);
       drawing.appendChild(mark);
       if (index === 0 || index === data.bins.length - 1 || index % Math.max(1, Math.floor(data.bins.length / 5)) === 0) svgText(drawing, {x: left, y: bottom + 21, "text-anchor": "middle", class: "ps-table-plot__tick"}, formatNumber(bin.start));
@@ -373,7 +446,12 @@
     const container = settings.container;
     if (!container || typeof container.appendChild !== "function") return {ok: false, reason: "missing_container", rowCount: 0, plottedCount: 0};
     const rows = rowsFor(settings);
-    if (!rows.length) return notice(container, "no_rows", settings.scopeKind === "summary" ? "No derived summary windows are currently loaded. Raw-table filters do not apply to this source." : "No loaded rows pass the current filters. Change or clear filters to plot data.", settings, 0);
+    if (!rows.length) {
+      const resetActions = settings.scopeKind === "summary" || typeof settings.onResetFilters !== "function"
+        ? []
+        : [{label: "Reset filters", onClick: settings.onResetFilters}];
+      return notice(container, "no_rows", settings.scopeKind === "summary" ? "No derived summary windows are currently loaded. Raw-table filters do not apply to this source." : "No loaded rows pass the current filters.", settings, 0, resetActions);
+    }
     if (rows.length > TABLE_PLOT_LIMITS.maxSourceRows) return notice(container, "source_limit", "This plot has " + rows.length + " loaded values (limit " + TABLE_PLOT_LIMITS.maxSourceRows + "). Filter or narrow the source; no rows were sampled or plotted.", settings, rows.length);
     const type = String(settings.type || "bar").toLowerCase();
     const palette = paletteFor(settings);
@@ -408,14 +486,33 @@
     if (!settings.xField || !settings.yField) return notice(container, "missing_numeric_field", "Choose numeric or timestamp X and numeric Y fields for the " + type + " plot.", settings, rows.length);
     const series = seriesFor(rows, settings.seriesField);
     if (series.length > TABLE_PLOT_LIMITS.maxSeries) return notice(container, "series_limit", "This field has " + series.length + " series (limit " + TABLE_PLOT_LIMITS.maxSeries + "). Filter the table or choose a lower-cardinality field; no series were merged.", settings, rows.length);
-    const data = pointData(rows, settings, series);
+    let data = pointData(rows, settings, series);
     if (!data.points.length) return notice(container, "no_valid_points", "No usable point pairs were found. Check log-scale values and selected fields. " + skipped(data.missing, data.invalid), settings, rows.length);
-    if (data.points.length > TABLE_PLOT_LIMITS.maxPoints) return notice(container, "point_limit", "This " + type + " plot has " + data.points.length + " valid points (limit " + TABLE_PLOT_LIMITS.maxPoints + "). Filter the table before plotting; no points were sampled or plotted.", settings, rows.length);
+    const originalPointCount = data.points.length;
+    const pointSelection = ["sample", "first", "latest"].includes(settings.pointSelection)
+      ? settings.pointSelection
+      : "refuse";
+    if (originalPointCount > TABLE_PLOT_LIMITS.maxPoints && pointSelection === "refuse") {
+      const actions = typeof settings.onPointLimitChoice === "function"
+        ? [
+            {label: "Plot even sample", onClick: function () { settings.onPointLimitChoice("sample"); }},
+            {label: "Plot first " + TABLE_PLOT_LIMITS.maxPoints, onClick: function () { settings.onPointLimitChoice("first"); }},
+            {label: "Plot latest " + TABLE_PLOT_LIMITS.maxPoints, onClick: function () { settings.onPointLimitChoice("latest"); }},
+          ]
+        : [];
+      return notice(container, "point_limit", "This " + type + " plot has " + originalPointCount + " valid points (limit " + TABLE_PLOT_LIMITS.maxPoints + "). Filter the table or choose a bounded browser-side selection.", settings, rows.length, actions);
+    }
+    if (originalPointCount > TABLE_PLOT_LIMITS.maxPoints) {
+      data = limitedPointData(data, TABLE_PLOT_LIMITS.maxPoints, pointSelection);
+    }
     const figure = frame(container, type, (type === "line" ? "Line" : "Scatter") + " plot: " + label(settings.yField) + " by " + label(settings.xField), settings);
     drawPoints(figure, type, data, settings, palette);
     const scope = scopeText(settings, rows.length, data.points.length);
-    summary(figure, skipped(data.missing, data.invalid), scope);
-    return {ok: true, type: type, rowCount: rows.length, plottedCount: data.points.length, seriesCount: series.length, scope: scope};
+    const selectionDetail = data.sampledFrom
+      ? "Showing " + data.points.length + " of " + data.sampledFrom + " valid points using " + (data.selectionMode === "sample" ? "an even sample" : data.selectionMode === "first" ? "the first values" : "the latest values") + "."
+      : "";
+    summary(figure, [selectionDetail, skipped(data.missing, data.invalid)].filter(Boolean).join(" "), scope);
+    return {ok: true, type: type, rowCount: rows.length, plottedCount: data.points.length, sampledFrom: data.sampledFrom || null, pointSelection: data.selectionMode || null, seriesCount: data.groups.length, scope: scope};
   }
 
   core.TABLE_PLOT_LIMITS = TABLE_PLOT_LIMITS;

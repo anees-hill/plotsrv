@@ -340,10 +340,24 @@
 
   function refreshTableStatus() {
     if (!state.tableLastPayload) return;
+    const activeCount = getActiveRowCount();
+    const filtering = hasActiveTableFiltering();
     updateTableStatus(
       state.tableLastPayload,
-      getActiveRowCount(),
-      hasActiveTableFiltering()
+      activeCount,
+      filtering
+    );
+    syncFilteredEmptyState(activeCount, filtering);
+  }
+
+  function syncFilteredEmptyState(activeCount, filtering) {
+    const empty = document.getElementById("table-filter-empty");
+    if (!empty) return;
+    const rows = Array.isArray(state.tableRows) ? state.tableRows : [];
+    empty.hidden = !(
+      rows.length > 0 &&
+      filtering &&
+      activeCount === 0
     );
   }
 
@@ -850,6 +864,19 @@
     refreshActiveTablePlot(immediatePlot);
   }
 
+  function resetTableFilters() {
+    const input = document.getElementById("table-search-input");
+    setSearchQuery("");
+    setFilters([]);
+    setFiltersOpen(false);
+    if (input) input.value = "";
+    renderFilterRows();
+    renderActiveFilters();
+    syncFilterPanelUi();
+    applyAllTableFilters({ immediatePlot: true });
+    refreshTableStatus();
+  }
+
   function getColumnComponentByField(field) {
     if (!state.tabulatorInstance || typeof state.tabulatorInstance.getColumns !== "function") {
       return null;
@@ -1058,6 +1085,7 @@
     const input = document.getElementById("table-search-input");
     const groupBySelect = document.getElementById("table-group-by-select");
     const resetBtn = document.getElementById("table-reset-btn");
+    const resetFiltersBtn = document.getElementById("table-reset-filters-btn");
     const filtersToggleBtn = document.getElementById("table-filters-toggle-btn");
     const columnsToggleBtn = document.getElementById("table-columns-toggle-btn");
     const addFilterBtn = document.getElementById("table-filter-add-btn");
@@ -1145,6 +1173,11 @@
       });
 
       resetBtn.dataset.plotsrvBound = "1";
+    }
+
+    if (resetFiltersBtn && !resetFiltersBtn.dataset.plotsrvBound) {
+      resetFiltersBtn.addEventListener("click", resetTableFilters);
+      resetFiltersBtn.dataset.plotsrvBound = "1";
     }
 
     if (filtersToggleBtn && !filtersToggleBtn.dataset.plotsrvBound) {
@@ -1645,6 +1678,8 @@
   core.disposeEmbeddedTableExplorer = disposeEmbeddedTableExplorer;
   core.initializeEmbeddedTableExplorer = initializeEmbeddedTableExplorer;
   core.getCurrentFilteredLoadedRows = getCurrentFilteredLoadedRows;
+  core.hasActiveTableFiltering = hasActiveTableFiltering;
+  core.resetTableFilters = resetTableFilters;
   core.getTableGrouping = normalizeGroupingField;
   core.setTableGrouping = setTableGrouping;
 

@@ -14,10 +14,15 @@
   const PLOT_PREFERENCE_PREFIX = "plotsrv:v1:table_plot:";
   const SUPPORTING_TABLE_PREFERENCE_PREFIX = "plotsrv:v1:plot_supporting_table:";
   const PLOT_CONTROLS_PREFERENCE_PREFIX = "plotsrv:v1:plot_controls:";
+  const PLOT_CONTROLS_PIN_PREFERENCE_PREFIX = "plotsrv:v1:plot_controls_pin:";
   const PLOT_TYPES = ["bar", "line", "scatter", "histogram"];
   const AGGREGATIONS = ["count", "sum", "mean", "min", "max"];
   const BAR_SORTS = ["value-desc", "value-asc", "category-asc", "category-desc"];
-  const PALETTES = ["plotsrv", "ocean", "forest", "sunset", "violet", "neutral"];
+  const PALETTE_GROUPS = [
+    {kind: "discrete", label: "Discrete", keys: ["plotsrv", "accessible", "ocean", "forest", "sunset", "violet", "neutral"]},
+    {kind: "continuous", label: "Continuous", keys: ["viridis", "plasma", "blues", "ember"]},
+  ];
+  const PALETTES = PALETTE_GROUPS.flatMap(function (group) { return group.keys; });
   const STREAM_PLOT_REDRAW_MS = 2000;
 
   function normalizeCapabilities(raw) {
@@ -66,6 +71,50 @@
 
   function plotControlsPreferenceKey() {
     return PLOT_CONTROLS_PREFERENCE_PREFIX + String(config.activeViewId || "default");
+  }
+
+  function plotControlsPinPreferenceKey() {
+    return PLOT_CONTROLS_PIN_PREFERENCE_PREFIX + String(config.activeViewId || "default");
+  }
+
+  function plotControlsPinned() {
+    if (typeof state.tablePlotControlsPinned === "boolean") {
+      return state.tablePlotControlsPinned;
+    }
+    let pinned = false;
+    try {
+      pinned = localStorage.getItem(plotControlsPinPreferenceKey()) === "pinned";
+    } catch (e) {
+      pinned = false;
+    }
+    state.tablePlotControlsPinned = pinned;
+    return pinned;
+  }
+
+  function syncPlotControlsPin() {
+    const panel = document.getElementById("table-plot-controls");
+    const button = document.getElementById("table-plot-controls-pin");
+    if (!panel || !button) return;
+    const pinned = plotControlsPinned();
+    if (panel.classList && typeof panel.classList.toggle === "function") {
+      panel.classList.toggle("is-pinned", pinned);
+    }
+    button.setAttribute("aria-pressed", pinned ? "true" : "false");
+    button.setAttribute("aria-label", (pinned ? "Unpin" : "Pin") + " Plot controls while scrolling");
+    button.title = (pinned ? "Unpin" : "Pin") + " Plot controls while scrolling";
+  }
+
+  function setPlotControlsPinned(pinned) {
+    state.tablePlotControlsPinned = pinned === true;
+    try {
+      localStorage.setItem(
+        plotControlsPinPreferenceKey(),
+        state.tablePlotControlsPinned ? "pinned" : "unpinned"
+      );
+    } catch (e) {
+      // Sticky controls remain available when local preferences are blocked.
+    }
+    syncPlotControlsPin();
   }
 
   function plotControlsCollapsed() {
@@ -173,6 +222,8 @@
       zeroBaseline: false,
       showPoints: true,
       legend: "top",
+      titleAlign: "left",
+      pointSelection: "refuse",
     };
   }
 
@@ -219,6 +270,10 @@
       zeroBaseline: parsed && parsed.zeroBaseline === true,
       showPoints: !parsed || parsed.showPoints !== false,
       legend: parsed && ["top", "right", "bottom"].includes(parsed.legend) ? parsed.legend : defaults.legend,
+      titleAlign: parsed && parsed.titleAlign === "center" ? "center" : defaults.titleAlign,
+      pointSelection: parsed && ["sample", "first", "latest"].includes(parsed.pointSelection)
+        ? parsed.pointSelection
+        : defaults.pointSelection,
     };
   }
 
@@ -377,7 +432,7 @@
   function paletteDefinition(key) {
     const palettes = core.TABLE_PLOT_PALETTES || {};
     return palettes[key] || palettes.plotsrv || {
-      name: "Plotsrv", colours: ["#d55970", "#7a3950", "#e58a5f"],
+      name: "plotsrv", kind: "discrete", colours: ["#d55970", "#7a3950", "#e58a5f"],
     };
   }
 
@@ -403,19 +458,31 @@
     if (name) name.textContent = palette.name;
     if (!menu) return;
     if (!menu.childNodes.length) {
-      PALETTES.forEach(function (key) {
-        const definition = paletteDefinition(key);
-        const option = document.createElement("button");
-        option.type = "button";
-        option.className = "ps-table-plot-palette__option";
-        option.dataset.plotPalette = key;
-        option.setAttribute("role", "option");
-        const optionPreview = document.createElement("span");
-        optionPreview.className = "ps-table-plot-palette__preview";
-        appendPalettePreview(optionPreview, definition);
-        option.appendChild(optionPreview);
-        option.appendChild(document.createTextNode(definition.name));
-        menu.appendChild(option);
+      PALETTE_GROUPS.forEach(function (paletteGroup) {
+        const group = document.createElement("div");
+        group.className = "ps-table-plot-palette__group";
+        group.dataset.paletteKind = paletteGroup.kind;
+        group.setAttribute("role", "group");
+        group.setAttribute("aria-label", paletteGroup.label + " palettes");
+        const groupLabel = document.createElement("span");
+        groupLabel.className = "ps-table-plot-palette__group-label";
+        groupLabel.textContent = paletteGroup.label;
+        group.appendChild(groupLabel);
+        paletteGroup.keys.forEach(function (key) {
+          const definition = paletteDefinition(key);
+          const option = document.createElement("button");
+          option.type = "button";
+          option.className = "ps-table-plot-palette__option";
+          option.dataset.plotPalette = key;
+          option.setAttribute("role", "option");
+          const optionPreview = document.createElement("span");
+          optionPreview.className = "ps-table-plot-palette__preview";
+          appendPalettePreview(optionPreview, definition);
+          option.appendChild(optionPreview);
+          option.appendChild(document.createTextNode(definition.name));
+          group.appendChild(option);
+        });
+        menu.appendChild(group);
       });
     }
     Array.from(menu.querySelectorAll("[data-plot-palette]")).forEach(function (item) {
@@ -460,8 +527,10 @@
     const yScaleControl = document.getElementById("table-plot-y-scale-control");
     const zeroControl = document.getElementById("table-plot-zero-control");
     const title = document.getElementById("table-plot-title");
+    const titleAlign = document.getElementById("table-plot-title-align");
     const xLabel = document.getElementById("table-plot-x-label");
     const yLabel = document.getElementById("table-plot-y-label");
+    const pointSelection = document.getElementById("table-plot-point-selection");
     const scopeNotice = document.getElementById("table-plot-controls-scope");
     const supportingCopy = document.getElementById("table-supporting-data-copy");
     if (!type || !source || !category || !x || !y) return;
@@ -524,8 +593,10 @@
     if (points) points.checked = prefs.showPoints;
     if (legend) legend.value = prefs.legend;
     if (title) title.value = prefs.title;
+    if (titleAlign) titleAlign.value = prefs.titleAlign;
     if (xLabel) xLabel.value = prefs.xLabel;
     if (yLabel) yLabel.value = prefs.yLabel;
+    if (pointSelection) pointSelection.value = prefs.pointSelection;
     renderPaletteControl(prefs.palette);
     if (scopeNotice) {
       scopeNotice.textContent = prefs.source === "summary"
@@ -581,6 +652,7 @@
       categoryLimit: prefs.categoryLimit,
       display: prefs.display,
       title: prefs.title.trim(),
+      titleAlign: prefs.titleAlign,
       xLabel: prefs.xLabel.trim(),
       yLabel: prefs.yLabel.trim(),
       xScale: prefs.xScale,
@@ -588,6 +660,20 @@
       zeroBaseline: prefs.zeroBaseline,
       showPoints: prefs.showPoints,
       legend: prefs.legend,
+      pointSelection: prefs.pointSelection,
+      onResetFilters:
+        typeof core.resetTableFilters === "function" &&
+        typeof core.hasActiveTableFiltering === "function" &&
+        core.hasActiveTableFiltering()
+          ? function () { core.resetTableFilters(); }
+          : null,
+      onPointLimitChoice: function (choice) {
+        if (!["sample", "first", "latest"].includes(choice)) return;
+        preferences().pointSelection = choice;
+        savePreferences();
+        renderControls();
+        refreshTablePlot();
+      },
     };
     if (prefs.source === "summary") {
       options.rows = Array.isArray(state.tablePlotSummaryRows)
@@ -678,6 +764,7 @@
     controls.hidden = !isPlot;
     output.hidden = !isPlot;
     syncPlotControlsDisclosure();
+    syncPlotControlsPin();
     syncSupportingTable(isPlot);
     setButtonState(tableButton, !isPlot);
     setButtonState(plotButton, isPlot);
@@ -711,6 +798,7 @@
     const reset = document.getElementById("table-plot-reset");
     const supportingToggle = document.getElementById("table-supporting-data-toggle");
     const plotControlsToggle = document.getElementById("table-plot-controls-toggle");
+    const plotControlsPin = document.getElementById("table-plot-controls-pin");
 
     if (!state.tablePlotThemeChangeBound) {
       window.addEventListener("plotsrv:themechange", function () {
@@ -749,6 +837,13 @@
         setPlotControlsCollapsed(!plotControlsCollapsed());
       });
       plotControlsToggle.dataset.plotsrvBound = "1";
+    }
+
+    if (plotControlsPin && !plotControlsPin.dataset.plotsrvBound) {
+      plotControlsPin.addEventListener("click", function () {
+        setPlotControlsPinned(!plotControlsPinned());
+      });
+      plotControlsPin.dataset.plotsrvBound = "1";
     }
 
     if (type && !type.dataset.plotsrvBound) {
@@ -815,8 +910,10 @@
     bindChoice("table-plot-zero", "zeroBaseline", function (control) { return control.checked; });
     bindChoice("table-plot-points", "showPoints", function (control) { return control.checked; });
     bindChoice("table-plot-title", "title");
+    bindChoice("table-plot-title-align", "titleAlign");
     bindChoice("table-plot-x-label", "xLabel");
     bindChoice("table-plot-y-label", "yLabel");
+    bindChoice("table-plot-point-selection", "pointSelection");
 
     function closePaletteMenu(restoreFocus) {
       if (!paletteMenu || !paletteButton) return;
@@ -944,6 +1041,7 @@
       state.tablePlotPreferences = null;
       state.tablePlotSupportingCollapsed = null;
       state.tablePlotControlsCollapsed = null;
+      state.tablePlotControlsPinned = null;
       state.tablePlotConfigured = false;
     }
 
@@ -1005,8 +1103,10 @@
     clone.setAttribute("viewBox", "0 0 " + (viewBox[2] || 820) + " " + ((viewBox[3] || 450) + headerHeight));
     clone.setAttribute("height", String((viewBox[3] || 450) + headerHeight));
     const title = document.createElementNS("http://www.w3.org/2000/svg", "text");
-    title.setAttribute("x", "16");
+    const centredTitle = figure.dataset.plotTitleAlign === "center";
+    title.setAttribute("x", centredTitle ? String((viewBox[2] || 820) / 2) : "16");
     title.setAttribute("y", "25");
+    if (centredTitle) title.setAttribute("text-anchor", "middle");
     title.setAttribute("font-size", "16");
     title.setAttribute("font-weight", "600");
     title.setAttribute("fill", titleNode && typeof window.getComputedStyle === "function" ? window.getComputedStyle(titleNode).color : "#25282a");

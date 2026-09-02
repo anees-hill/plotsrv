@@ -28,6 +28,7 @@ html[data-theme="system"] {
   --ps-code-bg: #fbfafb;
   --ps-code-gutter: #f5f2f4;
   --ps-link: #8d3148;
+  --ps-mode-active: #c44f67;
   --ps-mark: #fff0b8;
   --ps-mark-text: #5d4700;
   --ps-danger-text: #792424;
@@ -82,6 +83,7 @@ html[data-theme="dark"] {
   --ps-code-bg: #11181e;
   --ps-code-gutter: #172129;
   --ps-link: #efa1b5;
+  --ps-mode-active: #f08da3;
   --ps-mark: #584a18;
   --ps-mark-text: #fff2b6;
   --ps-danger-text: #ffc2c2;
@@ -123,6 +125,7 @@ html[data-theme="dark"] {
     --ps-code-bg: #11181e;
     --ps-code-gutter: #172129;
     --ps-link: #efa1b5;
+    --ps-mode-active: #f08da3;
     --ps-mark: #584a18;
     --ps-mark-text: #fff2b6;
     --ps-danger-text: #ffc2c2;
@@ -803,7 +806,14 @@ body.ps-settings-open {
 .ps-table-mode-switch .ps-btn.is-active {
   border-color: var(--ps-border);
   background: var(--ps-surface-raised);
+}
+
+.ps-table-filter-chip {
   color: var(--ps-text);
+}
+
+.ps-table-mode-switch .ps-btn.is-active {
+  color: var(--ps-mode-active);
 }
 
 .ps-table-input:disabled,

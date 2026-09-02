@@ -18,7 +18,7 @@
 .ps-table-mode-switch .ps-btn.is-active {
   border-color: #d9b4c0;
   background: #fff;
-  color: #7a3950;
+  color: var(--ps-mode-active, #c44f67);
   font-weight: 600;
 }
 
@@ -29,10 +29,20 @@
   grid-template-areas: "identity content";
   align-items: start;
   gap: 0.55rem;
-  padding: 0.72rem 0.8rem;
+  padding: 0.72rem 5rem 0.72rem 0.8rem;
   border: 1px solid #ead7df;
   border-radius: 8px 8px 0 0;
   background: linear-gradient(180deg, #fcf7f9 0%, #f8f1f4 100%);
+}
+
+.ps-table-plot-controls.is-pinned {
+  position: sticky;
+  z-index: 24;
+  top: 0.5rem;
+  max-height: calc(100vh - 1rem);
+  margin: 0 0 0.5rem;
+  border-radius: 8px;
+  box-shadow: 0 9px 28px rgba(24, 28, 31, 0.16);
 }
 
 .ps-table-plot-controls.is-collapsed {
@@ -58,20 +68,69 @@
   display: none !important;
 }
 
-.ps-table-plot-controls > .ps-pane-disclosure {
+.ps-table-plot-controls__actions {
   position: absolute;
   top: 0.28rem;
   right: 0.32rem;
+  display: flex;
+  align-items: center;
+  gap: 0.18rem;
+}
+
+.ps-table-plot-controls__pin {
+  display: grid;
+  width: 1.72rem;
+  height: 1.72rem;
+  padding: 0.3rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  place-items: center;
+}
+
+.ps-table-plot-controls__pin:hover,
+.ps-table-plot-controls__pin:focus-visible,
+.ps-table-plot-controls__pin[aria-pressed="true"] {
+  background: var(--ps-surface-hover, #f0f1f2);
+  color: var(--ps-mode-active, #c44f67);
+}
+
+.ps-table-plot-controls__pin:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.ps-table-plot-controls__pin svg {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  fill: currentColor;
+}
+
+.ps-table-plot-controls__pin[aria-pressed="true"] svg {
+  transform: rotate(-18deg);
 }
 
 .ps-table-plot-controls:not([hidden]) {
   margin-bottom: -0.5rem;
 }
 
+.ps-table-plot-controls.is-pinned:not([hidden]) {
+  margin-bottom: 0.5rem;
+}
+
 .ps-table-plot-controls + .ps-table-plot-root > .ps-table-plot,
 .ps-table-plot-controls + .ps-table-plot-root > .ps-table-plot__notice {
   border-top: 0;
   border-radius: 0 0 8px 8px;
+}
+
+.ps-table-plot-controls.is-pinned + .ps-table-plot-root > .ps-table-plot,
+.ps-table-plot-controls.is-pinned + .ps-table-plot-root > .ps-table-plot__notice {
+  border-top: 1px solid var(--border);
+  border-radius: 8px;
 }
 
 .ps-table-plot-controls[hidden],
@@ -97,6 +156,57 @@
 
 .ps-table-plot-control--compact {
   min-width: 8rem;
+}
+
+.ps-table-plot-help {
+  position: relative;
+  display: inline-grid;
+  width: 1rem;
+  height: 1rem;
+  margin-left: 0.18rem;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  place-items: center;
+}
+
+.ps-table-plot-help::after {
+  position: absolute;
+  z-index: 40;
+  bottom: calc(100% + 0.45rem);
+  left: 50%;
+  width: max-content;
+  max-width: min(17rem, 70vw);
+  padding: 0.42rem 0.52rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--ps-surface-raised, #fff);
+  box-shadow: 0 6px 18px rgba(20, 24, 27, 0.16);
+  color: var(--text);
+  content: attr(data-tooltip);
+  font-size: 0.76rem;
+  font-weight: 400;
+  line-height: 1.35;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 0.2rem);
+  transition: opacity 100ms ease, transform 100ms ease;
+}
+
+.ps-table-plot-help:hover::after,
+.ps-table-plot-help:focus-visible::after {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.ps-table-plot-help:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .ps-table-plot-controls__fields--secondary {
@@ -150,11 +260,29 @@
   top: calc(100% + 0.3rem);
   left: 0;
   width: max(100%, 12.5rem);
+  max-height: min(32rem, 70vh);
+  overflow-y: auto;
   padding: 0.3rem;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--ps-surface-raised, #fff);
   box-shadow: 0 10px 26px rgba(24, 26, 28, 0.15);
+}
+
+.ps-table-plot-palette__group + .ps-table-plot-palette__group {
+  margin-top: 0.34rem;
+  padding-top: 0.34rem;
+  border-top: 1px solid var(--border);
+}
+
+.ps-table-plot-palette__group-label {
+  display: block;
+  padding: 0.2rem 0.5rem 0.28rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 
 .ps-table-plot-palette__menu[hidden] {
@@ -180,6 +308,22 @@
 .ps-table-plot-palette__option:focus-visible,
 .ps-table-plot-palette__option[aria-selected="true"] {
   background: var(--ps-accent-soft, #f7e9ed);
+}
+
+.ps-table-filter-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 0.7rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--ps-surface-soft, #f8f9fa);
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.ps-table-filter-empty[hidden] {
+  display: none !important;
 }
 
 .ps-table-plot-advanced {
