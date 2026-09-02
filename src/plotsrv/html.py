@@ -9,7 +9,12 @@ from .config import TableViewMode
 from .store import ViewMeta
 from .table_explorer_markup import render_table_explorer
 from .ui_assets import get_ui_assets
-from .ui_config import UISettings, get_ui_settings
+from .ui_config import (
+    DEFAULT_LOGO_URL,
+    DEFAULT_PAGE_TITLE,
+    UISettings,
+    get_ui_settings,
+)
 
 ViewKind = Literal["none", "plot", "table", "artifact", "stream"]
 
@@ -927,6 +932,36 @@ def render_index(
         """
 
     plotsrv_version = _escape_html(_plotsrv_version())
+    dashboard_header_text = str(getattr(ui, "header_text", "") or "").strip()
+    dashboard_page_title = str(getattr(ui, "page_title", "") or "").strip()
+    dashboard_name = dashboard_header_text or (
+        dashboard_page_title
+        if dashboard_page_title and dashboard_page_title != DEFAULT_PAGE_TITLE
+        else "This dashboard"
+    )
+    dashboard_title_detail = ""
+    if (
+        dashboard_page_title
+        and dashboard_page_title != DEFAULT_PAGE_TITLE
+        and dashboard_page_title != dashboard_name
+    ):
+        dashboard_title_detail = (
+            '<p class="ps-settings-about__detail">'
+            '<span>Browser title</span>'
+            f"{_escape_html(dashboard_page_title)}"
+            "</p>"
+        )
+
+    dashboard_logo_html = ""
+    configured_dashboard_logo = str(getattr(ui, "logo_url", "") or "").strip()
+    if configured_dashboard_logo and configured_dashboard_logo != DEFAULT_LOGO_URL:
+        safe_dashboard_logo = _safe_url_attr(configured_dashboard_logo)
+        if safe_dashboard_logo:
+            dashboard_logo_html = (
+                '<img class="ps-settings-about__dashboard-logo" '
+                f'src="{safe_dashboard_logo}" alt="" loading="lazy" />'
+            )
+
     settings_html = f"""
       <section
         id="settings-page"
@@ -941,7 +976,7 @@ def render_index(
           <div>
             <p class="ps-settings-page__eyebrow">plotsrv</p>
             <h1 id="settings-title">Settings</h1>
-            <p id="settings-intro">Personalise how this browser displays plotsrv.</p>
+            <p id="settings-intro">Personalise how this dashboard appears in your browser.</p>
           </div>
           <button
             id="settings-close"
@@ -1002,24 +1037,39 @@ def render_index(
 
           <section class="ps-settings-section" aria-labelledby="settings-about-title">
             <div class="ps-settings-section__intro">
-              <h2 id="settings-about-title">About plotsrv</h2>
-              <p>Package and support information for this server.</p>
+              <h2 id="settings-about-title">About this dashboard</h2>
+              <p>Dashboard identity and the software serving it.</p>
             </div>
-            <dl class="ps-settings-about">
-              <div>
-                <dt>Version</dt>
-                <dd><code>{plotsrv_version}</code></dd>
+            <div class="ps-settings-about">
+              <div class="ps-settings-about__card ps-settings-about__identity">
+                {dashboard_logo_html}
+                <div class="ps-settings-about__copy">
+                  <span class="ps-settings-about__label">Dashboard</span>
+                  <h3>{_escape_html(dashboard_name)}</h3>
+                  {dashboard_title_detail}
+                </div>
               </div>
-              <div>
-                <dt>Documentation</dt>
-                <dd>
-                  <a href="https://docs.plotsrv.com/" target="_blank" rel="noopener noreferrer">
-                    docs.plotsrv.com
-                    <span aria-hidden="true">↗</span>
-                  </a>
-                </dd>
+
+              <div class="ps-settings-about__card ps-settings-about__product">
+                <img
+                  class="ps-settings-about__plotsrv-logo"
+                  src="/static/plotsrv_icon_logo.png"
+                  width="64"
+                  height="64"
+                  alt=""
+                  loading="lazy" />
+                <div class="ps-settings-about__copy">
+                  <p class="ps-settings-about__powered">Powered by <strong>PlotSrv</strong></p>
+                  <div class="ps-settings-about__product-meta">
+                    <span>Version <code>{plotsrv_version}</code></span>
+                    <a href="https://docs.plotsrv.com/" target="_blank" rel="noopener noreferrer">
+                      Documentation
+                      <span aria-hidden="true">↗</span>
+                    </a>
+                  </div>
+                </div>
               </div>
-            </dl>
+            </div>
           </section>
         </main>
       </section>

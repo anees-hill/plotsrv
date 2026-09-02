@@ -10,10 +10,16 @@ ROOT = Path(__file__).parents[1]
 STATIC = ROOT / "src" / "plotsrv" / "static"
 
 
-def _ui(*, show_status: bool = True) -> UISettings:
+def _ui(
+    *,
+    show_status: bool = True,
+    header_text: str = "",
+    page_title: str = "test",
+    logo_url: str = "/static/x.png",
+) -> UISettings:
     return UISettings(
-        logo_url="/static/x.png",
-        header_text="",
+        logo_url=logo_url,
+        header_text=header_text,
         header_fill_colour="#fff",
         terminate_process_option=True,
         auto_refresh_option=True,
@@ -26,19 +32,19 @@ def _ui(*, show_status: bool = True) -> UISettings:
         show_help_note=True,
         show_view_selector=True,
         assets_dir=None,
-        page_title="test",
+        page_title=page_title,
         favicon_url="/static/x.png",
     )
 
 
-def _render(*, show_status: bool = True) -> str:
+def _render(*, show_status: bool = True, **ui_kwargs: str) -> str:
     return html_mod.render_index(
         kind="plot",
         table_view_mode="rich",
         table_html_simple=None,
         max_table_rows_simple=200,
         max_table_rows_rich=1000,
-        ui_settings=_ui(show_status=show_status),
+        ui_settings=_ui(show_status=show_status, **ui_kwargs),
         views=[],
         active_view_id="demo:view",
     )
@@ -88,12 +94,40 @@ def test_settings_page_shows_installed_version_and_documentation_link(
     monkeypatch.setattr(html_mod, "_plotsrv_version", lambda: "9.8.7")
     rendered = _render()
 
-    assert 'id="settings-about-title">About plotsrv</h2>' in rendered
-    assert "<dt>Version</dt>" in rendered
+    assert 'id="settings-about-title">About this dashboard</h2>' in rendered
+    assert "Powered by <strong>PlotSrv</strong>" in rendered
+    assert 'src="/static/plotsrv_icon_logo.png"' in rendered
     assert "<code>9.8.7</code>" in rendered
     assert 'href="https://docs.plotsrv.com/"' in rendered
     assert 'target="_blank" rel="noopener noreferrer"' in rendered
-    assert "docs.plotsrv.com" in rendered
+    assert "Documentation" in rendered
+    assert (STATIC / "plotsrv_icon_logo.png").is_file()
+
+
+def test_about_dashboard_uses_existing_configured_identity_without_duplication() -> None:
+    rendered = _render(
+        header_text="Operations monitor",
+        page_title="Operations overview",
+        logo_url="/assets/operations.png",
+    )
+    about = rendered.split('id="settings-about-title"', 1)[1].split("</section>", 1)[0]
+
+    assert "Operations monitor" in about
+    assert "Operations overview" in about
+    assert "Browser title" in about
+    assert 'src="/assets/operations.png"' in about
+    assert about.count("Operations monitor") == 1
+
+
+def test_about_dashboard_avoids_repeating_matching_titles() -> None:
+    rendered = _render(
+        header_text="Pipeline dashboard",
+        page_title="Pipeline dashboard",
+    )
+    about = rendered.split('id="settings-about-title"', 1)[1].split("</section>", 1)[0]
+
+    assert about.count("Pipeline dashboard") == 1
+    assert "Browser title" not in about
 
 
 def test_theme_is_restored_before_the_stylesheet_to_avoid_a_colour_flash() -> None:
