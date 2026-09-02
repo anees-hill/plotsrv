@@ -61,6 +61,9 @@
   config.tableViewMode = raw.table_view_mode || "rich";
   config.maxTableRowsSimple = raw.max_table_rows_simple || 200;
   config.maxTableRowsRich = raw.max_table_rows_rich || 1000;
+  config.tablePlotMaxPoints = Number.isSafeInteger(raw.table_plot_max_points)
+    ? Math.max(1, Math.min(25000, raw.table_plot_max_points))
+    : 5000;
   config.showHeaderFreshness = raw.show_header_freshness !== false;
   config.showHeaderHistory = raw.show_header_history !== false;
   config.viewCatalogue = Array.isArray(raw.view_catalogue)

@@ -35,6 +35,10 @@ _DEFAULTS: dict[str, Any] = {
         "plot_default_figsize_in": (12.0, 6.0),
         "plot_bbox_tight": True,
         "plot_pad_inches": 0.10,
+        # Browser-native table plots use SVG marks. Keep the useful default
+        # above the old 1,000-point ceiling while bounding DOM work even when
+        # a user explicitly raises it.
+        "table_plot_max_points": 5_000,
         "table_view_mode": "rich",
         "html_sanitize": False,
         "html_sandbox": "",
@@ -223,6 +227,7 @@ _DEFAULTS: dict[str, Any] = {
 }
 
 _MAX_TABLE_ROWS_INF: int = 1_000_000_000
+_MAX_BROWSER_TABLE_PLOT_POINTS: int = 25_000
 
 
 def set_table_view_mode(mode: TableViewMode) -> None:
@@ -844,6 +849,17 @@ def get_plot_bbox_tight() -> bool:
 def get_plot_pad_inches() -> float:
     sec = _merged_render_settings()
     return _as_float(sec.get("plot_pad_inches"), 0.10, min_value=0.0)
+
+
+def get_table_plot_max_points() -> int:
+    """Return the browser SVG point ceiling, capped at a safe hard maximum."""
+    sec = _merged_render_settings()
+    requested = _as_int_or_inf(
+        sec.get("table_plot_max_points"),
+        5_000,
+        min_value=1,
+    )
+    return min(int(requested), _MAX_BROWSER_TABLE_PLOT_POINTS)
 
 
 # ---- Artifact render settings ------------------------------------------------

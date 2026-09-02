@@ -1524,6 +1524,7 @@ def index(view: str | None = None) -> HTMLResponse:
         active_view_id=active_view,
         view_menu_revision=store.get_view_menu_revision(),
         browser_update_revision=browser_update_hub.current_revision(active_view),
+        table_plot_max_points=config.get_table_plot_max_points(),
     )
     return HTMLResponse(content=html_str)
 

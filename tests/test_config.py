@@ -38,6 +38,20 @@ def test_max_table_rows_constants_positive() -> None:
     assert config.get_max_table_rows_rich() >= config.get_max_table_rows_simple()
 
 
+def test_browser_table_plot_point_limit_has_a_safe_default_and_hard_cap(
+    tmp_path,
+) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        "render-settings:\n  default:\n    table_plot_max_points: 100000\n",
+        encoding="utf-8",
+    )
+
+    assert config.get_table_plot_max_points() == 5_000
+    settings.set_runtime_context(config_path=yml)
+    assert config.get_table_plot_max_points() == 25_000
+
+
 def test_default_limits_are_generous() -> None:
     assert config.get_watch_max_bytes() == 500 * 1024 * 1024
     assert config.get_truncation_max_chars("text") == 1_000_000

@@ -263,6 +263,7 @@ render-settings:
     plot_default_figsize_in: "12,6"
     plot_bbox_tight: true
     plot_pad_inches: 0.10
+    table_plot_max_points: 5000
     table_view_mode: rich
     html_sanitize: false
     markdown_sanitize: true
@@ -276,6 +277,7 @@ render-settings:
 | `plot_default_figsize_in` | default matplotlib-style figure size |
 | `plot_bbox_tight` | save plots with tight bounding boxes |
 | `plot_pad_inches` | plot padding when tight bounding boxes are used |
+| `table_plot_max_points` | maximum SVG points in a browser table plot (default `5000`, hard-capped at `25000`); larger plots offer browser-side sampling |
 | `table_view_mode` | `rich` or `simple` table mode |
 | `html_sanitize` | sanitize HTML artifacts before rendering |
 | `markdown_sanitize` | sanitize rendered markdown HTML |
