@@ -76,8 +76,8 @@ def render_table_plot_controls() -> str:
             title="Collapse Plot controls">−</button>
         </div>
         <div id="table-plot-controls-content" class="ps-table-plot-controls__content">
-          <div class="ps-table-plot-controls__fields">
-            <label class="ps-table-plot-control">
+          <div class="ps-table-plot-controls__fields ps-table-plot-controls__fields--setup">
+            <label class="ps-table-plot-control ps-table-plot-control--type">
               <span>Plot type</span>
               <select id="table-plot-type" class="ps-table-select">
                 <option value="bar">Bar</option>
@@ -93,6 +93,8 @@ def render_table_plot_controls() -> str:
                 <option value="summary">Derived summary windows</option>
               </select>
             </label>
+          </div>
+          <div class="ps-table-plot-controls__fields">
             <label id="table-plot-category-control" class="ps-table-plot-control">
               <span>Category <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Category: Groups rows by this field, creating one bar for each category." data-tooltip="Groups rows by this field, creating one bar for each category.">i</span></span>
               <select id="table-plot-category" class="ps-table-select"></select>

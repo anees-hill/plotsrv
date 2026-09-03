@@ -295,7 +295,7 @@ if (status.innerHTML !== "Showing 3 rows.") {
     )
 
 
-def test_rich_table_lines_are_shared_and_empty_surface_is_theme_aware() -> None:
+def test_rich_table_polish_and_empty_surface_are_theme_aware() -> None:
     table_css = (_STATIC / "css" / "renderers" / "table.css").read_text("utf-8")
     layout_css = (_STATIC / "css" / "layout.css").read_text("utf-8")
     themes_css = (_STATIC / "css" / "themes.css").read_text("utf-8")
@@ -305,8 +305,24 @@ def test_rich_table_lines_are_shared_and_empty_surface_is_theme_aware() -> None:
     rich_rows = table_css.split(".ps-table--rich .tabulator-row {", 1)[1].split(
         "}", 1
     )[0]
-    assert "border-bottom: 0" in rich_rows
+    assert "border-bottom: 1px solid #edf0f2" in rich_rows
+    assert "min-height: 30px" in rich_rows
+    rich_cells = table_css.split(
+        ".ps-table--rich .tabulator-row .tabulator-cell {", 1
+    )[1].split("}", 1)[0]
+    assert "border-right: 0" in rich_cells
+    assert "padding: 0.42rem 0.68rem" in rich_cells
+    assert "font-variant-numeric: tabular-nums" in table_css
+    assert 'aria-sort="none"' in table_css
+    assert 'aria-sort="ascending"' in table_css
+    assert ".tabulator-placeholder-contents" in table_css
+    assert ".tabulator-frozen.tabulator-frozen-left" in table_css
+    assert ".tabulator-row.tabulator-group" in table_css
     assert ".ps-table--rich.tabulator," in themes_css
+    assert ".ps-table--rich .tabulator-row.tabulator-row-even" in themes_css
+    assert ".ps-table--rich .tabulator-row.tabulator-selected:hover" in themes_css
+    assert ".ps-table--rich .tabulator-footer .tabulator-page.active" in themes_css
+    assert ".ps-table--rich .tabulator-alert" in themes_css
     assert ".plot-frame.empty" in layout_css
     assert "background: var(--ps-surface-soft, #fcfcfc)" in layout_css
     assert "--ps-surface-soft: #f8f9fa" in themes_css

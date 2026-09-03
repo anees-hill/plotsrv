@@ -95,9 +95,9 @@
   }
   function notice(container, reason, detail, settings, rowCount, actions) {
     clear(container);
-    const root = html("section", "ps-table-plot__notice ps-table-plot__notice--refused");
+    const root = html("section", "ps-table-plot__notice" + (reason === "filtered_empty" ? "" : " ps-table-plot__notice--refused"));
     root.dataset.plotState = "refused";
-    root.appendChild(html("h2", "ps-table-plot__notice-title", "Plot not rendered"));
+    root.appendChild(html("h2", "ps-table-plot__notice-title", reason === "filtered_empty" ? "No matching data" : "Plot not rendered"));
     root.appendChild(html("p", "ps-table-plot__notice-detail", detail));
     if (Array.isArray(actions) && actions.length) {
       const actionRoot = html("div", "ps-table-plot__notice-actions");
@@ -447,6 +447,12 @@
     if (!container || typeof container.appendChild !== "function") return {ok: false, reason: "missing_container", rowCount: 0, plottedCount: 0};
     const rows = rowsFor(settings);
     if (!rows.length) {
+      if (settings.scopeKind !== "summary" && settings.loadedRowCount > 0 &&
+          typeof settings.onResetFilters === "function") {
+        return notice(container, "filtered_empty",
+          "Data is available, but no rows match your search or filters. Adjust them or reset filters to show the data.",
+          settings, 0, [{label: "Reset filters", onClick: settings.onResetFilters}]);
+      }
       const resetActions = settings.scopeKind === "summary" || typeof settings.onResetFilters !== "function"
         ? []
         : [{label: "Reset filters", onClick: settings.onResetFilters}];

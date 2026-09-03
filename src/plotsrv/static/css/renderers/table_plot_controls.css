@@ -139,10 +139,32 @@
 }
 
 .ps-table-plot-controls__fields {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 15rem));
   align-items: end;
   flex-wrap: wrap;
   gap: 0.65rem;
+}
+
+/* Author display rules must not override the native hidden attribute. */
+.ps-table-plot-controls [hidden] {
+  display: none !important;
+}
+
+.ps-table-plot-controls__fields--setup {
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.ps-table-plot-control--type > span {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.ps-table-plot-control--type .ps-table-select {
+  border-color: color-mix(in srgb, var(--ps-mode-active) 40%, var(--border));
+  background: color-mix(in srgb, var(--ps-mode-active) 5%, var(--ps-surface-raised));
+  font-weight: 600;
 }
 
 .ps-table-plot-control {
@@ -340,7 +362,8 @@
 }
 
 .ps-table-plot-advanced__fields {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 15rem));
   align-items: end;
   flex-wrap: wrap;
   gap: 0.65rem;
@@ -361,6 +384,11 @@
 }
 
 .ps-table-plot-control .ps-table-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.ps-table-plot-control .ps-table-input {
   min-width: 0;
   width: 100%;
 }

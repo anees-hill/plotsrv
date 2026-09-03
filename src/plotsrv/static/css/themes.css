@@ -796,6 +796,10 @@ body.ps-settings-open {
   background: var(--ps-surface-soft);
 }
 
+.plot-frame--table {
+  background: var(--ps-surface);
+}
+
 .ps-stream-controls,
 .ps-table-plot-controls {
   border-color: var(--ps-border);
@@ -836,18 +840,44 @@ body.ps-settings-open {
 }
 
 .ps-table--rich.tabulator,
-.ps-table--rich .tabulator {
+.ps-table--rich .tabulator,
+.ps-table--rich .tabulator-tableholder,
+.ps-table--rich .tabulator-tableholder .tabulator-table {
   border-color: var(--ps-border) !important;
   background: var(--ps-surface) !important;
   color: var(--ps-text) !important;
 }
 
+.ps-table--rich .tabulator-tableholder:focus-visible {
+  outline: 2px solid var(--ps-focus);
+  outline-offset: -2px;
+}
+
 .ps-table--rich .tabulator-header,
-.ps-table--rich .tabulator-header .tabulator-col,
-.ps-table--rich .tabulator-header .tabulator-col.tabulator-sortable:hover {
+.ps-table--rich .tabulator-header .tabulator-col {
   border-color: var(--ps-border) !important;
-  background: var(--ps-surface-muted) !important;
+  background: var(--ps-surface-soft) !important;
   color: var(--ps-text) !important;
+}
+
+.ps-table--rich .tabulator-header .tabulator-col {
+  border-right-color: var(--ps-border-soft) !important;
+}
+
+.ps-table--rich .tabulator-header .tabulator-col.tabulator-sortable:hover {
+  background: color-mix(in srgb, var(--ps-surface-soft) 72%, var(--ps-surface-hover)) !important;
+}
+
+.ps-table--rich .tabulator-header .tabulator-col[aria-sort="none"] .tabulator-arrow {
+  border-bottom-color: var(--ps-muted) !important;
+}
+
+.ps-table--rich .tabulator-header .tabulator-col[aria-sort="ascending"] .tabulator-arrow {
+  border-bottom-color: var(--ps-mode-active) !important;
+}
+
+.ps-table--rich .tabulator-header .tabulator-col[aria-sort="descending"] .tabulator-arrow {
+  border-top-color: var(--ps-mode-active) !important;
 }
 
 .ps-table--rich .tabulator-header input,
@@ -857,25 +887,106 @@ body.ps-settings-open {
   color: var(--ps-text) !important;
 }
 
-.ps-table--rich .tabulator-row,
-.ps-table--rich .tabulator-row:nth-child(even),
-.ps-table--rich .tabulator-row .tabulator-cell {
+.ps-table--rich .tabulator-row {
   border-color: var(--ps-border-soft) !important;
   background: var(--ps-surface) !important;
   color: var(--ps-text) !important;
 }
 
+.ps-table--rich .tabulator-row .tabulator-cell {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--ps-text) !important;
+}
+
+.ps-table--rich .tabulator-row.tabulator-row-even {
+  background: color-mix(in srgb, var(--ps-surface) 97%, var(--ps-surface-muted)) !important;
+}
+
 .ps-table--rich .tabulator-row:hover,
-.ps-table--rich .tabulator-row:hover .tabulator-cell,
-.ps-table--rich .tabulator-row.tabulator-selected,
-.ps-table--rich .tabulator-row.tabulator-selected .tabulator-cell {
+.ps-table--rich .tabulator-row.tabulator-row-even:hover {
+  background: var(--ps-surface-hover) !important;
+}
+
+.ps-table--rich .tabulator-row:hover .tabulator-cell {
+  background: transparent !important;
+}
+
+.ps-table--rich .tabulator-row.tabulator-selected {
   background: var(--ps-accent-soft) !important;
 }
 
-.ps-table--rich .tabulator-footer,
-.ps-table--rich .tabulator-footer .tabulator-page {
+.ps-table--rich .tabulator-row.tabulator-selected:hover {
+  background: color-mix(in srgb, var(--ps-accent-soft) 82%, var(--ps-surface-hover)) !important;
+}
+
+.ps-table--rich .tabulator-row .tabulator-cell.tabulator-frozen {
+  background: inherit !important;
+}
+
+.ps-table--rich .tabulator-row .tabulator-cell.tabulator-editing {
+  border: 1px solid var(--ps-focus) !important;
+  background: var(--ps-surface-raised) !important;
+  outline: 1px solid var(--ps-focus);
+  outline-offset: -2px;
+}
+
+.ps-table--rich .tabulator-row .tabulator-cell.tabulator-validation-fail {
+  border-color: var(--ps-danger-border) !important;
+  color: var(--ps-danger-text) !important;
+}
+
+.ps-table--rich .tabulator-header .tabulator-frozen.tabulator-frozen-left,
+.ps-table--rich .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-left {
+  border-right-color: var(--ps-border) !important;
+}
+
+.ps-table--rich .tabulator-header .tabulator-frozen.tabulator-frozen-right,
+.ps-table--rich .tabulator-row .tabulator-cell.tabulator-frozen.tabulator-frozen-right {
+  border-left-color: var(--ps-border) !important;
+}
+
+.ps-table--rich .tabulator-row.tabulator-group,
+.ps-table--rich .tabulator-row.tabulator-group:hover {
   border-color: var(--ps-border) !important;
   background: var(--ps-surface-muted) !important;
+  color: var(--ps-text) !important;
+}
+
+.ps-table--rich .tabulator-row.tabulator-group span {
+  color: var(--ps-muted) !important;
+}
+
+.ps-table--rich .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents {
+  color: var(--ps-muted);
+}
+
+.ps-table--rich .tabulator-footer,
+.ps-table--rich .tabulator-footer .tabulator-page,
+.ps-table--rich .tabulator-footer .tabulator-page-size {
+  border-color: var(--ps-border) !important;
+  background: var(--ps-surface-soft) !important;
+  color: var(--ps-text) !important;
+}
+
+.ps-table--rich .tabulator-footer .tabulator-page.active {
+  border-color: var(--ps-accent) !important;
+  background: var(--ps-accent-soft) !important;
+  color: var(--ps-accent-strong) !important;
+}
+
+.ps-table--rich .tabulator-footer .tabulator-page:not(.disabled):hover {
+  background: var(--ps-surface-hover) !important;
+  color: var(--ps-text) !important;
+}
+
+.ps-table--rich .tabulator-alert {
+  background: color-mix(in srgb, var(--ps-overlay) 58%, transparent);
+}
+
+.ps-table--rich .tabulator-alert .tabulator-alert-msg {
+  border-color: var(--ps-border) !important;
+  background: var(--ps-surface-raised);
   color: var(--ps-text) !important;
 }
 
