@@ -1094,13 +1094,24 @@
     const columnsList = document.getElementById("table-columns-list");
     const activeFilters = document.getElementById("table-active-filters");
 
-    restoreToolbarInputs();
-    renderGroupingControl();
-    renderFilterRows();
-    renderColumnsList();
-    renderActiveFilters();
-    syncFilterPanelUi();
-    syncColumnsPanelUi();
+    // Row arrivals do not change the toolbar. Replacing its children on every
+    // poll closes native selects and discards focused filter inputs.
+    const toolbarSignature = JSON.stringify([state.tableFields, state.tableFieldTypes]);
+    const toolbarRoot = input || groupBySelect;
+    const editingToolbar = document.activeElement &&
+      [filterRows, columnsList, groupBySelect].some(function (element) {
+        return element && element.contains(document.activeElement);
+      });
+    if (!toolbarRoot || (toolbarRoot._plotsrvSchema !== toolbarSignature && !editingToolbar)) {
+      restoreToolbarInputs();
+      renderGroupingControl();
+      renderFilterRows();
+      renderColumnsList();
+      renderActiveFilters();
+      syncFilterPanelUi();
+      syncColumnsPanelUi();
+      if (toolbarRoot) toolbarRoot._plotsrvSchema = toolbarSignature;
+    }
 
     if (input && !input.dataset.plotsrvBound) {
       let timer = null;

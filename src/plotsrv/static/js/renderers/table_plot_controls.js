@@ -393,6 +393,12 @@
 
   function populateSelect(select, values, selected, placeholder) {
     if (!select || typeof document.createElement !== "function") return;
+    const signature = JSON.stringify([values, placeholder]);
+    if (select._plotsrvOptions === signature) {
+      if (select.value !== (selected || "")) select.value = selected || "";
+      return;
+    }
+    select._plotsrvOptions = signature;
     clearElement(select);
 
     const empty = document.createElement("option");
@@ -491,6 +497,19 @@
   }
 
   function renderControls() {
+    const panel = document.getElementById("table-plot-controls");
+    const signature = JSON.stringify([
+      preferences(), state.tableFields, state.tableFieldTypes,
+      state.tablePlotSummaryFields, state.tablePlotSummaryFieldTypes,
+      capabilities(),
+      document.documentElement && document.documentElement.getAttribute("data-theme"),
+    ]);
+    if (panel && panel._plotsrvControlsSignature === signature) return;
+    // Keep drafts and native dropdown navigation intact while new schemas
+    // arrive. The next render after focus leaves applies any pending changes.
+    if (panel && panel._plotsrvControlsSignature &&
+        panel.contains(document.activeElement) &&
+        panel._plotsrvPreferences === JSON.stringify(preferences())) return;
     const type = document.getElementById("table-plot-type");
     const source = document.getElementById("table-plot-source");
     const category = document.getElementById("table-plot-category");
@@ -576,6 +595,8 @@
     if (xScaleControl) xScaleControl.hidden = !isPoints;
     if (yScaleControl) yScaleControl.hidden = !isPoints;
     if (zeroControl) zeroControl.hidden = !isPoints;
+    const pointSelectionControl = document.getElementById("table-plot-point-selection-control");
+    if (pointSelectionControl) pointSelectionControl.hidden = !isPoints;
     if (aggregation) aggregation.value = prefs.aggregation;
     if (bins) bins.value = prefs.bins;
     if (sort) sort.value = prefs.sort;
@@ -608,6 +629,10 @@
       supportingCopy.textContent = prefs.source === "summary"
         ? "Recent source rows for cross-reference; this plot uses derived summary windows."
         : "Filtered rows used by this plot.";
+    }
+    if (panel) {
+      panel._plotsrvControlsSignature = signature;
+      panel._plotsrvPreferences = JSON.stringify(preferences());
     }
   }
 
@@ -661,6 +686,7 @@
       showPoints: prefs.showPoints,
       legend: prefs.legend,
       pointSelection: prefs.pointSelection,
+      loadedRowCount: Array.isArray(state.tableRows) ? state.tableRows.length : 0,
       onResetFilters:
         typeof core.resetTableFilters === "function" &&
         typeof core.hasActiveTableFiltering === "function" &&
