@@ -19,6 +19,8 @@
       { value: "contains", label: "contains" },
       { value: "eq", label: "is equal to" },
       { value: "neq", label: "is not equal to" },
+      { value: "in", label: "is one of" },
+      { value: "not_in", label: "is not one of" },
       { value: "missing", label: "is missing" },
       { value: "not_missing", label: "is not missing" },
     ],
@@ -150,9 +152,22 @@
     return ["between", "not_between"].includes(op);
   }
 
+  const membershipCache = new WeakMap();
+  function membershipValues(filter) {
+    const value = String(filter.value || "");
+    const cached = membershipCache.get(filter);
+    if (cached && cached.value === value) return cached.values;
+    const values = new Set(value.split(/\r?\n/).map(function (entry) {
+      return entry.trim().toLowerCase();
+    }).filter(Boolean));
+    membershipCache.set(filter, {value: value, values: values});
+    return values;
+  }
+
   function isFilterComplete(filter) {
     if (!filter.field || !filter.op) return false;
     if (!operatorNeedsValue(filter.op)) return true;
+    if (filter.op === "in" || filter.op === "not_in") return membershipValues(filter).size > 0;
     if (operatorNeedsTwoValues(filter.op)) {
       return (
         String(filter.value || "").trim() !== "" &&
@@ -487,7 +502,7 @@
   function applyTableGrouping() {
     const table = state.tabulatorInstance;
     const groupingField = normalizeGroupingField();
-    if (!table || typeof table.setGroupBy !== "function") return;
+    if (!table || table.initialized === false || typeof table.setGroupBy !== "function") return;
 
     if (state.tableAppliedGrouping === groupingField) return;
     if (!groupingField && state.tableAppliedGrouping == null) return;
@@ -593,7 +608,12 @@
           renderOperatorOptions(field, op) +
           "</select>";
 
-        const valueInput =
+        const multipleValues = op === "in" || op === "not_in";
+        const valueInput = multipleValues
+          ? '<textarea class="ps-table-filter-value ps-table-filter-value--list" data-filter-part="value" data-filter-id="' +
+            escapeHtml(filter.id) + '" rows="1" aria-label="Values, one per line" title="One exact value per line; case-insensitive. Blank lines and surrounding spaces are ignored.">' +
+            escapeHtml(filter.value || "") + '</textarea>'
+          :
           '<input class="ps-table-filter-value" data-filter-part="value" data-filter-id="' +
           escapeHtml(filter.id) +
           '" type="text" value="' +
@@ -677,6 +697,12 @@
     }
 
     const opLabel = labelMap[op] || op;
+
+    if (op === "in" || op === "not_in") {
+      return field + " " + opLabel + " " + String(value).split(/\r?\n/).map(function (entry) {
+        return entry.trim();
+      }).filter(Boolean).map(function (entry) { return JSON.stringify(entry); }).join(", ");
+    }
 
     if (operatorNeedsTwoValues(op)) {
       return field + " " + opLabel + " " + value + " and " + valueTo;
@@ -806,6 +832,8 @@
     const text = String(raw == null ? "" : raw).toLowerCase();
     const q = String(filter.value || "").toLowerCase();
 
+    if (op === "in") return membershipValues(filter).has(text);
+    if (op === "not_in") return !membershipValues(filter).has(text);
     if (op === "contains") return text.includes(q);
     if (op === "eq") return text === q;
     if (op === "neq") return text !== q;
@@ -831,8 +859,19 @@
       if (!matched) return false;
     }
 
+    // Positive membership lists on a column form a union. Other conditions,
+    // including exclusions, still constrain that union with AND.
+    let membershipMatches = null;
     for (const filter of filters) {
-      if (!matchesSingleFilter(rowData, filter)) return false;
+      if (filter.op === "in" && getFieldType(filter.field) !== "number") {
+        if (!membershipMatches) membershipMatches = new Map();
+        if (!membershipMatches.get(filter.field)) {
+          membershipMatches.set(filter.field, matchesSingleFilter(rowData, filter));
+        }
+      } else if (!matchesSingleFilter(rowData, filter)) return false;
+    }
+    if (membershipMatches) {
+      for (const matched of membershipMatches.values()) if (!matched) return false;
     }
 
     return true;
@@ -845,7 +884,7 @@
 
   function applyAllTableFilters(options) {
     const immediatePlot = !!(options && options.immediatePlot);
-    if (!state.tabulatorInstance) return;
+    if (!state.tabulatorInstance || state.tabulatorInstance.initialized === false) return;
 
     const searchQuery = getSearchQuery().trim().toLowerCase();
     const filters = getCompleteFilters();
@@ -896,7 +935,7 @@
   }
 
   function applyColumnVisibilityState() {
-    if (!state.tabulatorInstance) return;
+    if (!state.tabulatorInstance || state.tabulatorInstance.initialized === false) return;
 
     const hidden = new Set(getHiddenColumns());
     const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
@@ -1102,7 +1141,8 @@
       [filterRows, columnsList, groupBySelect].some(function (element) {
         return element && element.contains(document.activeElement);
       });
-    if (!toolbarRoot || (toolbarRoot._plotsrvSchema !== toolbarSignature && !editingToolbar)) {
+    const newTable = toolbarRoot && toolbarRoot._plotsrvTable !== state.tabulatorInstance;
+    if (!toolbarRoot || newTable || (toolbarRoot._plotsrvSchema !== toolbarSignature && !editingToolbar)) {
       restoreToolbarInputs();
       renderGroupingControl();
       renderFilterRows();
@@ -1110,7 +1150,10 @@
       renderActiveFilters();
       syncFilterPanelUi();
       syncColumnsPanelUi();
-      if (toolbarRoot) toolbarRoot._plotsrvSchema = toolbarSignature;
+      if (toolbarRoot) {
+        toolbarRoot._plotsrvSchema = toolbarSignature;
+        toolbarRoot._plotsrvTable = state.tabulatorInstance;
+      }
     }
 
     if (input && !input.dataset.plotsrvBound) {
@@ -1144,7 +1187,10 @@
 
         if (input) input.value = "";
 
-        if (state.tabulatorInstance) {
+        if (state.tabulatorInstance && state.tabulatorInstance.initialized !== false) {
+          // Clear grouping before rebuilding columns. Reset only the view:
+          // replacing rows here can race with grouping and live arrivals.
+          applyTableGrouping();
           try {
             state.tabulatorInstance.clearFilter(true);
           } catch (e) {
@@ -1163,12 +1209,6 @@
             } catch (e) {
               // ignore
             }
-          }
-
-          try {
-            state.tabulatorInstance.replaceData(state.tableRows || []);
-          } catch (e) {
-            // ignore
           }
         }
 
@@ -1429,8 +1469,9 @@
     // table.  There is only one table surface per page, so this alias lets
     // search, filters, and column controls operate without duplicating their
     // state model or event bindings.
-    if (state.tabulatorInstance !== table) {
+    if (state.tableGroupingOwner !== table) {
       state.tableAppliedGrouping = undefined;
+      state.tableGroupingOwner = table;
     }
     state.tabulatorInstance = table;
     state.tableLastPayload = settings.payload || {};
@@ -1454,6 +1495,22 @@
     }
 
     bindTableToolbar();
+    // Tabulator builds asynchronously. Calling setGroupBy before tableBuilt
+    // can leave its display pipeline empty even though getData() has rows.
+    if (table.initialized === false && typeof table.on === "function") {
+      if (!table._plotsrvReadyBound) {
+        table._plotsrvReadyBound = true;
+        table.on("tableBuilt", function () {
+          if (state.tabulatorInstance !== table) return;
+          applyColumnVisibilityState();
+          applyTableGrouping();
+          applyAllTableFilters();
+          refreshTableStatus();
+          if (typeof core.configureTablePlotSurface === "function") core.configureTablePlotSurface();
+        });
+      }
+      return;
+    }
     applyTableGrouping();
     applyAllTableFilters();
     refreshTableStatus();
@@ -1466,6 +1523,7 @@
     const table = state.tabulatorInstance;
     state.tabulatorInstance = null;
     state.tableAppliedGrouping = undefined;
+    state.tableGroupingOwner = null;
 
     if (table && typeof table.destroy === "function") {
       try {
@@ -1490,6 +1548,7 @@
     }
 
     destroyMountedTable();
+    if (!state.tableUiState) loadTableUiState();
     const columns = buildColumnDefs(fields);
     const table = new Tabulator(grid, {
       data: rows,

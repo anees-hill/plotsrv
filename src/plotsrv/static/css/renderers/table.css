@@ -157,6 +157,15 @@
   color: var(--text);
 }
 
+.ps-table-filter-value--list {
+  resize: none;
+  height: 2rem;
+  min-height: 0;
+  overflow-y: auto;
+  font-family: inherit;
+  line-height: normal;
+}
+
 .ps-table-filter-remove {
   white-space: nowrap;
 }
