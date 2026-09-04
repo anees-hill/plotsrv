@@ -101,7 +101,7 @@ def test_table_plot_renderer_is_local_and_has_explicit_limits() -> None:
     assert "maxCategories" in renderer
     assert 'label: "Other"' in renderer
     assert "maxSeries" in renderer
-    assert "choose a bounded browser-side selection" in renderer
+    assert "Choose a selection for this plot only; the table stays unchanged" in renderer
     assert 'onPointLimitChoice("sample")' in renderer
     assert "Raw-table filters do not apply" in renderer
     assert 'settings.scopeKind === "summary"' in renderer

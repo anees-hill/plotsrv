@@ -102,6 +102,51 @@
     button.setAttribute("aria-pressed", pinned ? "true" : "false");
     button.setAttribute("aria-label", (pinned ? "Unpin" : "Pin") + " Plot controls while scrolling");
     button.title = (pinned ? "Unpin" : "Pin") + " Plot controls while scrolling";
+    syncPlotControlsLayout();
+  }
+
+  function controlsLayout() {
+    if (!state.tablePlotControlsLayout) {
+      try {
+        state.tablePlotControlsLayout = localStorage.getItem(plotControlsPinPreferenceKey() + ":layout") === "sidebar" ? "sidebar" : "toolbar";
+      } catch (e) { state.tablePlotControlsLayout = "toolbar"; }
+    }
+    return state.tablePlotControlsLayout;
+  }
+
+  function syncPlotControlsLayout() {
+    const panel = document.getElementById("table-plot-controls");
+    const workspace = document.getElementById("table-plot-workspace");
+    const control = document.getElementById("table-plot-layout-control");
+    const select = document.getElementById("table-plot-layout");
+    const pinned = plotControlsPinned();
+    const sidebar = pinned && controlsLayout() === "sidebar";
+    if (control) control.hidden = !pinned;
+    if (select) select.value = controlsLayout();
+    if (panel) panel.classList.toggle("is-sidebar", sidebar);
+    if (workspace) workspace.classList.toggle("is-sidebar", sidebar);
+  }
+
+  function syncPlotSummary() {
+    const summary = document.getElementById("table-plot-controls-summary");
+    if (!summary) return;
+    const prefs = preferences();
+    const parts = [prefs.type.charAt(0).toUpperCase() + prefs.type.slice(1)];
+    if (prefs.type === "bar") {
+      parts.push((prefs.aggregation === "count" ? "Count" : prefs.aggregation + " of " + prefs.valueField) + " by " + prefs.categoryField);
+      parts.push("Top " + prefs.categoryLimit);
+      parts.push({"value-desc": "High → low", "value-asc": "Low → high", "category-asc": "A → Z", "category-desc": "Z → A"}[prefs.sort]);
+      if (prefs.seriesField) parts.push(prefs.display);
+    } else if (prefs.type === "histogram") {
+      parts.push(prefs.histogramField, prefs.bins === "auto" ? "Auto bins" : prefs.bins + " bins");
+    } else {
+      parts.push(prefs.yField + " by " + prefs.xField);
+    }
+    if (prefs.seriesField && prefs.type !== "histogram") parts.push("Series: " + prefs.seriesField);
+    parts.push(paletteDefinition(prefs.palette).name + " palette");
+    if (prefs.source === "summary") parts.push("Summary windows");
+    summary.textContent = parts.filter(Boolean).join(" · ");
+    summary.title = summary.textContent;
   }
 
   function setPlotControlsPinned(pinned) {
@@ -138,6 +183,12 @@
     if (!panel || !content || !toggle) return;
     const collapsed = plotControlsCollapsed();
     content.hidden = collapsed;
+    const summary = document.getElementById("table-plot-controls-summary");
+    const edit = document.getElementById("table-plot-edit");
+    if (summary) summary.hidden = !collapsed;
+    if (edit) edit.hidden = !collapsed;
+    toggle.hidden = collapsed;
+    syncPlotSummary();
     if (panel.classList && typeof panel.classList.toggle === "function") {
       panel.classList.toggle("is-collapsed", collapsed);
     }
@@ -619,6 +670,7 @@
     if (yLabel) yLabel.value = prefs.yLabel;
     if (pointSelection) pointSelection.value = prefs.pointSelection;
     renderPaletteControl(prefs.palette);
+    syncPlotSummary();
     if (scopeNotice) {
       scopeNotice.textContent = prefs.source === "summary"
         ? "Derived summary plots use only the currently loaded aggregate windows; they are not source log rows and raw-table filters do not apply."
@@ -686,6 +738,27 @@
       showPoints: prefs.showPoints,
       legend: prefs.legend,
       pointSelection: prefs.pointSelection,
+      onDisableSeries: function () {
+        preferences().seriesField = "";
+        savePreferences();
+        renderControls();
+        refreshTablePlot();
+      },
+      onEditPlotField: function (field) {
+        setPlotControlsCollapsed(false);
+        const advanced = document.getElementById("table-plot-advanced");
+        if (advanced && (field === "source" || field === "point-selection")) advanced.open = true;
+        let target = document.getElementById("table-plot-" + field);
+        if (!target || !target.getClientRects().length) target = document.getElementById("table-plot-type");
+        if (target) { target.focus(); target.scrollIntoView({block: "nearest"}); }
+      },
+      onNarrowData: function () {
+        const toggle = document.getElementById("table-filters-toggle-btn");
+        if (!toggle) return;
+        if (toggle.getAttribute("aria-expanded") !== "true") toggle.click();
+        toggle.focus();
+        toggle.scrollIntoView({block: "nearest"});
+      },
       loadedRowCount: Array.isArray(state.tableRows) ? state.tableRows.length : 0,
       onResetFilters:
         typeof core.resetTableFilters === "function" &&
@@ -744,7 +817,7 @@
 
   function redrawTable() {
     const table = state.tabulatorInstance || state.streamTabulatorInstance;
-    if (!table || typeof table.redraw !== "function") return;
+    if (!table || table.initialized === false || typeof table.redraw !== "function") return;
     try {
       table.redraw(true);
     } catch (e) {
@@ -789,6 +862,8 @@
     if (!isPlot) cancelScheduledTablePlotRefresh();
     controls.hidden = !isPlot;
     output.hidden = !isPlot;
+    const workspace = document.getElementById("table-plot-workspace");
+    if (workspace) workspace.hidden = !isPlot;
     syncPlotControlsDisclosure();
     syncPlotControlsPin();
     syncSupportingTable(isPlot);
@@ -825,6 +900,23 @@
     const supportingToggle = document.getElementById("table-supporting-data-toggle");
     const plotControlsToggle = document.getElementById("table-plot-controls-toggle");
     const plotControlsPin = document.getElementById("table-plot-controls-pin");
+    const layoutSelect = document.getElementById("table-plot-layout");
+    const editPlot = document.getElementById("table-plot-edit");
+    if (layoutSelect && !layoutSelect.dataset.plotsrvBound) {
+      layoutSelect.addEventListener("change", function () {
+        state.tablePlotControlsLayout = layoutSelect.value === "sidebar" ? "sidebar" : "toolbar";
+        try { localStorage.setItem(plotControlsPinPreferenceKey() + ":layout", state.tablePlotControlsLayout); } catch (e) { /* Optional preference. */ }
+        syncPlotControlsLayout();
+      });
+      layoutSelect.dataset.plotsrvBound = "1";
+    }
+    if (editPlot && !editPlot.dataset.plotsrvBound) {
+      editPlot.addEventListener("click", function () {
+        setPlotControlsCollapsed(false);
+        document.getElementById("table-plot-type").focus();
+      });
+      editPlot.dataset.plotsrvBound = "1";
+    }
 
     if (!state.tablePlotThemeChangeBound) {
       window.addEventListener("plotsrv:themechange", function () {
@@ -861,6 +953,7 @@
     if (plotControlsToggle && !plotControlsToggle.dataset.plotsrvBound) {
       plotControlsToggle.addEventListener("click", function () {
         setPlotControlsCollapsed(!plotControlsCollapsed());
+        if (plotControlsCollapsed() && editPlot) editPlot.focus();
       });
       plotControlsToggle.dataset.plotsrvBound = "1";
     }
@@ -1068,6 +1161,7 @@
       state.tablePlotSupportingCollapsed = null;
       state.tablePlotControlsCollapsed = null;
       state.tablePlotControlsPinned = null;
+      state.tablePlotControlsLayout = null;
       state.tablePlotConfigured = false;
     }
 

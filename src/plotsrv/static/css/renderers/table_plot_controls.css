@@ -25,11 +25,11 @@
 .ps-table-plot-controls {
   position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  grid-template-areas: "identity content";
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "identity actions" "content content";
   align-items: start;
-  gap: 0.55rem;
-  padding: 0.72rem 5rem 0.72rem 0.8rem;
+  gap: 0.3rem 0.6rem;
+  padding: 0.4rem 0.65rem;
   border: 1px solid #ead7df;
   border-radius: 8px 8px 0 0;
   background: linear-gradient(180deg, #fcf7f9 0%, #f8f1f4 100%);
@@ -46,8 +46,8 @@
 }
 
 .ps-table-plot-controls.is-collapsed {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-areas: "identity";
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: "identity summary actions";
   align-items: center;
   padding-block: 0.38rem;
 }
@@ -60,7 +60,7 @@
   grid-area: content;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
+  gap: 0.4rem;
   min-width: 0;
 }
 
@@ -69,9 +69,7 @@
 }
 
 .ps-table-plot-controls__actions {
-  position: absolute;
-  top: 0.28rem;
-  right: 0.32rem;
+  grid-area: actions;
   display: flex;
   align-items: center;
   gap: 0.18rem;
@@ -114,7 +112,7 @@
 }
 
 .ps-table-plot-controls:not([hidden]) {
-  margin-bottom: -0.5rem;
+  margin-bottom: 0;
 }
 
 .ps-table-plot-controls.is-pinned:not([hidden]) {
@@ -139,21 +137,15 @@
 }
 
 .ps-table-plot-controls__fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 15rem));
+  display: flex;
   align-items: end;
   flex-wrap: wrap;
-  gap: 0.65rem;
+  gap: 0.4rem 0.55rem;
 }
 
 /* Author display rules must not override the native hidden attribute. */
 .ps-table-plot-controls [hidden] {
   display: none !important;
-}
-
-.ps-table-plot-controls__fields--setup {
-  padding-bottom: 0.65rem;
-  border-bottom: 1px solid var(--border);
 }
 
 .ps-table-plot-control--type > span {
@@ -170,14 +162,16 @@
 .ps-table-plot-control {
   display: flex;
   flex-direction: column;
-  gap: 0.28rem;
-  min-width: 11rem;
+  gap: 0.15rem;
+  flex: 1 1 8rem;
+  min-width: 0;
+  max-width: 14rem;
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: 0.76rem;
 }
 
 .ps-table-plot-control--compact {
-  min-width: 8rem;
+  flex-basis: 6rem;
 }
 
 .ps-table-plot-help {
@@ -193,7 +187,7 @@
   font-style: normal;
   font-weight: 700;
   line-height: 1;
-  cursor: help;
+  cursor: default;
   place-items: center;
 }
 
@@ -215,6 +209,7 @@
   font-weight: 400;
   line-height: 1.35;
   opacity: 0;
+  display: none;
   pointer-events: none;
   transform: translate(-50%, 0.2rem);
   transition: opacity 100ms ease, transform 100ms ease;
@@ -223,6 +218,7 @@
 .ps-table-plot-help:hover::after,
 .ps-table-plot-help:focus-visible::after {
   opacity: 1;
+  display: block;
   transform: translate(-50%, 0);
 }
 
@@ -232,7 +228,7 @@
 }
 
 .ps-table-plot-controls__fields--secondary {
-  padding-top: 0.55rem;
+  padding-top: 0.4rem;
   border-top: 1px solid var(--border);
 }
 
@@ -349,8 +345,7 @@
 }
 
 .ps-table-plot-advanced {
-  border-top: 1px solid var(--border);
-  padding-top: 0.45rem;
+  display: contents;
 }
 
 .ps-table-plot-advanced summary {
@@ -359,6 +354,8 @@
   font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
+  align-self: end;
+  padding: 0.4rem 0;
 }
 
 .ps-table-plot-advanced__fields {
@@ -367,7 +364,13 @@
   align-items: end;
   flex-wrap: wrap;
   gap: 0.65rem;
-  padding-top: 0.55rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  flex: 1 0 100%;
+}
+
+.ps-table-plot-advanced:not([open]) > .ps-table-plot-advanced__fields {
+  display: none !important;
 }
 
 .ps-table-plot-check {
@@ -386,6 +389,9 @@
 .ps-table-plot-control .ps-table-select {
   min-width: 0;
   width: 100%;
+  height: 30px;
+  padding: 0.25rem 0.45rem;
+  font-size: 0.82rem;
 }
 
 .ps-table-plot-control .ps-table-input {
@@ -398,6 +404,102 @@
   color: var(--text);
   font-size: 0.86rem;
   line-height: 1.4;
+  grid-column: 1 / -1;
+}
+
+.ps-table-plot-workspace {
+  min-width: 0;
+  container-type: inline-size;
+}
+
+.ps-table-plot-controls__summary {
+  grid-area: summary;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.ps-table-plot-layout {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.ps-table-plot-layout select {
+  max-width: 7rem;
+  padding: 0.2rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--ps-surface-raised);
+  color: var(--text);
+  font: inherit;
+}
+
+#table-plot-edit {
+  min-height: 0;
+  padding: 0.25rem 0.45rem;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+/* One DOM component; only its grid placement changes when pinned. */
+.ps-table-plot-workspace.is-sidebar {
+  display: grid;
+  grid-template-columns: minmax(0, 260px) minmax(0, 1fr);
+  align-items: start;
+  gap: 0.65rem;
+}
+
+.ps-table-plot-workspace[hidden] {
+  display: none;
+}
+
+@container (min-width: 850px) {
+  .ps-table-plot-controls.is-sidebar {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "identity" "actions" "content";
+    max-height: calc(100dvh - 1rem);
+    overflow-y: auto;
+  }
+  .ps-table-plot-controls.is-sidebar.is-collapsed {
+    grid-template-areas: "identity" "summary" "actions";
+  }
+  .is-sidebar .ps-table-plot-controls__fields,
+  .is-sidebar .ps-table-plot-advanced__fields {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .is-sidebar .ps-table-plot-control {
+    flex: 0 0 auto;
+    max-width: none;
+  }
+  .is-sidebar .ps-table-plot-advanced__fields {
+    flex: 0 0 auto;
+  }
+  .is-sidebar .ps-table-plot-controls__summary {
+    white-space: normal;
+  }
+  .is-sidebar .ps-table-plot-controls__actions {
+    flex-wrap: wrap;
+  }
+  .is-sidebar .ps-table-plot-advanced > summary {
+    align-self: start;
+  }
+}
+
+@container (max-width: 849px) {
+  .ps-table-plot-controls.is-sidebar {
+    grid-column: 1 / -1;
+  }
+  .ps-table-plot-controls.is-sidebar + .ps-table-plot-root {
+    grid-column: 1 / -1;
+  }
 }
 
 .ps-table-plot-root {
@@ -469,7 +571,7 @@
   }
 
   .ps-table-plot-control {
-    flex: 1 1 100%;
+    flex: 1 1 8rem;
   }
 
   .ps-table-plot-advanced__fields {

@@ -204,6 +204,11 @@
   min-height: 2rem;
 }
 
+.ps-table-plot__notice-actions > .ps-table-plot__notice-action:first-child {
+  border-color: var(--muted);
+  font-weight: 600;
+}
+
 @media (max-width: 640px) {
   .ps-table-plot {
     padding: 0.65rem;

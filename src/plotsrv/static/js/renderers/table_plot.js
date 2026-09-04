@@ -73,7 +73,7 @@
     return {kind: "value", key: typeof value + ":" + String(value), label: String(value)};
   }
   function rowsFor(settings) {
-    if (Array.isArray(settings.rows)) return settings.rows.slice();
+    if (Array.isArray(settings.rows)) return settings.rows;
     if (typeof core.getCurrentFilteredLoadedRows === "function") {
       const rows = core.getCurrentFilteredLoadedRows();
       if (Array.isArray(rows)) return rows;
@@ -94,27 +94,45 @@
     return parts.length ? "Excluded " + parts.join(" and ") + "." : "";
   }
   function notice(container, reason, detail, settings, rowCount, actions) {
+    const titles = {series_limit: "Too many series to display clearly", point_limit: "Choose how to display these points", source_limit: "Narrow the data to build this plot"};
+    const availableActions = (actions || []).filter(function (action) { return action && typeof action.onClick === "function"; });
+    const signature = JSON.stringify([reason, availableActions.map(function (action) { return action.label; })]);
+    const previous = container._plotsrvNotice;
+    // Keep focused buttons alive across stream refreshes, but update their callbacks.
+    if (previous && previous.root.parentNode === container && previous.signature === signature) {
+      previous.detail.textContent = detail;
+      previous.scope.textContent = scopeText(settings, rowCount, 0);
+      previous.buttons.forEach(function (button, index) { button._plotsrvAction = availableActions[index].onClick; });
+      return {ok: false, reason: reason, rowCount: rowCount, plottedCount: 0};
+    }
     clear(container);
     const root = html("section", "ps-table-plot__notice" + (reason === "filtered_empty" ? "" : " ps-table-plot__notice--refused"));
     root.dataset.plotState = "refused";
-    root.appendChild(html("h2", "ps-table-plot__notice-title", reason === "filtered_empty" ? "No matching data" : "Plot not rendered"));
-    root.appendChild(html("p", "ps-table-plot__notice-detail", detail));
-    if (Array.isArray(actions) && actions.length) {
+    root.appendChild(html("h2", "ps-table-plot__notice-title", titles[reason] || (reason === "filtered_empty" ? "No matching data" : "Plot not rendered")));
+    const detailNode = html("p", "ps-table-plot__notice-detail", detail);
+    root.appendChild(detailNode);
+    const buttons = [];
+    if (availableActions.length) {
       const actionRoot = html("div", "ps-table-plot__notice-actions");
-      actions.forEach(function (action) {
+      availableActions.forEach(function (action) {
         if (!action || typeof action.onClick !== "function") return;
         const button = html("button", "ps-btn ps-table-plot__notice-action", action.label);
         button.type = "button";
-        button.addEventListener("click", action.onClick);
+        button._plotsrvAction = action.onClick;
+        button.addEventListener("click", function () { button._plotsrvAction(); });
+        buttons.push(button);
         actionRoot.appendChild(button);
       });
       root.appendChild(actionRoot);
     }
-    root.appendChild(html("p", "ps-table-plot__scope", scopeText(settings, rowCount, 0)));
+    const scopeNode = html("p", "ps-table-plot__scope", scopeText(settings, rowCount, 0));
+    root.appendChild(scopeNode);
     container.appendChild(root);
+    container._plotsrvNotice = {root: root, signature: signature, detail: detailNode, scope: scopeNode, buttons: buttons};
     return {ok: false, reason: reason, rowCount: rowCount, plottedCount: 0};
   }
   function frame(container, type, automaticTitle, settings) {
+    container._plotsrvNotice = null;
     clear(container);
     const figure = html("figure", "ps-table-plot");
     figure.dataset.plotType = type;
@@ -189,8 +207,18 @@
   function seriesFor(rows, field) {
     if (!field) return [{key: "__all__", label: "All rows"}];
     const found = new Map();
-    rows.forEach(function (row) { const value = categoryValue(row ? row[field] : null); if (value.kind === "value" && !found.has(value.key)) found.set(value.key, value); });
+    for (const row of rows) {
+      const value = categoryValue(row ? row[field] : null);
+      if (value.kind === "value" && !found.has(value.key)) found.set(value.key, value);
+      if (found.size > TABLE_PLOT_LIMITS.maxSeries) break;
+    }
     return Array.from(found.values());
+  }
+  function seriesLimitNotice(container, settings, count) {
+    const actions = [];
+    if (typeof settings.onDisableSeries === "function") actions.push({label: "Turn Series off", onClick: settings.onDisableSeries});
+    if (typeof settings.onEditPlotField === "function") actions.push({label: "Choose another field", onClick: function () { settings.onEditPlotField("series"); }});
+    return notice(container, "series_limit", "The field “" + label(settings.seriesField) + "” exceeds the limit of " + TABLE_PLOT_LIMITS.maxSeries + " series. Choose how to continue; no series have been dropped or merged." + (settings.type === "line" ? " Turning Series off joins the groups into one line." : ""), settings, count, actions);
   }
   function legend(series, palette, position) {
     if (series.length <= 1) return null;
@@ -458,14 +486,19 @@
         : [{label: "Reset filters", onClick: settings.onResetFilters}];
       return notice(container, "no_rows", settings.scopeKind === "summary" ? "No derived summary windows are currently loaded. Raw-table filters do not apply to this source." : "No loaded rows pass the current filters.", settings, 0, resetActions);
     }
-    if (rows.length > TABLE_PLOT_LIMITS.maxSourceRows) return notice(container, "source_limit", "This plot has " + rows.length + " loaded values (limit " + TABLE_PLOT_LIMITS.maxSourceRows + "). Filter or narrow the source; no rows were sampled or plotted.", settings, rows.length);
+    if (rows.length > TABLE_PLOT_LIMITS.maxSourceRows) {
+      const actions = [];
+      if (settings.scopeKind !== "summary" && typeof settings.onNarrowData === "function") actions.push({label: "Adjust table filters", onClick: settings.onNarrowData});
+      if (typeof settings.onEditPlotField === "function") actions.push({label: "Review plot options", onClick: function () { settings.onEditPlotField("source"); }});
+      return notice(container, "source_limit", "This plot has " + rows.length + " loaded rows (limit " + TABLE_PLOT_LIMITS.maxSourceRows + "). Narrow the source before plotting. Reducing categories or sampling plotted points does not reduce this processing limit. No rows were sampled or plotted." + (settings.scopeKind === "summary" ? " Table filters do not apply to summary windows." : " Table filters also affect the supporting table."), settings, rows.length, actions);
+    }
     const type = String(settings.type || "bar").toLowerCase();
     const palette = paletteFor(settings);
     if (type === "bar") {
       if (!settings.categoryField) return notice(container, "missing_category_field", "Choose a categorical field for the bar chart.", settings, rows.length);
       if (settings.aggregation !== "count" && !settings.valueField) return notice(container, "missing_value_field", "Choose a numeric value field for this aggregation.", settings, rows.length);
       const series = seriesFor(rows, settings.seriesField);
-      if (series.length > TABLE_PLOT_LIMITS.maxSeries) return notice(container, "series_limit", "This field has " + series.length + " series (limit " + TABLE_PLOT_LIMITS.maxSeries + "). Filter the table or choose a lower-cardinality field; no series were merged.", settings, rows.length);
+      if (series.length > TABLE_PLOT_LIMITS.maxSeries) return seriesLimitNotice(container, settings, rows.length);
       const data = barData(rows, settings, series);
       if (!data.plotted) return notice(container, "no_valid_values", "No usable values were found. " + skipped(data.missing, data.invalid), settings, rows.length);
       const activeSeries = series.filter(function (group) {
@@ -491,7 +524,7 @@
     if (type !== "line" && type !== "scatter") return notice(container, "unknown_type", "Choose a bar, line, scatter, or histogram plot.", settings, rows.length);
     if (!settings.xField || !settings.yField) return notice(container, "missing_numeric_field", "Choose numeric or timestamp X and numeric Y fields for the " + type + " plot.", settings, rows.length);
     const series = seriesFor(rows, settings.seriesField);
-    if (series.length > TABLE_PLOT_LIMITS.maxSeries) return notice(container, "series_limit", "This field has " + series.length + " series (limit " + TABLE_PLOT_LIMITS.maxSeries + "). Filter the table or choose a lower-cardinality field; no series were merged.", settings, rows.length);
+    if (series.length > TABLE_PLOT_LIMITS.maxSeries) return seriesLimitNotice(container, settings, rows.length);
     let data = pointData(rows, settings, series);
     if (!data.points.length) return notice(container, "no_valid_points", "No usable point pairs were found. Check log-scale values and selected fields. " + skipped(data.missing, data.invalid), settings, rows.length);
     const originalPointCount = data.points.length;
@@ -506,7 +539,7 @@
             {label: "Plot latest " + TABLE_PLOT_LIMITS.maxPoints, onClick: function () { settings.onPointLimitChoice("latest"); }},
           ]
         : [];
-      return notice(container, "point_limit", "This " + type + " plot has " + originalPointCount + " valid points (limit " + TABLE_PLOT_LIMITS.maxPoints + "). Filter the table or choose a bounded browser-side selection.", settings, rows.length, actions);
+      return notice(container, "point_limit", "This " + type + " plot has " + originalPointCount + " valid points (limit " + TABLE_PLOT_LIMITS.maxPoints + "). Choose a selection for this plot only; the table stays unchanged. Selections use loaded row order, and may omit rare events. Your choice also applies to future updates.", settings, rows.length, actions);
     }
     if (originalPointCount > TABLE_PLOT_LIMITS.maxPoints) {
       data = limitedPointData(data, TABLE_PLOT_LIMITS.maxPoints, pointSelection);
@@ -518,6 +551,12 @@
       ? "Showing " + data.points.length + " of " + data.sampledFrom + " valid points using " + (data.selectionMode === "sample" ? "an even sample" : data.selectionMode === "first" ? "the first values" : "the latest values") + "."
       : "";
     summary(figure, [selectionDetail, skipped(data.missing, data.invalid)].filter(Boolean).join(" "), scope);
+    if (selectionDetail && typeof settings.onEditPlotField === "function") {
+      const change = html("button", "ps-btn ps-table-plot__notice-action", "Change point selection");
+      change.type = "button";
+      change.addEventListener("click", function () { settings.onEditPlotField("point-selection"); });
+      figure.appendChild(change);
+    }
     return {ok: true, type: type, rowCount: rows.length, plottedCount: data.points.length, sampledFrom: data.sampledFrom || null, pointSelection: data.selectionMode || null, seriesCount: data.groups.length, scope: scope};
   }
 

@@ -108,7 +108,7 @@ def test_plot_controls_attach_to_plot_and_supporting_table_is_separate() -> None
     ).read_text(encoding="utf-8")
 
     assert ".ps-table-plot-controls:not([hidden])" in css
-    assert "margin-bottom: -0.5rem" in css
+    assert "margin-bottom: 0" in css
     assert ".ps-table-plot-controls + .ps-table-plot-root > .ps-table-plot" in css
     assert ".ps-table-supporting-data__header" in css
     assert ".ps-table-supporting-data.is-plot-support #table-data-surface" in css
@@ -141,8 +141,7 @@ def test_plot_controls_have_a_matching_remembered_disclosure() -> None:
     actions = css.split(
         ".ps-table-plot-controls__actions {", 1
     )[1].split("}", 1)[0]
-    assert "position: absolute" in actions
-    assert "right:" in actions
+    assert "grid-area: actions" in actions
     assert ".ps-table-plot-controls.is-pinned" in css
     assert 'panel.classList.toggle("is-pinned", pinned)' in controls
 

@@ -54,7 +54,16 @@ def render_table_plot_controls() -> str:
         <div class="ps-table-plot-controls__identity">
           <h2 id="table-plot-controls-title">Plot controls</h2>
         </div>
+        <p id="table-plot-controls-summary" class="ps-table-plot-controls__summary" hidden></p>
         <div class="ps-table-plot-controls__actions">
+          <label id="table-plot-layout-control" class="ps-table-plot-layout" hidden>
+            <span class="ps-table-plot-layout__label">Layout</span>
+            <select id="table-plot-layout" aria-label="Detached controls layout">
+              <option value="toolbar">Toolbar</option>
+              <option value="sidebar">Left sidebar</option>
+            </select>
+          </label>
+          <button id="table-plot-edit" class="ps-btn" type="button" aria-expanded="false" aria-controls="table-plot-controls-content" hidden>Edit plot</button>
           <button
             id="table-plot-controls-pin"
             class="ps-table-plot-controls__pin"
@@ -76,7 +85,7 @@ def render_table_plot_controls() -> str:
             title="Collapse Plot controls">−</button>
         </div>
         <div id="table-plot-controls-content" class="ps-table-plot-controls__content">
-          <div class="ps-table-plot-controls__fields ps-table-plot-controls__fields--setup">
+          <div class="ps-table-plot-controls__fields ps-table-plot-controls__fields--definition">
             <label class="ps-table-plot-control ps-table-plot-control--type">
               <span>Plot type</span>
               <select id="table-plot-type" class="ps-table-select">
@@ -86,15 +95,6 @@ def render_table_plot_controls() -> str:
                 <option value="histogram">Histogram</option>
               </select>
             </label>
-            <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
-              <span>Plot source</span>
-              <select id="table-plot-source" class="ps-table-select">
-                <option value="table">Filtered loaded rows</option>
-                <option value="summary">Derived summary windows</option>
-              </select>
-            </label>
-          </div>
-          <div class="ps-table-plot-controls__fields">
             <label id="table-plot-category-control" class="ps-table-plot-control">
               <span>Category <span class="ps-table-plot-help" tabindex="0" role="img" aria-label="Category: Groups rows by this field, creating one bar for each category." data-tooltip="Groups rows by this field, creating one bar for each category.">i</span></span>
               <select id="table-plot-category" class="ps-table-select"></select>
@@ -177,10 +177,16 @@ def render_table_plot_controls() -> str:
                 <option value="stacked">Stacked</option>
               </select>
             </label>
-          </div>
           <details id="table-plot-advanced" class="ps-table-plot-advanced">
             <summary>Advanced</summary>
             <div class="ps-table-plot-advanced__fields">
+              <label id="table-plot-source-control" class="ps-table-plot-control" hidden>
+                <span>Plot source</span>
+                <select id="table-plot-source" class="ps-table-select">
+                  <option value="table">Filtered loaded rows</option>
+                  <option value="summary">Derived summary windows</option>
+                </select>
+              </label>
               <label class="ps-table-plot-control"><span>Custom title</span><input id="table-plot-title" class="ps-table-input" type="text" placeholder="Automatic title"></label>
               <label class="ps-table-plot-control ps-table-plot-control--compact"><span>Title alignment</span><select id="table-plot-title-align" class="ps-table-select"><option value="left">Left</option><option value="center">Centred</option></select></label>
               <label class="ps-table-plot-control"><span>X-axis label</span><input id="table-plot-x-label" class="ps-table-input" type="text" placeholder="Automatic label"></label>
@@ -192,11 +198,12 @@ def render_table_plot_controls() -> str:
               <label id="table-plot-legend-control" class="ps-table-plot-control ps-table-plot-control--compact" hidden><span>Legend</span><select id="table-plot-legend" class="ps-table-select"><option value="top">Top</option><option value="right">Right</option><option value="bottom">Bottom</option></select></label>
               <label id="table-plot-point-selection-control" class="ps-table-plot-control"><span>When over point limit</span><select id="table-plot-point-selection" class="ps-table-select"><option value="refuse">Ask before plotting</option><option value="sample">Even sample</option><option value="first">First values</option><option value="latest">Latest values</option></select></label>
               <button id="table-plot-reset" class="ps-btn ps-table-plot-reset" type="button">Reset plot options</button>
+              <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
+                Plots use only loaded rows that pass the current browser filters.
+              </p>
             </div>
           </details>
-          <p id="table-plot-controls-scope" class="ps-table-plot-controls__scope">
-            Plots use only loaded rows that pass the current browser filters.
-          </p>
+          </div>
         </div>
       </section>
     """
@@ -271,7 +278,7 @@ def render_table_explorer(
 
         <div id="table-filter-panel" class="ps-table-filter-panel" hidden>
           <div class="ps-table-filter-panel__header">
-            <div class="ps-table-filter-panel__title">Filters</div>
+            <div class="ps-table-filter-panel__title" title="Is one of filters on the same column combine with OR. Different columns and all other conditions combine with AND.">Filters</div>
             <button id="table-filter-add-btn" type="button" class="ps-btn">
               Add filter
             </button>
@@ -293,9 +300,10 @@ def render_table_explorer(
 
         <div id="table-active-filters" class="ps-table-active-filters" hidden></div>
 
-        {render_table_plot_controls()}
-
-        <div id="table-plot-output" class="ps-table-plot-root" aria-live="polite" hidden></div>
+        <div id="table-plot-workspace" class="ps-table-plot-workspace">
+          {render_table_plot_controls()}
+          <div id="table-plot-output" class="ps-table-plot-root" aria-live="polite" hidden></div>
+        </div>
 
         <div id="table-supporting-data" class="ps-table-supporting-data">
           <header id="table-supporting-data-header" class="ps-table-supporting-data__header" hidden>
