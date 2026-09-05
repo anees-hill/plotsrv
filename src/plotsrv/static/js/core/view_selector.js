@@ -20,7 +20,7 @@
     markdown: "/static/logo_markdown.png",
     json: "/static/logo_json.png",
     python: "/static/logo_python.png",
-    traceback: "/static/logo_exception.png",
+    traceback: "/static/logo_python_traceback.png",
     exception: "/static/logo_exception.png",
     text: "/static/logo_txt.png",
     html: "/static/logo_html.png",

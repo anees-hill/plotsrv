@@ -25,7 +25,7 @@ _ICON_SRC = {
     "text": "/static/logo_txt.png",
     "markdown": "/static/logo_markdown.png",
     "html": "/static/logo_html.png",
-    "traceback": "/static/logo_exception.png",
+    "traceback": "/static/logo_python_traceback.png",
     "exception": "/static/logo_exception.png",  # legacy alias
 }
 
@@ -452,7 +452,7 @@ def _render_document_node(node: dict[str, Any]) -> str:
     children_html = "".join(f"<li>{_render_document_node(ch)}</li>" for ch in children)
 
     return f"""
-    <details open
+    <details {'open' if depth == 0 else ''}
              class="ps-json-node ps-json-node--{_escape_attr(value_kind)}"
              data-json-depth="{depth}"
              data-json-expandable="1"
@@ -511,7 +511,7 @@ def _render_simple_document_node(node: dict[str, Any]) -> str:
     )
 
     return f"""
-    <details open class="json-node json-node--simple"
+    <details {'open' if depth == 0 else ''} class="json-node json-node--simple"
              data-json-depth="{depth}"
              data-json-path="{_escape_attr(path)}">
       <summary class="json-summaryline">{summaryline}</summary>

@@ -25,7 +25,7 @@ IconKey = Literal[
     "image",
     "html",
     "traceback",
-    "exception",  # legacy alias
+    "exception",
 ]
 
 MAX_DATA_ACTIVITY_EVENTS = 256
@@ -132,6 +132,9 @@ def _icon_for_view_kind(
 
         if ak in ("traceback", "exception"):
             return "traceback"
+
+        if ak in ("watch_error", "publish_error"):
+            return "exception"
 
         return "python"
 
