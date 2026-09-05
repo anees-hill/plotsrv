@@ -101,6 +101,10 @@ class StreamConflictError(StreamStateError):
     """A session or ordered batch conflicts with current stream state."""
 
 
+class RetiredStreamSessionError(StreamConflictError):
+    """A stored observation cannot be reused as a live transport epoch."""
+
+
 @dataclass(frozen=True, slots=True)
 class RawRetentionPolicy:
     """All hard limits that apply simultaneously to recent source records."""
@@ -474,6 +478,8 @@ class StreamRegistry:
         """Register a logical view, idempotently for its current session."""
         with self._lock:
             now_monotonic = self._monotonic_clock()
+            if registration.session_id in self._historical_streams.get(registration.view_id, {}):
+                raise RetiredStreamSessionError("stored stream session requires a new transport epoch")
             current = self._streams.get(registration.view_id)
             if current is not None:
                 self._expire_state_if_needed(current, now_monotonic)

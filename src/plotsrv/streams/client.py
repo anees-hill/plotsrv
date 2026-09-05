@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 import threading
 import time
 import urllib.request
@@ -86,7 +87,9 @@ class StreamClient:
         self._heartbeat_stop = threading.Event()
         self._started = False
         self._start_lock = threading.Lock()
-        self._append_lock = threading.Lock()
+        self._append_lock = threading.RLock()
+        self._server_instance_id: str | None = None
+        self.on_session_changed: Callable[[str], None] | None = None
         # Source status and health are cumulative observations.  A heartbeat
         # and an append run on separate worker paths, so keep snapshot capture
         # and its HTTP delivery together: a delayed older snapshot must not
@@ -321,6 +324,14 @@ class StreamClient:
     def _ensure_registered(
         self, *, timeout_s: float | None = None, force: bool = False
     ) -> bool:
+        # Registration may be driven by either the heartbeat or the follower.
+        # Serialize any receiver/session transition with pending-batch state.
+        with self._append_lock:
+            return self._register_locked(timeout_s=timeout_s, force=force)
+
+    def _register_locked(
+        self, *, timeout_s: float | None = None, force: bool = False
+    ) -> bool:
         """Register the stable session once the retry window permits it."""
         if self._registered.is_set() or self._is_closed():
             return True
@@ -344,11 +355,26 @@ class StreamClient:
                         "section": self.registration.section,
                         "client_id": self.registration.client_id,
                         "session_id": self.registration.session_id,
+                        "server_instance_id": self._server_instance_id,
                         **self._source_status_payload(),
                         **self._source_health_payload(),
                     },
                     timeout_s=timeout_s,
                 )
+            receiver = response.get("server_instance_id")
+            if response.get("restart_required") is True:
+                if not isinstance(receiver, str) or not receiver or len(receiver) > 512:
+                    raise RuntimeError("stream receiver identity was invalid")
+                self.registration = replace(self.registration, session_id=uuid4().hex)
+                self._server_instance_id = receiver
+                self._next_batch_sequence = 0
+                if self._pending_batch_id is not None:
+                    self._pending_batch_sequence = 0
+                if self.on_session_changed is not None:
+                    self.on_session_changed(self.registration.session_id)
+                # One request per attempt: retry the new registration on the
+                # next follower/heartbeat tick, without recursive reconnects.
+                return False
             next_sequence = response.get("next_batch_sequence")
             if (
                 not response.get("ok")
@@ -363,6 +389,8 @@ class StreamClient:
             # acknowledgement.
             if self._pending_batch_id is None:
                 self._next_batch_sequence = next_sequence
+            if isinstance(receiver, str) and receiver:
+                self._server_instance_id = receiver
             self._registered.set()
             self._reset_retry()
             return True

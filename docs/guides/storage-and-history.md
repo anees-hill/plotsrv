@@ -153,6 +153,15 @@ stream view's **Run** selector without requiring a server restart. Retained
 runs are restored there after later restarts as well. A stored run is marked as
 historical and is never presented as a live producer.
 
+If the server restarts while a producer is still observing its source, the
+producer reconnects using a new transport session. Its logical view and client
+identity stay the same, and its pending batch is retried in the new session.
+The observer continues from its acknowledged source position; it does not
+replay the whole log. If an acknowledgement was lost just before the restart,
+that batch may appear in both the old stored session and the new one. Retries
+within the same server session remain deduplicated. `StreamHandle.session_id`
+reflects the current transport session after reconnection.
+
 Raw source rows remain opt-in. They can be retained only with a finite raw
 block policy; the history view shows those explicitly retained segments, not a
 source-log replay.

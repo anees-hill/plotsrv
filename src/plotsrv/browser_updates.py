@@ -10,6 +10,7 @@ import asyncio
 from dataclasses import dataclass
 import threading
 from typing import Any, Hashable
+from uuid import uuid4
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +49,7 @@ class BrowserUpdateHub:
         self._lock = threading.RLock()
         self._max_subscribers = max_subscribers
         self._revision = 0
+        self.instance_id = uuid4().hex
         self._view_revisions: dict[str, int] = {}
         self._catalogue_revision = 0
         self._latest: dict[str, BrowserUpdate] = {}
@@ -89,6 +91,17 @@ class BrowserUpdateHub:
             )
         self._offer_to(subscribers, event)
         return event
+
+    def reconnect_update(self, view_id: str) -> BrowserUpdate:
+        """Capture one coherent revision/kind snapshot for the SSE handshake."""
+        with self._lock:
+            latest = self._latest.get(view_id)
+            return BrowserUpdate(
+                revision=self.current_revision(view_id),
+                view_id=view_id,
+                change_type="reconnect",
+                metadata=dict(latest.metadata) if latest is not None else {},
+            )
 
     def publish_catalogue(self) -> BrowserUpdate:
         with self._lock:

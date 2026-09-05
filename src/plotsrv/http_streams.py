@@ -33,6 +33,7 @@ from .streams.models import (
     normalize_checkpoint_identifier,
 )
 from .streams.server_state import (
+    RetiredStreamSessionError,
     StreamConflictError,
     StreamStateError,
     UnknownStreamError,
@@ -449,11 +450,29 @@ async def register_stream(request: Request) -> dict[str, Any]:
         source_status=_source_status(payload),
         source_health=_source_health(payload),
     )
+    receiver = (
+        _required_stream_identity(payload, "server_instance_id")
+        if payload.get("server_instance_id") is not None else None
+    )
+    if receiver is not None and receiver != browser_update_hub.instance_id:
+        # Do not register the obsolete session or overwrite its durable
+        # history. The producer retains its batch and opens a fresh epoch.
+        return {
+            "ok": False,
+            "restart_required": True,
+            "server_instance_id": browser_update_hub.instance_id,
+        }
     previous_session_id = stream_registry.current_session_id(
         view_id=registration.view_id
     )
     try:
         state = stream_registry.register(registration)
+    except RetiredStreamSessionError:
+        return {
+            "ok": False,
+            "restart_required": True,
+            "server_instance_id": browser_update_hub.instance_id,
+        }
     except StreamStateError as error:
         _raise_state_error(error)
 
@@ -481,6 +500,7 @@ async def register_stream(request: Request) -> dict[str, Any]:
         "client_id": registration.client_id,
         "session_id": registration.session_id,
         "next_batch_sequence": state.next_batch_sequence,
+        "server_instance_id": browser_update_hub.instance_id,
     }
 
 

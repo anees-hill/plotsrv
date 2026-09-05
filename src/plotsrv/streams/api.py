@@ -262,6 +262,10 @@ def stream_view(
         _follower=follower,
         _client=client,
     )
+    # The logical view/client remain stable across receiver restarts, while a
+    # new transport session keeps stored runs and browser cursors distinct.
+    if isinstance(client, StreamClient):
+        client.on_session_changed = lambda session_id: setattr(handle, "session_id", session_id)
     client.start()
     follower.start()
     _stream_exit_cleanup_manager.register(handle)
