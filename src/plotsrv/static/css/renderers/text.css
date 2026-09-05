@@ -143,7 +143,7 @@
   color: #8d4253;
   font-size: 0.78rem;
   font-weight: 600;
-  cursor: help;
+  cursor: default;
 }
 
 .ps-text-reverse-indicator[hidden] {

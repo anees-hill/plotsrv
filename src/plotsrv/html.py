@@ -10,13 +10,46 @@ from .store import ViewMeta
 from .table_explorer_markup import render_table_explorer
 from .ui_assets import get_ui_assets
 from .ui_config import (
-    DEFAULT_LOGO_URL,
-    DEFAULT_PAGE_TITLE,
     UISettings,
     get_ui_settings,
 )
 
 ViewKind = Literal["none", "plot", "table", "artifact", "stream"]
+
+
+def _stream_insights_help(panel: str) -> str:
+    """Explanations of server observations, not client-side anomaly detection."""
+    titles = {"since": "Since last visit", "noteworthy": "Noteworthy", "history": "History"}
+    copy = {
+        "since": """
+          <p>Compares the stream’s current cumulative counters with a compatible checkpoint saved by this browser for this view. It reports changes in accepted records, source severities and noteworthy observations, not a replay of every log entry.</p>
+          <p>The comparison baseline stays fixed during this visit while newer checkpoints are saved in local storage. Refreshing or returning can start a new comparison from the most recently saved checkpoint—not necessarily the moment you closed the page.</p>
+          <p>A first visit, cleared or unavailable browser storage, a new session, or incompatible stream state can prevent comparison. Continuity warnings mean the source may have gaps. Table filters do not change these counters.</p>
+        """,
+        "noteworthy": """
+          <p>A bounded, server-selected list for this stream session—not anomaly detection, a significance test, or a complete log. One source record can qualify more than once.</p>
+          <p><strong>Source severity.</strong> Checks top-level <code>severity</code>, then <code>level</code>, taking the first recognised value. Accepted values are <code>warning</code> (<code>warn</code> also matches), <code>error</code>, <code>critical</code>, <code>fatal</code>, <code>alert</code> and <code>emergency</code>. Matching ignores letter case, but not whitespace. Nested fields and words in message text do not count. A warning is the producer’s label, not plotsrv deciding the reading is rare.</p>
+          <p><strong>First appearances.</strong> Retains a new string, boolean or null value in <code>level, severity, status, state, kind, event, type</code>. Numeric values do not qualify here. Tracking is bounded per field (defaults: 16 distinct values and 128 UTF-8 bytes per JSON-encoded value); further or oversized values are not tracked.</p>
+          <p><strong>New numeric lows/highs.</strong> Only finite JSON numbers in <code>duration, duration_ms, elapsed_ms, latency, latency_ms, size_bytes, payload_bytes, request_bytes, response_bytes, count, rate, temperature</code> qualify. The first value establishes the baseline; only a strictly lower or higher later value creates an item. Numeric strings and booleans do not qualify. Arbitrary fields such as <code>value</code> are not automatically checked for outliers.</p>
+          <p><strong>System notices.</strong> Separate plotsrv observations describe source continuity changes or uncertainty, reported rejected records, rejection-counter resets and schema changes. They are not original log rows.</p>
+          <p><strong>Retention and flaws.</strong> The default cap is 64 items (configurable). When full, ordinary first-appearance/extrema items are removed before system notices, then source-severity items; the oldest item within a priority is removed first. All recognised severities have equal priority: frequent warnings can displace older errors. This is not a frequency-ranked or complete incident list.</p>
+          <p><strong>Refresh and tips.</strong> Refreshing the page, table filters and pausing the browser display do not reset server classification. A new stream session starts fresh tracking. Server restarts and historical availability depend on storage and retention; without storage this is not a durable archive. Times show when plotsrv observed an item, not necessarily the producer’s event time. Time-ago labels update when the list renders.</p>
+          <p>Use source severity deliberately and set meaningful thresholds in your producer. For example, a one-SD threshold flags about 42% of a uniform distribution’s readings, so it is not a rare-event threshold. Inspect Technical details for the original record and why it was retained; use the source log for a complete audit.</p>
+        """,
+        "history": """
+          <p>Shows derived summaries of older observations as they leave the recent raw-data window. These are aggregate windows, not snapshots or recoverable copies of individual rows.</p>
+          <p>plotsrv builds bounded summaries on the server, including numeric counts, totals, minima/maxima and means, and bounded categorical counts. Older windows may be combined into coarser time ranges. Field/category limits mean not every field or distinct value is represented.</p>
+          <p>Ranges use server observation time, which can differ from timestamps inside your records. Table search and filters do not recalculate these summaries. An empty panel can simply mean that no recent rows have aged into history yet.</p>
+          <p>Refreshing does not clear server summaries. Live in-memory history can exist with storage off, but surviving server restarts and browsing older sessions require retained storage. History remains bounded and is not a substitute for your original logs.</p>
+        """,
+    }
+    title = titles[panel]
+    return f'''<details class="ps-stream-insights-help">
+      <summary aria-label="Help: {title}">?</summary>
+      <div class="ps-stream-insights-help__body" role="region" aria-label="About {title}" tabindex="0">
+        <strong>About {title}</strong>{copy[panel]}
+      </div>
+    </details>'''
 
 
 def _plotsrv_version() -> str:
@@ -69,6 +102,7 @@ def render_index(
     view_menu_revision: int = 0,
     browser_update_revision: int = 0,
     table_plot_max_points: int = 5_000,
+    file_backed: bool = False,
 ) -> str:
     """
     Return the HTML for the main viewer page.
@@ -219,8 +253,8 @@ def render_index(
         "markdown": "/static/logo_markdown.png",
         "json": "/static/logo_json.png",
         "python": "/static/logo_python.png",
-        "traceback": "/static/logo_exception.png",
-        "exception": "/static/logo_exception.png",  # legacy alias
+        "traceback": "/static/logo_python_traceback.png",
+        "exception": "/static/logo_exception.png",
         "text": "/static/logo_txt.png",
         "html": "/static/logo_html.png",
     }
@@ -583,7 +617,10 @@ def render_index(
                   aria-label="Pause stream"
                   title="Pause stream"
                   disabled>
-                  <span class="ps-stream-pause-button__icon" aria-hidden="true">Ⅱ</span>
+                  <svg class="ps-stream-pause-button__icon" aria-hidden="true" viewBox="0 0 16 16" fill="currentColor">
+                    <path class="ps-stream-pause-glyph" d="M4 3h2v10H4zm6 0h2v10h-2z" />
+                    <path class="ps-stream-resume-glyph" d="M4.5 2.5 13 8l-8.5 5.5z" />
+                  </svg>
                   <span id="stream-pause-label">Pause stream</span>
                 </button>
 
@@ -594,7 +631,7 @@ def render_index(
                   aria-haspopup="dialog"
                   aria-controls="stream-insights-drawer"
                   aria-expanded="false">
-                  <span aria-hidden="true">▥</span>
+                  <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 2v12h12M5 11V7m4 4V3m4 8V5" /></svg>
                   <span>Insights</span>
                   <span aria-hidden="true">›</span>
                 </button>
@@ -687,7 +724,7 @@ def render_index(
                   data-stream-insights-panel="since">
                   <div class="ps-stream-returning__header">
                     <div>
-                      <h3 id="stream-since-visit-title" class="ps-stream-returning__title">Since last visit</h3>
+                      <div class="ps-stream-insights-heading"><h3 id="stream-since-visit-title" class="ps-stream-returning__title">Since last visit</h3>{_stream_insights_help("since")}</div>
                       <p class="ps-stream-returning__notice">
                         A simple comparison with this browser’s previous compatible visit.
                       </p>
@@ -709,7 +746,7 @@ def render_index(
                   hidden>
                   <div class="ps-stream-noteworthy__header">
                     <div>
-                      <h3 id="stream-noteworthy-title" class="ps-stream-noteworthy__title">Noteworthy</h3>
+                      <div class="ps-stream-insights-heading"><h3 id="stream-noteworthy-title" class="ps-stream-noteworthy__title">Noteworthy</h3>{_stream_insights_help("noteworthy")}</div>
                       <p class="ps-stream-noteworthy__notice">
                         A bounded recent selection of deterministic observations, not a complete event history.
                       </p>
@@ -731,7 +768,7 @@ def render_index(
                   hidden>
                   <div class="ps-stream-summary__header">
                     <div>
-                      <h3 id="stream-summary-title" class="ps-stream-summary__title">History</h3>
+                      <div class="ps-stream-insights-heading"><h3 id="stream-summary-title" class="ps-stream-summary__title">History</h3>{_stream_insights_help("history")}</div>
                       <p class="ps-stream-summary__notice">
                         Older observations may be summarised as they leave the recent-data window. These summaries are not original rows and do not use the table’s filters.
                       </p>
@@ -933,36 +970,6 @@ def render_index(
         """
 
     plotsrv_version = _escape_html(_plotsrv_version())
-    dashboard_header_text = str(getattr(ui, "header_text", "") or "").strip()
-    dashboard_page_title = str(getattr(ui, "page_title", "") or "").strip()
-    dashboard_name = dashboard_header_text or (
-        dashboard_page_title
-        if dashboard_page_title and dashboard_page_title != DEFAULT_PAGE_TITLE
-        else "This dashboard"
-    )
-    dashboard_title_detail = ""
-    if (
-        dashboard_page_title
-        and dashboard_page_title != DEFAULT_PAGE_TITLE
-        and dashboard_page_title != dashboard_name
-    ):
-        dashboard_title_detail = (
-            '<p class="ps-settings-about__detail">'
-            '<span>Browser title</span>'
-            f"{_escape_html(dashboard_page_title)}"
-            "</p>"
-        )
-
-    dashboard_logo_html = ""
-    configured_dashboard_logo = str(getattr(ui, "logo_url", "") or "").strip()
-    if configured_dashboard_logo and configured_dashboard_logo != DEFAULT_LOGO_URL:
-        safe_dashboard_logo = _safe_url_attr(configured_dashboard_logo)
-        if safe_dashboard_logo:
-            dashboard_logo_html = (
-                '<img class="ps-settings-about__dashboard-logo" '
-                f'src="{safe_dashboard_logo}" alt="" loading="lazy" />'
-            )
-
     settings_html = f"""
       <section
         id="settings-page"
@@ -973,11 +980,10 @@ def render_index(
         aria-describedby="settings-intro"
         tabindex="-1"
         hidden>
-        <header class="ps-settings-page__header">
-          <div>
-            <p class="ps-settings-page__eyebrow">plotsrv</p>
-            <h1 id="settings-title">Settings</h1>
-            <p id="settings-intro">Personalise how this dashboard appears in your browser.</p>
+        <header class="header ps-header ps-settings-page__header" style="--ps-configured-header-fill:{header_fill};">
+          <div class="header-left ps-header__left">
+            <img src="{logo_url}" alt="plotsrv logo" class="header-logo ps-header__logo" />
+            <div class="header-title ps-header__title">{header_text}</div>
           </div>
           <button
             id="settings-close"
@@ -987,6 +993,10 @@ def render_index(
         </header>
 
         <main class="ps-settings-page__body">
+          <div class="ps-settings-page__intro">
+            <h1 id="settings-title">Settings</h1>
+            <p id="settings-intro">Personalise how this dashboard appears in your browser.</p>
+          </div>
           <section class="ps-settings-section" aria-labelledby="settings-appearance-title">
             <div class="ps-settings-section__intro">
               <h2 id="settings-appearance-title">Appearance</h2>
@@ -1039,18 +1049,8 @@ def render_index(
           <section class="ps-settings-section" aria-labelledby="settings-about-title">
             <div class="ps-settings-section__intro">
               <h2 id="settings-about-title">About this dashboard</h2>
-              <p>Dashboard identity and the software serving it.</p>
             </div>
             <div class="ps-settings-about">
-              <div class="ps-settings-about__card ps-settings-about__identity">
-                {dashboard_logo_html}
-                <div class="ps-settings-about__copy">
-                  <span class="ps-settings-about__label">Dashboard</span>
-                  <h3>{_escape_html(dashboard_name)}</h3>
-                  {dashboard_title_detail}
-                </div>
-              </div>
-
               <div class="ps-settings-about__card ps-settings-about__product">
                 <img
                   class="ps-settings-about__plotsrv-logo"
@@ -1060,7 +1060,7 @@ def render_index(
                   alt=""
                   loading="lazy" />
                 <div class="ps-settings-about__copy">
-                  <p class="ps-settings-about__powered">Powered by <strong>PlotSrv</strong></p>
+                  <p class="ps-settings-about__powered"><strong>plotsrv</strong></p>
                   <div class="ps-settings-about__product-meta">
                     <span>Version <code>{plotsrv_version}</code></span>
                     <a href="https://docs.plotsrv.com/" target="_blank" rel="noopener noreferrer">
@@ -1192,7 +1192,10 @@ def render_index(
       </header>
 
       <main class="page ps-page">
-        <section class="plot-card ps-card">
+        <section id="view-content" class="plot-card ps-card" data-loading-source="{'disk' if file_backed else 'ordinary'}">
+          <div id="content-loading" class="ps-content-loading" role="status" aria-live="polite" hidden>
+            <span class="ps-content-loading__label"><span class="ps-content-loading__spinner" aria-hidden="true"></span>{'Loading from disk…' if file_backed else 'Loading content…'}</span>
+          </div>
           {content_html}
         </section>
       </main>

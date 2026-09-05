@@ -62,6 +62,15 @@
     });
   }
 
+  function syncSettingsHeaderHeight() {
+    const header = document.getElementById("site-header");
+    const page = document.getElementById("settings-page");
+    if (header && page && !page.hidden) {
+      page.style.setProperty("--ps-settings-header-height", header.getBoundingClientRect().height + "px");
+      page.style.setProperty("--ps-settings-header-padding", window.getComputedStyle(header).padding);
+    }
+  }
+
   function openSettings() {
     const page = document.getElementById("settings-page");
     const trigger = document.getElementById("settings-button");
@@ -73,6 +82,7 @@
       document.documentElement.getAttribute("data-theme") || currentTheme()
     ));
     page.hidden = false;
+    syncSettingsHeaderHeight();
     if (document.body) document.body.classList.add("ps-settings-open");
     if (trigger) trigger.setAttribute("aria-expanded", "true");
     if (close) close.focus();
@@ -100,6 +110,12 @@
     if (!page || !trigger || page.dataset.plotsrvBound === "1") return;
 
     applyTheme(currentTheme(), {persist: false});
+    const header = document.getElementById("site-header");
+    if (header && typeof ResizeObserver === "function") {
+      new ResizeObserver(syncSettingsHeaderHeight).observe(header);
+    } else {
+      window.addEventListener("resize", syncSettingsHeaderHeight);
+    }
     trigger.addEventListener("click", openSettings);
     if (close) close.addEventListener("click", closeSettings);
     page.querySelectorAll("[data-theme-option]").forEach(function (button) {

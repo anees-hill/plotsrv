@@ -47,7 +47,7 @@ def test_noteworthy_uses_deterministic_human_names_and_safe_disclosures() -> Non
     stream = _read("js/renderers/stream.js")
 
     for title in (
-        'severity + " received"',
+        'severity + " · source"',
         'title: "New " + field + " appeared"',
         "A new low value was observed",
         "A new high value was observed",
@@ -277,9 +277,9 @@ core.renderStreamNoteworthy(noteworthy, {noteworthy_items: "9"});
 const cards = elements["stream-noteworthy-items"].children.filter(
   (child) => child.dataset && child.dataset.noteworthyKind
 );
-const titles = cards.map((card) => card.children[0].textContent);
+const titles = cards.map((card) => card.children.find(child => child.className === "ps-stream-noteworthy__item-title").textContent);
 for (const title of [
-  "Warning received", "New " + unsafeField + " appeared",
+  "Warning · source", "New " + unsafeField + " appeared",
   "A new low value was observed", "A new high value was observed",
   "Data structure changed", "Continuity may have been interrupted",
   "Some source records were skipped", "Noteworthy stream item",

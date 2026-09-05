@@ -121,7 +121,11 @@
 
 body[data-kind="stream"] .ps-header-status[data-status-tone="live"] .ps-header-status__dot::after {
   position: absolute;
-  inset: -4px;
+  top: 50%;
+  left: 50%;
+  width: 19px;
+  height: 19px;
+  box-sizing: border-box;
   border: 1px solid rgba(84, 166, 62, 0.72);
   border-radius: inherit;
   content: "";
@@ -131,20 +135,21 @@ body[data-kind="stream"] .ps-header-status[data-status-tone="live"] .ps-header-s
 @keyframes ps-stream-active-pulse {
   0%, 40% {
     opacity: 0;
-    transform: scale(0.72);
+    transform: translate(-50%, -50%) scale(0.72);
   }
   48% {
     opacity: 0.55;
   }
   78%, 100% {
     opacity: 0;
-    transform: scale(1.22);
+    transform: translate(-50%, -50%) scale(1.22);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   body[data-kind="stream"] .ps-header-status__dot::after {
     animation: none;
+    display: none;
   }
 }
 
@@ -482,7 +487,7 @@ body.ps-status-modal-open {
   border-radius: 5px;
   background: #48ad67;
   box-shadow: 0 1px 3px rgba(34, 112, 58, 0.18);
-  cursor: help;
+  cursor: default;
 }
 
 .ps-arrival-chart__range:hover,

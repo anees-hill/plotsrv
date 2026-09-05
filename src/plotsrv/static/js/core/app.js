@@ -12,6 +12,48 @@
   const state = window.PLOTSRV.state;
   const config = window.PLOTSRV.config;
 
+  let pendingContentLoads = 0;
+  let loadingTimer = null;
+  function beginContentLoading() {
+    const content = document.getElementById("view-content");
+    const indicator = document.getElementById("content-loading");
+    if (!content || !indicator || config.kind === "none" ||
+        (config.kind === "table" && !document.getElementById("table-grid")) ||
+        (config.kind === "stream" && content.dataset.contentReady === "true")) return function () {};
+    pendingContentLoads += 1;
+    if (pendingContentLoads === 1) {
+      content.setAttribute("aria-busy", "true");
+      loadingTimer = window.setTimeout(function () { indicator.hidden = false; }, 180);
+    }
+    let finished = false;
+    return function () {
+      if (finished) return;
+      finished = true;
+      pendingContentLoads -= 1;
+      if (pendingContentLoads) return;
+      window.clearTimeout(loadingTimer);
+      loadingTimer = null;
+      indicator.hidden = true;
+      content.setAttribute("aria-busy", "false");
+      content.dataset.contentReady = "true";
+    };
+  }
+
+  function waitForContentImage() {
+    const image = document.getElementById("plot");
+    if (!image || image.complete) return Promise.resolve();
+    return new Promise(function (resolve) {
+      function done() {
+        image.removeEventListener("load", done);
+        image.removeEventListener("error", done);
+        resolve();
+      }
+      image.addEventListener("load", done);
+      image.addEventListener("error", done);
+      if (image.complete) done();
+    });
+  }
+
   function refreshChromeAfterLoad() {
     if (typeof core.configureBottomBar === "function") {
       core.configureBottomBar();
@@ -80,10 +122,14 @@
       return Promise.resolve();
     }
 
-    const refreshPromise = Promise.resolve().then(reloadCurrentViewNow);
+    const finishLoading = beginContentLoading();
+    const refreshPromise = Promise.resolve().then(reloadCurrentViewNow).then(function (result) {
+      return waitForContentImage().then(function () { return result; });
+    });
     state.reloadCurrentViewPromise = refreshPromise;
 
     function clearInFlight() {
+      finishLoading();
       if (state.reloadCurrentViewPromise === refreshPromise) {
         state.reloadCurrentViewPromise = null;
       }
@@ -137,6 +183,7 @@
       core.bindUpdateNotifications();
     }
 
+    const finishInitialLoading = beginContentLoading();
     const loadHistoryPromise =
       typeof core.loadHistory === "function"
         ? core.loadHistory()
@@ -163,7 +210,7 @@
         if (typeof core.refreshStatus === "function") {
           core.refreshStatus();
         }
-      });
+      }).then(finishInitialLoading, finishInitialLoading);
   };
 
   document.addEventListener("DOMContentLoaded", function () {

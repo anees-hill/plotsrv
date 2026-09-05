@@ -230,27 +230,29 @@ body.ps-settings-open {
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.15rem max(1rem, calc((100vw - 1120px) / 2));
+  padding: var(--ps-settings-header-padding, 0.5rem 1rem);
+  box-sizing: border-box;
+  height: var(--ps-settings-header-height, auto);
   border-bottom: 1px solid var(--ps-border);
-  background: color-mix(in srgb, var(--ps-surface) 94%, transparent);
+  background: var(--ps-header-fill, var(--ps-configured-header-fill, var(--ps-surface)));
   backdrop-filter: blur(12px);
 }
 
-.ps-settings-page__header h1,
-.ps-settings-page__header p,
+.ps-settings-page__intro h1,
+.ps-settings-page__intro p,
 .ps-settings-section h2,
 .ps-settings-section p {
   margin: 0;
 }
 
-.ps-settings-page__header h1 {
+.ps-settings-page__intro h1 {
   margin-top: 0.05rem;
   color: var(--ps-text-strong);
   font-size: 1.45rem;
   line-height: 1.25;
 }
 
-.ps-settings-page__header #settings-intro {
+.ps-settings-page__intro #settings-intro {
   margin-top: 0.28rem;
   color: var(--ps-muted);
   font-size: 0.86rem;
@@ -814,6 +816,8 @@ body.ps-settings-open {
 
 .ps-table-filter-chip {
   color: var(--ps-text);
+  border-color: color-mix(in srgb, #d55970 40%, var(--ps-border));
+  background: color-mix(in srgb, #d55970 16%, var(--ps-surface-raised));
 }
 
 .ps-table-mode-switch .ps-btn.is-active {
@@ -1307,7 +1311,7 @@ body.ps-has-html-artifact .ps-artifact__meta {
   }
 
   .ps-settings-page__header {
-    padding: 0.85rem;
+    padding: var(--ps-settings-header-padding, 0.5rem 0.75rem);
   }
 
   .ps-settings-page__body {

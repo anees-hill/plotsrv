@@ -76,11 +76,55 @@
 }
 
 .plot-card {
+  position: relative;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 0.85rem 1rem 0.9rem;
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+
+#view-content[aria-busy="true"]:not([data-content-ready]) {
+  min-height: 12rem;
+}
+
+.ps-content-loading {
+  --ps-loading-colour: #cf647b;
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 4.5rem 0.75rem 0;
+  pointer-events: none;
+}
+.ps-content-loading[hidden] { display: none; }
+[data-loading-source="disk"] .ps-content-loading { --ps-loading-colour: #568f97; }
+[data-content-ready] .ps-content-loading { padding-top: 0.6rem; }
+.ps-content-loading__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--ps-surface-raised, var(--button-bg));
+  color: var(--muted);
+  font-size: 0.82rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+.ps-content-loading__spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid color-mix(in srgb, var(--ps-loading-colour) 22%, transparent);
+  border-top-color: var(--ps-loading-colour);
+  border-radius: 50%;
+  animation: ps-content-loading-spin 1s linear infinite;
+}
+@keyframes ps-content-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ps-content-loading__spinner { animation: none; }
 }
 
 body[data-kind="table"] .page {

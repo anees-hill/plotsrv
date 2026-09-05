@@ -150,6 +150,27 @@
     const close = document.getElementById("stream-insights-close");
     if (!drawer || !trigger || drawer.dataset.plotsrvBound === "1") return;
 
+    drawer.querySelectorAll(".ps-stream-insights-help").forEach(function (help) {
+      const summary = help.querySelector("summary");
+      help.addEventListener("pointerenter", function (event) {
+        if (event.pointerType === "mouse") help.open = true;
+      });
+      help.addEventListener("pointerleave", function (event) {
+        if (event.pointerType === "mouse" && !help.contains(document.activeElement)) help.open = false;
+      });
+      summary.addEventListener("focus", function () { help.open = true; });
+      help.addEventListener("focusout", function (event) {
+        if (!help.contains(event.relatedTarget)) help.open = false;
+      });
+      help.addEventListener("keydown", function (event) {
+        if (event.key !== "Escape") return;
+        event.preventDefault();
+        event.stopPropagation();
+        summary.focus();
+        help.open = false;
+      });
+    });
+
     trigger.addEventListener("click", function () {
       if (drawer.hidden) openStreamInsights();
       else closeStreamInsights();
@@ -1032,7 +1053,7 @@
     if (reason === "structured_severity") {
       const severity = sentenceCase(item.severity || "Warning");
       return {
-        title: severity + " received",
+        title: severity + " · source",
         explanation: "A source record reported the recognised structured severity “" +
           String(item.severity) + "”.",
         category: item.severity === "warning" ? "warning" : "critical",
@@ -1069,6 +1090,36 @@
     };
   }
 
+  function appendNoteworthyTime(article, value) {
+    const meta = document.createElement("div");
+    meta.className = "ps-stream-noteworthy__item-meta";
+    const time = document.createElement("time");
+    time.textContent = formatObservedTime(value);
+    const parsed = typeof value === "string" ? Date.parse(value) : NaN;
+    if (Number.isFinite(parsed)) {
+      time.dateTime = value;
+      time.title = "Observed at " + value;
+    }
+    meta.appendChild(time);
+    if (Number.isFinite(parsed)) {
+      const seconds = Math.max(0, Math.floor((Date.now() - parsed) / 1000));
+      const age = seconds < 60 ? seconds + "s ago" : seconds < 3600 ? Math.floor(seconds / 60) + "m ago" : seconds < 86400 ? Math.floor(seconds / 3600) + "h ago" : Math.floor(seconds / 86400) + "d ago";
+      addSurfaceText(meta, "ps-stream-noteworthy__age", parsed > Date.now() ? "future timestamp" : age);
+    }
+    article.appendChild(meta);
+  }
+
+  function noteworthyValue(item) {
+    const scalar = function (value) { return value !== null && value !== undefined && ["string", "number", "boolean"].includes(typeof value); };
+    if (scalar(item.field_value)) return String(item.field_name || "Value") + ": " + String(item.field_value).slice(0, 240);
+    if (scalar(item.data.value)) return "Value: " + String(item.data.value).slice(0, 240);
+    // Generic logs need not contain a field literally named "value".
+    const fields = Object.keys(item.data).filter(function (key) {
+      return !["timestamp", "time", "level", "severity", "log_level", "message", "sequence"].includes(key) && scalar(item.data[key]);
+    }).slice(0, 3);
+    return fields.map(function (key) { return key.slice(0, 60) + ": " + String(item.data[key]).slice(0, 80); }).join(" · ");
+  }
+
   function appendNoteworthySourceItem(target, item) {
     if (item.object_type !== "stream_noteworthy_source_record" ||
         item.kind !== "source_record" || !item.data ||
@@ -1089,16 +1140,17 @@
     article.dataset.noteworthyKind = "source_record";
     article.dataset.noteworthyObjectType = String(item.object_type || "unknown");
     article.dataset.noteworthyCategory = presentation.category;
+    appendNoteworthyTime(article, item.observed_at);
     addSurfaceText(article, "ps-stream-noteworthy__item-title", presentation.title);
-    addSurfaceText(article, "ps-stream-noteworthy__item-copy", presentation.explanation);
+    const value = noteworthyValue(item);
+    if (value) addSurfaceText(article, "ps-stream-noteworthy__value", value);
+    if (typeof item.data.message === "string" && item.data.message) {
+      addSurfaceText(article, "ps-stream-noteworthy__item-copy", item.data.message.slice(0, 300));
+    }
     const sequence = exactCountText(item.source_browser_sequence);
     const observedAt = typeof item.observed_at === "string" ? item.observed_at : "time unavailable";
-    addSurfaceText(
-      article,
-      "ps-stream-noteworthy__item-meta",
-      "Observed " + formatObservedTime(observedAt) + "."
-    );
     appendTechnicalDetails(article, [
+      ["Why retained", presentation.explanation],
       ["Object type", item.object_type],
       ["Noteworthy reason", item.noteworthy_reason],
       ["Noteworthy sequence", item.noteworthy_sequence],
@@ -1122,13 +1174,9 @@
     article.dataset.noteworthyKind = "system_notice";
     article.dataset.noteworthyObjectType = String(item.object_type || "unknown");
     article.dataset.noteworthyCategory = category;
+    appendNoteworthyTime(article, item.observed_at);
     addSurfaceText(article, "ps-stream-noteworthy__item-title", systemNoticeLabel(item.event));
     addSurfaceText(article, "ps-stream-noteworthy__item-copy", systemNoticeExplanation(item));
-    addSurfaceText(
-      article,
-      "ps-stream-noteworthy__item-meta",
-      "Observed " + formatObservedTime(item.observed_at) + "."
-    );
     appendTechnicalDetails(article, [
       ["Object type", item.object_type],
       ["Event type", item.event],
@@ -1151,16 +1199,12 @@
     article.dataset.noteworthyKind = "unknown";
     article.dataset.noteworthyObjectType = item.object_type;
     article.dataset.noteworthyCategory = "neutral";
+    appendNoteworthyTime(article, item.observed_at);
     addSurfaceText(article, "ps-stream-noteworthy__item-title", "Noteworthy stream item");
     addSurfaceText(
       article,
       "ps-stream-noteworthy__item-copy",
       "plotsrv retained an item type this browser does not yet recognise."
-    );
-    addSurfaceText(
-      article,
-      "ps-stream-noteworthy__item-meta",
-      "Observed " + formatObservedTime(item.observed_at) + "."
     );
     appendTechnicalDetails(article, [
       ["Object type", item.object_type],
@@ -1207,6 +1251,7 @@
 
     let shown = 0;
     let invalid = 0;
+    let sourceWarnings = 0;
     for (const item of payload.items) {
       if (!item || typeof item !== "object" || Array.isArray(item)) {
         invalid += 1;
@@ -1221,6 +1266,7 @@
         appended = appendUnknownNoteworthyItem(target, item);
       }
       shown += appended ? 1 : 0;
+      if (appended && item.object_type === "stream_noteworthy_source_record" && item.noteworthy_reason === "structured_severity" && item.severity === "warning") sourceWarnings += 1;
       invalid += appended ? 0 : 1;
     }
 
@@ -1255,6 +1301,7 @@
       return;
     }
     status.textContent = countLabel(shown, "recent item to review", "recent items to review");
+    if (sourceWarnings) status.textContent += " · " + sourceWarnings + " source-reported warnings. A warning label does not necessarily mean a rare event.";
     const agedOut = decimalCountGreaterThan(total, retained === null ? shown : retained);
     if (agedOut || invalid > 0) {
       const note = document.createElement("p");
@@ -1759,9 +1806,6 @@
     const button = document.getElementById("stream-pause-button");
     if (!button) return;
     const label = document.getElementById("stream-pause-label");
-    const icon = button.querySelector
-      ? button.querySelector(".ps-stream-pause-button__icon")
-      : null;
     const paused = state.streamPaused === true;
     const historical = !!selectedHistoricalSessionId();
     const available = state.streamPauseAvailable === true && !historical;
@@ -1777,7 +1821,6 @@
     button.setAttribute("aria-label", description);
     button.title = description;
     if (label) label.textContent = action;
-    if (icon) icon.textContent = paused ? "▶" : "Ⅱ";
   }
 
   function setStreamPaused(paused) {

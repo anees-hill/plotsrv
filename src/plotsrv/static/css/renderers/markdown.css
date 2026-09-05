@@ -157,7 +157,7 @@
   color: #8d4253;
   font-size: 0.78rem;
   font-weight: 650;
-  cursor: help;
+  cursor: default;
 }
 
 .artifact-warn {

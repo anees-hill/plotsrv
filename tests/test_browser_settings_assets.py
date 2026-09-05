@@ -95,7 +95,7 @@ def test_settings_page_shows_installed_version_and_documentation_link(
     rendered = _render()
 
     assert 'id="settings-about-title">About this dashboard</h2>' in rendered
-    assert "Powered by <strong>PlotSrv</strong>" in rendered
+    assert "<strong>plotsrv</strong>" in rendered
     assert 'src="/static/plotsrv_icon_logo.png"' in rendered
     assert "<code>9.8.7</code>" in rendered
     assert 'href="https://docs.plotsrv.com/"' in rendered
@@ -112,11 +112,12 @@ def test_about_dashboard_uses_existing_configured_identity_without_duplication()
     )
     about = rendered.split('id="settings-about-title"', 1)[1].split("</section>", 1)[0]
 
-    assert "Operations monitor" in about
-    assert "Operations overview" in about
-    assert "Browser title" in about
-    assert 'src="/assets/operations.png"' in about
-    assert about.count("Operations monitor") == 1
+    assert "Operations monitor" not in about
+    assert "Operations overview" not in about
+    assert "Browser title" not in about
+    settings_header = rendered.split('class="header ps-header ps-settings-page__header"', 1)[1].split("</header>", 1)[0]
+    assert 'src="/assets/operations.png"' in settings_header
+    assert "Operations monitor" in settings_header
 
 
 def test_about_dashboard_avoids_repeating_matching_titles() -> None:
@@ -126,7 +127,7 @@ def test_about_dashboard_avoids_repeating_matching_titles() -> None:
     )
     about = rendered.split('id="settings-about-title"', 1)[1].split("</section>", 1)[0]
 
-    assert about.count("Pipeline dashboard") == 1
+    assert "Pipeline dashboard" not in about
     assert "Browser title" not in about
 
 
