@@ -4,6 +4,27 @@ import pytest
 from tests.test_plot_controls_browser import page
 
 
+def test_group_headers_treat_untrusted_values_as_text(page):
+    page.click("#table-mode-table-btn")
+    payload = '<img src=x onerror="window.groupingXss=true">'
+    page.evaluate("""value => {
+      window.groupingXss = false;
+      return PLOTSRV.state.tabulatorInstance.replaceData([
+        {pot:value,timestamp:1,value:2}, {pot:'safe',timestamp:2,value:3}
+      ]);
+    }""", payload)
+    page.select_option("#table-group-by-select", "pot")
+    assert page.locator(".tabulator-group img").count() == 0
+    assert payload in page.locator(".tabulator-group").first.inner_text()
+    assert not page.evaluate("window.groupingXss")
+    # Incoming stream-style mutations must use the same safe formatter.
+    page.evaluate("""value => PLOTSRV.state.tabulatorInstance.addData([
+      {pot:value+' again',timestamp:3,value:4}
+    ])""", payload)
+    assert page.locator(".tabulator-group img").count() == 0
+    assert not page.evaluate("window.groupingXss")
+
+
 @pytest.mark.parametrize("kind", ["ordinary", "embedded", "stream"])
 def test_restored_grouping_and_reset_keep_rows_visible(page, kind):
     warnings = []

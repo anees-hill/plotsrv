@@ -508,6 +508,16 @@
     if (!groupingField && state.tableAppliedGrouping == null) return;
 
     try {
+      // Group keys are source data, not markup. Tabulator's default header
+      // inserts them with innerHTML even when individual cells are escaped.
+      if (typeof table.setGroupHeader === "function") {
+        table.setGroupHeader(function (value, count) {
+          const heading = document.createElement("span");
+          heading.textContent = String(value) + " (" + count + " " +
+            (count === 1 ? "item" : "items") + ")";
+          return heading;
+        });
+      }
       table.setGroupBy(groupingField || false);
       state.tableAppliedGrouping = groupingField;
     } catch (e) {
