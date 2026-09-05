@@ -130,6 +130,9 @@ def test_sse_serializes_an_event_id_and_releases_its_subscription() -> None:
     async def scenario() -> None:
         store.reset()
         baseline = browser_update_hub.subscriber_count()
+        browser_update_hub.publish(
+            view_id="events", change_type="ordinary", metadata={"kind": "table"}
+        )
         initial_revision = browser_update_hub.current_revision("events")
         request = Request(
             {
@@ -146,10 +149,13 @@ def test_sse_serializes_an_event_id_and_releases_its_subscription() -> None:
             }
         )
         response = await browser_updates(
-            request=request, view="events", since=initial_revision
+            request=request, view="events", since=initial_revision + 1_000_000
         )
         iterator = response.body_iterator
         assert await anext(iterator) == "retry: 2000\n\n"
+        ready = await anext(iterator)
+        assert '"server_instance_id":"' + browser_update_hub.instance_id + '"' in ready
+        assert '"kind":"table"' in ready
         event = browser_update_hub.publish(
             view_id="events", change_type="ordinary", metadata={"kind": "table"}
         )
@@ -190,6 +196,7 @@ def test_sse_keepalive_is_observable_by_browser_code(monkeypatch) -> None:
         response = await browser_updates(request=request, view="idle", since=0)
         iterator = response.body_iterator
         assert await anext(iterator) == "retry: 2000\n\n"
+        assert '"server_instance_id"' in await anext(iterator)
         assert await anext(iterator) == "event: keepalive\ndata: {}\n\n"
         await iterator.aclose()
         assert browser_update_hub.subscriber_count() == baseline

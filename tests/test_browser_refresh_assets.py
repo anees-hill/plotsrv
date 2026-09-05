@@ -10,6 +10,64 @@ import pytest
 _STATIC_JS = Path(__file__).parents[1] / "src" / "plotsrv" / "static" / "js"
 
 
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_receiver_epoch_change_preserves_pause_and_ignores_old_inflight_ack():
+    script = r'''
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const timers = [];
+let reloads = 0, releaseOld;
+const state = {browserUpdateInstanceId:'old', browserUpdateGeneration:0,
+  observedUpdateRevision:10000, appliedUpdateRevision:10000, initialViewLoadComplete:true,
+  streamPaused:true, tableUiState:{groupBy:'pot', filters:[{field:'pot',op:'eq',value:'A'}]}};
+const ui = JSON.stringify(state.tableUiState);
+const core = {reloadCurrentView:() => {
+  reloads++;
+  if(reloads === 1) return new Promise(resolve => {releaseOld=resolve;});
+  return Promise.resolve(true);
+}};
+const context = {Promise, window:{PLOTSRV:{core,state,config:{kind:'stream',activeViewId:'logs'}},
+  setTimeout:fn => {timers.push(fn);return timers.length;}, clearTimeout(){}},
+  document:{hidden:false,addEventListener(){}}};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),context);
+const event = (server_instance_id, revision) => ({server_instance_id, revision,
+  view_id:'logs',change_type:'stream',kind:'stream'});
+(async () => {
+  core.receiveBrowserUpdate(event('old',10001));
+  assert.equal(reloads,0); // pause is explicit and survives the handshake
+  core.receiveBrowserUpdate(event('new',0));
+  assert.equal(state.observedUpdateRevision,0);
+  assert.equal(reloads,0);
+  assert(state.streamPaused);
+  assert.equal(JSON.stringify(state.tableUiState),ui);
+  state.streamPaused=false;
+  const pending = core.applyPendingUpdate();
+  assert.equal(reloads,1);
+  // Another receiver restart while an old HTTP request is still in flight.
+  core.receiveBrowserUpdate(event('newer',0));
+  releaseOld(true);
+  await pending;
+  assert.equal(state.appliedUpdateRevision,-1);
+  assert.equal(state.pendingBrowserUpdate.server_instance_id,'newer');
+  while(timers.length) await timers.shift()();
+  await core.applyPendingUpdate();
+  assert.equal(reloads,2);
+  assert.equal(state.appliedUpdateRevision,0);
+  core.receiveBrowserUpdate(event('newer',0));
+  assert.equal(reloads,2); // duplicate remains suppressed within the new epoch
+  core.receiveBrowserUpdate(event('newer',1));
+  for(let i=0;i<10;i++) await Promise.resolve();
+  while(timers.length) {
+    timers.shift()();
+    for(let i=0;i<10;i++) await Promise.resolve();
+  }
+  assert.equal(reloads,3);
+  assert.equal(JSON.stringify(state.tableUiState),ui);
+})().catch(error => {console.error(error);process.exitCode=1;});
+'''
+    subprocess.run(["node", "-e", script, str(_STATIC_JS / "core/auto_refresh.js")],
+                   check=True, capture_output=True, text=True)
+
+
 def _read(relative_path: str) -> str:
     return (_STATIC_JS / relative_path).read_text(encoding="utf-8")
 

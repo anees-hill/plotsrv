@@ -160,6 +160,7 @@
 
     state.browserUpdateApplying = true;
     const revision = pending.revision;
+    const generation = state.browserUpdateGeneration;
     let retryImmediatelyWhenSettled = false;
     let reloadResult;
     try {
@@ -169,6 +170,10 @@
     }
     return Promise.resolve(reloadResult)
       .then(function (applied) {
+        if (generation !== state.browserUpdateGeneration) {
+          retryImmediatelyWhenSettled = true;
+          return false;
+        }
         // A pause can invalidate a stream fetch after it starts. Do not
         // acknowledge that revision merely because cancellation was clean.
         if (applied === false || (config.kind === "stream" && state.streamPaused)) {
@@ -177,6 +182,9 @@
           return false;
         }
         finishAppliedUpdate(revision);
+        // A notice can arrive between this acknowledgement and the final
+        // promise callback below. Drain it after releasing the in-flight flag.
+        retryImmediatelyWhenSettled = true;
         return true;
       })
       .catch(function () {
@@ -197,15 +205,33 @@
   function receiveBrowserUpdate(payload) {
     if (!payload || typeof payload !== "object") return;
     const revision = Number(payload.revision);
-    if (!Number.isSafeInteger(revision) || revision <= state.observedUpdateRevision) return;
+    if (!Number.isSafeInteger(revision) || revision < 0) return;
+    const instanceId = payload.server_instance_id;
+    if (typeof instanceId === "string" && instanceId &&
+        instanceId !== state.browserUpdateInstanceId) {
+      if (state.browserUpdateInstanceId && config.kind === "stream" &&
+          !state.streamHistoricalSessionId) {
+        state.streamAwaitingReceiverSession = true;
+      }
+      state.browserUpdateInstanceId = instanceId;
+      state.browserUpdateGeneration = (state.browserUpdateGeneration || 0) + 1;
+      state.observedUpdateRevision = -1;
+      state.appliedUpdateRevision = -1;
+      state.pendingBrowserUpdate = null;
+      clearStreamUpdateRetry();
+    }
+    if (revision <= state.observedUpdateRevision) return;
     state.observedUpdateRevision = revision;
 
+    if (payload.change_type === "reconnect" &&
+        typeof core.refreshViewIcons === "function") core.refreshViewIcons(null);
     if (payload.change_type === "catalogue") {
       if (typeof core.refreshViewIcons === "function") core.refreshViewIcons(null);
       return;
     }
     if (payload.view_id && payload.view_id !== config.activeViewId) return;
     if (payload.change_type === "stream_history" ||
+        (payload.change_type === "reconnect" && config.kind === "stream") ||
         payload.history_catalogue_changed === true) {
       if (typeof core.scheduleStreamHistoryCatalogueRefresh === "function") {
         core.scheduleStreamHistoryCatalogueRefresh();
@@ -249,6 +275,7 @@
       noteUpdateSourceActivity(source);
     });
     source.addEventListener("update", function (event) {
+      if (state.browserUpdateSource !== source) return;
       noteUpdateSourceActivity(source);
       try {
         receiveBrowserUpdate(JSON.parse(event.data));

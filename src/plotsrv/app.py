@@ -98,6 +98,13 @@ async def browser_updates(
     async def events():
         try:
             yield "retry: 2000\n\n"
+            # Always announce the receiver epoch, even when a reconnect's old
+            # Last-Event-ID exceeds this process's new revision counter.
+            ready = json.dumps({
+                **browser_update_hub.reconnect_update(view).as_dict(),
+                "server_instance_id": browser_update_hub.instance_id,
+            }, separators=(",", ":"))
+            yield f"event: update\ndata: {ready}\n\n"
             while True:
                 try:
                     event = await asyncio.wait_for(subscription.queue.get(), timeout=20)
@@ -118,7 +125,10 @@ async def browser_updates(
                     # silently stalled by a proxy or a suspended network.
                     yield "event: keepalive\ndata: {}\n\n"
                     continue
-                payload = json.dumps(event.as_dict(), separators=(",", ":"))
+                payload = json.dumps({
+                    **event.as_dict(),
+                    "server_instance_id": browser_update_hub.instance_id,
+                }, separators=(",", ":"))
                 yield f"id: {event.revision}\nevent: update\ndata: {payload}\n\n"
         finally:
             browser_update_hub.unsubscribe(subscription)
@@ -1524,6 +1534,7 @@ def index(view: str | None = None) -> HTMLResponse:
         active_view_id=active_view,
         view_menu_revision=store.get_view_menu_revision(),
         browser_update_revision=browser_update_hub.current_revision(active_view),
+        browser_update_instance_id=browser_update_hub.instance_id,
         table_plot_max_points=config.get_table_plot_max_points(),
         file_backed=store.has_watched_file_meta(view_id=active_view),
     )

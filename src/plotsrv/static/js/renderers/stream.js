@@ -371,10 +371,13 @@
   }
 
   function explorerFields(columns) {
-    const fields = Array.isArray(state.tableFields) ? state.tableFields.slice() : [];
+    // Match the bounded server window, not the union of every schema ever
+    // seen by this tab (including previously selected stored runs).
+    const fields = [];
     for (const column of Array.isArray(columns) ? columns : []) {
       const field = String(column);
       if (!fields.includes(field)) fields.push(field);
+      if (fields.length === 200) break;
     }
     return fields;
   }
@@ -384,19 +387,38 @@
       return;
     }
 
+    const fields = explorerFields(columns);
+    const retained = new Set(fields);
     const present = new Set();
+    const widths = new Map();
     try {
       for (const column of table.getColumns()) {
         if (!column || typeof column.getField !== "function") continue;
         const field = column.getField();
-        if (field) present.add(field);
+        if (typeof field === "string") present.add(field);
+        if (retained.has(field) && typeof column.getWidth === "function") {
+          widths.set(field, column.getWidth());
+        }
       }
     } catch (e) {
       return;
     }
 
+    if (state.tableUiState && state.tableUiState.groupBy &&
+        !retained.has(state.tableUiState.groupBy) &&
+        typeof core.setTableGrouping === "function") {
+      core.setTableGrouping(null);
+    }
+    // Remove expired fields before adding new ones. Surviving Column objects
+    // retain their order, widths and visibility; stale DOM/cells are released.
+    for (const field of present) {
+      if (!retained.has(field) && typeof table.deleteColumn === "function") {
+        await Promise.resolve(table.deleteColumn(field));
+        present.delete(field);
+      }
+    }
     const additions = [];
-    for (const field of Array.isArray(columns) ? columns : []) {
+    for (const field of fields) {
       const name = String(field);
       if (present.has(name)) continue;
       present.add(name);
@@ -409,6 +431,15 @@
       }
     }
     await Promise.all(additions);
+    // fitDataStretch can temporarily stretch a survivor when the old last
+    // column is removed. Do not let that erase a user's chosen column width.
+    if (typeof table.getColumn === "function") {
+      for (const [field, width] of widths) {
+        const column = table.getColumn(field);
+        if (column && width > 0 && typeof column.setWidth === "function" &&
+            column.getWidth() !== width) column.setWidth(width);
+      }
+    }
   }
 
   function queueStreamTableMutation(operation) {
@@ -1661,7 +1692,7 @@
     if (!work || work.generation !== state.streamSummaryGeneration) return false;
     const selected = selectedHistoricalSessionId();
     return work.scope.historical
-      ? selected === work.scope.sessionId
+      ? selected === work.scope.sessionId || (selected === null && state.streamAwaitingReceiverSession === true)
       : selected === null;
   }
 
@@ -2233,7 +2264,9 @@
     if (historicalSessionId) {
       data.historical_summary = payload.summary;
     }
+    if (data.historical !== true) state.streamAwaitingReceiverSession = false;
     if (data.historical === true && !state.streamHistoricalSessionId &&
+        !state.streamAwaitingReceiverSession &&
         typeof data.session_id === "string" && data.session_id) {
       state.streamHistoricalSessionId = data.session_id;
     }
@@ -2311,9 +2344,10 @@
     const table = state.streamTabulatorInstance;
     const schemaChanged = state.streamColumnsSignature !== currentSchemaSignature;
     if (schemaChanged) {
-      // Add schema extensions without recreating existing columns: that is
-      // what keeps a user's column order and visibility choices intact.
-      await extendColumns(table, columns);
+      await queueStreamTableMutation(function () {
+        if (!streamLoadIsCurrent(load)) return;
+        return extendColumns(table, columns);
+      });
       if (!streamLoadIsCurrent(load)) {
         finishStreamLoad(load);
         return false;

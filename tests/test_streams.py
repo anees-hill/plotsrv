@@ -1578,6 +1578,7 @@ const noteworthyItems = element();
 const context = {
   Promise,
   fetch: async (url) => {
+    if (url.includes("/stream/history?")) return {ok: false, status: 404};
     fetchCount += 1;
     requestUrls.push(url);
     const firstResponse = fetchCount === 1;
@@ -1742,15 +1743,15 @@ context.window.PLOTSRV.core.loadStream().then(() => {
   if (sinceVisitDetails.children[0].dataset.comparisonStatus !== "incomplete") {
     throw new Error("incomplete returning-browser comparison was not structurally marked");
   }
-  if (noteworthyItems.children.length !== 2 ||
+  if (noteworthyItems.children.filter(child => child.dataset.noteworthyKind).length !== 2 ||
       noteworthyItems.children[0].dataset.noteworthyKind !== "source_record" ||
       noteworthyItems.children[1].dataset.noteworthyKind !== "system_notice") {
     throw new Error("source records and plotsrv system notices were not structurally distinguished");
   }
-  if (noteworthyItems.children[0].children[0].textContent !== "Error received") {
+  if (noteworthyItems.children[0].children[1].textContent !== "Error · source") {
     throw new Error("an allowlisted structured severity was not rendered from its source field");
   }
-  if (noteworthyItems.children[1].children[0].textContent !== "Continuity may have been interrupted") {
+  if (noteworthyItems.children[1].children[1].textContent !== "Continuity may have been interrupted") {
     throw new Error("plotsrv system notices were not visibly distinguished");
   }
   const nested = options.columns[2].formatter({getValue: () => options.data[0].nested});
@@ -1940,7 +1941,7 @@ const context = {
         },
       },
       renderers: {},
-      state: {},
+      state: {streamSummaryGeneration: 0},
       config: {activeViewId: "logs:history"},
     },
   },
@@ -2016,7 +2017,9 @@ core.loadStream().then(flush).then(async () => {
   if (tableRows.length !== 1 || tableRows[0].origin !== "live-now") {
     throw new Error("historical rows leaked when returning to current observation");
   }
-  if (replaceCalls < 6 || !requestUrls[requestUrls.length - 1].includes("/stream/data?")) {
+  const dataUrls = requestUrls.filter(url => url.includes("/stream/data?") ||
+    (url.includes("/stream/history?") && url.includes("session_id=")));
+  if (replaceCalls < 6 || !dataUrls[dataUrls.length - 1].includes("/stream/data?")) {
     throw new Error("session transitions did not replace rows and return to current observation");
   }
 }).catch((error) => {
@@ -2114,7 +2117,7 @@ const context = {
         },
       },
       renderers: {},
-      state: {},
+      state: {streamSummaryGeneration: 0},
       config: {activeViewId: "logs:summary-drain"},
     },
   },

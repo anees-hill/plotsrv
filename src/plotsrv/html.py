@@ -101,6 +101,7 @@ def render_index(
     active_view_id: str | None = None,
     view_menu_revision: int = 0,
     browser_update_revision: int = 0,
+    browser_update_instance_id: str | None = None,
     table_plot_max_points: int = 5_000,
     file_backed: bool = False,
 ) -> str:
@@ -1113,6 +1114,7 @@ def render_index(
             "table_plot_max_points": table_plot_max_points,
             "view_menu_revision": view_menu_revision,
             "browser_update_revision": browser_update_revision,
+            "browser_update_instance_id": browser_update_instance_id,
             # These settings independently control the two modes of the shared
             # header status. The legacy statusline setting now only gates the
             # small file-backed source indicator in the bottom controls.

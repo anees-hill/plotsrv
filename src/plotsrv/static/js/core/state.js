@@ -115,6 +115,9 @@
     ? raw.view_menu_revision
     : null;
   state.observedUpdateRevision = config.browserUpdateRevision;
+  state.browserUpdateInstanceId = typeof raw.browser_update_instance_id === "string"
+    ? raw.browser_update_instance_id : null;
+  state.browserUpdateGeneration = 0;
   state.appliedUpdateRevision = config.browserUpdateRevision;
   state.pendingBrowserUpdate = null;
   state.browserUpdateSource = null;
