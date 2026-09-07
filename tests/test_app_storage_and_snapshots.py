@@ -215,6 +215,107 @@ def test_history_returns_empty_when_no_snapshots(client: TestClient) -> None:
     assert data["snapshots"] == []
 
 
+def test_history_reports_enabled_but_empty_snapshot_storage(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_mod.config, "get_storage_enabled", lambda: True)
+    monkeypatch.setattr(
+        app_mod.config, "get_storage_view_enabled", lambda *args, **kwargs: True
+    )
+
+    data = client.get("/history?view=v1").json()
+
+    assert data["result"] == "empty"
+    assert data["capability"] == {
+        "name": "snapshots",
+        "enabled": True,
+        "storage_enabled": True,
+        "admitted": True,
+        "state": "enabled",
+        "reason": None,
+        "message": "Snapshots are available for this view.",
+        "source": "normal",
+        "kind": "none",
+    }
+
+
+def test_history_reports_globally_disabled_snapshot_storage(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_mod.config, "get_storage_enabled", lambda: False)
+
+    data = client.get("/history?view=v1").json()
+
+    assert data["result"] == "unavailable"
+    assert data["capability"]["enabled"] is False
+    assert data["capability"]["admitted"] is False
+    assert data["capability"]["reason"] == "storage_disabled"
+    assert data["capability"]["message"] == (
+        "Snapshot storage has not been enabled for this instance."
+    )
+
+
+def test_history_reports_view_not_admitted_to_snapshot_storage(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_mod.config, "get_storage_enabled", lambda: True)
+    monkeypatch.setattr(
+        app_mod.config, "get_storage_view_enabled", lambda *args, **kwargs: False
+    )
+
+    data = client.get("/history?view=v1").json()
+
+    assert data["result"] == "unavailable"
+    assert data["capability"]["storage_enabled"] is True
+    assert data["capability"]["reason"] == "view_storage_not_admitted"
+    assert data["capability"]["message"] == (
+        "Snapshot storage is not enabled for this view."
+    )
+
+
+def test_history_routes_streams_to_bounded_stored_sessions(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_mod.config, "get_storage_enabled", lambda: True)
+    store.register_view(view_id="logs:events", kind="stream")
+
+    data = client.get("/history?view=logs:events").json()
+
+    assert data["result"] == "unavailable"
+    assert data["capability"]["reason"] == "stream_sessions"
+    assert data["capability"]["message"] == (
+        "Streams use bounded stored sessions rather than snapshots."
+    )
+
+
+def test_history_reports_file_backed_source_instead_of_snapshot_selector(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_mod.config, "get_storage_enabled", lambda: True)
+    source = tmp_path / "events.csv"
+    source.write_text("value\n1\n", encoding="utf-8")
+    store.register_view(view_id="watch:events", kind="table")
+    store.set_watched_file_meta(
+        store.WatchedFileMeta(
+            view_id="watch:events",
+            path=str(source),
+            file_kind="csv",
+            read_mode="tail",
+            encoding="utf-8",
+            materialization="file",
+        )
+    )
+
+    data = client.get("/history?view=watch:events").json()
+
+    assert data["result"] == "unavailable"
+    assert data["capability"]["source"] == "watch"
+    assert data["capability"]["reason"] == "file_backed_source"
+    assert data["capability"]["message"] == (
+        "File-backed watched views use the source file rather than snapshots."
+    )
+
+
 def test_history_returns_written_snapshots(client: TestClient, tmp_path: Path) -> None:
     snap = write_snapshot(
         root_dir=tmp_path,

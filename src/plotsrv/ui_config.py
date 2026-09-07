@@ -7,11 +7,29 @@ from typing import Any
 
 from . import settings
 
-DEFAULT_LOGO_URL = "/static/plotsrv_title_logo_ui-white-bk.png"
+DEFAULT_LOGO_URL = "/static/plotsrv_icon_title_colour_swash_logo.png"
 DEFAULT_HEADER_TEXT = ""
 DEFAULT_HEADER_FILL = "#ffffff"
 DEFAULT_PAGE_TITLE = "plotsrv - live view"
 DEFAULT_FAVICON_URL = "/static/plotsrv_icon_logo.png"
+
+
+@dataclass(frozen=True, slots=True)
+class FeaturedView:
+    """Presentation overrides for a view promoted in the selector."""
+
+    view_id: str
+    title: str | None = None
+    caption: str | None = None
+    thumbnail_url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompactView:
+    """Presentation override for a supplementary selector entry."""
+
+    view_id: str
+    title: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,8 +61,13 @@ class UISettings:
     show_statusline: bool
     show_help_note: bool
 
-    # Serving user assets (logo/favicon)
+    # Serving explicitly configured user assets
     assets_dir: Path | None = None
+
+    # Optional view-browser presentation
+    featured_views: tuple[FeaturedView, ...] = ()
+    compact_views: tuple[CompactView, ...] = ()
+    asset_files: tuple[Path, ...] = ()
 
 
 def _as_bool(x: Any, default: bool) -> bool:
@@ -90,6 +113,93 @@ def _resolve_asset_url(raw: str, *, default_url: str) -> tuple[str, Path | None]
     return default_url, None
 
 
+def _load_featured_views(
+    raw: Any,
+) -> tuple[tuple[FeaturedView, ...], tuple[Path, ...]]:
+    """Parse optional featured-view entries, ignoring malformed values."""
+    if not isinstance(raw, list):
+        return (), ()
+
+    featured: list[FeaturedView] = []
+    asset_files: list[Path] = []
+    seen: set[str] = set()
+
+    for entry in raw:
+        if isinstance(entry, str):
+            view_id = _strip_quotes(entry).strip()
+            values: dict[str, Any] = {}
+        elif isinstance(entry, dict):
+            raw_id = entry.get("view", entry.get("view_id"))
+            view_id = (
+                _strip_quotes(raw_id).strip() if isinstance(raw_id, str) else ""
+            )
+            values = entry
+        else:
+            continue
+
+        if not view_id or view_id in seen:
+            continue
+
+        def optional_text(key: str) -> str | None:
+            value = values.get(key)
+            if not isinstance(value, str):
+                return None
+            clean = _strip_quotes(value).strip()
+            return clean or None
+
+        thumbnail_url: str | None = None
+        thumbnail = optional_text("thumbnail")
+        if thumbnail:
+            resolved, local_file = _resolve_asset_url(thumbnail, default_url="")
+            thumbnail_url = resolved or None
+            if local_file is not None:
+                asset_files.append(local_file)
+
+        featured.append(
+            FeaturedView(
+                view_id=view_id,
+                title=optional_text("title"),
+                caption=optional_text("caption"),
+                thumbnail_url=thumbnail_url,
+            )
+        )
+        seen.add(view_id)
+
+    return tuple(featured), tuple(asset_files)
+
+
+def _load_compact_views(raw: Any) -> tuple[CompactView, ...]:
+    """Parse optional compact selector entries, ignoring malformed values."""
+    if not isinstance(raw, list):
+        return ()
+
+    compact: list[CompactView] = []
+    seen: set[str] = set()
+    for entry in raw:
+        if isinstance(entry, str):
+            view_id = _strip_quotes(entry).strip()
+            title = None
+        elif isinstance(entry, dict):
+            raw_id = entry.get("view", entry.get("view_id"))
+            view_id = (
+                _strip_quotes(raw_id).strip() if isinstance(raw_id, str) else ""
+            )
+            raw_title = entry.get("title")
+            title = (
+                _strip_quotes(raw_title).strip() or None
+                if isinstance(raw_title, str)
+                else None
+            )
+        else:
+            continue
+
+        if not view_id or view_id in seen:
+            continue
+        compact.append(CompactView(view_id=view_id, title=title))
+        seen.add(view_id)
+    return tuple(compact)
+
+
 _UI_SETTINGS: UISettings | None = None
 _UI_CACHE_KEY: tuple[str | None, str | None] | None = None
 
@@ -116,6 +226,7 @@ def load_ui_settings() -> UISettings:
     show_help_note = True
 
     assets_dir: Path | None = None
+    asset_files: list[Path] = []
 
     ui = settings.get_section("ui-settings")
 
@@ -152,6 +263,7 @@ def load_ui_settings() -> UISettings:
         logo_url, ad = _resolve_asset_url(ui["logo"], default_url=DEFAULT_LOGO_URL)
         if ad is not None:
             assets_dir = ad
+            asset_files.append(ad)
 
     if isinstance(ui.get("favicon"), str):
         favicon_url, ad2 = _resolve_asset_url(
@@ -159,6 +271,12 @@ def load_ui_settings() -> UISettings:
         )
         if ad2 is not None and assets_dir is None:
             assets_dir = ad2
+        if ad2 is not None:
+            asset_files.append(ad2)
+
+    featured_views, featured_assets = _load_featured_views(ui.get("featured_views"))
+    compact_views = _load_compact_views(ui.get("compact_views"))
+    asset_files.extend(featured_assets)
 
     return UISettings(
         page_title=page_title,
@@ -177,6 +295,9 @@ def load_ui_settings() -> UISettings:
         show_statusline=show_statusline,
         show_help_note=show_help_note,
         assets_dir=assets_dir,
+        featured_views=featured_views,
+        compact_views=compact_views,
+        asset_files=tuple(dict.fromkeys(asset_files)),
     )
 
 

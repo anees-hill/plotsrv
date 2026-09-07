@@ -21,7 +21,17 @@ from .app import app, require_local_request
 from .backends import fig_to_png_bytes, df_to_html_simple
 from . import store, config
 from .storage.worker import stop_storage_worker, enqueue_snapshot
+from .storage.stream_worker import (
+    open_stream_storage_admission,
+    stop_stream_storage_worker,
+)
 from .storage.latest import FileLatestStateBackend
+from .storage.streams import (
+    FileStreamStorageBackend,
+    RawBlockPolicy,
+    StreamStoragePolicy,
+)
+from .streams.server_state import stream_registry
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
 from .publishing.worker import stop_publish_worker
@@ -245,7 +255,7 @@ def _restore_latest_loaded_view(loaded: Any) -> None:
         if not isinstance(obj, (bytes, bytearray)):
             return
 
-        store.set_plot(bytes(obj), view_id=view_id)
+        store.set_plot(bytes(obj), view_id=view_id, record_arrival=False)
         _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
         return
 
@@ -274,6 +284,7 @@ def _restore_latest_loaded_view(loaded: Any) -> None:
             view_id=view_id,
             total_rows=total_rows,
             returned_rows=returned_rows,
+            record_arrival=False,
         )
         _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
         return
@@ -284,6 +295,7 @@ def _restore_latest_loaded_view(loaded: Any) -> None:
         label=meta.label,
         section=meta.section,
         view_id=view_id,
+        record_arrival=False,
     )
     _set_restored_status(view_id=view_id, updated_at=meta.updated_at)
 
@@ -335,6 +347,117 @@ def restore_latest_views_from_storage(
         except Exception:
             continue
 
+    return restored
+
+
+def restore_streams_from_storage() -> int:
+    """Restore every retained compact stream session as history.
+
+    This is intentionally separate from latest/snapshot restoration. It reads
+    only versioned metadata, derived summaries, noteworthy observations, and
+    explicitly retained raw blocks.  Restored raw blocks remain historical
+    browser data; no producer transport session is resumed.
+    """
+    # Global storage is the master persistence opt-in.  The streams default
+    # may be disabled while an individual view explicitly enables its nested
+    # stream setting, so discovery must not use the default as a global gate.
+    if not config.get_storage_enabled():
+        return 0
+
+    backend = FileStreamStorageBackend(root_dir=config.get_storage_root_dir())
+    try:
+        # Remove metadata-uncommitted compact candidates before discovering
+        # views or applying retention.  A crash during replacement must not
+        # let candidate-only directories evict a previously loadable session.
+        backend.discard_uncommitted_compact_state()
+    except Exception:
+        # Recovery remains best effort: an unreadable directory cannot block
+        # unrelated stored views from being restored.
+        pass
+    # Apply current limits before considering historical sessions. This makes a
+    # lowered byte/raw retention setting effective after an offline restart
+    # rather than preserving an already-over-limit tree forever.
+    for view_id in backend.stored_view_ids():
+        if not config.get_storage_stream_enabled(view_id):
+            continue
+        try:
+            raw_policy = (
+                RawBlockPolicy(
+                    max_blocks=config.get_storage_stream_raw_max_blocks(view_id),
+                    max_bytes=config.get_storage_stream_raw_max_bytes(view_id),
+                    max_age_s=config.get_storage_stream_raw_max_age_s(view_id),
+                )
+                if config.get_storage_stream_raw_enabled(view_id)
+                else None
+            )
+            backend.enforce_view_retention(
+                view_id=view_id,
+                policy=StreamStoragePolicy(
+                    summary_retention=config.get_storage_stream_summary_retention(view_id),
+                    noteworthy_keep_last=config.get_storage_stream_noteworthy_keep_last(
+                        view_id
+                    ),
+                    keep_last_sessions=config.get_storage_stream_keep_last_sessions(
+                        view_id
+                    ),
+                    max_bytes_per_view=config.get_storage_stream_max_bytes_per_view(
+                        view_id
+                    ),
+                ),
+                raw_policy=raw_policy,
+            )
+        except Exception:
+            # Retention is best effort like restoration. A damaged historical
+            # view must not prevent unrelated compact history from loading.
+            continue
+    restored = 0
+    compact_sessions = backend.list_compact_sessions()
+    for session in compact_sessions:
+        if not config.get_storage_stream_enabled(session.view_id):
+            continue
+        try:
+            history_incomplete_reason: str | None = None
+            try:
+                raw_records = backend.load_raw_records(
+                    view_id=session.view_id, session_id=session.session_id
+                )
+            except LookupError:
+                # Raw persistence is explicitly optional. A damaged raw block
+                # must not hide the independently valid compact session, but
+                # it is a persistence gap rather than an intentionally empty
+                # raw history.  Preserve that incompleteness visibly.
+                raw_records = ()
+                history_incomplete_reason = (
+                    "Explicitly retained raw history could not be validated; "
+                    "those raw observations are unavailable."
+                )
+            if stream_registry.restore_compact_session(
+                stored_metadata=session.metadata,
+                summary_windows=session.summary_windows,
+                noteworthy_items=session.noteworthy_items,
+                raw_records=raw_records,
+                history_incomplete_reason=history_incomplete_reason,
+            ):
+                restored += 1
+        except Exception:
+            # A damaged or incompatible observed-history record must not block
+            # restoration of other views. It remains on disk for inspection.
+            continue
+    for gap in backend.list_marker_only_sessions():
+        if not config.get_storage_stream_enabled(gap.view_id):
+            continue
+        try:
+            if stream_registry.restore_incomplete_marker(
+                view_id=gap.view_id,
+                session_id=gap.session_id,
+                recorded_at=gap.recorded_at,
+                last_error=gap.last_error,
+            ):
+                restored += 1
+        except Exception:
+            # A malformed marker is not enough to describe a historical
+            # session.  Continue restoring independently valid observations.
+            continue
     return restored
 
 
@@ -721,6 +844,10 @@ def start_server(
         truncate=truncate,
         no_truncate=no_truncate,
     )
+    # Explicitly reopen stream persistence for this server lifecycle.  A
+    # request that races the previous shutdown remains rejected instead of
+    # silently starting a worker after stop_server() returned.
+    open_stream_storage_admission()
 
     global _DEFAULT_HOST, _DEFAULT_PORT
     _DEFAULT_HOST = host
@@ -728,6 +855,7 @@ def start_server(
 
     if restore_latest:
         restore_latest_views_from_storage()
+        restore_streams_from_storage()
 
     started = _ensure_server_running(host, port, quiet=quiet)
 
@@ -789,6 +917,10 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
             _SERVER_RUNNING = False
 
     stop_storage_worker(join=False)
+    # Unlike snapshot work, every admitted stream task can carry meaningful
+    # observation history. Drain its independent bounded queue before a normal
+    # process exit, while retaining the server's bounded shutdown delay.
+    stop_stream_storage_worker(join=True, timeout=flush_timeout)
     _unpatch_matplotlib_show()
 
 

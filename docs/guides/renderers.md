@@ -155,6 +155,13 @@ The JSON renderer includes:
 - expand/collapse controls
 - pinned values
 
+For convenience, a clearly rectangular JSON payload can also offer **Table**
+and **Plot** modes. JSON always remains the initial view. This opt-in applies
+only to non-empty, bounded top-level arrays of objects with the exact same
+string keys and finite scalar values. It does not flatten nested values,
+inconsistent objects, scalar arrays, or arbitrary JSON; those remain in the
+rich JSON viewer.
+
 It is useful for:
 
 - API responses

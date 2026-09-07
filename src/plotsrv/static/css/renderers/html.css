@@ -80,21 +80,9 @@ body.ps-has-html-artifact .plotsrv-html-iframe {
   min-height: 720px;
 }
 
-body.ps-has-html-artifact .ps-footer-controls,
-body.ps-has-html-artifact .ps-footer-inline,
-body.ps-has-html-artifact .ps-statusline {
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-}
-
 @media (max-width: 900px) {
   body.ps-has-html-artifact .plotsrv-html-iframe {
     height: calc(100vh - 170px);
     min-height: 560px;
   }
-}
-
-body.ps-has-html-artifact .ps-footer-inline,
-body.ps-has-html-artifact .ps-statusline {
-  padding-bottom: 1rem;
 }

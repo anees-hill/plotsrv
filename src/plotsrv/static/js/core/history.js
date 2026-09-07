@@ -49,27 +49,30 @@
 
   function syncHistoryUi() {
     const sel = document.getElementById("history-select");
-    const headerHistory = document.getElementById("header-history");
-    const headerHistoryLabel = document.getElementById("header-history-label");
     const isHistory = isHistoryMode();
 
     if (sel) {
       sel.value = state.currentSnapshot || "";
     }
 
-    if (headerHistory) {
-      headerHistory.hidden = !isHistory;
+    const snapshotWrap = document.getElementById("snapshots-control");
+    const unavailableReturn = document.getElementById("snapshots-return-latest");
+    if (unavailableReturn) {
+      unavailableReturn.hidden =
+        !isHistory || !snapshotWrap || snapshotWrap.dataset.state === "enabled";
     }
 
-    if (headerHistoryLabel) {
-      headerHistoryLabel.textContent = "Historical mode";
+    if (typeof core.setHeaderViewState === "function") {
       const meta = currentHistoryMeta();
-      if (meta && meta.created_at && typeof core.fmtLocalTime === "function") {
-        headerHistoryLabel.title =
-          "Snapshot from " + core.fmtLocalTime(meta.created_at);
-      } else {
-        headerHistoryLabel.removeAttribute("title");
-      }
+      core.setHeaderViewState(
+        isHistory ? "snapshot" : "latest",
+        isHistory
+          ? {
+              id: state.currentSnapshot,
+              createdAt: meta && meta.created_at ? meta.created_at : null,
+            }
+          : null
+      );
     }
 
     if (document.body) {
@@ -79,6 +82,45 @@
     if (typeof core.syncAutoRefreshAvailability === "function") {
       core.syncAutoRefreshAvailability();
     }
+  }
+
+  function setSnapshotControlState(capability, snapshots, failed) {
+    const wrap = document.getElementById("snapshots-control");
+    const selector = document.getElementById("snapshots-selector");
+    const info = document.getElementById("snapshots-info");
+    const returnLatest = document.getElementById("snapshots-return-latest");
+    const sel = document.getElementById("history-select");
+    if (!wrap || !selector || !info || !sel) return;
+
+    const usable = !failed && (!capability || capability.enabled === true);
+    const hasSnapshots = usable && snapshots.length > 0;
+    const reason = failed
+      ? "Snapshot availability could not be loaded."
+      : !usable
+        ? String(
+            (capability && capability.message) ||
+              "Snapshots are unavailable for this view."
+          )
+        : !hasSnapshots
+          ? "No snapshots have been saved for this view yet."
+          : "";
+
+    wrap.dataset.state = failed
+      ? "error"
+      : hasSnapshots
+        ? "enabled"
+        : usable
+          ? "empty"
+          : "unavailable";
+    selector.hidden = false;
+    selector.title = reason;
+    sel.title = reason;
+    sel.setAttribute("aria-label", reason ? "Snapshots. " + reason : "Snapshots");
+    info.hidden = !reason;
+    info.title = reason;
+    info.setAttribute("aria-label", reason);
+    if (returnLatest) returnLatest.hidden = usable || !state.currentSnapshot;
+    sel.disabled = !hasSnapshots;
   }
 
   async function loadHistory() {
@@ -96,16 +138,19 @@
 
       const data = await res.json();
       const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
+      const capability =
+        data.capability && typeof data.capability === "object"
+          ? data.capability
+          : null;
       state.historyItems = snapshots;
+      state.snapshotCapability = capability;
 
       const parts = [];
-      parts.push('<option value="">Live</option>');
 
       if (snapshots.length === 0) {
-        parts.push(
-          '<option value="__none__" disabled>No previous entries</option>'
-        );
+        parts.push('<option value="">No snapshots yet</option>');
       } else {
+        parts.push('<option value="">Live (latest)</option>');
         for (const snap of snapshots) {
           const ts =
             snap.created_at && typeof core.fmtLocalTime === "function"
@@ -139,17 +184,25 @@
           return x.snapshot_id === state.currentSnapshot;
         });
         if (!exists) {
+          const missingSnapshot = state.currentSnapshot;
           state.currentSnapshot = null;
+          writeSnapshotToUrl(null);
+          state.pendingSnapshotNotice =
+            '<span class="badge">SNAPSHOT DELETED</span> ' +
+            "Selected snapshot " +
+            core.escapeHtml(missingSnapshot) +
+            " is no longer available. Showing latest data.";
         }
       }
 
+      setSnapshotControlState(capability, snapshots, false);
       sel.value = state.currentSnapshot || "";
       syncHistoryUi();
     } catch (e) {
-      sel.innerHTML =
-        '<option value="">Live</option>' +
-        '<option value="__err__" disabled>History unavailable</option>';
+      sel.innerHTML = '<option value="">Snapshots unavailable</option>';
       state.historyItems = [];
+      state.snapshotCapability = null;
+      setSnapshotControlState(null, [], true);
       syncHistoryUi();
     }
   }
@@ -189,7 +242,11 @@
     }
 
     if (typeof core.reloadCurrentView === "function") {
-      core.reloadCurrentView();
+      Promise.resolve(core.reloadCurrentView()).then(function () {
+        if (typeof core.markBrowserViewApplied === "function") {
+          core.markBrowserViewApplied();
+        }
+      });
     }
 
     if (typeof core.restoreAutoRefreshState === "function") {
@@ -212,9 +269,26 @@
       }
 
       if (typeof core.reloadCurrentView === "function") {
-        core.reloadCurrentView();
+        Promise.resolve(core.reloadCurrentView()).then(function () {
+          if (typeof core.markBrowserViewApplied === "function") {
+            core.markBrowserViewApplied();
+          }
+        });
       }
     });
+
+    const returnLatest = document.getElementById("snapshots-return-latest");
+    if (returnLatest) {
+      returnLatest.addEventListener("click", returnToLive);
+    }
+  }
+
+  function showPendingSnapshotNotice() {
+    if (!state.pendingSnapshotNotice) return;
+    if (typeof core.setStatusMessage === "function") {
+      core.setStatusMessage(state.pendingSnapshotNotice);
+    }
+    state.pendingSnapshotNotice = null;
   }
 
   core.writeSnapshotToUrl = writeSnapshotToUrl;
@@ -225,6 +299,7 @@
   core.loadHistory = loadHistory;
   core.handleMissingSnapshot = handleMissingSnapshot;
   core.bindHistoryControls = bindHistoryControls;
+  core.showPendingSnapshotNotice = showPendingSnapshotNotice;
   core.returnToLive = returnToLive;
 
   window.returnToLive = returnToLive;

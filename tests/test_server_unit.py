@@ -312,17 +312,25 @@ def test_stop_server_sets_should_exit_and_joins(
 
     fake_server = FakeServer()
     fake_thread = FakeThread()
+    stream_stop_calls: list[dict[str, Any]] = []
 
     srv._SERVER = fake_server  # type: ignore[assignment]
     srv._SERVER_THREAD = fake_thread  # type: ignore[assignment]
 
     monkeypatch.setattr("plotsrv.server.stop_storage_worker", lambda join=False: None)
+    monkeypatch.setattr(
+        srv,
+        "stop_stream_storage_worker",
+        lambda **kwargs: stream_stop_calls.append(kwargs),
+    )
+    monkeypatch.setattr(srv.config, "get_publish_flush_timeout_s", lambda: 1.0)
 
     srv.stop_server(join=True, timeout=2.5)
 
     assert fake_server.should_exit is True
     assert fake_thread.join_called is True
     assert fake_thread.timeout == 2.5
+    assert stream_stop_calls == [{"join": True, "timeout": 1.0}]
 
 
 def test_plot_session_starts_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -387,6 +395,8 @@ def test_start_server_applies_runtime_options(monkeypatch, tmp_path):
     import plotsrv.server as srv
 
     calls = []
+    restoration_calls = []
+    stream_admission_calls = []
 
     def fake_apply_runtime_options(**kwargs):
         calls.append(kwargs)
@@ -397,7 +407,17 @@ def test_start_server_applies_runtime_options(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(srv, "_ensure_server_running", lambda *a, **k: None)
     monkeypatch.setattr(srv, "_patch_matplotlib_show", lambda: None)
-    monkeypatch.setattr(srv, "restore_latest_views_from_storage", lambda: 0)
+    monkeypatch.setattr(
+        srv,
+        "open_stream_storage_admission",
+        lambda: stream_admission_calls.append("open"),
+    )
+    monkeypatch.setattr(
+        srv, "restore_latest_views_from_storage", lambda: restoration_calls.append("latest")
+    )
+    monkeypatch.setattr(
+        srv, "restore_streams_from_storage", lambda: restoration_calls.append("streams")
+    )
 
     cfg = tmp_path / "plotsrv.yml"
     cfg.write_text("{}", encoding="utf-8")
@@ -421,6 +441,8 @@ def test_start_server_applies_runtime_options(monkeypatch, tmp_path):
             "no_truncate": False,
         }
     ]
+    assert stream_admission_calls == ["open"]
+    assert restoration_calls == ["latest", "streams"]
 
 
 def test_start_server_starts_watch_threads(monkeypatch):

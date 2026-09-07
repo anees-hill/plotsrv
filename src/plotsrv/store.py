@@ -1,7 +1,8 @@
 # src/plotsrv/store.py
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import wraps
 import threading
@@ -10,11 +11,13 @@ from typing import Any, Callable, Literal
 import pandas as pd
 from . import config
 from .artifacts import Artifact, ArtifactKind, Truncation
+from .browser_updates import browser_update_hub
 
 IconKey = Literal[
     "unknown",
     "plot",
     "table",
+    "stream",
     "text",
     "json",
     "python",
@@ -22,8 +25,10 @@ IconKey = Literal[
     "image",
     "html",
     "traceback",
-    "exception",  # legacy alias
+    "exception",
 ]
+
+MAX_DATA_ACTIVITY_EVENTS = 256
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,11 +38,15 @@ class ViewMeta:
     """
 
     view_id: str
-    kind: str  # "none" | "plot" | "table" | "artifact"
+    kind: str  # "none" | "plot" | "table" | "artifact" | "stream"
     label: str
     section: str | None = None
 
     icon_key: IconKey = "unknown"
+
+
+class ViewOwnershipError(ValueError):
+    """A logical stream view cannot be repurposed as an ordinary view."""
 
 
 @dataclass(slots=True)
@@ -48,7 +57,7 @@ class ViewState:
     Each view is independent: plot/table/status.
     """
 
-    kind: str = "none"  # "none" | "plot" | "table"
+    kind: str = "none"  # "none" | "plot" | "table" | "artifact" | "stream"
     icon_key: IconKey = "unknown"
     plot_png: bytes | None = None
     table_df: pd.DataFrame | None = None
@@ -59,6 +68,9 @@ class ViewState:
     artifact: Artifact | None = None
     watched_file: WatchedFileMeta | None = None
     render_revision: int = 0
+    data_activity: deque[dict[str, Any]] = field(
+        default_factory=lambda: deque(maxlen=MAX_DATA_ACTIVITY_EVENTS)
+    )
 
     # publish throttling
     last_publish_at: float | None = None  # epoch seconds
@@ -109,6 +121,8 @@ def _icon_for_view_kind(
         return "plot"
     if k == "table":
         return "table"
+    if k == "stream":
+        return "stream"
 
     if k == "artifact":
         ak = (artifact_kind or "python").strip().lower()
@@ -118,6 +132,9 @@ def _icon_for_view_kind(
 
         if ak in ("traceback", "exception"):
             return "traceback"
+
+        if ak in ("watch_error", "publish_error"):
+            return "exception"
 
         return "python"
 
@@ -207,6 +224,24 @@ def _touch_view_menu_revision() -> None:
     _VIEW_MENU_REVISION += 1
 
 
+def _record_data_arrival(
+    st: ViewState,
+    *,
+    received_at: str | None = None,
+    count: int = 1,
+    source: str = "ordinary",
+) -> None:
+    at = received_at or _now_iso()
+    st.data_activity.append(
+        {
+            "received_at": at,
+            "count": max(1, int(count)),
+            "source": source if source in {"stream", "watch"} else "ordinary",
+        }
+    )
+    st.status["last_updated"] = at
+
+
 def normalize_view_id(
     view_id: str | None, *, section: str | None = None, label: str | None = None
 ) -> str:
@@ -239,8 +274,21 @@ def register_view(
     vid = normalize_view_id(view_id, section=section, label=label)
     st = _ensure_view(vid)
 
+    # Stream views own their logical ID for the life of this minimal
+    # in-memory registry. Keep the ownership decision alongside the catalogue
+    # mutation so an ordinary registration cannot replace a stream between a
+    # separate preflight check and the metadata write.
+    if st.kind == "stream" and kind != "stream":
+        raise ViewOwnershipError(
+            f"view_id {vid!r} is owned by an active stream view"
+        )
+    if kind == "stream" and st.kind not in ("none", "stream"):
+        raise ViewOwnershipError(
+            f"view_id {vid!r} already belongs to an ordinary {st.kind!r} view"
+        )
+
     # allow upgrade of assigned view dropdown menu icon
-    if kind in ("plot", "table", "artifact"):
+    if kind in ("plot", "table", "artifact", "stream"):
         st.kind = kind
 
     if icon_key is not None:
@@ -261,6 +309,7 @@ def register_view(
     _VIEW_META[vid] = next_meta
     if next_meta != previous_meta:
         _touch_view_menu_revision()
+        browser_update_hub.publish_catalogue()
 
     global _ACTIVE_VIEW_ID
     if (
@@ -376,6 +425,12 @@ def set_watched_file_meta(meta: WatchedFileMeta) -> None:
         _VIEW_META[meta.view_id] = next_meta
         if next_meta != existing:
             _touch_view_menu_revision()
+            browser_update_hub.publish_catalogue()
+    browser_update_hub.publish(
+        view_id=meta.view_id,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
+    )
 
 
 def has_watched_file_meta(*, view_id: str | None = None) -> bool:
@@ -391,9 +446,15 @@ def get_watched_file_meta(*, view_id: str | None = None) -> WatchedFileMeta:
 
 
 def clear_watched_file_meta(*, view_id: str | None = None) -> None:
-    st = get_view_state(view_id)
+    vid = view_id or _ACTIVE_VIEW_ID
+    st = get_view_state(vid)
     st.watched_file = None
     _touch_render_revision(st)
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
+    )
 
 
 # Backwards-compatible single-view API (uses active view)
@@ -408,9 +469,11 @@ def set_plot(
     *,
     view_id: str | None = None,
     publish_source: str | None = None,
+    record_arrival: bool = True,
 ) -> None:
-    st = get_view_state(view_id)
     vid = view_id or _ACTIVE_VIEW_ID
+    _require_ordinary_publishable_view(vid)
+    st = _ensure_view(vid)
 
     st.kind = "plot"
     st.icon_key = _icon_for_view_kind("plot")
@@ -424,6 +487,12 @@ def set_plot(
     )
 
     st.status["last_updated"] = _now_iso()
+    if record_arrival:
+        _record_data_arrival(
+            st,
+            received_at=st.status["last_updated"],
+            source=_normalize_publish_source(publish_source),
+        )
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
@@ -431,6 +500,11 @@ def set_plot(
 
     register_view(
         view_id=vid, kind="plot", icon_key=st.icon_key, activate_if_first=False
+    )
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
     )
 
 
@@ -454,10 +528,12 @@ def set_table(
     total_rows: int | None = None,
     returned_rows: int | None = None,
     publish_source: str | None = None,
+    record_arrival: bool = True,
 ) -> None:
-    st = get_view_state(view_id)
-    st.icon_key = _icon_for_view_kind("table")
     vid = view_id or _ACTIVE_VIEW_ID
+    _require_ordinary_publishable_view(vid)
+    st = _ensure_view(vid)
+    st.icon_key = _icon_for_view_kind("table")
 
     st.kind = "table"
     st.table_df = df
@@ -474,6 +550,12 @@ def set_table(
     )
 
     st.status["last_updated"] = _now_iso()
+    if record_arrival:
+        _record_data_arrival(
+            st,
+            received_at=st.status["last_updated"],
+            source=_normalize_publish_source(publish_source),
+        )
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
@@ -481,6 +563,11 @@ def set_table(
 
     register_view(
         view_id=vid, kind="table", icon_key=st.icon_key, activate_if_first=False
+    )
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
     )
 
 
@@ -493,9 +580,11 @@ def set_artifact(
     view_id: str | None = None,
     truncation: Truncation | None = None,
     publish_source: str | None = None,
+    record_arrival: bool = True,
 ) -> None:
-    st = get_view_state(view_id)
     vid = view_id or _ACTIVE_VIEW_ID
+    _require_ordinary_publishable_view(vid)
+    st = _ensure_view(vid)
 
     st.kind = "artifact"
     st.icon_key = _icon_for_view_kind("artifact", artifact_kind=kind)
@@ -510,6 +599,12 @@ def set_artifact(
     )
 
     st.status["last_updated"] = _now_iso()
+    if record_arrival:
+        _record_data_arrival(
+            st,
+            received_at=st.status["last_updated"],
+            source=_normalize_publish_source(publish_source),
+        )
     st.status["last_error"] = None
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
@@ -518,6 +613,18 @@ def set_artifact(
     register_view(
         view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
     )
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
+    )
+
+
+def _require_ordinary_publishable_view(view_id: str) -> None:
+    if _ensure_view(view_id).kind == "stream":
+        raise ViewOwnershipError(
+            f"view_id {view_id!r} is owned by an active stream view"
+        )
 
 
 def has_table(*, view_id: str | None = None) -> bool:
@@ -575,10 +682,46 @@ def mark_success(
     _clear_restored_status(st)
 
 
-def mark_error(message: str, *, view_id: str | None = None) -> None:
+def record_data_arrival(
+    *,
+    view_id: str,
+    received_at: str | None = None,
+    count: int = 1,
+    source: str = "ordinary",
+) -> None:
+    """Retain one bounded process-lifetime data-arrival event."""
     st = get_view_state(view_id)
+    _record_data_arrival(
+        st,
+        received_at=received_at,
+        count=count,
+        source=source,
+    )
+
+
+def get_data_activity(*, view_id: str | None = None) -> dict[str, Any]:
+    st = get_view_state(view_id)
+    events = [dict(event) for event in st.data_activity]
+    return {
+        "scope": "process_lifetime",
+        "bounded": True,
+        "limit": MAX_DATA_ACTIVITY_EVENTS,
+        "event_count": len(events),
+        "represented_item_count": sum(int(event["count"]) for event in events),
+        "events": events,
+    }
+
+
+def mark_error(message: str, *, view_id: str | None = None) -> None:
+    vid = view_id or _ACTIVE_VIEW_ID
+    st = get_view_state(vid)
     st.status["last_updated"] = _now_iso()
     st.status["last_error"] = message
+    browser_update_hub.publish(
+        view_id=vid,
+        change_type="ordinary",
+        metadata={"render_revision": st.render_revision, "kind": st.kind},
+    )
 
 
 def mark_restored(
@@ -831,6 +974,16 @@ def reset() -> None:
         "service_refresh_rate_s": None,
     }
     _SERVICE_STOP_HOOK = None
+    browser_update_hub.clear()
+
+    # Stream rows are deliberately kept in their own bounded registry rather
+    # than the snapshot store, but reset() promises test/process-local state
+    # isolation for every in-memory view representation.
+    try:
+        from .streams.server_state import stream_registry
+    except ImportError:
+        return
+    stream_registry.clear()
 
 
 def _synchronise_store_api(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -867,6 +1020,8 @@ for _store_api_name in (
     "get_table_html_simple",
     "get_table_counts",
     "mark_success",
+    "record_data_arrival",
+    "get_data_activity",
     "mark_error",
     "mark_restored",
     "get_status",

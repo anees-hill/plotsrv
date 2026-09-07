@@ -50,6 +50,18 @@
     return Array.from(jsonRoot.querySelectorAll("[data-json-panel]"));
   }
 
+  function isExplorerMode(mode) {
+    return mode === "table" || mode === "plot";
+  }
+
+  function hasTableExplorer(jsonRoot) {
+    return !!(jsonRoot && jsonRoot.querySelector('[data-json-panel="table"]'));
+  }
+
+  function isJsonTreeMode(mode) {
+    return mode === "json" || mode === "simple";
+  }
+
   function getModeButtons(root) {
     return Array.from(root.querySelectorAll("[data-json-mode]"));
   }
@@ -74,6 +86,7 @@
     const viewGroup = getToolbarGroup(root, "view");
   
     const isText = mode === "text";
+    const isExplorer = isExplorerMode(mode);
   
     function setGroupVisible(el, shouldShow) {
       if (!el) return;
@@ -81,9 +94,9 @@
       el.style.display = shouldShow ? "" : "none";
     }
   
-    setGroupVisible(levelsGroup, !isText);
-    setGroupVisible(findGroup, !isText);
-    setGroupVisible(pinsGroup, !isText);
+    setGroupVisible(levelsGroup, !isText && !isExplorer);
+    setGroupVisible(findGroup, !isText && !isExplorer);
+    setGroupVisible(pinsGroup, !isText && !isExplorer);
     setGroupVisible(viewGroup, true);
   }
 
@@ -91,16 +104,29 @@
     const jsonRoot = getJsonRoot(root);
     if (!jsonRoot) return;
 
-    const allowed = new Set(["json", "simple", "text"]);
-    const nextMode = allowed.has(mode) ? mode : "json";
+    const allowed = new Set(["json", "simple", "text", "table", "plot"]);
+    const requestedMode = allowed.has(mode) ? mode : "json";
+    const nextMode = isExplorerMode(requestedMode) && !hasTableExplorer(jsonRoot)
+      ? "json"
+      : requestedMode;
 
     getPanels(jsonRoot).forEach((panel) => {
       const panelMode = String(panel.getAttribute("data-json-panel") || "");
-      panel.hidden = panelMode !== nextMode;
+      panel.hidden = isExplorerMode(nextMode)
+        ? panelMode !== "table"
+        : panelMode !== nextMode;
     });
 
     applyModeButtonState(root, nextMode);
     syncToolbarForMode(root, nextMode);
+
+    if (isExplorerMode(nextMode) && typeof core.setTablePlotMode === "function") {
+      core.setTablePlotMode(nextMode, { redraw: nextMode === "table" });
+    } else if (typeof core.setTablePlotMode === "function") {
+      // A hidden JSON explorer must not keep smart updates paused as though
+      // its plot were still visible.
+      core.setTablePlotMode("table", { redraw: false });
+    }
 
     if (nextMode === "text") {
       applyTextModeContent(root);
@@ -174,7 +200,7 @@
 
   function setLevelLimit(root, rawLevelLimit) {
     const mode = getActiveMode(root);
-    if (mode === "text") return;
+    if (!isJsonTreeMode(mode)) return;
 
     const levelLimit = String(rawLevelLimit || "2");
     const select = root.querySelector("[data-json-level-limit='1']");
@@ -196,12 +222,18 @@
         node.open = true;
       });
     } else {
-      const n = Number(levelLimit);
-      const limit = Number.isFinite(n) && n >= 1 ? n : 2;
+      const parsedLevel = Number(levelLimit);
+      const userLevel = Number.isFinite(parsedLevel) && parsedLevel >= 1
+        ? parsedLevel
+        : 2;
+      // Model depth is zero-based (root = 0), while the selector describes
+      // visible levels starting at one (root = Level 1). A container at depth
+      // d must open only when the selected level also includes its children.
+      const openDepth = userLevel - 1;
 
       detailsNodes.forEach((node) => {
         const depth = Number(node.getAttribute("data-json-depth") || "0");
-        node.open = depth < limit;
+        node.open = depth < openDepth;
       });
     }
 
@@ -212,7 +244,7 @@
 
   function expandAll(root) {
     const mode = getActiveMode(root);
-    if (mode === "text") return;
+    if (!isJsonTreeMode(mode)) return;
 
     const detailsNodes = getDetailsNodesForMode(root, mode);
     detailsNodes.forEach((node) => {
@@ -225,51 +257,17 @@
     const prefs = getJsonPrefs();
     prefs.level_limit = "all";
     saveJsonPrefs(prefs);
-    root._plotsrvCollapseState = {
-      lastAction: "expand",
-      preservedPinned: [],
-    };
   }
 
   function collapseAll(root) {
     const mode = getActiveMode(root);
-    if (mode === "text") return;
+    if (!isJsonTreeMode(mode)) return;
 
     const detailsNodes = getDetailsNodesForMode(root, mode);
-    const expandedPinned = getExpandedPinnedPaths(root);
-
-    const previousState = root._plotsrvCollapseState || {
-      lastAction: "",
-      preservedPinned: [],
-    };
-
-    const sameAsLast =
-      previousState.lastAction === "collapse-preserve" &&
-      Array.isArray(previousState.preservedPinned) &&
-      previousState.preservedPinned.length > 0;
 
     detailsNodes.forEach((node) => {
-      const depth = Number(node.getAttribute("data-json-depth") || "0");
-      node.open = depth < 1;
+      node.open = false;
     });
-
-    if (sameAsLast) {
-      previousState.preservedPinned.forEach((path) => {
-        setPinnedValueExpanded(root, path, false);
-      });
-      root._plotsrvCollapseState = {
-        lastAction: "collapse-full",
-        preservedPinned: [],
-      };
-    } else {
-      expandedPinned.forEach((path) => {
-        setPinnedValueExpanded(root, path, true);
-      });
-      root._plotsrvCollapseState = {
-        lastAction: "collapse-preserve",
-        preservedPinned: expandedPinned,
-      };
-    }
 
     const select = root.querySelector("[data-json-level-limit='1']");
     if (select) select.value = "1";
@@ -381,37 +379,6 @@
     const prefs = getJsonPrefs();
     prefs.pinned_values = Array.from(new Set((paths || []).map(String).filter(Boolean)));
     saveJsonPrefs(prefs);
-  }
-
-  function getExpandedPinnedPaths(root) {
-    const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot) return [];
-
-    const pinned = new Set(getPinnedPaths());
-
-    return Array.from(
-      jsonRoot.querySelectorAll(".ps-json-entry.is-pinned[data-json-path]")
-    )
-      .map((el) => String(el.getAttribute("data-json-path") || ""))
-      .filter((path) => {
-        if (!path || !pinned.has(path)) return false;
-        const entry = jsonRoot.querySelector(
-          '[data-json-path="' + CSS.escape(path) + '"]'
-        );
-        return !!entry;
-      });
-  }
-
-  function setPinnedValueExpanded(root, path, shouldOpen) {
-    const jsonRoot = getJsonRoot(root);
-    if (!jsonRoot) return;
-
-    const entry = jsonRoot.querySelector(
-      '.ps-json-entry[data-json-path="' + CSS.escape(String(path)) + '"]'
-    );
-    if (!entry) return;
-
-    entry.classList.toggle("is-pinned-open", shouldOpen);
   }
 
   function isPinned(path) {
@@ -532,7 +499,12 @@
     }
 
     applyTextModeContent(root);
-    setMode(root, prefs.mode || "json");
+    const preferredMode = ["json", "simple", "text", "table", "plot"].includes(
+      prefs.mode
+    )
+      ? prefs.mode
+      : "json";
+    setMode(root, preferredMode);
     setLevelLimit(root, prefs.level_limit || "2");
     restorePinnedStates(root);
     syncToolbarForMode(root, getActiveMode(root));
@@ -553,7 +525,7 @@
       const mode = String(btn.getAttribute("data-json-mode") || "");
       if (mode) {
         setMode(root, mode);
-        if (mode !== "text") {
+        if (isJsonTreeMode(mode)) {
           runFind(root, localState);
         }
         return;
@@ -661,13 +633,34 @@
     root._plotsrvJsonState = localState;
 
     bindJsonToolbar(root, localState);
+    initJsonTableExplorer(root);
     restorePrefs(root);
     syncToolbarForMode(root, getActiveMode(root));
     const input = root.querySelector("[data-plotsrv-json-find='1']");
     const mode = getActiveMode(root);
-    if (mode !== "text" && input && String(input.value || "").trim()) {
+    if (isJsonTreeMode(mode) && input && String(input.value || "").trim()) {
       runFind(root, localState);
     }
+  }
+
+  function initJsonTableExplorer(root) {
+    const jsonRoot = getJsonRoot(root);
+    if (!jsonRoot || typeof core.initializeEmbeddedTableExplorer !== "function") {
+      return;
+    }
+
+    const dataEl = jsonRoot.querySelector("[data-json-table-data='1']");
+    const grid = jsonRoot.querySelector("[data-json-table-grid='1']");
+    if (!dataEl || !grid) return;
+
+    const tableData = parseStoredJsonText(String(dataEl.textContent || ""));
+    if (!tableData || typeof tableData !== "object") return;
+
+    core.initializeEmbeddedTableExplorer({
+      grid: grid,
+      data: tableData,
+      plotCapabilities: { sources: ["table"] },
+    });
   }
 
   function initArtifactEnhancements(root) {
@@ -683,6 +676,10 @@
 
     if (root.querySelector('[data-plotsrv-toolbar="json"]')) {
       initJsonToolbar(root);
+    }
+
+    if (typeof core.initArtifactScrollNav === "function") {
+      core.initArtifactScrollNav(root);
     }
   }
 

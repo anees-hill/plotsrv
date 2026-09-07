@@ -1,6 +1,7 @@
 # tests/test_renderers_json_tree.py
 from __future__ import annotations
 
+from plotsrv.json_model import build_json_document
 from plotsrv.renderers.json_tree import JsonTreeRenderer
 from plotsrv.renderers.limits import JsonLimits
 
@@ -54,3 +55,48 @@ def test_json_tree_truncates_by_dict_items() -> None:
         "max_depth",
     )
     assert "more keys" in out.html
+
+
+def test_json_tree_renders_bounded_table_and_plot_modes_for_rectangular_json() -> None:
+    doc = build_json_document(
+        [{"time": 1, "status": "ok"}, {"time": 2, "status": "warn"}],
+        source_format="json_file",
+    )
+
+    out = JsonTreeRenderer().render(doc, view_id="v1")
+
+    assert 'data-json-mode="json">JSON</button>' in out.html
+    assert 'data-json-mode="table">Table</button>' in out.html
+    assert 'data-json-mode="plot">Plot</button>' in out.html
+    assert 'data-json-panel="table"' in out.html
+    assert 'data-json-table-grid="1"' in out.html
+    assert 'data-json-table-data="1"' in out.html
+    assert 'id="table-search-input"' in out.html
+    assert 'id="table-plot-controls"' in out.html
+
+
+def test_json_tree_keeps_non_rectangular_json_out_of_the_table_explorer() -> None:
+    doc = build_json_document(
+        [{"time": 1, "detail": {"nested": True}}],
+        source_format="json_file",
+    )
+
+    out = JsonTreeRenderer().render(doc, view_id="v1")
+
+    assert 'data-json-mode="table"' not in out.html
+    assert 'data-json-mode="plot"' not in out.html
+    assert 'data-json-table-grid="1"' not in out.html
+
+
+def test_json_tree_refuses_unsafe_integer_table_data_from_document_payload() -> None:
+    doc = build_json_document([{"identifier": 1}], source_format="json_file")
+    doc["table_data"] = {
+        "columns": ["identifier"],
+        "rows": [{"identifier": 2**53}],
+    }
+
+    out = JsonTreeRenderer().render(doc, view_id="v1")
+
+    assert 'data-json-mode="table"' not in out.html
+    assert 'data-json-mode="plot"' not in out.html
+    assert 'data-json-table-grid="1"' not in out.html

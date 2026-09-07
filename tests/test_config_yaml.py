@@ -69,6 +69,7 @@ render-settings:
     plot_default_figsize_in: "10,4"
     plot_bbox_tight: false
     plot_pad_inches: 0.25
+    table_plot_max_points: 7500
 """.strip(),
         encoding="utf-8",
     )
@@ -79,6 +80,7 @@ render-settings:
     assert cfg.get_plot_default_figsize_in() == (10.0, 4.0)
     assert cfg.get_plot_bbox_tight() is False
     assert cfg.get_plot_pad_inches() == 0.25
+    assert cfg.get_table_plot_max_points() == 7500
 
 
 def test_blank_figsize_disables_in_yaml(tmp_path: Path) -> None:

@@ -1,10 +1,39 @@
 .header {
-  background: #ffffff;
+  position: relative;
+  background: var(--ps-header-fill, var(--ps-configured-header-fill, #ffffff));
   border-bottom: 1px solid var(--border);
   padding: 0.5rem 1rem;
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+.ps-header[data-status-accent]::after {
+  position: absolute;
+  z-index: 1;
+  right: clamp(1rem, 4vw, 3.5rem);
+  bottom: -1px;
+  left: clamp(1rem, 4vw, 3.5rem);
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--ps-header-status-accent) 12%,
+    var(--ps-header-status-accent) 88%,
+    transparent 100%
+  );
+  box-shadow: 0 1px 7px var(--ps-header-status-accent);
+  content: "";
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.ps-header[data-status-accent="new-data"] {
+  --ps-header-status-accent: #f2c200;
+}
+
+.ps-header[data-status-accent="history"] {
+  --ps-header-status-accent: #8b72b8;
 }
 
 .header-left {
@@ -15,22 +44,17 @@
   flex: 0 1 auto;
 }
 
-.header-centre {
-  flex: 1 1 auto;
-  display: flex;
-  justify-content: center;
-  min-width: 0;
-}
-
 .header-right {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex: 0 1 auto;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .header-logo {
-  height: 36px;
+  height: 39.6px;
   width: auto;
   display: block;
 }
@@ -48,10 +72,11 @@
 .page {
   max-width: 1240px;
   margin: 1.25rem auto;
-  padding: 0 1rem 1.75rem;
+  padding: 0 1rem calc(var(--ps-bottom-dock-height, 5.75rem) + 1.5rem);
 }
 
 .plot-card {
+  position: relative;
   background: #fff;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -59,20 +84,73 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
 }
 
+#view-content[aria-busy="true"]:not([data-content-ready]) {
+  min-height: 12rem;
+}
+
+.ps-content-loading {
+  --ps-loading-colour: #cf647b;
+  position: absolute;
+  z-index: 30;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 4.5rem 0.75rem 0;
+  pointer-events: none;
+}
+.ps-content-loading[hidden] { display: none; }
+[data-loading-source="disk"] .ps-content-loading { --ps-loading-colour: #568f97; }
+[data-content-ready] .ps-content-loading { padding-top: 0.6rem; }
+.ps-content-loading__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--ps-surface-raised, var(--button-bg));
+  color: var(--muted);
+  font-size: 0.82rem;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06);
+}
+.ps-content-loading__spinner {
+  width: 0.85rem;
+  height: 0.85rem;
+  border: 2px solid color-mix(in srgb, var(--ps-loading-colour) 22%, transparent);
+  border-top-color: var(--ps-loading-colour);
+  border-radius: 50%;
+  animation: ps-content-loading-spin 1s linear infinite;
+}
+@keyframes ps-content-loading-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .ps-content-loading__spinner { animation: none; }
+}
+
 body[data-kind="table"] .page {
   max-width: none;
   margin: 0.9rem auto;
-  padding: 0 0.75rem 1.5rem;
+  padding: 0 0.75rem calc(var(--ps-bottom-dock-height, 5.75rem) + 1.5rem);
 }
 
 body[data-kind="table"] .plot-card {
   padding: 0.75rem;
 }
 
+body[data-kind="plot"] .page {
+  max-width: none;
+  margin: 0.9rem auto;
+  padding: 0 0.75rem calc(var(--ps-bottom-dock-height, 5.75rem) + 1.5rem);
+}
+
+body[data-kind="plot"] .plot-card {
+  padding: 0.75rem;
+}
+
 body[data-kind="artifact"] .page:has(.ps-json-shell) {
   max-width: none;
   margin: 0.9rem auto;
-  padding: 0 0.75rem 1.5rem;
+  padding: 0 0.75rem calc(var(--ps-bottom-dock-height, 5.75rem) + 1.5rem);
 }
 
 body[data-kind="artifact"] .plot-card:has(.ps-json-shell) {
@@ -100,7 +178,7 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
 }
 
 .plot-frame.empty {
-  background: #fcfcfc;
+  background: var(--ps-surface-soft, #fcfcfc);
 }
 
 .plot-frame--table {
@@ -154,19 +232,6 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
   flex-wrap: wrap;
 }
 
-.ps-footer-controls {
-  margin-top: 0.75rem;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.ps-footer-inline {
-  min-height: 1.2rem;
-  margin-top: 0.45rem;
-}
-
 .view-select select {
   padding: 0.28rem 0.5rem;
   border: 1px solid var(--border);
@@ -180,10 +245,12 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
     flex-wrap: wrap;
   }
 
-  .header-centre {
+  .header-right {
     order: 3;
     width: 100%;
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    margin-left: 0;
   }
 
   .header-title {
@@ -192,7 +259,9 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
 
   .page {
     margin: 1rem auto;
-    padding: 0 0.75rem 1.5rem;
+    padding-right: 0.75rem;
+    padding-bottom: calc(var(--ps-bottom-dock-height, 7.5rem) + 1.25rem);
+    padding-left: 0.75rem;
   }
 
   .plot-card {
@@ -207,5 +276,11 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
 
   .plot-frame {
     min-height: 180px;
+  }
+
+  .page,
+  body[data-kind="table"] .page,
+  body[data-kind="artifact"] .page:has(.ps-json-shell) {
+    padding-bottom: calc(var(--ps-bottom-dock-height, 9.5rem) + 1rem);
   }
 }

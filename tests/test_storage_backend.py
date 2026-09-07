@@ -506,6 +506,22 @@ def test_delete_all_snapshots_removes_all_files_for_all_views(tmp_path: Path) ->
     assert backend.list_stored_views(root_dir=tmp_path) == []
 
 
+def test_snapshot_helpers_ignore_dedicated_stream_storage_tree(tmp_path: Path) -> None:
+    """The stream namespace is not an empty/orphaned snapshot view."""
+    stream_payload = tmp_path / "streams" / "stream-view" / "session" / "session.json"
+    stream_payload.parent.mkdir(parents=True)
+    stream_payload.write_bytes(b"stream payload")
+
+    stats = backend.get_storage_stats(root_dir=tmp_path)
+
+    assert stats["view_count"] == 0
+    assert stats["snapshot_count"] == 0
+    assert stats["total_bytes"] == 0
+    assert backend.list_stored_views(root_dir=tmp_path) == []
+    assert backend.delete_all_snapshots(root_dir=tmp_path) == 0
+    assert stream_payload.read_bytes() == b"stream payload"
+
+
 def test_internal_helpers_cover_edge_cases() -> None:
     assert backend._slug_view_id(" etl:import / weird ") == "etl__import__weird"
     assert backend._slug_view_id("...") == "default"

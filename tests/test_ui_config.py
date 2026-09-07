@@ -23,11 +23,15 @@ def test_load_ui_settings_defaults_when_no_config(monkeypatch, tmp_path: Path) -
     ui = ui_config.load_ui_settings()
 
     assert ui.logo_url == ui_config.DEFAULT_LOGO_URL
+    assert ui.logo_url == "/static/plotsrv_icon_title_colour_swash_logo.png"
     assert ui.header_text == ui_config.DEFAULT_HEADER_TEXT
     assert ui.header_fill_colour == ui_config.DEFAULT_HEADER_FILL
     assert ui.page_title == ui_config.DEFAULT_PAGE_TITLE
     assert ui.favicon_url == ui_config.DEFAULT_FAVICON_URL
     assert ui.show_view_selector is True
+    assert ui.featured_views == ()
+    assert ui.compact_views == ()
+    assert ui.asset_files == ()
 
 
 def test_load_ui_settings_reads_page_title_and_favicon_from_yaml(

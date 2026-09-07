@@ -177,6 +177,7 @@ render-settings:
     plot_default_figsize_in: "12,6"
     plot_bbox_tight: true
     plot_pad_inches: 0.10
+    table_plot_max_points: 5000
     table_view_mode: rich
     html_sanitize: false
     markdown_sanitize: true

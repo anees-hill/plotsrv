@@ -49,7 +49,31 @@ class TextRenderer:
               <button type="button" class="artifact-btn" data-plotsrv-action="copy" title="Copy to clipboard">Copy</button>
               <button type="button" class="artifact-btn" data-plotsrv-action="wrap" title="Toggle word wrap" aria-pressed="false">Wrap</button>
               <button type="button" class="artifact-btn" data-plotsrv-action="reverse" title="Reverse line order" aria-pressed="false">Reverse lines</button>
-              <button type="button" class="artifact-btn" data-plotsrv-action="colour" title="Toggle lightweight log colouring" aria-pressed="true">Styling</button>
+              <div class="ps-text-style-control">
+                <button type="button"
+                        class="artifact-btn ps-text-style-trigger"
+                        data-plotsrv-action="style-menu"
+                        title="Choose lightweight text highlighting"
+                        aria-haspopup="menu"
+                        aria-expanded="false">Styling <span class="ps-text-style-trigger__choice" data-plotsrv-text-style-choice="1">Auto</span><span aria-hidden="true">▾</span></button>
+                <div class="ps-text-style-menu"
+                     data-plotsrv-text-style-menu="1"
+                     role="menu"
+                     aria-label="Text highlighting style"
+                     hidden>
+                  <span class="ps-text-style-menu__heading">Highlighting</span>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="auto" aria-checked="false"><span>Auto</span><small>Detect a useful style</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="plain" aria-checked="false"><span>None / Plain</span><small>Show unstyled text</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="http" aria-checked="false"><span>HTTP / access log</span><small>Methods, paths and statuses</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="application" aria-checked="false"><span>Application log</span><small>Levels and logger names</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="timestamp" aria-checked="false"><span>Timestamp + severity</span><small>Times and log levels</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="syslog" aria-checked="false"><span>Syslog / system log</span><small>System log prefixes</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="container" aria-checked="false"><span>Container / Docker</span><small>Streams and timestamps</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="test" aria-checked="false"><span>Test output</span><small>Results and test names</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="traceback" aria-checked="false"><span>Traceback / error</span><small>Frames and exceptions</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="keyvalue" aria-checked="false"><span>Key / value</span><small>Config-like entries</small></button>
+                </div>
+              </div>
             </div>
             <div class="artifact-toolbar-group ps-text-toolbar__group">
               <span class="ps-text-reverse-indicator"

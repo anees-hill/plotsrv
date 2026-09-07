@@ -62,7 +62,11 @@ def test_text_renderer_includes_new_toolbar_controls(monkeypatch) -> None:
     assert 'data-plotsrv-action="copy"' in out.html
     assert 'data-plotsrv-action="wrap"' in out.html
     assert 'data-plotsrv-action="reverse"' in out.html
-    assert 'data-plotsrv-action="colour"' in out.html
+    assert 'data-plotsrv-action="style-menu"' in out.html
+    assert 'data-plotsrv-text-style="auto"' in out.html
+    assert 'data-plotsrv-text-style="plain"' in out.html
+    assert 'data-plotsrv-text-style="http"' in out.html
+    assert 'role="menuitemradio"' in out.html
     assert 'data-plotsrv-text-reverse-indicator="1"' in out.html
     assert 'data-plotsrv-text-anchor="head"' in out.html
 

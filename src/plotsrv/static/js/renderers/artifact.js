@@ -11,6 +11,123 @@
   const core = window.PLOTSRV.core;
   const config = window.PLOTSRV.config;
 
+  function getScrollMetrics(target) {
+    if (target === window) {
+      const scrollingElement = document.scrollingElement || document.documentElement;
+      return {
+        top: window.scrollY || scrollingElement.scrollTop || 0,
+        viewport: window.innerHeight || document.documentElement.clientHeight || 0,
+        extent: scrollingElement.scrollHeight || 0,
+      };
+    }
+    return {
+      top: target.scrollTop || 0,
+      viewport: target.clientHeight || 0,
+      extent: target.scrollHeight || 0,
+    };
+  }
+
+  function scrollToEdge(target, edge) {
+    const top = edge === "top" ? 0 : getScrollMetrics(target).extent;
+    if (target === window) {
+      window.scrollTo({ top: top, behavior: "smooth" });
+    } else {
+      target.scrollTo({ top: top, behavior: "smooth" });
+    }
+  }
+
+  function disposeArtifactScrollNav() {
+    const cleanup = core._artifactScrollNavCleanup;
+    if (typeof cleanup === "function") cleanup();
+    core._artifactScrollNavCleanup = null;
+  }
+
+  function initArtifactScrollNav(root) {
+    disposeArtifactScrollNav();
+    if (!root) return;
+
+    const textTarget = root.querySelector("[data-plotsrv-pre='1']");
+    const markdownRawTarget = root.querySelector(".plotsrv-markdown__raw");
+    const markdownInline = root.querySelector(".plotsrv-markdown--sanitized");
+    const contentTarget = textTarget || markdownRawTarget || markdownInline;
+    const target = textTarget || markdownRawTarget || (markdownInline ? window : null);
+    if (!target) return;
+
+    const nav = document.createElement("div");
+    nav.className = "ps-scroll-nav";
+    nav.setAttribute("data-plotsrv-scroll-nav", "1");
+    nav.setAttribute("role", "group");
+    nav.setAttribute("aria-label", "Document navigation");
+    nav.hidden = true;
+    nav.innerHTML =
+      '<button type="button" data-plotsrv-scroll-edge="top" ' +
+      'aria-label="Jump to top" title="Jump to top">↑</button>' +
+      '<button type="button" data-plotsrv-scroll-edge="bottom" ' +
+      'aria-label="Jump to bottom" title="Jump to bottom">↓</button>';
+    root.appendChild(nav);
+
+    const topButton = nav.querySelector("[data-plotsrv-scroll-edge='top']");
+    const bottomButton = nav.querySelector("[data-plotsrv-scroll-edge='bottom']");
+    let frame = 0;
+
+    function sync() {
+      frame = 0;
+      const metrics = getScrollMetrics(target);
+      const threshold = 24;
+      const canScroll = metrics.extent > metrics.viewport + threshold;
+      nav.hidden = !canScroll;
+      if (topButton) topButton.disabled = !canScroll || metrics.top <= threshold;
+      if (bottomButton) {
+        bottomButton.disabled =
+          !canScroll || metrics.extent - metrics.viewport - metrics.top <= threshold;
+      }
+    }
+
+    function scheduleSync() {
+      if (frame) return;
+      frame = window.requestAnimationFrame(sync);
+    }
+
+    function onClick(event) {
+      const button = event.target.closest("[data-plotsrv-scroll-edge]");
+      if (!button || button.disabled) return;
+      scrollToEdge(target, button.getAttribute("data-plotsrv-scroll-edge"));
+    }
+
+    const scrollSource = target === window ? window : target;
+    nav.addEventListener("click", onClick);
+    scrollSource.addEventListener("scroll", scheduleSync, { passive: true });
+    window.addEventListener("resize", scheduleSync);
+
+    let resizeObserver = null;
+    if (typeof window.ResizeObserver === "function") {
+      resizeObserver = new window.ResizeObserver(scheduleSync);
+      resizeObserver.observe(contentTarget);
+    }
+
+    let mutationObserver = null;
+    if (typeof window.MutationObserver === "function") {
+      mutationObserver = new window.MutationObserver(scheduleSync);
+      mutationObserver.observe(contentTarget, {
+        attributes: true,
+        childList: true,
+        characterData: true,
+        subtree: true,
+      });
+    }
+
+    core._artifactScrollNavCleanup = function () {
+      if (frame) window.cancelAnimationFrame(frame);
+      nav.removeEventListener("click", onClick);
+      scrollSource.removeEventListener("scroll", scheduleSync);
+      window.removeEventListener("resize", scheduleSync);
+      if (resizeObserver) resizeObserver.disconnect();
+      if (mutationObserver) mutationObserver.disconnect();
+      if (nav.parentNode) nav.parentNode.removeChild(nav);
+    };
+    scheduleSync();
+  }
+
   function renderTruncationBadge(trunc) {
     const el = document.getElementById("artifact-truncation");
     if (!el) return;
@@ -54,6 +171,8 @@
     const root = document.getElementById("artifact-root");
     if (!root) return;
 
+    disposeArtifactScrollNav();
+
     const snapshotQuery =
       typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "";
 
@@ -83,6 +202,9 @@
           return;
         }
 
+        if (typeof core.disposeEmbeddedTableExplorer === "function") {
+          core.disposeEmbeddedTableExplorer();
+        }
         root.innerHTML =
           '<div class="note">Failed to load artifact (' + res.status + ").</div>";
         renderTruncationBadge(null);
@@ -117,6 +239,9 @@
         kindEl.textContent = data.kind ? "Kind: " + data.kind : "";
       }
       
+      if (typeof core.disposeEmbeddedTableExplorer === "function") {
+        core.disposeEmbeddedTableExplorer();
+      }
       root.innerHTML = data.html || "";
 
       renderTruncationBadge(data.truncation || null);
@@ -136,6 +261,9 @@
         await core.loadTable();
       }
     } catch (e) {
+      if (typeof core.disposeEmbeddedTableExplorer === "function") {
+        core.disposeEmbeddedTableExplorer();
+      }
       root.innerHTML =
         '<div class="note">Failed to load artifact (network error).</div>';
       renderTruncationBadge(null);
@@ -149,6 +277,9 @@
       }
     });
   }
+
+  core.initArtifactScrollNav = initArtifactScrollNav;
+  core.disposeArtifactScrollNav = disposeArtifactScrollNav;
 
   function terminateServer() {
     fetch("/shutdown", { method: "POST" })
@@ -173,6 +304,15 @@
     } catch (e) {
       return null;
     }
+  }
+
+  function getIframeExportHtml(root) {
+    if (!root) return "";
+    const iframe = root.querySelector(
+      ".plotsrv-html-iframe, .plotsrv-markdown-iframe"
+    );
+    if (!iframe) return "";
+    return String(iframe.getAttribute("srcdoc") || "");
   }
 
   function getArtifactExportText() {
@@ -225,6 +365,28 @@
     }, 1000);
   }
 
+  function exportEmbeddedImage(root, base, stamp) {
+    if (!root) return false;
+    const image = root.querySelector('img[src^="data:image/"]');
+    if (!image) return false;
+    const source = String(image.getAttribute("src") || "");
+    const match = /^data:image\/([^;,]+)/i.exec(source);
+    if (!match) return false;
+    const subtype = match[1].toLowerCase();
+    const extension = {
+      "svg+xml": "svg",
+      jpeg: "jpg",
+      jpg: "jpg",
+    }[subtype] || subtype;
+    const a = document.createElement("a");
+    a.href = source;
+    a.download = base + "-" + stamp + "." + extension;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return true;
+  }
+
   function exportArtifact() {
     const isHistory =
       typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
@@ -235,14 +397,24 @@
 
     if (!isHistory && sourceDownload) {
       window.location.href = sourceDownload + "&_ts=" + Date.now();
-      return;
+      return true;
+    }
+
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const base = String(config.activeViewId || "artifact").replace(/[^\w.-]+/g, "_");
+    if (exportEmbeddedImage(root, base, stamp)) return true;
+
+    const iframeHtml = getIframeExportHtml(root);
+    if (iframeHtml) {
+      downloadTextFile(base + "-" + stamp + ".html", iframeHtml);
+      return true;
     }
 
     const text = getArtifactExportText();
-    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const base = String(config.activeViewId || "artifact").replace(/[^\w.-]+/g, "_");
+    if (!text) return false;
     const filename = base + "-" + stamp + ".txt";
     downloadTextFile(filename, text);
+    return true;
   }
 
   core.renderTruncationBadge = renderTruncationBadge;

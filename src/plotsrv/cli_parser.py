@@ -364,7 +364,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     store_p = sub.add_parser(
-        "store", help="Inspect or clear persisted plotsrv views and snapshots"
+        "store", help="Inspect or clear persisted plotsrv views, snapshots, and streams"
     )
     store_p.add_argument(
         "--name",
@@ -382,7 +382,7 @@ def build_parser() -> argparse.ArgumentParser:
     store_sub.add_parser("stats", help="Show storage statistics")
 
     store_list_p = store_sub.add_parser(
-        "list", help="List stored latest views or snapshots"
+        "list", help="List stored latest views, snapshots, and stream sessions"
     )
     store_list_p.add_argument(
         "--view",
@@ -390,16 +390,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="View id to inspect. If omitted, lists stored views.",
     )
 
-    store_clear_p = store_sub.add_parser("clear", help="Delete stored snapshots")
+    store_clear_p = store_sub.add_parser(
+        "clear", help="Delete stored latest state, snapshots, and stream history"
+    )
     store_clear_p.add_argument(
         "--view",
         default=None,
-        help="Delete stored latest state and snapshots for one view id.",
+        help="Delete stored latest state, snapshots, and stream history for one view id.",
     )
     store_clear_p.add_argument(
         "--all",
         action="store_true",
-        help="Delete all stored latest state and snapshots for all views.",
+        help="Delete all stored latest state, snapshots, and stream history.",
     )
     store_clear_p.add_argument(
         "-y",

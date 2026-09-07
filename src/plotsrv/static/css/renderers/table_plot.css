@@ -1,0 +1,229 @@
+.ps-table-plot {
+  position: relative;
+  width: 100%;
+  margin: 0;
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.ps-table-plot__title,
+.ps-table-plot__notice-title {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.ps-table-plot[data-plot-title-align="center"] .ps-table-plot__title {
+  text-align: center;
+}
+
+.ps-table-plot__detail,
+.ps-table-plot__scope,
+.ps-table-plot__notice-detail {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.ps-table-plot__scope {
+  color: var(--text);
+}
+
+.ps-table-plot__svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin-top: 0.65rem;
+  overflow: visible;
+}
+
+.ps-table-plot__axis {
+  stroke: #8b8b8b;
+  stroke-width: 1;
+}
+
+.ps-table-plot__grid-line {
+  stroke: #ececec;
+  stroke-width: 1;
+}
+
+.ps-table-plot__tick,
+.ps-table-plot__category,
+.ps-table-plot__value,
+.ps-table-plot__axis-label {
+  fill: #505050;
+  font-family: inherit;
+}
+
+.ps-table-plot__tick {
+  font-size: 12px;
+}
+
+.ps-table-plot__category {
+  font-size: 13px;
+}
+
+.ps-table-plot__value {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ps-table-plot__axis-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ps-table-plot__bar {
+  transition: opacity 120ms ease, filter 120ms ease;
+}
+
+.ps-table-plot__line {
+  stroke-width: 2.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.ps-table-plot__point {
+  fill-opacity: 0.72;
+  transition: r 120ms ease, fill-opacity 120ms ease;
+}
+
+.ps-table-plot__point--line {
+  fill: #fff;
+  stroke: #d55970;
+  stroke-width: 1.6;
+}
+
+.ps-table-plot__bar:hover,
+.ps-table-plot__bar:focus-visible,
+.ps-table-plot__bar.is-highlighted {
+  opacity: 0.78;
+  filter: saturate(1.18);
+  outline: none;
+}
+
+.ps-table-plot__point:hover,
+.ps-table-plot__point.is-highlighted {
+  fill-opacity: 1;
+}
+
+.ps-table-plot__tooltip {
+  position: absolute;
+  z-index: 4;
+  max-width: min(22rem, calc(100% - 1rem));
+  padding: 0.38rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--ps-surface-raised, #fff);
+  box-shadow: 0 5px 16px rgba(20, 23, 26, 0.16);
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  pointer-events: none;
+}
+
+.ps-table-plot__tooltip[hidden] {
+  display: none !important;
+}
+
+.ps-table-plot__body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ps-table-plot__body--legend-right {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.8rem;
+}
+
+.ps-table-plot__legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  padding-top: 0.55rem;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.ps-table-plot__legend--top {
+  order: -1;
+}
+
+.ps-table-plot__legend--right {
+  flex-direction: column;
+  max-width: 12rem;
+  padding-top: 1rem;
+}
+
+.ps-table-plot__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 3px;
+}
+
+.ps-table-plot__legend-item:focus-visible {
+  outline: 2px solid var(--ps-accent, #d55970);
+  outline-offset: 2px;
+}
+
+.ps-table-plot__legend-swatch {
+  width: 0.68rem;
+  height: 0.68rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.ps-table-plot__notice {
+  padding: 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fffdfd;
+}
+
+.ps-table-plot__notice--refused,
+.ps-table-plot__notice--error {
+  border-color: #ead7df;
+  background: #fcf7f9;
+}
+
+.ps-table-plot__notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.7rem;
+}
+
+.ps-table-plot__notice-action {
+  min-height: 2rem;
+}
+
+.ps-table-plot__notice-actions > .ps-table-plot__notice-action:first-child {
+  border-color: var(--muted);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .ps-table-plot {
+    padding: 0.65rem;
+  }
+
+  .ps-table-plot__category {
+    font-size: 12px;
+  }
+
+  .ps-table-plot__body--legend-right {
+    display: flex;
+  }
+
+  .ps-table-plot__legend--right {
+    max-width: none;
+    flex-direction: row;
+  }
+}

@@ -1,6 +1,7 @@
 # src/plotsrv/app.py
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
@@ -19,11 +20,13 @@ from fastapi.staticfiles import StaticFiles
 
 from . import store, config
 from . import html as html_mod
+from .browser_updates import BrowserUpdateCapacityError, browser_update_hub
 from .ui_config import get_ui_settings
 from .renderers import register_default_renderers
 from .renderers.registry import render_any
 from .render_cache import cache_rendered_artifact, get_cached_rendered_artifact
 from .storage.worker import enqueue_snapshot, get_storage_queue_stats
+from .storage.stream_worker import get_stream_storage_queue_stats
 from .storage.backend import list_snapshots
 from .publishing.worker import get_publish_queue_stats
 from .http_publish import (
@@ -41,6 +44,8 @@ from .http_snapshots import (
     _snapshot_summary_dict,
     _storage_root,
 )
+from .http_streams import router as stream_router
+from .streams.server_state import stream_registry, UnknownStreamError
 from .runtime import (
     FileBackedLoadBusyError,
     acquire_file_backed_load_slot,
@@ -68,6 +73,74 @@ def _build_app() -> FastAPI:
 
 app = _build_app()
 register_default_renderers()
+app.include_router(stream_router)
+
+
+@app.get("/updates")
+async def browser_updates(
+    request: Request,
+    view: str = Query(min_length=1),
+    since: int = Query(default=0, ge=0),
+) -> StreamingResponse:
+    """Stream bounded change notices; view payloads stay on existing routes."""
+    last_event_id = request.headers.get("last-event-id")
+    if last_event_id and last_event_id.isdecimal():
+        since = max(since, int(last_event_id))
+    try:
+        subscription = browser_update_hub.subscribe(
+            view_id=view,
+            since=since,
+            loop=asyncio.get_running_loop(),
+        )
+    except BrowserUpdateCapacityError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
+
+    async def events():
+        try:
+            yield "retry: 2000\n\n"
+            # Always announce the receiver epoch, even when a reconnect's old
+            # Last-Event-ID exceeds this process's new revision counter.
+            ready = json.dumps({
+                **browser_update_hub.reconnect_update(view).as_dict(),
+                "server_instance_id": browser_update_hub.instance_id,
+            }, separators=(",", ":"))
+            yield f"event: update\ndata: {ready}\n\n"
+            while True:
+                try:
+                    event = await asyncio.wait_for(subscription.queue.get(), timeout=20)
+                except TimeoutError:
+                    # Stream liveness can change solely through elapsed time.
+                    # Evaluate it beside the SSE heartbeat without introducing
+                    # another browser polling route; fingerprinting suppresses
+                    # duplicate notices across multiple connected clients.
+                    try:
+                        if store.get_kind(view) == "stream":
+                            from .http_streams import notify_stream_browser
+
+                            notify_stream_browser(view)
+                    except Exception:
+                        pass
+                    # A named event remains payload-free but lets browser code
+                    # distinguish a healthy, idle SSE connection from one
+                    # silently stalled by a proxy or a suspended network.
+                    yield "event: keepalive\ndata: {}\n\n"
+                    continue
+                payload = json.dumps({
+                    **event.as_dict(),
+                    "server_instance_id": browser_update_hub.instance_id,
+                }, separators=(",", ":"))
+                yield f"id: {event.revision}\nevent: update\ndata: {payload}\n\n"
+        finally:
+            browser_update_hub.unsubscribe(subscription)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 # Static files shipped inside plotsrv package (logo, etc.)
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -89,6 +162,13 @@ def _ensure_assets_mount() -> None:
         # backwards compatibility: if assets_dir is actually a file, use it
         if ui.assets_dir.exists() and ui.assets_dir.is_file():
             asset_files.append(ui.assets_dir)
+    for asset_file in getattr(ui, "asset_files", ()):
+        if (
+            asset_file.exists()
+            and asset_file.is_file()
+            and asset_file not in asset_files
+        ):
+            asset_files.append(asset_file)
 
     # Rebuild cache dir
     if not asset_files:
@@ -479,6 +559,75 @@ def _watched_file_meta_dict(view_id: str) -> dict[str, Any] | None:
     return _public_watched_file_meta(meta)
 
 
+def _snapshot_capability(view_id: str) -> dict[str, Any]:
+    """Describe whether ordinary snapshots can be used for a view.
+
+    This is deliberately separate from the history result: an empty snapshot
+    list is a successful, enabled state, while streams and file-backed watched
+    views expose their own bounded/source-backed history models.
+    """
+    kind = store.get_kind(view_id)
+    status_data = store.get_status(view_id=view_id)
+    watched_file = _watched_file_meta_dict(view_id)
+    source = "watch" if watched_file is not None else str(
+        status_data.get("publish_source") or "normal"
+    )
+    storage_enabled = config.get_storage_enabled()
+
+    base: dict[str, Any] = {
+        "name": "snapshots",
+        "enabled": False,
+        "storage_enabled": storage_enabled,
+        "admitted": False,
+        "state": "unavailable",
+        "reason": None,
+        "message": "Snapshots are unavailable for this view.",
+        "source": source,
+        "kind": kind,
+    }
+
+    if kind == "stream":
+        base.update(
+            reason="stream_sessions",
+            message="Streams use bounded stored sessions rather than snapshots.",
+        )
+        return base
+
+    materialization = str((watched_file or {}).get("materialization") or "")
+    if watched_file is not None and materialization.lower() == "file":
+        base.update(
+            reason="file_backed_source",
+            message="File-backed watched views use the source file rather than snapshots.",
+        )
+        return base
+
+    if not storage_enabled:
+        base.update(
+            reason="storage_disabled",
+            message="Snapshot storage has not been enabled for this instance.",
+        )
+        return base
+
+    if not config.get_storage_view_enabled(view_id, source=source):
+        if source == "watch":
+            message = "Snapshot storage is not enabled for this watched view."
+            reason = "watch_storage_not_admitted"
+        else:
+            message = "Snapshot storage is not enabled for this view."
+            reason = "view_storage_not_admitted"
+        base.update(reason=reason, message=message)
+        return base
+
+    base.update(
+        enabled=True,
+        admitted=True,
+        state="enabled",
+        reason=None,
+        message="Snapshots are available for this view.",
+    )
+    return base
+
+
 @app.get("/status")
 def status(request: Request, view: str | None = None) -> dict[str, object]:
     if config.get_status_local_only():
@@ -489,10 +638,53 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     s.update(store.get_service_info())
     s["publish_queue"] = get_publish_queue_stats()
     s["storage_queue"] = get_storage_queue_stats()
+    # Stream persistence has its own budget and must remain inspectable apart
+    # from existing latest/snapshot storage admission.
+    s["stream_storage_queue"] = get_stream_storage_queue_stats()
     s["file_backed_loads"] = get_file_backed_load_stats()
     s["view_id"] = vid
     s["view_menu_revision"] = store.get_view_menu_revision()
     s["freshness"] = store.get_freshness(view_id=vid)
+
+    kind = store.get_kind(vid)
+    activity = store.get_data_activity(view_id=vid)
+    activity["represents"] = (
+        "accepted_stream_records" if kind == "stream" else "published_updates"
+    )
+    activity["retention_note"] = (
+        "Bounded activity observed during this plotsrv process lifetime; "
+        "it does not survive restart."
+    )
+    events = activity.get("events")
+    s["data_activity"] = activity
+    s["last_data_arrival_at"] = (
+        events[-1].get("received_at")
+        if isinstance(events, list) and events and isinstance(events[-1], dict)
+        else None
+    )
+
+    if kind == "stream":
+        try:
+            s["stream_status"] = stream_registry.status(view_id=vid)
+        except UnknownStreamError:
+            s["stream_status"] = None
+        s["data_source"] = {"type": "stream", "label": "Stream producer"}
+    elif store.has_watched_file_meta(view_id=vid):
+        materialization = str(
+            (_watched_file_meta_dict(vid) or {}).get("materialization") or "memory"
+        )
+        s["stream_status"] = None
+        s["data_source"] = {
+            "type": "watched_file",
+            "label": (
+                "Watched file (source-backed)"
+                if materialization == "file"
+                else "Watched file"
+            ),
+        }
+    else:
+        s["stream_status"] = None
+        s["data_source"] = {"type": "publish", "label": "Python/API publish"}
 
     watched_file = _watched_file_meta_dict(vid)
     s["watched_file"] = watched_file
@@ -526,10 +718,17 @@ def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
             )
         )
 
+    capability = _snapshot_capability(vid)
+    result = "unavailable" if not capability["enabled"] else (
+        "available" if snapshots_out else "empty"
+    )
+
     return {
         "view_id": vid,
         "count": len(snaps),
         "snapshots": snapshots_out,
+        "capability": capability,
+        "result": result,
     }
 
 
@@ -1015,14 +1214,17 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         else None
     )
 
-    store.register_view(
-        view_id=view_id,
-        section=section,
-        label=label,
-        kind="none",
-        icon_key="unknown",
-        activate_if_first=False,
-    )
+    try:
+        store.register_view(
+            view_id=view_id,
+            section=section,
+            label=label,
+            kind="none",
+            icon_key="unknown",
+            activate_if_first=False,
+        )
+    except store.ViewOwnershipError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     current_active = store.get_active_view_id()
     known_view_ids = {v.view_id for v in store.list_views()}
     if current_active not in known_view_ids:
@@ -1331,6 +1533,10 @@ def index(view: str | None = None) -> HTMLResponse:
         view_freshness=view_freshness,
         active_view_id=active_view,
         view_menu_revision=store.get_view_menu_revision(),
+        browser_update_revision=browser_update_hub.current_revision(active_view),
+        browser_update_instance_id=browser_update_hub.instance_id,
+        table_plot_max_points=config.get_table_plot_max_points(),
+        file_backed=store.has_watched_file_meta(view_id=active_view),
     )
     return HTMLResponse(content=html_str)
 

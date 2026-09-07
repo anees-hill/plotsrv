@@ -25,25 +25,35 @@ CSS_SOURCES = (
     "css/status.css",
     "css/renderers/plot.css",
     "css/renderers/table.css",
+    "css/renderers/table_plot.css",
+    "css/renderers/table_plot_controls.css",
+    "css/renderers/stream.css",
     "css/renderers/json.css",
     "css/renderers/text.css",
     "css/renderers/code.css",
     "css/renderers/html.css",
     "css/renderers/markdown.css",
     "css/renderers/traceback.css",
+    "css/themes.css",
 )
 
 JS_SOURCES = (
     "js/core/dom.js",
     "js/core/state.js",
     "js/core/storage.js",
+    "js/core/settings.js",
     "js/core/history.js",
     "js/core/status.js",
+    "js/core/status_modal.js",
+    "js/core/bottom_bar.js",
     "js/core/auto_refresh.js",
     "js/core/view_selector.js",
     "js/renderers/artifact.js",
     "js/renderers/plot.js",
     "js/renderers/table.js",
+    "js/renderers/table_plot.js",
+    "js/renderers/table_plot_controls.js",
+    "js/renderers/stream.js",
     "js/renderers/json.js",
     "js/renderers/text.js",
     "js/renderers/code.js",
@@ -104,11 +114,21 @@ def build(*, check: bool) -> int:
 
     DIST.mkdir(parents=True, exist_ok=True)
     expected = set(outputs)
+    manifest_path = DIST / "manifest.json"
+
+    # Publish new fingerprinted files before switching the manifest. A running
+    # development server can therefore resolve either side of the rollover.
+    for path, data in outputs.items():
+        if path != manifest_path:
+            path.write_bytes(data)
+
+    manifest_temp = DIST / ".manifest.json.tmp"
+    manifest_temp.write_bytes(outputs[manifest_path])
+    manifest_temp.replace(manifest_path)
+
     for old in DIST.glob("plotsrv-ui.*"):
         if old not in expected and old.is_file():
             old.unlink()
-    for path, data in outputs.items():
-        path.write_bytes(data)
     print("Built " + ", ".join(path.name for path in outputs))
     return 0
 

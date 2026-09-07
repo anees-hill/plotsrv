@@ -16,6 +16,11 @@ import pandas as pd
 from .models import LoadedSnapshot, SnapshotMeta
 
 
+# These directories have their own storage backends.  Snapshot traversal must
+# never treat their implementation layout as a logical snapshot view.
+_RESERVED_STORAGE_DIRECTORIES = frozenset(("latest", "streams"))
+
+
 def ensure_storage_root(root_dir: Path) -> Path:
     root = Path(root_dir).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -267,7 +272,7 @@ def get_storage_stats(*, root_dir: Path) -> dict[str, Any]:
     for child in root.iterdir():
         if not child.is_dir():
             continue
-        if child.name == "latest":
+        if child.name in _RESERVED_STORAGE_DIRECTORIES:
             continue
         view_count += 1
         for p in child.iterdir():
@@ -305,7 +310,7 @@ def list_stored_views(*, root_dir: Path) -> list[dict[str, Any]]:
     for child in root.iterdir():
         if not child.is_dir():
             continue
-        if child.name == "latest":
+        if child.name in _RESERVED_STORAGE_DIRECTORIES:
             continue
 
         metas: list[SnapshotMeta] = []
@@ -371,7 +376,7 @@ def delete_all_snapshots(*, root_dir: Path) -> int:
     for child in list(root.iterdir()):
         if not child.is_dir():
             continue
-        if child.name == "latest":
+        if child.name in _RESERVED_STORAGE_DIRECTORIES:
             continue
 
         for p in list(child.iterdir()):

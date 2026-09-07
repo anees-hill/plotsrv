@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 
 import plotsrv.cli as cli_mod
+from plotsrv.storage import FileStreamStorageBackend, StreamStoragePolicy
+from plotsrv.storage import backend as storage_backend
 
 
 def test_run_store_stats_prints(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
@@ -172,3 +174,61 @@ def test_run_store_clear_view_yes(monkeypatch: pytest.MonkeyPatch, capsys) -> No
     out = capsys.readouterr().out
     assert rc == 0
     assert "Removed 2" in out
+
+
+def test_store_commands_account_for_and_clear_stream_history_only_for_its_view(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    root = tmp_path / "store"
+    streams = FileStreamStorageBackend(root_dir=root)
+    streams.write_compact_session(
+        view_id="logs:stored",
+        session_id="session-one",
+        client_id="producer",
+        metadata={"lifecycle": "ended"},
+        summary_windows=[],
+        noteworthy_items=[],
+        policy=StreamStoragePolicy(
+            summary_retention=1,
+            noteworthy_keep_last=1,
+            keep_last_sessions=2,
+            max_bytes_per_view=100_000,
+        ),
+    )
+    other = storage_backend.write_snapshot(
+        root_dir=root,
+        view_id="other:view",
+        kind="json",
+        obj={"keep": True},
+    )
+    monkeypatch.setattr(cli_mod.config, "get_storage_root_dir", lambda: root)
+
+    assert cli_mod._run_store_stats() == 0
+    stats_output = capsys.readouterr().out
+    assert "stream_view_count: 1" in stats_output
+    assert "stream_session_count: 1" in stats_output
+    assert "stream_bytes:" in stats_output
+
+    assert cli_mod._run_store_list(view_id=None) == 0
+    list_output = capsys.readouterr().out
+    assert "streams:" in list_output
+    assert "logs:stored" in list_output
+    assert "sessions=1" in list_output
+
+    assert cli_mod._run_store_list(view_id="logs:stored") == 0
+    view_output = capsys.readouterr().out
+    assert "streams:" in view_output
+    assert "sessions=1" in view_output
+
+    assert (
+        cli_mod._run_store_clear(
+            view_id="logs:stored", clear_all=False, assume_yes=True
+        )
+        == 0
+    )
+    clear_output = capsys.readouterr().out
+    assert "stream files" in clear_output
+    assert streams.get_storage_stats()["session_count"] == 0
+    assert storage_backend.load_snapshot(
+        root_dir=root, view_id="other:view", snapshot_id=other.snapshot_id
+    ).obj == {"keep": True}

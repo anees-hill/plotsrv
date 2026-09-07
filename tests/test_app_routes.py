@@ -104,6 +104,9 @@ def test_index_table_simple_embeds_table_html(client: TestClient) -> None:
 
     # Don't look for "table-grid" substring
     assert 'id="table-grid"' not in text
+    assert "Simple table mode is read-only" in text
+    assert 'id="table-search-input"' not in text
+    assert 'id="table-mode-plot-btn"' not in text
     assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" not in text
 
 
@@ -114,6 +117,13 @@ def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
     resp = client.get("/")
     text = resp.text
     assert 'id="table-grid"' in text
+    assert 'id="table-group-by-select"' in text
+    assert "No grouping" in text
+    assert 'id="table-mode-table-btn"' in text
+    assert 'aria-pressed="true"' in text
+    assert 'id="table-mode-plot-btn"' in text
+    assert 'id="table-plot-controls"' in text
+    assert 'id="table-plot-output"' in text
     assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" in text
 
 
@@ -1306,4 +1316,4 @@ def test_index_includes_file_backed_status_indicator_markup(
 
     assert 'id="status-file-backed"' in text
     assert "/static/logo_on_disk.png" in text
-    assert "ps-statusline__disk-icon" in text
+    assert "ps-bottom-bar__disk-icon" in text

@@ -263,6 +263,7 @@ render-settings:
     plot_default_figsize_in: "12,6"
     plot_bbox_tight: true
     plot_pad_inches: 0.10
+    table_plot_max_points: 5000
     table_view_mode: rich
     html_sanitize: false
     markdown_sanitize: true
@@ -276,6 +277,7 @@ render-settings:
 | `plot_default_figsize_in` | default matplotlib-style figure size |
 | `plot_bbox_tight` | save plots with tight bounding boxes |
 | `plot_pad_inches` | plot padding when tight bounding boxes are used |
+| `table_plot_max_points` | maximum SVG points in a browser table plot (default `5000`, hard-capped at `25000`); larger plots offer browser-side sampling |
 | `table_view_mode` | `rich` or `simple` table mode |
 | `html_sanitize` | sanitize HTML artifacts before rendering |
 | `markdown_sanitize` | sanitize rendered markdown HTML |
@@ -297,6 +299,14 @@ storage-settings:
     enabled: true
     restore_on_startup: true
     restore_scope: discovered
+  streams:
+    enabled: true
+    summary_retention: 32
+    noteworthy_keep_last: 32
+    keep_last_sessions: 4
+    max_bytes_per_view_mb: 16
+    # Omit or set to null for compact-only history.
+    raw_retention: null
   default_keep_last: 2
   default_min_store_interval: off
   max_snapshot_size_mb: 20.0
@@ -310,6 +320,28 @@ storage-settings:
 serialisation work. Rejections are exposed as `storage_queue` counters in
 `/status`; they never affect the in-memory live view that has already been
 accepted.
+
+### Stream-session storage
+
+`storage-settings.streams` controls bounded persistence for structured stream
+sessions. `storage-settings.enabled` remains the master switch. A compact
+session stores metadata, derived summaries, and noteworthy/continuity items;
+it does not turn a restarted producer into a live session.
+
+| Key | Meaning |
+|---|---|
+| `enabled` | Enable compact stream persistence while master storage is enabled. |
+| `summary_retention` | Maximum derived windows retained for each session. |
+| `noteworthy_keep_last` | Maximum noteworthy/continuity items retained for each session. |
+| `keep_last_sessions` | Softer count limit for retained sessions per logical stream. |
+| `max_bytes_per_view_mb` | Hard combined ceiling for compact files, markers, and raw blocks for one logical stream. |
+| `raw_retention` | Explicit raw-segment policy; `null` disables raw persistence. |
+
+`raw_retention`, when present, accepts `max_blocks`, `max_bytes_mb`, and
+optional `max_age_s`. The hard `max_bytes_per_view_mb` ceiling wins whenever
+these policies conflict. A per-view override belongs at
+`storage-settings.views.<view_id>.stream` (the early `streams` spelling is
+also accepted).
 
 ### Source-aware storage
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import socket
 import time
 
 import matplotlib.pyplot as plt
@@ -37,7 +38,9 @@ def _wait_for_status_ok(url: str, timeout: float = 10.0) -> None:
 
 @pytest.mark.integration
 def test_plots_and_tables_served_end_to_end() -> None:
-    port = 8765
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = int(probe.getsockname()[1])
     base_url = f"http://127.0.0.1:{port}"
     plot_url = f"{base_url}/plot"
     index_url = f"{base_url}/"

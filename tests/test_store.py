@@ -206,6 +206,12 @@ def test_traceback_artifact_uses_traceback_icon_key() -> None:
     assert views["ops:err"].icon_key == "traceback"
 
 
+def test_plain_watch_error_uses_exception_icon() -> None:
+    store.set_artifact(obj="Could not read file", kind="watch_error", view_id="ops:watch-error")
+    views = {v.view_id: v for v in store.list_views()}
+    assert views["ops:watch-error"].icon_key == "exception"
+
+
 def test_exception_artifact_alias_uses_traceback_icon_key() -> None:
     store.set_artifact(
         obj={"type": "traceback", "frames": []},

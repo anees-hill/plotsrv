@@ -2,12 +2,19 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from .base import RenderResult
 from .limits import DEFAULT_JSON_LIMITS, JsonLimits
 from ..artifacts import Truncation
-from ..json_model import JsonModelLimits, build_json_document
+from ..json_model import (
+    DEFAULT_RECTANGULAR_JSON_LIMITS,
+    JsonModelLimits,
+    MAX_JAVASCRIPT_SAFE_INTEGER,
+    build_json_document,
+)
+from ..table_explorer_markup import render_table_explorer
 
 _ICON_SRC = {
     "json": "/static/logo_json.png",
@@ -18,7 +25,7 @@ _ICON_SRC = {
     "text": "/static/logo_txt.png",
     "markdown": "/static/logo_markdown.png",
     "html": "/static/logo_html.png",
-    "traceback": "/static/logo_exception.png",
+    "traceback": "/static/logo_python_traceback.png",
     "exception": "/static/logo_exception.png",  # legacy alias
 }
 
@@ -58,6 +65,7 @@ class JsonTreeRenderer:
         raw_text = obj.get("raw_text")
         pretty_text = obj.get("pretty_text")
         source_format = obj.get("source_format")
+        table_data = _valid_rectangular_table_data(obj.get("table_data"))
 
         if not isinstance(root, dict):
             html = (
@@ -84,6 +92,11 @@ class JsonTreeRenderer:
         """.strip()
 
         simple_html = _render_simple_document_node(root)
+        table_modes_html = """
+              <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="table">Table</button>
+              <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="plot">Plot</button>
+        """ if table_data is not None else ""
+        table_panel_html = _render_rectangular_table_panel(table_data)
 
         text_value = raw_text if isinstance(raw_text, str) else pretty_text
         if not isinstance(text_value, str):
@@ -104,7 +117,7 @@ class JsonTreeRenderer:
             },
         )
 
-        toolbar = """
+        toolbar = f"""
         <div class="ps-json-topbar artifact-toolbar" data-plotsrv-toolbar="json">
           <div class="artifact-toolbar-group ps-json-toolbar-group" data-json-toolbar-group="levels">
             <span class="artifact-toolbar-label">Show levels</span>
@@ -141,6 +154,7 @@ class JsonTreeRenderer:
               <button type="button" class="artifact-btn ps-json-mode-btn is-active" data-json-mode="json">JSON</button>
               <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="simple">JSON simple</button>
               <button type="button" class="artifact-btn ps-json-mode-btn" data-json-mode="text">Text</button>
+              {table_modes_html}
             </div>
           </div>
         </div>
@@ -180,6 +194,8 @@ class JsonTreeRenderer:
             <pre class="plotsrv-pre plotsrv-pre--wrap ps-json-textview" data-json-text-view="1">{_escape_html(text_value)}</pre>
           </div>
 
+          {table_panel_html}
+
           <div class="ps-json-pinnedmodal" data-json-pinned-modal="1" hidden>
             <div class="ps-json-pinnedmodal__backdrop" data-json-pinned-close="1"></div>
             <div class="ps-json-pinnedmodal__dialog" role="dialog" aria-modal="true" aria-label="Pinned values">
@@ -215,6 +231,67 @@ class JsonTreeRenderer:
             limits=_to_json_model_limits(self._limits),
         )
         return self._render_document_payload(doc, view_id=view_id)
+
+
+def _valid_rectangular_table_data(value: Any) -> dict[str, Any] | None:
+    """Accept only the bounded scalar table shape made by json_model."""
+    if not isinstance(value, dict):
+        return None
+
+    columns = value.get("columns")
+    rows = value.get("rows")
+    if (
+        not isinstance(columns, list)
+        or not columns
+        or len(columns) > DEFAULT_RECTANGULAR_JSON_LIMITS.max_columns
+        or not all(isinstance(column, str) for column in columns)
+        or len(set(columns)) != len(columns)
+        or not isinstance(rows, list)
+        or not rows
+        or len(rows) > DEFAULT_RECTANGULAR_JSON_LIMITS.max_rows
+    ):
+        return None
+
+    expected_columns = set(columns)
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != expected_columns:
+            return None
+        if not all(_is_json_table_scalar(cell) for cell in row.values()):
+            return None
+
+    return value
+
+
+def _is_json_table_scalar(value: Any) -> bool:
+    if value is None or isinstance(value, (str, bool)):
+        return True
+    if isinstance(value, int):
+        return -MAX_JAVASCRIPT_SAFE_INTEGER <= value <= MAX_JAVASCRIPT_SAFE_INTEGER
+    return isinstance(value, float) and math.isfinite(value)
+
+
+def _render_rectangular_table_panel(table_data: dict[str, Any] | None) -> str:
+    if table_data is None:
+        return ""
+
+    table_data_json = _escape_html(json.dumps(table_data, ensure_ascii=True))
+    explorer_html = render_table_explorer(
+        grid_html=(
+            '<div class="table-grid ps-tablegrid ps-table--rich" '
+            'data-json-table-grid="1"></div>'
+        ),
+        search_placeholder="Search loaded rows…",
+        mode_switch="hidden",
+        embedded_json=True,
+        trailing_html=(
+            f'<div hidden data-json-table-data="1">{table_data_json}</div>'
+        ),
+    )
+    return f"""
+          <div class="ps-json-panel ps-json-panel--table" data-json-panel="table" hidden>
+            {explorer_html}
+          </div>
+    """.strip()
 
 
 def _render_document_node(node: dict[str, Any]) -> str:
@@ -375,7 +452,7 @@ def _render_document_node(node: dict[str, Any]) -> str:
     children_html = "".join(f"<li>{_render_document_node(ch)}</li>" for ch in children)
 
     return f"""
-    <details open
+    <details {'open' if depth == 0 else ''}
              class="ps-json-node ps-json-node--{_escape_attr(value_kind)}"
              data-json-depth="{depth}"
              data-json-expandable="1"
@@ -434,7 +511,7 @@ def _render_simple_document_node(node: dict[str, Any]) -> str:
     )
 
     return f"""
-    <details open class="json-node json-node--simple"
+    <details {'open' if depth == 0 else ''} class="json-node json-node--simple"
              data-json-depth="{depth}"
              data-json-path="{_escape_attr(path)}">
       <summary class="json-summaryline">{summaryline}</summary>

@@ -1,5 +1,14 @@
 # Release notes
 
+## v0.7.0
+
+v0.7.0 adds bounded stream views and refines the browser interface.
+
+* added stream publishing, live JSONL observation, pause/resume controls and stored-run browsing
+* added bounded stream summaries, noteworthy observations and previous-visit comparisons
+* expanded browser-native plotting with compact controls, a sidebar layout and explicit limit-recovery actions
+* refined themes, view selection, filters, JSON defaults and content-loading feedback
+
 ## v0.6.0
 
 v0.6.0 makes replaceable live publishing bounded and inspectable.
