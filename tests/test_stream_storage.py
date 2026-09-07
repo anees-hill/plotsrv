@@ -1741,11 +1741,23 @@ def test_rejected_admission_survives_a_stale_worker_snapshot(
 ) -> None:
     root = _configure_stream_storage(tmp_path)
     worker = StreamStorageWorker(max_queue_size=1, max_pending_bytes=128_000)
+    scheduler = StreamPersistenceGapMarkerScheduler(max_pending=1)
     monkeypatch.setattr(worker, "start", lambda: None)
     monkeypatch.setattr(http_streams, "get_stream_storage_worker", lambda: worker)
+    monkeypatch.setattr(stream_worker_mod, "_GAP_MARKER_SCHEDULER", scheduler)
 
     _register(client)
     _append(client, batch_sequence=0)
+
+    # Rejection schedules the marker asynchronously. Finish that write before
+    # applying the stale snapshot so this tests the intended ordering without
+    # depending on which thread happens to acquire the backend lock first.
+    assert scheduler.stats()["scheduled"] == 1
+    _wait_until(lambda: not scheduler.stats()["running"])
+    backend = FileStreamStorageBackend(root_dir=root)
+    assert backend.session_paths(
+        view_id="logs:persisted", session_id="storage-session"
+    ).incomplete_marker.exists()
 
     # The registration snapshot was admitted first. The append is rejected
     # while it waits, which must leave an on-disk gap even if that old snapshot
@@ -1755,7 +1767,7 @@ def test_rejected_admission_survives_a_stale_worker_snapshot(
     worker._process_task(task)
     worker._queue.task_done()
 
-    loaded = FileStreamStorageBackend(root_dir=root).load_compact_session(
+    loaded = backend.load_compact_session(
         view_id="logs:persisted", session_id="storage-session"
     )
     assert loaded.metadata["metadata"]["durable_history"]["state"] == "incomplete"
