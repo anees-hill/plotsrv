@@ -146,12 +146,20 @@ def _deep_merge_dicts(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str
     return out
 
 
-def get_section(section_key: str) -> dict[str, Any]:
+def get_section(section_key: str, *, strict: bool = False) -> dict[str, Any]:
     cfg = load_config()
     sec = cfg.get(section_key)
+    if strict and sec is not None:
+        if not isinstance(sec, dict):
+            raise ValueError("configuration section must be a mapping")
+        for key in ("default", "instances", "instance"):
+            if key in sec and not isinstance(sec[key], dict):
+                raise ValueError("configuration defaults/instances must be mappings")
     global_cfg, instances = _split_global_and_instances(sec)
 
     name = get_runtime_name()
+    if strict and name in instances and not isinstance(instances[name], dict):
+        raise ValueError("selected configuration instance must be a mapping")
     if name and name in instances and isinstance(instances[name], dict):
         return _deep_merge_dicts(dict(global_cfg), dict(instances[name]))
 

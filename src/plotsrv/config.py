@@ -1928,3 +1928,18 @@ def get_publish_max_json_container_items() -> int:
         "max_json_container_items",
         int(_DEFAULTS["limits"]["published_objects"]["max_json_container_items"]),
     )
+
+# Lazy entry points avoid coupling config import to publisher worker imports.
+def resolve_publish_target(**kwargs: Any):
+    from .connection_config import resolve_publish_target as resolve
+    return resolve(**kwargs)
+
+
+def get_publisher_sources():
+    from .connection_config import get_publisher_sources as resolve
+    return resolve()
+
+
+def get_server_connection_config():
+    from .connection_config import get_server_connection_config as resolve
+    return resolve()

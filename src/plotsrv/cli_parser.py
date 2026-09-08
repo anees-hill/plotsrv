@@ -16,6 +16,14 @@ class WatchSpec:
     section: str | None = None
     read_mode: WatchReadMode | None = None
     materialization: WatchMaterializationOverride | None = None
+    view_id: str | None = None
+
+
+class _ExplicitValueAction(argparse.Action):
+    """Keep legacy defaults while exposing whether a bind option was supplied."""
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, values)
+        setattr(namespace, self.dest + "_supplied", True)
 
 
 class _WatchPathAction(argparse.Action):
@@ -106,6 +114,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Discover and serve views from a project; optionally execute targets",
     )
 
+    run_p.set_defaults(host_supplied=False, port_supplied=False)
+
     # target is now OPTIONAL
     run_p.add_argument(
         "target",
@@ -115,10 +125,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     run_p.add_argument(
-        "--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
+        "--host", action=_ExplicitValueAction, default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
     )
     run_p.add_argument(
-        "--port", type=int, default=8000, help="Port to bind (default: 8000)"
+        "--port", action=_ExplicitValueAction, type=int, default=8000, help="Port to bind (default: 8000)"
     )
     run_p.add_argument(
         "--quiet", action="store_true", help="Reduce uvicorn logging noise"
@@ -288,8 +298,9 @@ def build_parser() -> argparse.ArgumentParser:
         "watch", help="Watch a file and publish live updates as a view"
     )
     watch_p.add_argument("path", help="Path to a file to watch")
-    watch_p.add_argument("--host", default="127.0.0.1")
-    watch_p.add_argument("--port", type=int, default=8000)
+    watch_p.set_defaults(host_supplied=False, port_supplied=False)
+    watch_p.add_argument("--host", action=_ExplicitValueAction, default="127.0.0.1")
+    watch_p.add_argument("--port", action=_ExplicitValueAction, type=int, default=8000)
     watch_p.add_argument(
         "--every", type=float, default=1.0, help="Poll interval seconds (default: 1.0)"
     )
