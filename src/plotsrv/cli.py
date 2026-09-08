@@ -148,16 +148,10 @@ def _with_text_anchor_header(text: str, anchor: WatchReadMode) -> str:
 
 
 def _post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> None:
-    url = f"http://{host}:{port}/publish"
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=2.0) as resp:
-        _ = resp.read()
+    from .connection_config import resolve_publish_target
+    from .publishing.transport import request_json
+    target = resolve_publish_target(host=host, port=port, launch_server=False)
+    request_json(target, "/publish", payload, feature="publish")
 
 
 def _publish_watch_payload(
@@ -1228,6 +1222,13 @@ def main(argv: list[str] | None = None) -> int:
         truncate=getattr(args, "truncate", None),
         no_truncate=bool(getattr(args, "no_truncate", False)),
     )
+
+    if args.cmd == "serve":
+        from .standalone import serve
+        try:
+            return serve(host=args.host, port=args.port, quiet=args.quiet)
+        except ValueError as error:
+            return _die(str(error))
 
     if args.cmd == "config":
         if args.config_cmd == "create":

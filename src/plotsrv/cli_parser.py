@@ -109,6 +109,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="cmd")
 
+    serve_p = sub.add_parser("serve", help="Serve publisher data without discovering or executing application code")
+    serve_p.add_argument("--host", default=None, help="Bind host (server config, otherwise 127.0.0.1)")
+    serve_p.add_argument("--port", type=int, default=None, help="Bind port (server config, otherwise 8000)")
+    serve_p.add_argument("--config", default=None, help="Server configuration file")
+    serve_p.add_argument("--name", default=None, help="Configuration instance name")
+    serve_p.add_argument("--quiet", action="store_true", help="Reduce server logging")
+
     run_p = sub.add_parser(
         "run",
         help="Discover and serve views from a project; optionally execute targets",
