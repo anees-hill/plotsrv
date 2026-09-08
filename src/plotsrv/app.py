@@ -36,6 +36,8 @@ from .http_publish import (
     _validate_artifact_size,
 )
 from .http_security import require_local_request
+from .ingestion import (IngestionError, IngestionMiddleware, ingestion_lifespan,
+    read_payload, require_admitted, MAX_PUBLISH_REQUEST_BYTES, router as ingestion_router)
 from .http_snapshots import (
     _latest_snapshot_is_live_equivalent,
     _load_snapshot_or_404,
@@ -65,6 +67,7 @@ def _build_app() -> FastAPI:
     openapi_enabled = config.get_openapi_enabled()
 
     return FastAPI(
+        lifespan=ingestion_lifespan,
         docs_url="/docs" if docs_enabled else None,
         redoc_url="/redoc" if docs_enabled else None,
         openapi_url="/openapi.json" if openapi_enabled else None,
@@ -74,6 +77,13 @@ def _build_app() -> FastAPI:
 app = _build_app()
 register_default_renderers()
 app.include_router(stream_router)
+app.include_router(ingestion_router)
+app.add_middleware(IngestionMiddleware)
+
+
+@app.exception_handler(IngestionError)
+async def ingestion_error_handler(request: Request, error: IngestionError):
+    return error.response()
 
 
 @app.get("/updates")
@@ -1169,6 +1179,12 @@ def export_table(
 
 
 @app.post("/publish")
+async def publish_http(request: Request) -> dict[str, Any]:
+    payload = await read_payload(request, MAX_PUBLISH_REQUEST_BYTES)
+    from starlette.concurrency import run_in_threadpool
+    return await run_in_threadpool(publish, request, payload)
+
+
 def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
     """
     Publish a plot or table into a specific view.
@@ -1191,8 +1207,8 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         "force": false                # optional bypass throttling
       }
     """
-    if config.get_control_local_only():
-        require_local_request(request)
+    from .ingestion import state
+    state().authenticate(request)
 
     kind = str(payload.get("kind") or "").strip().lower()
     if kind not in ("plot", "table", "artifact"):
@@ -1203,10 +1219,20 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
     section = payload.get("section")
     label = payload.get("label")
+    if any(payload.get(key) is not None and not isinstance(payload[key], str) for key in ("view_id", "label", "section")):
+        raise IngestionError("invalid_request", 422, "invalid_view_metadata")
+    if any(key in payload for key in ("path", "watched_file", "local_path")):
+        raise IngestionError("invalid_request", 422, "filesystem_metadata_not_allowed")
     view_id = store.normalize_view_id(
         payload.get("view_id"), section=section, label=label
     )
 
+    require_admitted(view_id)
+    from .contracts import ViewDescriptor
+    try:
+        ViewDescriptor(view_id, label or view_id, section)
+    except ValueError:
+        raise IngestionError("inadmissible_view", 422, "invalid_view_metadata") from None
     publish_source_raw = payload.get("publish_source")
     publish_source = (
         str(publish_source_raw).strip().lower()
@@ -1312,7 +1338,20 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
     elif kind == "artifact":
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
+        if artifact_kind not in ("text", "json", "html", "markdown", "image", "python", "traceback", "watch_error", "publish_error", "exception"):
+            raise IngestionError("invalid_request", 422, "unsupported_artifact_kind")
         artifact_obj = payload.get("artifact")
+        # Apply the policy to the actual renderer too: malformed hints must not
+        # fall back to a Markdown/HTML renderer with publisher trust flags.
+        from .renderers.registry import choose_renderer
+        selected_renderer = choose_renderer(artifact_obj, kind_hint=artifact_kind)
+        if selected_renderer is not None and selected_renderer.kind in ("html", "markdown", "image"):
+            artifact_kind = selected_renderer.kind
+        if artifact_kind in ("html", "markdown"):
+            key = "html" if artifact_kind == "html" else "text"
+            artifact_obj = {**artifact_obj, "_plotsrv_remote": True} if isinstance(artifact_obj, dict) else {key: str(artifact_obj or ""), "_plotsrv_remote": True}
+        if artifact_kind == "image" and isinstance(artifact_obj, dict) and "svg" in str(artifact_obj.get("mime", "")).lower():
+            raise IngestionError("invalid_request", 422, "remote_svg_not_supported")
 
         if artifact_kind == "traceback" and not config.get_tracebacks_enabled():
             store.mark_error(
@@ -1329,8 +1368,11 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         try:
             _validate_artifact_size(
                 artifact_obj,
-                publish_source=publish_source,
+                publish_source=None,
             )
+            if artifact_kind in ("html", "markdown"):
+                text_key = "html" if artifact_kind == "html" else "text"
+                _validate_artifact_size(artifact_obj.get(text_key, ""), publish_source=None)
         except HTTPException as e:
             _record_publish_rejection_artifact(
                 exc=e,
@@ -1453,9 +1495,9 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
 
         df = pd.DataFrame(rows, columns=cols)
 
-        html_simple = payload.get("table_html_simple")
-        if html_simple is not None and not isinstance(html_simple, str):
-            html_simple = None
+        from .backends import df_to_html_simple
+        # Rebuild from bounded data with escaping; never trust client inline HTML.
+        html_simple = df_to_html_simple(df, config.get_max_table_rows_simple())
 
         store.set_table(
             df,

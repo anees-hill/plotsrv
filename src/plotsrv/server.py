@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import pandas as pd
 
 import uvicorn
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import BackgroundTasks, HTTPException, Request
 
 from .app import app, require_local_request
 from .backends import fig_to_png_bytes, df_to_html_simple
@@ -590,6 +590,9 @@ def refresh_view(
         label=label,
     )
 
+    from .ingestion import require_admitted
+    require_admitted(resolved_view_id or store.get_active_view_id())
+
     forced_kind = (kind or "").strip().lower() or None
 
     # Path-like file mode
@@ -844,6 +847,9 @@ def start_server(
         truncate=truncate,
         no_truncate=no_truncate,
     )
+    from .ingestion import setup_ingestion
+    setup_ingestion(host)
+
     # Explicitly reopen stream persistence for this server lifecycle.  A
     # request that races the previous shutdown remains rejected instead of
     # silently starting a worker after stop_server() returned.
@@ -965,7 +971,7 @@ def plot_session(
 
 
 @app.post("/shutdown")
-def shutdown(background_tasks: BackgroundTasks, request) -> dict[str, str]:
+def shutdown(background_tasks: BackgroundTasks, request: Request) -> dict[str, str]:
     """
     Shutdown endpoint triggered from the browser.
 
@@ -974,8 +980,9 @@ def shutdown(background_tasks: BackgroundTasks, request) -> dict[str, str]:
     if not config.get_shutdown_enabled():
         raise HTTPException(status_code=404, detail="Not found")
 
-    if config.get_control_local_only():
-        require_local_request(request)
+    # Ingestion credentials and legacy publication locality switches never
+    # grant administration rights. Keep this opt-in endpoint direct/local.
+    require_local_request(request)
 
     def _do_shutdown() -> None:
         stopped_service = store.request_service_stop()

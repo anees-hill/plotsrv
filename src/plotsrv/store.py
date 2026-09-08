@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import wraps
 import threading
+import inspect
 from typing import Any, Callable, Literal
 
 import pandas as pd
@@ -388,7 +389,7 @@ def get_view_menu_revision() -> int:
 
 def get_view_state(view_id: str | None = None) -> ViewState:
     vid = view_id or _ACTIVE_VIEW_ID
-    return _ensure_view(vid)
+    return _VIEWS.get(vid) or ViewState()
 
 
 def get_render_revision(*, view_id: str | None = None) -> int:
@@ -974,6 +975,8 @@ def reset() -> None:
         "service_refresh_rate_s": None,
     }
     _SERVICE_STOP_HOOK = None
+    from .ingestion import reset_ingestion
+    reset_ingestion()
     browser_update_hub.clear()
 
     # Stream rows are deliberately kept in their own bounded registry rather
@@ -986,10 +989,31 @@ def reset() -> None:
     stream_registry.clear()
 
 
+_VIEW_MUTATIONS = frozenset((
+    "register_view", "set_active_view", "set_watched_file_meta", "clear_watched_file_meta",
+    "set_plot", "set_table", "set_artifact", "mark_success", "record_data_arrival",
+    "mark_error", "mark_restored", "note_publish",
+))
+
+
 def _synchronise_store_api(func: Callable[..., Any]) -> Callable[..., Any]:
+    parameters = tuple(inspect.signature(func).parameters)
     @wraps(func)
     def wrapped(*args: Any, **kwargs: Any) -> Any:
         with _STORE_LOCK:
+            if func.__name__ in _VIEW_MUTATIONS:
+                from .ingestion import require_admitted
+                values = dict(zip(parameters, args))
+                values.update(kwargs)
+                meta = values.get("meta")
+                if meta is not None and isinstance(meta, WatchedFileMeta):
+                    vid = meta.view_id
+                elif func.__name__ == "register_view":
+                    vid = normalize_view_id(values.get("view_id"), section=values.get("section"), label=values.get("label"))
+                else:
+                    vid = values.get("view_id") or _ACTIVE_VIEW_ID
+                require_admitted(vid)
+                _ensure_view(vid)
             return func(*args, **kwargs)
 
     return wrapped

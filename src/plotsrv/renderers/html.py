@@ -260,6 +260,9 @@ class HtmlRenderer(Renderer):
         else:
             raw_html = str(obj)
 
+        if isinstance(obj, dict) and obj.get("_plotsrv_remote") is True:
+            unsafe = False
+
         max_chars = config.get_truncation_max_chars("html", view_id=view_id)
         if max_chars is None:
             raw_html2 = raw_html

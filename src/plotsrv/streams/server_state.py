@@ -476,6 +476,8 @@ class StreamRegistry:
 
     def register(self, registration: StreamRegistration) -> StreamViewState:
         """Register a logical view, idempotently for its current session."""
+        from ..ingestion import require_admitted
+        require_admitted(registration.view_id)
         with self._lock:
             now_monotonic = self._monotonic_clock()
             if registration.session_id in self._historical_streams.get(registration.view_id, {}):
@@ -532,6 +534,8 @@ class StreamRegistry:
 
     def append(self, append: StreamAppend) -> StreamAppendResult:
         """Append a single ordered batch, retaining only the recent raw window."""
+        from ..ingestion import require_admitted
+        require_admitted(append.view_id)
         with self._lock:
             state = self._streams.get(append.view_id)
             if state is None:
@@ -648,6 +652,8 @@ class StreamRegistry:
             raise StreamStateError(
                 "stream heartbeat delivery_state must be 'live' or 'retrying'"
             )
+        from ..ingestion import require_admitted
+        require_admitted(heartbeat.view_id)
         with self._lock:
             state = self._owned_state(
                 view_id=heartbeat.view_id,
@@ -674,6 +680,8 @@ class StreamRegistry:
 
     def close(self, close: StreamClose) -> StreamLifecycleResult:
         """Record an explicit bounded-stop outcome without inferring app exit."""
+        from ..ingestion import require_admitted
+        require_admitted(close.view_id)
         with self._lock:
             state = self._owned_state(
                 view_id=close.view_id,
@@ -1350,6 +1358,8 @@ class StreamRegistry:
     ) -> bool:
         """Register one restored state without granting it a live owner role."""
         registration = state.registration
+        from ..ingestion import require_admitted
+        require_admitted(registration.view_id)
         with self._lock:
             historical = self._historical_streams.setdefault(registration.view_id, {})
             existing = historical.get(registration.session_id)

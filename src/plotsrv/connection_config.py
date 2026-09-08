@@ -170,10 +170,13 @@ class ServerConnectionConfig:
     bind_host: str = "127.0.0.1"
     bind_port: int = 8000
     bearer_token_env: str | None = None
+    allow_remote_without_key: bool = False
     admission_mode: str = "dynamic"
     allowed_ids: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
+        if type(self.allow_remote_without_key) is not bool:
+            raise ValueError("allow_remote_without_key must be a boolean")
         PublishTarget(kind="local", host=self.bind_host, port=self.bind_port)
         credential_context(
             self.bearer_token_env
@@ -196,7 +199,9 @@ def get_server_connection_config() -> ServerConnectionConfig:
     )
     bind = _mapping(cfg.get("bind", {}), "server bind", {"host", "port"})
     ingestion = _mapping(
-        cfg.get("ingestion", {}), "server ingestion", {"bearer_token_env"}
+        cfg.get("ingestion", {}),
+        "server ingestion",
+        {"bearer_token_env", "allow_remote_without_key"},
     )
     admission = _mapping(
         cfg.get("admission", {}), "server admission", {"mode", "allowed_ids"}
@@ -205,6 +210,7 @@ def get_server_connection_config() -> ServerConnectionConfig:
         bind_host=bind.get("host", "127.0.0.1"),
         bind_port=bind.get("port", 8000),
         bearer_token_env=ingestion.get("bearer_token_env"),
+        allow_remote_without_key=ingestion.get("allow_remote_without_key", False),
         admission_mode=admission.get("mode", "dynamic"),
         allowed_ids=admission.get("allowed_ids"),
     )

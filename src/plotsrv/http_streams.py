@@ -271,20 +271,9 @@ def _schedule_stream_persistence_gap(
 
 
 def _require_protocol_version(payload: dict[str, Any]) -> None:
-    version = payload.get("protocol_version")
-    if isinstance(version, bool) or not isinstance(version, int):
-        raise HTTPException(
-            status_code=422,
-            detail="stream protocol_version must be an integer",
-        )
-    if version != STREAM_PROTOCOL_VERSION:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"unsupported stream protocol_version {version}; "
-                f"expected {STREAM_PROTOCOL_VERSION}"
-            ),
-        )
+    from .ingestion import IngestionError
+    if type(payload.get("protocol_version")) is not int or payload["protocol_version"] != STREAM_PROTOCOL_VERSION:
+        raise IngestionError("incompatible_protocol", 422, "unsupported_stream_protocol")
 
 
 def _required_text(payload: dict[str, Any], field: str) -> str:
@@ -381,46 +370,9 @@ def _configure_heartbeat_timeout() -> None:
 
 
 async def _read_bounded_payload(request: Request) -> dict[str, Any]:
-    """Read a JSON object without allowing a chunked request to grow memory."""
-    content_length = request.headers.get("content-length")
-    if content_length is not None:
-        try:
-            declared_length = int(content_length)
-        except ValueError as error:
-            raise HTTPException(
-                status_code=422,
-                detail="stream content-length must be an integer",
-            ) from error
-        if declared_length < 0 or declared_length > MAX_STREAM_REQUEST_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    "stream request exceeds the "
-                    f"{MAX_STREAM_REQUEST_BYTES}-byte limit"
-                ),
-            )
-
-    body = bytearray()
-    async for chunk in request.stream():
-        if len(body) + len(chunk) > MAX_STREAM_REQUEST_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=(
-                    "stream request exceeds the "
-                    f"{MAX_STREAM_REQUEST_BYTES}-byte limit"
-                ),
-            )
-        body.extend(chunk)
-
-    try:
-        payload = json.loads(body)
-    except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise HTTPException(
-            status_code=422,
-            detail="stream request body must be valid JSON",
-        ) from error
-    if type(payload) is not dict:
-        raise HTTPException(status_code=422, detail="stream request body must be an object")
+    from .ingestion import read_payload, require_admitted
+    payload = await read_payload(request, MAX_STREAM_REQUEST_BYTES)
+    require_admitted(_required_stream_identity(payload, "view_id"))
     return payload
 
 
@@ -435,10 +387,14 @@ def _raise_state_error(error: StreamStateError) -> None:
 @router.post("/stream/register")
 async def register_stream(request: Request) -> dict[str, Any]:
     """Create or confirm a logical stream view for one observation session."""
-    if config.get_control_local_only():
-        require_local_request(request)
     payload = await _read_bounded_payload(request)
     _require_protocol_version(payload)
+    from .contracts import ViewDescriptor
+    from .ingestion import IngestionError
+    try:
+        ViewDescriptor(payload["view_id"], payload.get("label"), payload.get("section"), kind="stream")
+    except (ValueError, TypeError):
+        raise IngestionError("inadmissible_view", 422, "invalid_stream_descriptor") from None
     _configure_heartbeat_timeout()
     registration = StreamRegistration(
         protocol_version=STREAM_PROTOCOL_VERSION,
@@ -507,8 +463,6 @@ async def register_stream(request: Request) -> dict[str, Any]:
 @router.post("/stream/append")
 async def append_stream(request: Request) -> dict[str, Any]:
     """Append an ordered JSON-object batch without entering snapshot publishing."""
-    if config.get_control_local_only():
-        require_local_request(request)
     payload = await _read_bounded_payload(request)
     _require_protocol_version(payload)
     _configure_heartbeat_timeout()
@@ -577,8 +531,6 @@ async def append_stream(request: Request) -> dict[str, Any]:
 @router.post("/stream/heartbeat")
 async def heartbeat_stream(request: Request) -> dict[str, Any]:
     """Renew producer observation without claiming an application exit state."""
-    if config.get_control_local_only():
-        require_local_request(request)
     payload = await _read_bounded_payload(request)
     _require_protocol_version(payload)
     _configure_heartbeat_timeout()
@@ -612,8 +564,6 @@ async def heartbeat_stream(request: Request) -> dict[str, Any]:
 @router.post("/stream/close")
 async def close_stream(request: Request) -> dict[str, Any]:
     """Record one explicit bounded-stop outcome for the accepted session."""
-    if config.get_control_local_only():
-        require_local_request(request)
     payload = await _read_bounded_payload(request)
     _require_protocol_version(payload)
     _configure_heartbeat_timeout()

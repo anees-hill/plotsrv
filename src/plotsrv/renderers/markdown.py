@@ -291,6 +291,10 @@ class MarkdownRenderer(Renderer):
 
         # Explicit payload unsafe_html=True wins over config.
         # Otherwise markdown_sanitize=False means "render raw markdown HTML in a sandbox".
+        remote = isinstance(obj, dict) and obj.get("_plotsrv_remote") is True
+        if remote:
+            unsafe_html = False
+            configured_sanitize = True
         should_use_iframe = unsafe_html or not configured_sanitize
 
         if should_use_iframe:

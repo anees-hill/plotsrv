@@ -75,6 +75,8 @@ class ErrorCategory(str, Enum):
     UNAUTHORISED_PUBLISHER = "unauthorised_publisher"
     INADMISSIBLE_VIEW = "inadmissible_view"
     OVERSIZE_DATA = "oversize_data"
+    INVALID_REQUEST = "invalid_request"
+    INGESTION_BUSY = "ingestion_busy"
 
 
 @dataclass(frozen=True, slots=True)
