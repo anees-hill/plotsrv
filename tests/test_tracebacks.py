@@ -8,6 +8,8 @@ from typing import Any
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("publisher_payload_transport")
+
 import plotsrv.tracebacks as tb_mod
 
 
@@ -18,8 +20,8 @@ class DummyResp:
     def __exit__(self, *args: Any) -> bool:  # noqa: D401
         return False
 
-    def read(self) -> bytes:
-        return b"ok"
+    def read(self, size=-1) -> bytes:
+        return b'{"ok": true}'
 
 
 def _raise_here() -> None:

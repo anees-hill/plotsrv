@@ -423,8 +423,10 @@ def test_configured_destination_delivers_prefix_and_id(tmp_path, monkeypatch, pa
             pass
 
         def read(self, size):
-            assert size == 65536
-            return b"{}"
+            assert size == 65537
+            return json.dumps({"ok": True, "protocol_version": 1, "stream_protocol_version": 4,
+                               "server_generation": "test", "dashboard_scope": "test",
+                               "capabilities": ["publish"]}).encode()
 
     class Opener:
         def open(self, req, timeout):
@@ -432,18 +434,19 @@ def test_configured_destination_delivers_prefix_and_id(tmp_path, monkeypatch, pa
             return Response()
 
     monkeypatch.setattr(
-        publisher.urllib.request, "build_opener", lambda *args: Opener()
+        __import__("urllib.request", fromlist=["build_opener"]), "build_opener", lambda *args: Opener()
     )
     value = "hello"
     if pathlike:
         value = tmp_path / "input.txt"
         value.write_text("hello")
     publisher.publish_view(value, view_id="é:a:b", label="Display")
-    assert len(received) == 1
-    req, timeout = received[0]
+    assert len(received) == 2
+    assert received[0][0].full_url.endswith("/capabilities")
+    req, timeout = received[-1]
     assert req.full_url == "https://example.test/dashboard/publish"
     assert req.get_header("Authorization") == "Bearer secret-one"
-    assert timeout == 3
+    assert 0 < timeout <= 3
     payload = json.loads(req.data)
     assert payload["view_id"] == "é:a:b"
     assert "secret-one" not in json.dumps(payload)
@@ -462,7 +465,7 @@ def test_remote_failure_never_launches_and_redacts_errors(monkeypatch):
             raise OSError("secret-one")
 
     monkeypatch.setattr(
-        publisher.urllib.request, "build_opener", lambda *args: Opener()
+        __import__("urllib.request", fromlist=["build_opener"]), "build_opener", lambda *args: Opener()
     )
 
     def forbidden(**kwargs):
@@ -487,7 +490,7 @@ def test_explicit_target_redirect_does_not_forward_bearer(monkeypatch):
         def log_message(self, *args):
             pass
 
-        def do_POST(self):
+        def do_GET(self):
             self.rfile.read(int(self.headers.get("Content-Length", 0)))
             received.append(self.path)
             self.send_response(307)
@@ -514,7 +517,7 @@ def test_explicit_target_redirect_does_not_forward_bearer(monkeypatch):
             )
             is False
         )
-        assert received == ["/prefix/publish"]
+        assert received == ["/prefix/capabilities"]
     finally:
         httpd.shutdown()
         httpd.server_close()

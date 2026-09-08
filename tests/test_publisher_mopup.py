@@ -10,6 +10,8 @@ from typing import Any
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.usefixtures("publisher_payload_transport")
+
 import plotsrv.publisher as pub
 
 
@@ -20,8 +22,8 @@ class DummyResp:
     def __exit__(self, *args: Any) -> bool:
         return False
 
-    def read(self) -> bytes:
-        return b"ok"
+    def read(self, size=-1) -> bytes:
+        return b'{"ok": true}'
 
 
 def test_to_dataframe_with_pandas() -> None:

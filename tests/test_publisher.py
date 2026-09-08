@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.usefixtures("publisher_payload_transport")
+
 from plotsrv.publisher import publish_view
 
 
@@ -18,8 +20,8 @@ class DummyResp:
     def __exit__(self, *args):
         return False
 
-    def read(self):
-        return b"ok"
+    def read(self, size=-1):
+        return b'{"ok": true}'
 
 
 def test_publish_view_table_sends_json(monkeypatch) -> None:

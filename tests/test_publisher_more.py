@@ -12,6 +12,8 @@ from typing import Any
 
 import pytest
 
+pytestmark = pytest.mark.usefixtures("publisher_payload_transport")
+
 import plotsrv.publisher as pub
 
 
@@ -22,8 +24,8 @@ class DummyResp:
     def __exit__(self, *args: Any) -> bool:  # noqa: D401
         return False
 
-    def read(self) -> bytes:
-        return b"ok"
+    def read(self, size=-1) -> bytes:
+        return b'{"ok": true}'
 
 
 def test_is_na_scalar_vs_container() -> None:
@@ -118,7 +120,7 @@ def test_publish_view_http_error_raises_in_debug_for_artifact(
                 fp=None,
             )
 
-        def read(self) -> bytes:
+        def read(self, size=-1) -> bytes:
             return b"bad payload"
 
     def fake_urlopen(req: urllib.request.Request, timeout: float):
@@ -130,7 +132,7 @@ def test_publish_view_http_error_raises_in_debug_for_artifact(
         pub.publish_view({"a": 1}, label="L", host="127.0.0.1", port=8000)
 
     assert "400" in str(e.value)
-    assert "bad payload" in str(e.value)
+    assert "bad payload" not in str(e.value)
 
 
 def test_publish_view_http_error_raises_in_debug(
@@ -148,7 +150,7 @@ def test_publish_view_http_error_raises_in_debug(
                 fp=None,
             )
 
-        def read(self) -> bytes:
+        def read(self, size=-1) -> bytes:
             return b"nope"
 
     def fake_urlopen(req: urllib.request.Request, timeout: float):
@@ -170,4 +172,4 @@ def test_publish_view_http_error_raises_in_debug(
         )
 
     assert "500" in str(e.value)
-    assert "nope" in str(e.value)
+    assert "nope" not in str(e.value)

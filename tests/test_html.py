@@ -192,7 +192,7 @@ def test_render_index_empty_state_mentions_python_outputs_and_watched_files() ->
         active_view_id="default",
     )
 
-    assert "Waiting for content" in html
+    assert "Waiting for a publisher" in html
     assert "plotsrv is running" in html
     assert "Python outputs" in html
     assert "watched file updates" in html

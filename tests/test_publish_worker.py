@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+pytestmark = pytest.mark.usefixtures("publisher_payload_transport")
 from fastapi.testclient import TestClient
 
 import plotsrv.publisher as publisher
@@ -30,8 +32,8 @@ class _Response:
     def __exit__(self, *args: Any) -> bool:
         return False
 
-    def read(self) -> bytes:
-        return b"ok"
+    def read(self, size=-1) -> bytes:
+        return b'{"ok": true}'
 
 
 @pytest.fixture(autouse=True)

@@ -11,6 +11,8 @@ from typing import Any
 import pandas as pd
 import pytest
 
+pytestmark = pytest.mark.usefixtures("publisher_payload_transport")
+
 import plotsrv.publisher as pub
 
 
@@ -21,8 +23,8 @@ class DummyResp:
     def __exit__(self, *args: Any) -> bool:
         return False
 
-    def read(self) -> bytes:
-        return b"ok"
+    def read(self, size=-1) -> bytes:
+        return b'{"ok": true}'
 
 
 def test_publish_view_http_error_swallowed_when_not_debug(
@@ -40,7 +42,7 @@ def test_publish_view_http_error_swallowed_when_not_debug(
                 fp=None,
             )
 
-        def read(self) -> bytes:
+        def read(self, size=-1) -> bytes:
             return b"nope"
 
     def fake_urlopen(req: urllib.request.Request, timeout: float):

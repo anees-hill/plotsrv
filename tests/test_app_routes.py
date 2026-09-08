@@ -77,7 +77,7 @@ def test_index_none_shows_empty_state(client: TestClient) -> None:
     resp = client.get("/")
     text = resp.text
 
-    assert "Waiting for content" in text
+    assert "Waiting for a publisher" in text
     assert "plotsrv is running" in text
     assert "Python outputs" in text
     assert "watched file updates" in text
