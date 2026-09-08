@@ -475,6 +475,14 @@ def _serialise_payload(*, kind: str, obj: Any) -> dict[str, Any]:
         }
 
     if k == "markdown":
+        if isinstance(obj, dict) and "text" in obj:
+            # Preserve rendering options and server-owned remote provenance in
+            # both historical snapshots and the latest-state backend.
+            return {
+                "data": json.dumps(obj, ensure_ascii=False, indent=2).encode("utf-8"),
+                "suffix": "json",
+                "format": "json",
+            }
         return {
             "data": str(obj).encode("utf-8"),
             "suffix": "md",

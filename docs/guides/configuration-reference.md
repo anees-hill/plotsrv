@@ -8,6 +8,8 @@ This page describes the main `plotsrv.yml` / `plotsrv.yaml` settings.
 
 For publisher destinations, role-owned setup contracts, precedence and metadata
 bounds, see [Publisher and server contracts](../about/publisher-contracts.md).
+The enforced key policy, catalogue bootstrap transaction and HTTP limits are
+documented in [Publisher ingestion](publisher-ingestion.md).
 
 Create a starter config with:
 

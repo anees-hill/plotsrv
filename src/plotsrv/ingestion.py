@@ -354,7 +354,9 @@ def _decode_payload(body: bytearray) -> dict[str, Any]:
         if structural_tokens > MAX_JSON_STRUCTURAL_TOKENS:
             raise IngestionError("oversize_data", 413, "json_complexity_limit")
     try:
-        payload = json.loads(body, parse_constant=_reject_json_constant)
+        # The structural scan assumes UTF-8. Do not let json.loads auto-detect
+        # UTF-16/32 and interpret quotes/escapes differently from that scan.
+        payload = json.loads(body.decode("utf-8"), parse_constant=_reject_json_constant)
     except (ValueError, UnicodeError, RecursionError):
         raise IngestionError("invalid_request", 422, "invalid_json") from None
     if not isinstance(payload, dict):

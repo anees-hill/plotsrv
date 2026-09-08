@@ -492,6 +492,35 @@ def test_structure_limit_before_json_expansion(monkeypatch):
         ingestion._decode_payload(bytearray(b'{"data":[' + b"{}," * 20 + b"{}]}"))
 
 
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-32"])
+def test_non_utf8_wire_encoding_cannot_bypass_structure_scan(encoding):
+    body = bytearray(
+        json.dumps({"text": 'escaped " quote', "data": [{}]}).encode(encoding)
+    )
+    with pytest.raises(ingestion.IngestionError, match="invalid_json"):
+        ingestion._decode_payload(body)
+
+
+def test_catalogue_capacity_counts_error_state_and_rejections_do_not_accumulate(
+    monkeypatch,
+):
+    monkeypatch.setattr(ingestion, "MAX_CATALOGUE_VIEWS", 2)
+    store.register_view(view_id="first")
+    store.mark_error("failed", view_id="second")
+    for index in range(20):
+        view_id = f"rejected:{index}"
+        with pytest.raises(ingestion.IngestionError, match="catalogue_capacity"):
+            store.mark_error("failed", view_id=view_id)
+        store.get_view_state(view_id=view_id)
+    assert set(store._VIEWS) == {"first", "second"}
+    assert not ingestion.state().descriptors
+    with pytest.raises(ingestion.IngestionError, match="catalogue_capacity"):
+        ingestion.register_catalogue([descriptor("third")], seal=False)
+    assert "third" not in store._VIEW_META
+    # Reaching capacity must not prevent updates to an existing admitted ID.
+    store.mark_success(duration_s=0.1, view_id="first")
+
+
 def test_configured_allowlist_does_not_change_with_env_or_reconnect(
     tmp_path, monkeypatch
 ):
@@ -555,3 +584,51 @@ def test_remote_table_cannot_supply_inline_html(tmp_path, monkeypatch):
     assert response.status_code == 200
     assert "<script>" not in store.get_table_html_simple(view_id="table")
     assert "<table" in store.get_table_html_simple(view_id="table")
+
+
+@pytest.mark.parametrize("kind,field", [("html", "html"), ("markdown", "text")])
+def test_remote_content_stays_untrusted_in_persisted_history(
+    tmp_path, monkeypatch, kind, field
+):
+    import plotsrv.app as app_module
+    from plotsrv.storage.backend import write_snapshot
+    from plotsrv.storage.latest import FileLatestStateBackend
+
+    configure(tmp_path, monkeypatch)
+    snapshots = []
+    latest = FileLatestStateBackend(root_dir=tmp_path)
+
+    def persist(**kwargs):
+        kwargs.pop("source", None)
+        snapshots.append(write_snapshot(root_dir=tmp_path, **kwargs))
+        latest.write_latest(**kwargs)
+        return True
+
+    monkeypatch.setattr(app_module, "enqueue_snapshot", persist)
+    monkeypatch.setattr(config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(config, "get_html_sanitize", lambda: False)
+    monkeypatch.setattr(config, "get_markdown_sanitize", lambda: False)
+    http = client()
+    assert (
+        http.post(
+            "/publish",
+            json={
+                **publication(kind),
+                "artifact_kind": kind,
+                "artifact": {
+                    field: "<script>parent.pwned=1</script><p>Safe content</p>",
+                    "unsafe": True,
+                    "unsafe_html": True,
+                },
+            },
+        ).status_code
+        == 200
+    )
+    store.reset()
+    assert latest.load_latest(view_id=kind).obj["_plotsrv_remote"] is True
+    response = http.get(
+        "/artifact", params={"view": kind, "snapshot": snapshots[0].snapshot_id}
+    )
+    assert response.status_code == 200
+    assert "<script>" not in response.json()["html"]
+    assert "Safe content" in response.json()["html"]

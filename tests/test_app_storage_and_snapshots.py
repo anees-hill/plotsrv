@@ -501,7 +501,7 @@ def test_publish_artifact_kind_branch_enqueues_snapshot(
     assert calls[0]["source"] == "watch"
 
 
-def test_publish_table_non_string_html_simple_becomes_none(
+def test_publish_table_non_string_html_simple_is_regenerated(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     captured: list[dict[str, Any]] = []
@@ -553,7 +553,8 @@ def test_publish_table_non_string_html_simple_becomes_none(
     r = client.post("/publish", json=payload)
     assert r.status_code == 200
     assert captured
-    assert captured[0]["html_simple"] is None
+    assert "<table" in captured[0]["html_simple"]
+    assert "<td>1</td>" in captured[0]["html_simple"]
     assert captured[0]["total_rows"] is None
     assert captured[0]["returned_rows"] is None
 

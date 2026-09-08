@@ -73,10 +73,11 @@ the existing file/instance selectors and the named credential only.
 
 ## Server setup contract
 
-A server-only file can contain the following **validated internal setup
-contract**. These fields do not yet install an authentication or admission gate,
-change the existing server bind, or add a standalone service command. Do not
-rely on this example to protect an exposed current server.
+A server-only file can configure ingestion authentication and admission. See
+[Publisher ingestion](../guides/publisher-ingestion.md) for the enforced endpoint
+matrix, explicit bootstrap transaction and proxy requirements. The bind fields
+remain a setup contract; existing server API bind arguments still apply, and
+no standalone CLI service is added yet.
 
 ```yaml
 server-settings:
@@ -99,7 +100,8 @@ Configured publisher and server keys are independent environment references;
 a missing/invalid configured value raises at resolution. Combining both
 namespaces in one file is supported. Server resolution never resolves publisher
 sources or requires the publisher key; publisher resolution never requires the
-server key. Operational sealing/authentication belongs to the ingestion layer.
+server key. The ingestion layer enforces sealing and authentication at server
+setup and on publisher mutations.
 
 New namespaces and nested mappings validate their supported keys. Future feature
 owners should add named, validated fields to their owning mapping with focused
@@ -162,10 +164,11 @@ the descriptor are not retroactively subjected to its new metadata bounds.
 `ProtocolCapabilities` defines `protocol_version: 1`, `stream_protocol_version:
 4`, a capability list, `server_generation`, and `dashboard_scope`. Capability
 names default to empty; no future route is advertised. This is the response
-shape for a later handshake, not a handshake endpoint or per-record exchange.
+shape returned by the authenticated `/capabilities` handshake.
 Stream protocol 4 and its session/sequence/acknowledgement rules stay unchanged.
 Stable error category strings are `incompatible_protocol`,
-`unauthorised_publisher`, `inadmissible_view`, and `oversize_data`.
+`unauthorised_publisher`, `inadmissible_view`, `oversize_data`, `invalid_request`,
+and `ingestion_busy`.
 
 ## Identity, bounds and guarantees
 
@@ -193,7 +196,8 @@ bound in addition to the count bound. Ordinary explicit-destination response
 reads are capped at 64 KiB. Request timeouts are socket-operation bounds, not
 hard wall-clock cancellation of arbitrary parsing, rendering or slow trickles.
 
-Shared stream/watch transport, capability negotiation/caching, server wire
-admission and authentication, source lifecycle, and description presentation
-are subsequent work. No discovery, TUI imports or network activity occurs on
-ordinary package import or parser startup.
+Shared stream/watch client transport, capability negotiation/caching, source
+lifecycle, and description presentation are subsequent work. Server wire
+admission and authentication are now enforced by the ingestion boundary. No
+discovery, TUI imports or network activity occurs on ordinary package import or
+parser startup.
