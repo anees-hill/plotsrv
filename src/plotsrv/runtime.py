@@ -7,7 +7,6 @@ import json
 import logging
 import threading
 import time
-import urllib.request
 from collections import deque
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -1235,20 +1234,13 @@ def read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int | None) -> bytes:
     return header + tail
 
 
-def post_publish_payload(*, host: str, port: int, payload: dict[str, Any]) -> bool:
-    url = f"http://{host}:{port}/publish"
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
+def post_publish_payload(*, host: str | None = None, port: int | None = None,
+                         payload: dict[str, Any], destination=None) -> bool:
+    from .connection_config import resolve_publish_target
+    from .publishing.transport import request_json
     try:
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
-            _ = resp.read()
-        return True
+        target = resolve_publish_target(destination=destination, host=host, port=port, launch_server=False)
+        return request_json(target, "/publish", payload, feature="publish").get("ok") is True
     except Exception:
         return False
 

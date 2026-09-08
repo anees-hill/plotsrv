@@ -1473,7 +1473,8 @@ def get_storage_latest_restore_scope() -> str:
 
     Values:
       - "discovered": restore only views already registered/discovered.
-        If no views are registered, restore all latest records.
+        Local run restores nothing if no views are registered. Standalone serve
+        uses stored logical metadata and treats this scope as "all".
       - "all": restore all latest records.
       - "none": restore nothing.
     """

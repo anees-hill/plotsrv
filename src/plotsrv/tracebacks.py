@@ -1,10 +1,8 @@
 # src/plotsrv/tracebacks.py
 from __future__ import annotations
 
-import json
 import linecache
 import traceback
-import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,10 +28,15 @@ def publish_traceback(
     force: bool = False,
     options: TracebackPublishOptions | None = None,
 ) -> None:
+    from .connection_config import resolve_publish_target
+    try:
+        target = resolve_publish_target(host=host, port=port)
+    except Exception:
+        return
     if not config.get_tracebacks_enabled():
         safe_message = f"{type(exc).__name__}: traceback publishing disabled"
 
-        if host is None and port is None:
+        if target.kind == "local":
             store.mark_error(safe_message, view_id=view_id)
 
         return
@@ -41,7 +44,7 @@ def publish_traceback(
     payload = _build_traceback_payload(exc, options=opts)
 
     # ---- Remote publish (POST /publish) --------------------------------------
-    if host is not None and port is not None:
+    if target.kind == "remote":
         post: dict[str, Any] = {
             "kind": "artifact",
             "artifact_kind": "traceback",
@@ -53,16 +56,11 @@ def publish_traceback(
             "force": bool(force),
         }
 
-        url = f"http://{host}:{int(port)}/publish"
-        data = json.dumps(post).encode("utf-8")
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            resp.read()
+        from .publishing.transport import request_json
+        try:
+            request_json(target, "/publish", post, feature="publish")
+        except Exception:
+            pass
         return
 
     # ---- In-process fallback --------------------------------------------------

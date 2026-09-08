@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import json
+import math
 from dataclasses import replace
 import threading
 import time
-import urllib.request
 from collections.abc import Callable, Mapping
 from typing import Any
 from uuid import uuid4
@@ -41,8 +40,9 @@ class StreamClient:
     def __init__(
         self,
         *,
-        host: str,
-        port: int,
+        host: str | None = None,
+        port: int | None = None,
+        destination=None,
         registration: StreamRegistration,
         request_timeout_s: float | None = None,
         retry_initial_delay_s: float | None = None,
@@ -51,7 +51,9 @@ class StreamClient:
         source_status_provider: Callable[[], SourceStatus] | None = None,
         source_health_provider: Callable[[], Mapping[str, object]] | None = None,
     ) -> None:
-        resolved_timeout = REQUEST_TIMEOUT_S if request_timeout_s is None else request_timeout_s
+        from ..connection_config import resolve_publish_target
+        self.target = resolve_publish_target(destination=destination, host=host, port=port, launch_server=False)
+        resolved_timeout = self.target.stream_request_timeout_s if request_timeout_s is None else request_timeout_s
         resolved_initial_delay = (
             INITIAL_RETRY_DELAY_S
             if retry_initial_delay_s is None
@@ -65,17 +67,17 @@ class StreamClient:
             if heartbeat_interval_s is None
             else heartbeat_interval_s
         )
-        if resolved_timeout <= 0:
+        if not math.isfinite(resolved_timeout) or resolved_timeout <= 0:
             raise ValueError("request_timeout_s must be greater than zero")
-        if resolved_initial_delay <= 0:
+        if not math.isfinite(resolved_initial_delay) or resolved_initial_delay <= 0:
             raise ValueError("retry_initial_delay_s must be greater than zero")
-        if resolved_max_delay < resolved_initial_delay:
+        if not math.isfinite(resolved_max_delay) or resolved_max_delay < resolved_initial_delay:
             raise ValueError("retry_max_delay_s must not be below retry_initial_delay_s")
-        if resolved_heartbeat_interval <= 0:
+        if not math.isfinite(resolved_heartbeat_interval) or resolved_heartbeat_interval <= 0:
             raise ValueError("heartbeat_interval_s must be greater than zero")
 
-        self.host = host
-        self.port = port
+        self.host = self.target.host
+        self.port = self.target.port
         self.registration = registration
         self._request_timeout_s = float(resolved_timeout)
         self._retry_initial_delay_s = float(resolved_initial_delay)
@@ -489,7 +491,14 @@ class StreamClient:
                 self.heartbeat_failures += 1
             self._registered.clear()
             now = time.monotonic()
+            from ..publishing.transport import TransportError, invalidate
+            invalidate(self.target)
             delay = self._retry_delay_s
+            if isinstance(error, TransportError) and error.category in (
+                "unauthorised_publisher", "inadmissible_view", "invalid_credential",
+                "incompatible_protocol", "redirect_refused", "invalid_request",
+            ):
+                delay = max(delay, 30.0)
             self._next_retry_at = now + delay
             self._retry_delay_s = min(self._retry_max_delay_s, delay * 2)
 
@@ -516,31 +525,9 @@ class StreamClient:
         *,
         timeout_s: float | None = None,
     ) -> dict[str, Any]:
-        body = json.dumps(
-            payload,
-            ensure_ascii=False,
-            allow_nan=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
-        if len(body) > MAX_STREAM_REQUEST_BYTES:
-            raise ValueError(
-                "stream request exceeds the "
-                f"{MAX_STREAM_REQUEST_BYTES}-byte limit"
-            )
-        request = urllib.request.Request(
-            f"http://{self.host}:{self.port}{path}",
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-        timeout = self._request_timeout_s if timeout_s is None else float(timeout_s)
-        if timeout <= 0:
-            raise ValueError("stream request timeout must be greater than zero")
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            decoded = json.loads(response.read().decode("utf-8"))
-        if not isinstance(decoded, dict):
-            raise RuntimeError("stream server returned a non-object response")
-        return decoded
+        from ..publishing.transport import request_json
+        timeout = self._request_timeout_s if timeout_s is None else min(self._request_timeout_s, float(timeout_s))
+        return request_json(self.target, path, payload, feature="stream-v4", timeout_s=timeout)
 
 
 def _bounded_error_text(error: BaseException | None) -> str | None:

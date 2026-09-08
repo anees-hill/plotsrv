@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import atexit
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -83,7 +84,7 @@ class StreamHandle:
         )
         if isinstance(budget_s, bool) or not isinstance(budget_s, (int, float)):
             raise ValueError("timeout must be a positive number of seconds")
-        if budget_s <= 0:
+        if not math.isfinite(budget_s) or budget_s <= 0:
             raise ValueError("timeout must be greater than zero")
         deadline = time.monotonic() + float(budget_s)
         with self._stop_lock:
@@ -184,8 +185,9 @@ def stream_view(
     source: str | Path,
     label: str | None = None,
     section: str | None = None,
-    host: str = "127.0.0.1",
-    port: int = 8000,
+    host: str | None = None,
+    port: int | None = None,
+    destination=None,
     view_id: str | None = None,
     client_id: str | None = None,
     session_id: str | None = None,
@@ -202,10 +204,12 @@ def stream_view(
     particular stream registration.  Omitting either creates a fresh opaque
     ID; pass both again only when intentionally retrying the same session.
     """
+    from ..connection_config import resolve_publish_target
+    target = resolve_publish_target(destination=destination, host=host, port=port, launch_server=False)
     source_path = resolve_jsonl_source(source)
-    if not isinstance(host, str) or not host.strip():
+    if host is not None and (not isinstance(host, str) or not host.strip()):
         raise ValueError("host must be a non-empty string")
-    if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+    if port is not None and (isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536):
         raise ValueError("port must be an integer from 1 through 65535")
 
     stream_label = (label or source_path.stem).strip() or source_path.stem
@@ -223,10 +227,9 @@ def stream_view(
         session_id=stream_session_id,
     )
     client = StreamClient(
-        host=host,
-        port=port,
+        **({"destination": target} if target.base_url is not None else {"host": target.host, "port": target.port}),
         registration=registration,
-        request_timeout_s=config.get_stream_request_timeout_s(),
+        request_timeout_s=(target.stream_request_timeout_s if target.base_url is not None else config.get_stream_request_timeout_s()),
         retry_initial_delay_s=config.get_stream_retry_initial_delay_s(),
         retry_max_delay_s=config.get_stream_retry_max_delay_s(),
         heartbeat_interval_s=config.get_stream_heartbeat_interval_s(),
@@ -251,8 +254,8 @@ def stream_view(
         source=source_path,
         label=stream_label,
         section=stream_section,
-        host=host,
-        port=port,
+        host=target.host,
+        port=target.port,
         view_id=stream_view_id,
         client_id=registration.client_id,
         session_id=registration.session_id,

@@ -98,12 +98,19 @@ def _should_publish(spec: PlotsrvSpec) -> bool:
         @ps.view(launch_server=True)
         def f(): ...
     """
-    return bool(
+    explicit = bool(
         spec.launch_server
         or spec.host is not None
         or spec.port is not None
         or spec.async_ is True
     )
+    if explicit:
+        return True
+    try:
+        from .connection_config import resolve_publish_target
+        return resolve_publish_target().kind == "remote"
+    except Exception:
+        return False
 
 
 def _publish_host(spec: PlotsrvSpec) -> str | None:
@@ -120,11 +127,15 @@ def _publish_launch_server(spec: PlotsrvSpec) -> bool | None:
     return spec.launch_server
 
 
-def _traceback_host(spec: PlotsrvSpec) -> str:
+def _traceback_host(spec: PlotsrvSpec) -> str | None:
+    if spec.host is None and spec.port is None and not spec.launch_server:
+        return None
     return spec.host or "127.0.0.1"
 
 
-def _traceback_port(spec: PlotsrvSpec) -> int:
+def _traceback_port(spec: PlotsrvSpec) -> int | None:
+    if spec.host is None and spec.port is None and not spec.launch_server:
+        return None
     return int(spec.port) if spec.port is not None else 8000
 
 

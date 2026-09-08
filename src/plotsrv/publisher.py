@@ -7,8 +7,6 @@ import json
 import math
 import os
 import sys
-import urllib.error
-import urllib.request
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -314,72 +312,17 @@ def _debug_enabled() -> bool:
     return os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
 
 
-class _NoPublishRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(
-        self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
-    ) -> None:
-        return None
-
-
 def _post_publish_payload(
-    *,
-    payload: dict[str, Any],
-    host: str,
-    port: int,
-    debug: bool,
+    *, payload: dict[str, Any], host: str, port: int, debug: bool,
     target: PublishTarget | None = None,
 ) -> bool:
-    payload = _json_safe(payload)
-
-    destination = target or PublishTarget(kind="remote", host=host, port=port)
-    url = destination.url_for("/publish")
+    from .publishing.transport import request_json
     try:
-        data = json.dumps(payload).encode("utf-8")
+        destination = target or resolve_publish_target(host=host, port=port, launch_server=False)
+        response = request_json(destination, "/publish", _json_safe(payload), feature="publish")
+        return response.get("ok") is True
     except Exception:
         if debug:
-            if target is not None:
-                raise RuntimeError("plotsrv destination publication failed") from None
-            raise
-        return False
-
-    try:
-        req = urllib.request.Request(
-            url,
-            data=data,
-            headers={
-                "Content-Type": "application/json",
-                **destination.authorization_headers(),
-            },
-            method="POST",
-        )
-
-        # Explicit destinations refuse redirects, including HTTPS downgrades
-        # and same-host redirects that could forward credentials elsewhere.
-        opener = (
-            urllib.request.build_opener(_NoPublishRedirect()).open
-            if target is not None
-            else urllib.request.urlopen
-        )
-        with opener(req, timeout=destination.request_timeout_s) as resp:
-            _ = resp.read(64 * 1024) if target is not None else resp.read()
-        return True
-    except urllib.error.HTTPError as e:
-        if debug:
-            if target is not None:
-                raise RuntimeError(f"plotsrv publish failed: HTTP {e.code}") from None
-            body = ""
-            try:
-                body = e.read().decode("utf-8", errors="replace")
-            except Exception:
-                pass
-            raise RuntimeError(
-                f"plotsrv publish failed: {e.code} {e.reason}\n{body}"
-            ) from e
-        return False
-    except Exception:
-        if debug:
-            if target is not None:
-                raise RuntimeError("plotsrv destination publication failed") from None
             raise
         return False
 
@@ -769,16 +712,15 @@ def _publish_view_now(
     target: PublishTarget | None = None,
 ) -> bool:
     remote_host, remote_port = host or "127.0.0.1", port if port is not None else 8000
-    remote_target = (
-        target
-        if target is not None
-        and (
-            target.base_url is not None
-            or target.bearer_token_env is not None
-            or target.request_timeout_s != 2.0
-        )
-        else None
-    )
+    remote_target = target if not launch else None
+    if not launch:
+        from .publishing.transport import handshake
+        try:
+            handshake(remote_target or resolve_publish_target(host=remote_host, port=remote_port, launch_server=False), feature="publish")
+        except Exception:
+            if debug:
+                raise
+            return False
 
     if _try_publish_pathlike_view(
         obj,
