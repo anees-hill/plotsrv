@@ -135,7 +135,7 @@ def make_view():
     ]
 
 
-def test_discover_views_falls_back_when_label_or_section_not_string(
+def test_discover_views_skips_unresolved_label_or_section(
     tmp_path: Path,
 ) -> None:
     p = tmp_path / "fallback.py"
@@ -152,10 +152,7 @@ def fallback_name():
 
     found = discover_views(tmp_path)
 
-    assert len(found) == 1
-    assert found[0].kind == "unknown"
-    assert found[0].label == "fallback_name"
-    assert found[0].section is None
+    assert found == []
 
 
 def test_discover_views_ignores_non_plotsrv_decorators(tmp_path: Path) -> None:
@@ -193,10 +190,10 @@ def f():
         encoding="utf-8",
     )
 
-    def broken_read_text(self: Path, encoding: str = "utf-8") -> str:
+    def broken_open(*args, **kwargs):
         raise OSError("cannot read")
 
-    monkeypatch.setattr(Path, "read_text", broken_read_text)
+    monkeypatch.setattr(__import__("os"), "open", broken_open)
 
     found = discover_views(tmp_path)
     assert found == []
