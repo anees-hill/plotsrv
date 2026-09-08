@@ -116,6 +116,8 @@ def _norm_tokens(raw: list[str]) -> set[str]:
 
 
 def _view_id_for(dv: DiscoveredView) -> str:
+    if dv.view_id is not None:
+        return dv.view_id
     sec = (dv.section or "default").strip() or "default"
     lab = (dv.label or "default").strip() or "default"
     return f"{sec}:{lab}"
@@ -450,6 +452,7 @@ def _watch_configs_from_cli_specs(
         out.append(
             WatchConfig(
                 path=spec.path,
+                view_id=spec.view_id,
                 label=spec.label,
                 section=spec.section,
                 kind=kind,  # type: ignore[arg-type]
@@ -506,6 +509,7 @@ def _passive_register_views(
 
     for dv in discovered:
         store.register_view(
+            view_id=dv.view_id,
             section=dv.section,
             label=dv.label,
             kind="none",
@@ -513,7 +517,7 @@ def _passive_register_views(
         )
 
     first = discovered[0]
-    first_id = store.normalize_view_id(None, section=first.section, label=first.label)
+    first_id = _view_id_for(first)
     store.set_active_view(first_id)
 
 
@@ -797,7 +801,7 @@ except Exception as e:
 # Decide how to publish the return value.
 # publish_view is now the general-purpose public publishing API.
 kind = (spec.kind if spec else None)
-publish_view(out, kind=kind, label=label, section=section, host=host, port=port)
+publish_view(out, kind=kind, label=label, section=section, view_id=spec.view_id if spec else None, host=host, port=port)
 """.strip()
 
     cmd = [

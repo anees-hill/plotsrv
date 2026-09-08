@@ -311,3 +311,13 @@ def get_ui_settings() -> UISettings:
         _UI_SETTINGS = load_ui_settings()
         _UI_CACHE_KEY = key
     return _UI_SETTINGS
+
+
+def get_dashboard_scope(serving_url: str) -> str:
+    """Preference namespace for the externally visible origin and base path.
+
+    Kept separate from stream/SSE generations. A reverse proxy's public base
+    URL must be supplied by its owning server route, never inferred from bind.
+    """
+    from .contracts import dashboard_scope
+    return dashboard_scope(serving_url, settings.get_runtime_name())

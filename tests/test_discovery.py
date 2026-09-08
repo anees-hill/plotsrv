@@ -37,8 +37,8 @@ def f2():
     found = discover_views(tmp_path)
 
     assert [(v.kind, v.label, v.section) for v in found] == [
-        ("artifact", "f2", None),
-        ("artifact", "V1", "Vsec"),
+        ("unknown", "f2", None),
+        ("unknown", "V1", "Vsec"),
     ]
 
 
@@ -65,7 +65,7 @@ def f():
 
     found = discover_views(p)
     assert len(found) == 1
-    assert found[0].kind == "artifact"
+    assert found[0].kind == "unknown"
     assert found[0].label == "f"
 
 
@@ -131,7 +131,7 @@ def make_view():
     found = discover_views(tmp_path)
 
     assert [(x.kind, x.label, x.section) for x in found] == [
-        ("artifact", "Generic View", "V"),
+        ("unknown", "Generic View", "V"),
     ]
 
 
@@ -153,7 +153,7 @@ def fallback_name():
     found = discover_views(tmp_path)
 
     assert len(found) == 1
-    assert found[0].kind == "artifact"
+    assert found[0].kind == "unknown"
     assert found[0].label == "fallback_name"
     assert found[0].section is None
 
@@ -250,7 +250,7 @@ def main():
     found = discover_views(tmp_path)
 
     assert [(v.kind, v.label, v.section) for v in found] == [
-        ("artifact", "Data", "EDA"),
+        ("unknown", "Data", "EDA"),
     ]
 
 
@@ -270,7 +270,7 @@ def main():
     found = discover_views(tmp_path)
 
     assert [(v.kind, v.label, v.section) for v in found] == [
-        ("artifact", "Orders", "ETL"),
+        ("unknown", "Orders", "ETL"),
     ]
 
 
@@ -307,7 +307,7 @@ def main():
     found = discover_views(tmp_path)
 
     assert [(v.kind, v.label, v.section) for v in found] == [
-        ("artifact", "orders", "etl"),
+        ("unknown", "orders", "etl"),
     ]
 
 
@@ -328,5 +328,5 @@ def main():
     found = discover_views(tmp_path)
 
     assert [(v.kind, v.label, v.section) for v in found] == [
-        ("artifact", "Orders nice", "etl"),
+        ("unknown", "Orders nice", "etl"),
     ]

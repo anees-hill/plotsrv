@@ -134,6 +134,7 @@ class WatchConfig:
     update_limit_s: int | None = None
     force: bool = False
     materialization: WatchMaterializationRequest | None = None
+    view_id: str | None = None
 
 
 def parse_watch_max_mb(raw: int | float | str | None) -> int | None:
@@ -507,6 +508,7 @@ def coerce_watch_config(value: WatchConfig | Mapping[str, Any]) -> WatchConfig:
 
     return WatchConfig(
         path=value["path"],  # type: ignore[arg-type]
+        view_id=value.get("view_id"),
         label=(None if value.get("label") is None else str(value.get("label"))),
         section=(None if value.get("section") is None else str(value.get("section"))),
         kind=raw_kind,  # type: ignore[arg-type]
@@ -559,7 +561,7 @@ def _watch_view_from_config(spec: WatchConfig) -> RegisteredWatchView:
     section = (spec.section or "watch").strip() or "watch"
     label = (spec.label or p.name).strip() or p.name
 
-    view_id = store.normalize_view_id(None, section=section, label=label)
+    view_id = store.normalize_view_id(spec.view_id, section=section, label=label)
 
     fk = infer_file_kind(p)
     read_mode: WatchReadMode = spec.read_mode or default_watch_read_mode(p)

@@ -16,6 +16,7 @@ from typing import Any, Literal
 import pandas as pd
 
 from . import config
+from .connection_config import normalise_publish_mode, resolve_publish_target
 from .backends import df_to_html_simple, fig_to_png_bytes
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
@@ -313,36 +314,59 @@ def _debug_enabled() -> bool:
     return os.environ.get("PLOTSRV_DEBUG", "").strip() == "1"
 
 
+class _NoPublishRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str
+    ) -> None:
+        return None
+
+
 def _post_publish_payload(
     *,
     payload: dict[str, Any],
     host: str,
     port: int,
     debug: bool,
+    target: PublishTarget | None = None,
 ) -> bool:
     payload = _json_safe(payload)
 
-    url = f"http://{host}:{port}/publish"
+    destination = target or PublishTarget(kind="remote", host=host, port=port)
+    url = destination.url_for("/publish")
     try:
         data = json.dumps(payload).encode("utf-8")
     except Exception:
         if debug:
+            if target is not None:
+                raise RuntimeError("plotsrv destination publication failed") from None
             raise
         return False
 
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
     try:
-        with urllib.request.urlopen(req, timeout=2.0) as resp:
-            _ = resp.read()
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={
+                "Content-Type": "application/json",
+                **destination.authorization_headers(),
+            },
+            method="POST",
+        )
+
+        # Explicit destinations refuse redirects, including HTTPS downgrades
+        # and same-host redirects that could forward credentials elsewhere.
+        opener = (
+            urllib.request.build_opener(_NoPublishRedirect()).open
+            if target is not None
+            else urllib.request.urlopen
+        )
+        with opener(req, timeout=destination.request_timeout_s) as resp:
+            _ = resp.read(64 * 1024) if target is not None else resp.read()
         return True
     except urllib.error.HTTPError as e:
         if debug:
+            if target is not None:
+                raise RuntimeError(f"plotsrv publish failed: HTTP {e.code}") from None
             body = ""
             try:
                 body = e.read().decode("utf-8", errors="replace")
@@ -354,6 +378,8 @@ def _post_publish_payload(
         return False
     except Exception:
         if debug:
+            if target is not None:
+                raise RuntimeError("plotsrv destination publication failed") from None
             raise
         return False
 
@@ -474,6 +500,7 @@ def _try_publish_pathlike_view(
     force: bool,
     debug: bool,
     async_: bool,
+    destination: PublishTarget | None = None,
 ) -> bool:
     """
     Publish a Path-like object if obj is a real filesystem path.
@@ -505,8 +532,9 @@ def _try_publish_pathlike_view(
             publish_view(
                 coerced.obj,
                 launch_server=launch_server,
-                host=host,
-                port=port,
+                host=None if destination is not None else host,
+                port=None if destination is not None else port,
+                destination=destination,
                 label=label,
                 section=section,
                 view_id=view_id,
@@ -523,8 +551,9 @@ def _try_publish_pathlike_view(
             publish_view(
                 {"html": str(coerced.obj), "unsafe": True},
                 launch_server=launch_server,
-                host=host,
-                port=port,
+                host=None if destination is not None else host,
+                port=None if destination is not None else port,
+                destination=destination,
                 label=label,
                 section=section,
                 view_id=view_id,
@@ -551,8 +580,9 @@ def _try_publish_pathlike_view(
             publish_view(
                 doc,
                 launch_server=launch_server,
-                host=host,
-                port=port,
+                host=None if destination is not None else host,
+                port=None if destination is not None else port,
+                destination=destination,
                 label=label,
                 section=section,
                 view_id=view_id,
@@ -567,8 +597,9 @@ def _try_publish_pathlike_view(
         publish_view(
             coerced.obj,
             launch_server=launch_server,
-            host=host,
-            port=port,
+            host=None if destination is not None else host,
+            port=None if destination is not None else port,
+            destination=destination,
             label=label,
             section=section,
             view_id=view_id,
@@ -587,8 +618,9 @@ def _try_publish_pathlike_view(
         publish_view(
             f"[plotsrv] file read/parse error: {type(e).__name__}: {e}",
             launch_server=launch_server,
-            host=host,
-            port=port,
+            host=None if destination is not None else host,
+            port=None if destination is not None else port,
+            destination=destination,
             label=label,
             section=section,
             view_id=view_id,
@@ -601,72 +633,22 @@ def _try_publish_pathlike_view(
         return True
 
 
-def _normalise_publish_mode(mode: PublishMode | str | None) -> PublishMode:
-    raw = str(mode or "auto").strip().lower()
-    if raw not in ("auto", "local", "remote"):
-        raise ValueError("publish_view mode must be one of: 'auto', 'local', 'remote'")
-    return raw  # type: ignore[return-value]
+# Compatibility aliases delegate to the single configuration resolver.
+_normalise_publish_mode = normalise_publish_mode
 
 
-def _resolve_launch_server(
-    *,
-    launch_server: bool | None,
-    mode: PublishMode | str | None,
-    host: str | None,
-    port: int | None,
-) -> bool:
-    """
-    Resolve legacy mode=... and launch_server=... into one decision.
-
-    Preferred API:
-      - launch_server=True  => attached in-process server
-      - launch_server=False => publish over HTTP to existing server
-
-    Compatibility:
-      - mode="local"  => launch_server=True
-      - mode="remote" => launch_server=False
-      - mode="auto"   => host/port omitted means local; host/port supplied means remote
-      - omitted mode   => same as mode="auto"
-    """
-    if launch_server is not None:
-        # Validate mode if the user supplied it as well, so debug/error behaviour
-        # remains useful for accidental bad mode values.
-        if mode is not None:
-            _normalise_publish_mode(mode)
-        return bool(launch_server)
-
-    mode2 = _normalise_publish_mode(mode)
-
-    if mode2 == "local":
-        return True
-
-    if mode2 == "remote":
-        return False
-
-    # mode="auto"
-    return not (host is not None or port is not None)
+def _resolve_launch_server(**kwargs: Any) -> bool:
+    return resolve_publish_target(**kwargs).kind == "local"
 
 
-def _normalise_remote_target(
-    *,
-    host: str | None,
-    port: int | None,
-) -> tuple[str, int]:
-    return (
-        str(host or "127.0.0.1"),
-        int(port if port is not None else 8000),
-    )
+def _normalise_remote_target(*, host: str | None, port: int | None) -> tuple[str, int]:
+    target = resolve_publish_target(host=host, port=port, launch_server=False)
+    return target.host, target.port
 
 
-def _normalise_local_target(
-    *,
-    host: str | None,
-    port: int | None,
-) -> tuple[str, int]:
-    return (
-        str(host or "127.0.0.1"),
-        int(port if port is not None else 8000),
-    )
+def _normalise_local_target(*, host: str | None, port: int | None) -> tuple[str, int]:
+    target = resolve_publish_target(host=host, port=port, launch_server=True)
+    return target.host, target.port
 
 
 def _publish_view_local(
@@ -784,8 +766,19 @@ def _publish_view_now(
     kind: str | None,
     artifact_kind: str | None,
     debug: bool,
+    target: PublishTarget | None = None,
 ) -> bool:
-    remote_host, remote_port = _normalise_remote_target(host=host, port=port)
+    remote_host, remote_port = host or "127.0.0.1", port if port is not None else 8000
+    remote_target = (
+        target
+        if target is not None
+        and (
+            target.base_url is not None
+            or target.bearer_token_env is not None
+            or target.request_timeout_s != 2.0
+        )
+        else None
+    )
 
     if _try_publish_pathlike_view(
         obj,
@@ -800,6 +793,7 @@ def _publish_view_now(
         force=force,
         debug=debug,
         async_=False,
+        destination=remote_target,
     ):
         return True
 
@@ -858,6 +852,7 @@ def _publish_view_now(
         host=remote_host,
         port=remote_port,
         debug=debug,
+        **({"target": remote_target} if remote_target is not None else {}),
     )
 
 
@@ -865,6 +860,7 @@ def _run_publish_task(task: PublishTask) -> bool:
     """Worker entrypoint. Async failures are visible in queue stats, not callers."""
     return _publish_view_now(
         task.obj,
+        target=task.target,
         launch=task.target.kind == "local",
         host=task.target.host,
         port=task.target.port,
@@ -884,6 +880,7 @@ def publish_view(
     *,
     launch_server: bool | None = None,
     mode: PublishMode | str | None = None,
+    destination: str | PublishTarget | None = None,
     host: str | None = None,
     port: int | None = None,
     label: str | None = None,
@@ -898,7 +895,11 @@ def publish_view(
     """
     Publish an object as a plotsrv browser view.
 
-    Default behaviour is compatibility/auto mode:
+    An explicit destination URL or publisher-settings.destination targets an
+    existing server and preserves HTTP(S) proxy prefixes. It never launches a
+    fallback. Explicit destination and host/port cannot be combined.
+
+    Without a configured destination, compatibility/auto mode is:
       - host/port omitted  -> start/use an attached local server
       - host/port supplied -> publish over HTTP to an existing server
 
@@ -923,7 +924,8 @@ def publish_view(
     debug = _debug_enabled()
 
     try:
-        launch = _resolve_launch_server(
+        target = resolve_publish_target(
+            destination=destination,
             launch_server=launch_server,
             mode=mode,
             host=host,
@@ -934,6 +936,8 @@ def publish_view(
             raise
         return
 
+    launch = target.kind == "local"
+
     try:
         async_enabled = _resolve_async_publish(async_)
     except Exception:
@@ -942,18 +946,9 @@ def publish_view(
         return
 
     if async_enabled:
-        target_host, target_port = (
-            _normalise_local_target(host=host, port=port)
-            if launch
-            else _normalise_remote_target(host=host, port=port)
-        )
         task = PublishTask(
             obj=obj,
-            target=PublishTarget(
-                kind="local" if launch else "remote",
-                host=target_host,
-                port=target_port,
-            ),
+            target=target,
             coalesce_view_id=_coalesce_view_id(
                 view_id=view_id,
                 section=section,
@@ -974,8 +969,9 @@ def publish_view(
     _publish_view_now(
         obj,
         launch=launch,
-        host=host,
-        port=port,
+        target=target,
+        host=target.host,
+        port=target.port,
         label=label,
         section=section,
         view_id=view_id,

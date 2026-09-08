@@ -2,16 +2,33 @@
 from __future__ import annotations
 
 import ast
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
+
+from .contracts import SourceMetadata, ViewDescriptor
 
 
 @dataclass(frozen=True, slots=True)
 class DiscoveredView:
-    kind: str  # "plot"|"table"|"artifact"
+    kind: str  # unknown until a runtime value establishes capabilities
     label: str
     section: str | None
+    view_id: str | None = None
+    source: SourceMetadata | None = None
+
+    def descriptor(self) -> ViewDescriptor:
+        from .store import normalize_view_id
+
+        return ViewDescriptor(
+            view_id=normalize_view_id(
+                self.view_id, section=self.section, label=self.label
+            ),
+            label=self.label,
+            section=self.section,
+            kind=self.kind,
+            source=self.source,
+        )
 
 
 def _extract_kw_str(call: ast.Call, name: str) -> str | None:
@@ -92,10 +109,16 @@ def _extract_publish_view_discovery(call: ast.Call) -> DiscoveredView | None:
     if not label:
         return None
 
+    declared_kind = _extract_kw_str(call, "kind")
     return DiscoveredView(
-        kind="artifact",
+        kind=(
+            declared_kind
+            if declared_kind in ("plot", "table", "artifact")
+            else "unknown"
+        ),
         label=label,
         section=section,
+        view_id=view_id,
     )
 
 
@@ -129,7 +152,7 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
             continue
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
                 for dec in node.decorator_list:
                     dec_name = _decorator_name(dec)
                     if dec_name != "view":
@@ -137,23 +160,36 @@ def discover_views(root: str | Path) -> list[DiscoveredView]:
 
                     label = None
                     section = None
+                    view_id = None
 
                     if isinstance(dec, ast.Call):
                         label = _extract_kw_str(dec, "label")
                         section = _extract_kw_str(dec, "section")
+                        view_id = _extract_kw_str(dec, "view_id")
 
                     found.append(
                         DiscoveredView(
-                            kind="artifact",
+                            kind="unknown",
                             label=(label or node.name),
                             section=section,
+                            view_id=view_id,
+                            source=SourceMetadata(
+                                basename=f.name, source_type="python"
+                            ),
                         )
                     )
 
             if isinstance(node, ast.Call):
                 discovered = _extract_publish_view_discovery(node)
                 if discovered is not None:
-                    found.append(discovered)
+                    found.append(
+                        replace(
+                            discovered,
+                            source=SourceMetadata(
+                                basename=f.name, source_type="python"
+                            ),
+                        )
+                    )
 
     # stable ordering: section then label
     found.sort(key=lambda x: ((x.section or ""), x.label))

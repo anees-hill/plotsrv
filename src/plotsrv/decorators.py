@@ -27,6 +27,7 @@ class PlotsrvSpec:
     launch_server: bool = False
     async_: bool | None = None
 
+    view_id: str | None = None
 
 _PLOTSRV_ATTR = "__plotsrv__"
 _PLOTSRV_CLASS_WRAPPED = "__plotsrv_class_wrapped__"
@@ -137,6 +138,8 @@ def _publish_result(obj: Any, *, spec: PlotsrvSpec, label: str) -> None:
         "update_limit_s": spec.update_limit_s,
         "force": False,
     }
+    if spec.view_id is not None:
+        kwargs["view_id"] = spec.view_id
     if spec.async_ is not None:
         kwargs["async_"] = spec.async_
     publish_view(obj, **kwargs)
@@ -165,6 +168,8 @@ def _wrap_class_with_publish(cls: type[Any], spec: PlotsrvSpec) -> type[Any]:
                 "update_limit_s": spec.update_limit_s,
                 "force": False,
             }
+            if spec.view_id is not None:
+                kwargs["view_id"] = spec.view_id
             if spec.async_ is not None:
                 kwargs["async_"] = spec.async_
             publish_view(_inspect_instance(self), **kwargs)
@@ -238,6 +243,7 @@ def view(
     *,
     label: str | None = None,
     section: str | None = None,
+    view_id: str | None = None,
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
@@ -252,6 +258,7 @@ def view(
     *,
     label: str | None = None,
     section: str | None = None,
+    view_id: str | None = None,
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
@@ -265,6 +272,7 @@ def view(
     *,
     label: str | None = None,
     section: str | None = None,
+    view_id: str | None = None,
     host: str | None = None,
     port: int | None = None,
     update_limit_s: int | None = None,
@@ -304,6 +312,7 @@ def view(
             kind="artifact",
             label=label,
             section=section,
+            view_id=view_id,
             host=host,
             port=port,
             update_limit_s=update_limit_s,
