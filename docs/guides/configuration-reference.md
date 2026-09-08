@@ -4,7 +4,10 @@ icon: lucide/sliders-horizontal
 
 # Configuration reference
 
-This page describes the main `plotsrv.yaml` settings.
+This page describes the main `plotsrv.yml` / `plotsrv.yaml` settings.
+
+For publisher destinations, role-owned setup contracts, precedence and metadata
+bounds, see [Publisher and server contracts](../about/publisher-contracts.md).
 
 Create a starter config with:
 

@@ -41,7 +41,9 @@ def my_function():
 
 ## `publish_view()`
 
-Publish an object as a plotsrv browser view.
+Publish an object as a plotsrv browser view. An explicit
+`destination="https://dashboard.example/team/"` preserves a proxy prefix and
+targets an existing server. See [destination precedence and configuration](../about/publisher-contracts.md).
 
 ```python
 ps.publish_view(
