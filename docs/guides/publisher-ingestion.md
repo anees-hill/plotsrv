@@ -40,20 +40,16 @@ proxy anonymous ingestion through a loopback connection while stripping its
 forwarding headers. Use a publisher key when crossing a proxy/trust boundary.
 Browser-originated mutation requests are rejected, even on loopback.
 
-The existing Python server API can start without discovering project code:
+Start a server without discovering project code:
 
-```python
-import threading
-from plotsrv import start_server
-
-start_server(config="server.yml", host="127.0.0.1", port=8000,
-             auto_on_show=False)
-threading.Event().wait()
+```sh
+plotsrv serve --config server.yml
 ```
 
-This uses the already available API; no new CLI service is introduced here.
-`server-settings.bind` remains a setup contract until CLI/server destination
-resolution is wired separately. Supply bind arguments to the existing API.
+`server-settings.bind` supplies the bind defaults; explicit `--host` and `--port`
+override them. See [Standalone servers and direct remote publishers](remote-publishers.md)
+for independent server/publisher configurations, direct Python examples and
+standalone restoration policy.
 
 ## Endpoint and security matrix
 
@@ -131,7 +127,8 @@ unexpected stream history entry.
 The handshake's server generation is process state, separate from stable
 browser preference scope. Stream responses retain the existing protocol 4
 receiver/session generation and acknowledgement semantics. This change does
-not add negotiation retries, publisher CLI lifecycle, or a browser poller.
+not alter stream v4 semantics or add a browser poller. Direct publisher
+negotiation and restart handling are described in the remote-publisher guide.
 
 ## Limits and errors
 

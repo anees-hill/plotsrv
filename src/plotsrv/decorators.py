@@ -223,6 +223,7 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
                 try:
                     publish_traceback(
                         e,
+                        **({"view_id": spec.view_id} if spec.view_id is not None else {}),
                         label=spec.label or func.__name__,
                         section=spec.section,
                         host=_traceback_host(spec),

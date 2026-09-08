@@ -874,6 +874,8 @@ def publish_view(
             port=port,
         )
     except Exception:
+        from .publishing.transport import report_invalid_setup
+        report_invalid_setup()
         if debug:
             raise
         return

@@ -54,6 +54,20 @@ class _Context:
 
 _contexts: OrderedDict[str, _Context] = OrderedDict()
 _lock = threading.Lock()
+_setup_next_log = 0.0
+
+
+def report_invalid_setup() -> None:
+    """Bound diagnostics even when no valid target/security key can be formed."""
+    global _setup_next_log
+    with _lock:
+        now = time.monotonic()
+        if now < _setup_next_log:
+            return
+        _setup_next_log = now + PERMANENT_COOLDOWN_S
+    logging.getLogger(__name__).warning(
+        "Publisher setup invalid: check destination and credential configuration"
+    )
 
 
 def _context(target: PublishTarget) -> _Context:
@@ -70,8 +84,10 @@ def _context(target: PublishTarget) -> _Context:
 
 def reset_transport() -> None:
     """Discard process-local cached metadata/diagnostics; owns no sockets."""
+    global _setup_next_log
     with _lock:
         _contexts.clear()
+        _setup_next_log = 0.0
 
 
 def health(target: PublishTarget) -> dict[str, Any]:

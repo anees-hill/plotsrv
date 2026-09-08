@@ -191,7 +191,7 @@ def validate_catalogue(views: list[ViewDescriptor]) -> tuple[ViewDescriptor, ...
 
 @dataclass(frozen=True, slots=True)
 class ProtocolCapabilities:
-    """Response shape for the later handshake; advertises no future routes."""
+    """Bounded handshake metadata; advertise only implemented routes."""
 
     server_generation: str
     dashboard_scope: str

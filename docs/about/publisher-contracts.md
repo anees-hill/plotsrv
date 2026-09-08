@@ -75,9 +75,9 @@ the existing file/instance selectors and the named credential only.
 
 A server-only file can configure ingestion authentication and admission. See
 [Publisher ingestion](../guides/publisher-ingestion.md) for the enforced endpoint
-matrix, explicit bootstrap transaction and proxy requirements. The bind fields
-remain a setup contract; existing server API bind arguments still apply, and
-no standalone CLI service is added yet.
+matrix, explicit bootstrap transaction and proxy requirements. `plotsrv serve`
+uses the bind fields; explicit CLI host/port override them. See
+[Direct remote publishers](../guides/remote-publishers.md) for working examples.
 
 ```yaml
 server-settings:
@@ -196,8 +196,9 @@ bound in addition to the count bound. Ordinary explicit-destination response
 reads are capped at 64 KiB. Request timeouts are socket-operation bounds, not
 hard wall-clock cancellation of arbitrary parsing, rendering or slow trickles.
 
-Shared stream/watch client transport, capability negotiation/caching, source
-lifecycle, and description presentation are subsequent work. Server wire
+Ordinary and stream publishers now share bounded transport and capability
+negotiation. Publisher-agent/watch source lifecycle and description presentation
+remain subsequent work. Server wire
 admission and authentication are now enforced by the ingestion boundary. No
 discovery, TUI imports or network activity occurs on ordinary package import or
 parser startup.

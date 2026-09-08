@@ -233,3 +233,113 @@ def test_tls_verification_and_timeout_budget(monkeypatch):
     monkeypatch.setattr(transport, "_exchange", exchange)
     transport.request_json(target, "/publish", {}, feature="publish", timeout_s=0.2)
     assert 0 < calls[1][1] < calls[0][1] <= 0.2
+
+
+def test_missing_key_is_best_effort_with_bounded_setup_diagnostics(
+    tmp_path, monkeypatch, caplog
+):
+    from plotsrv import publisher, settings
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "_CTX", settings.RuntimeContext())
+    monkeypatch.setattr(settings, "_CONFIG_CACHE", {})
+    monkeypatch.delenv("PLOTSRV_CONFIG", raising=False)
+    monkeypatch.delenv("PLOTSRV_MISSING_TEST_KEY", raising=False)
+    (tmp_path / "plotsrv.yml").write_text(
+        "publisher-settings:\n  destination:\n    url: https://example.test\n    bearer_token_env: PLOTSRV_MISSING_TEST_KEY\n"
+    )
+    for _ in range(10):
+        assert publisher.publish_view("data") is None
+    assert len(caplog.records) == 1
+    assert "credential configuration" in caplog.text
+    assert "PLOTSRV_MISSING_TEST_KEY" not in caplog.text
+
+
+def test_stream_permanent_failure_and_final_close_do_not_busy_loop(monkeypatch):
+    from plotsrv.streams.client import StreamClient
+    from plotsrv.streams.models import StreamRegistration
+    from tests.test_stream_restart import batch
+
+    with endpoint() as (target, state):
+        state["status"] = 401
+        producer = StreamClient(
+            destination=target,
+            registration=StreamRegistration("v", "V", "S", "client", "session"),
+        )
+        for _ in range(10):
+            assert producer.append_batch(batch(1)) is False
+            assert producer.heartbeat_once() is False
+        assert len(state["requests"]) == 1
+        assert producer.retry_delay_s > 0
+        start = time.monotonic()
+        assert producer.close(drain_completed=False, timeout_s=0.05) is False
+        assert time.monotonic() - start < 0.5
+        assert len(state["requests"]) == 1
+
+
+@pytest.mark.parametrize("timeout", [float("inf"), float("nan"), -1, 0])
+def test_transport_rejects_unbounded_timeouts(timeout):
+    with pytest.raises(transport.TransportError, match="request_timeout"):
+        transport.request_json(
+            PublishTarget("remote"),
+            "/publish",
+            {},
+            feature="publish",
+            timeout_s=timeout,
+        )
+
+
+def test_remote_failure_preserves_decorated_output_and_original_exception(
+    tmp_path, monkeypatch
+):
+    from plotsrv import settings, view, config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "_CTX", settings.RuntimeContext())
+    monkeypatch.setattr(settings, "_CONFIG_CACHE", {})
+    monkeypatch.delenv("PLOTSRV_CONFIG", raising=False)
+    monkeypatch.setattr(config, "get_tracebacks_enabled", lambda: True)
+    with endpoint() as (target, state):
+        (tmp_path / "plotsrv.yml").write_text(
+            "publisher-settings:\n  destination:\n    url: " + target.base_url + "\n"
+        )
+        state["status"] = 401
+        original = ValueError("original application failure")
+
+        @view(view_id="result")
+        def calculate():
+            return 42
+
+        @view(view_id="failure", on_error="publish_and_raise")
+        def fail():
+            raise original
+
+        assert calculate() == 42
+        with pytest.raises(ValueError) as caught:
+            fail()
+        assert caught.value is original
+        assert len(state["requests"]) == 1
+
+
+def test_remote_traceback_keeps_explicit_identity(tmp_path, monkeypatch):
+    from plotsrv import settings, view, config
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "_CTX", settings.RuntimeContext())
+    monkeypatch.setattr(settings, "_CONFIG_CACHE", {})
+    monkeypatch.delenv("PLOTSRV_CONFIG", raising=False)
+    monkeypatch.setattr(config, "get_tracebacks_enabled", lambda: True)
+    with endpoint() as (target, state):
+        (tmp_path / "plotsrv.yml").write_text(
+            "publisher-settings:\n  destination:\n    url: " + target.base_url + "\n"
+        )
+
+        @view(view_id="etl:custom:id", label="Different", on_error="publish_and_raise")
+        def fail():
+            raise ValueError("application failure")
+
+        with pytest.raises(ValueError):
+            fail()
+        path, _, body = state["requests"][-1]
+        assert path == "/team/publish"
+        assert json.loads(body)["view_id"] == "etl:custom:id"
