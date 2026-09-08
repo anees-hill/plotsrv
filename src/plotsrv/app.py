@@ -78,6 +78,8 @@ app = _build_app()
 register_default_renderers()
 app.include_router(stream_router)
 app.include_router(ingestion_router)
+from .remote_watch import router as remote_watch_router
+app.include_router(remote_watch_router)
 app.add_middleware(IngestionMiddleware)
 
 
@@ -558,6 +560,10 @@ def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
 
 
 def _watched_file_meta_dict(view_id: str) -> dict[str, Any] | None:
+    from .remote_watch import public_meta
+    remote = public_meta(view_id)
+    if remote is not None:
+        return remote
     if not store.has_watched_file_meta(view_id=view_id):
         return None
 
@@ -1108,16 +1114,19 @@ def get_table_data(
     df = store.get_table_df(view_id=vid)
 
     total_rows, returned_rows = store.get_table_counts(view_id=vid)
+    from .remote_watch import public_meta
+    remote = public_meta(vid)
 
     return _table_data_response_from_df(
         df,
         limit=limit,
         total_rows=total_rows,
         returned_rows=returned_rows,
+        total_rows_known=remote is None or (remote.get("complete", False) and not remote.get("limitation")),
         meta=(
             _watched_file_source_meta(view_id=vid)
             if store.has_watched_file_meta(view_id=vid)
-            else None
+            else remote
         ),
     )
 
@@ -1172,9 +1181,13 @@ def export_table(
 
     df = store.get_table_df(view_id=vid)
     csv_bytes = df.to_csv(index=False).encode("utf-8")
+    from .remote_watch import public_meta
+    remote = public_meta(vid)
     headers = {
-        "Content-Disposition": 'attachment; filename="plotsrv_table.csv"',
+        "Content-Disposition": 'attachment; filename="plotsrv_table_preview.csv"' if remote else 'attachment; filename="plotsrv_table.csv"',
     }
+    if remote:
+        headers["X-Plotsrv-Coverage"] = "preview"
     return Response(csv_bytes, media_type="text/csv", headers=headers)
 
 
@@ -1185,7 +1198,7 @@ async def publish_http(request: Request) -> dict[str, Any]:
     return await run_in_threadpool(publish, request, payload)
 
 
-def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
+def publish(request: Request, payload: dict[str, Any], *, _remote_watch: bool = False) -> dict[str, Any]:
     """
     Publish a plot or table into a specific view.
 
@@ -1313,6 +1326,9 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
                 publish_source=publish_source,
             )
 
+        if not _remote_watch:
+            from .remote_watch import clear_content
+            clear_content(view_id)
         store.set_plot(
             png_bytes,
             view_id=view_id,
@@ -1384,6 +1400,9 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
             )
             raise
 
+        if not _remote_watch:
+            from .remote_watch import clear_content
+            clear_content(view_id)
         store.set_artifact(
             obj=artifact_obj,
             kind=artifact_kind,
@@ -1499,6 +1518,9 @@ def publish(request: Request, payload: dict[str, Any]) -> dict[str, Any]:
         # Rebuild from bounded data with escaping; never trust client inline HTML.
         html_simple = df_to_html_simple(df, config.get_max_table_rows_simple())
 
+        if not _remote_watch:
+            from .remote_watch import clear_content
+            clear_content(view_id)
         store.set_table(
             df,
             html_simple,
@@ -1631,12 +1653,25 @@ def get_artifact(
     if store.has_watched_file_meta(view_id=vid):
         watched_meta = _watched_file_source_meta(view_id=vid)
 
-    return _render_current_artifact_response(
+    rendered = _render_current_artifact_response(
         view_id=vid,
         obj=art.obj,
         kind_hint=art.kind,
         meta=watched_meta,
     )
+    from .remote_watch import public_meta
+    remote = public_meta(vid)
+    if remote:
+        # Add current status outside the content revision cache: notices aren't arrivals.
+        from html import escape
+        message = f"Remote watch: {remote['status']}. {remote['message']} {remote.get('limitation') or ''}"
+        link = remote.get("preview_download_url")
+        notice = '<div class="note">' + escape(message)
+        if link:
+            notice += ' <a href="' + escape(link, quote=True) + '">Download hosted preview</a>'
+        notice += '</div>'
+        rendered = dict(rendered, meta={**rendered.get("meta", {}), **remote}, html=notice + rendered["html"])
+    return rendered
 
 
 @app.get("/views")

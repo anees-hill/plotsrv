@@ -373,6 +373,9 @@ INGESTION_PATHS = frozenset(
         "/stream/close",
         "/catalogue/register",
         "/catalogue/bootstrap",
+        "/watch/register",
+        "/watch/update",
+        "/watch/close",
         "/capabilities",
     )
 )
@@ -429,6 +432,7 @@ def capabilities(request: Request):
             "catalogue-register",
             "catalogue-bootstrap",
             "stream-v4",
+            "watch-v1",
         ),
     ).to_dict()
     return {
@@ -449,6 +453,10 @@ def capabilities(request: Request):
             "requests_per_second": MAX_INGESTION_REQUESTS_PER_SECOND,
             "body_timeout_s": BODY_TIMEOUT_S,
             "json_structural_tokens": MAX_JSON_STRUCTURAL_TOKENS,
+            "watch_request_bytes": 384 * 1024,
+            "watch_source_bytes": 256 * 1024,
+            "watch_hosted_bytes": 16 * 1024 * 1024,
+            "watch_views": 64,
         },
     }
 

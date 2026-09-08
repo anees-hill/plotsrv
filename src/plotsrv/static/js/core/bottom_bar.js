@@ -85,7 +85,9 @@
       complete.textContent =
         !isHistory && typeof sourceDownload === "string" && sourceDownload
           ? "Complete source CSV file"
-          : "Complete published table";
+          : (!isHistory && state.tableLastPayload && state.tableLastPayload.meta &&
+              state.tableLastPayload.meta.materialization === "remote"
+            ? "Hosted table preview" : "Complete published table");
     }
     const plotItems = document.getElementById("plot-export-items");
     if (plotItems) {

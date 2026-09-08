@@ -348,6 +348,14 @@
       }
     }
 
+    if (data.meta && data.meta.materialization === "remote") {
+      html += data.meta.full_download
+        ? " Complete source hosted."
+        : " Preview available; original file is not hosted here.";
+      if (data.meta.status !== "available") {
+        html += " Source currently unavailable; showing last received content.";
+      }
+    }
     for (const el of targetEls) {
       el.innerHTML = html;
     }
