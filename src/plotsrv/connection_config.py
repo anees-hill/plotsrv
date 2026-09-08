@@ -137,7 +137,6 @@ def get_publisher_sources() -> PublisherSources:
             or "\\" in target
             or target.startswith((".", "~"))
             or target.split(":", 1)[0].endswith(".py")
-            or (":" not in target and (base / target).exists())
         ):
             path = Path(target).expanduser()
             target = str(path if path.is_absolute() else base / path)

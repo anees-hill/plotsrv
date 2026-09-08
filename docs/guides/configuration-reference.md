@@ -11,6 +11,8 @@ bounds, see [Publisher and server contracts](../about/publisher-contracts.md).
 The enforced key policy, catalogue bootstrap transaction and HTTP limits are
 documented in [Publisher ingestion](publisher-ingestion.md). For `plotsrv serve`
 and directly publishing applications, see [Remote publishers](remote-publishers.md).
+For configured targets, watches, selection and scan bounds, see
+[Configured sources](configured-sources.md).
 
 Create a starter config with:
 

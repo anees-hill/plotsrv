@@ -254,17 +254,26 @@ def test_manifest_selection_duplicate_conflicts_and_no_partial_registration(tmp_
     assert not store.list_views()
 
 
-def test_population_uses_exact_ids_and_config_selection(tmp_path):
+@pytest.mark.parametrize("config_style", ["global", "default", "instance"])
+def test_population_uses_exact_ids_and_config_selection(
+    tmp_path, monkeypatch, config_style
+):
     source = tmp_path / "app.py"
     source.write_text(
         'from plotsrv import view\n@view(view_id="exact:custom:id",label="Different")\ndef f(): pass\n@view(label="Excluded")\ndef g(): pass\n'
     )
     config_path = tmp_path / "custom.yaml"
-    config_path.write_text(
-        yaml.safe_dump(
-            {"publisher-settings": {"discovery": {"selection": ["exact:custom:id"]}}}
-        )
-    )
+    selected = {"discovery": {"selection": ["exact:custom:id"]}}
+    publisher = selected
+    if config_style == "default":
+        publisher = {"default": selected}
+    elif config_style == "instance":
+        publisher = {
+            "discovery": {"selection": ["Excluded"]},
+            "instances": {"chosen": selected},
+        }
+        monkeypatch.setenv("PLOTSRV_NAME", "chosen")
+    config_path.write_text(yaml.safe_dump({"publisher-settings": publisher}))
     config_writer.populate_limits(
         path=config_path,
         target=source,
@@ -442,3 +451,22 @@ def test_scan_total_bytes_and_entry_count_are_hard_bounds(tmp_path, monkeypatch)
     result = scan_sources(tmp_path)
     assert result.limited and result.bytes_read == 0
     assert any(i.reason == "entry_limit" for i in result.issues)
+
+
+def test_configured_package_remains_a_module_for_explicit_execution(
+    tmp_path, monkeypatch
+):
+    base = configure(tmp_path, monkeypatch, discovery={"target": "package"})
+    package = base / "package"
+    package.mkdir()
+    (package / "__init__.py").write_text("raise AssertionError('must not import')")
+    setup = resolve_source_setup()
+    assert setup.target == "package"
+    assert setup.scan_root() == package
+    calls = []
+    monkeypatch.setattr(
+        cli.subprocess, "Popen", lambda cmd, **kwargs: calls.append((cmd, kwargs))
+    )
+    cli._run_subprocess_as_main(setup.target, source_base=setup.target_base)
+    assert calls[0][0][-2:] == ["-m", "package"]
+    assert calls[0][1]["cwd"] == str(base)

@@ -184,7 +184,7 @@ class DiscoveryResult:
         return not self.cancelled and not self.limited
 
 
-def _import_bindings(tree: ast.AST) -> dict[str, str]:
+def _import_bindings(tree: ast.AST, nodes: list[ast.AST]) -> dict[str, str]:
     """Conservative lexical evidence, not execution or data-flow inference."""
     bindings: dict[str, str] = {}
     ambiguous = set()
@@ -197,7 +197,7 @@ def _import_bindings(tree: ast.AST) -> dict[str, str]:
     }
     top_level = set(tree.body)
     wildcard = False
-    for node in ast.walk(tree):
+    for node in nodes:
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
                 if alias.name == "*":
@@ -301,6 +301,7 @@ def scan_sources(
     from .source_targets import resolve_source_target
 
     started = time.monotonic()
+    last_enumeration_update = started
     files: list[Path] = []
     found: list[DiscoveredView] = []
     issues: list[DiscoveryIssue] = []
@@ -354,8 +355,12 @@ def scan_sources(
                         limited = True
                         issue(directory, "entry_limit")
                         break
-                    if entries % 128 == 0:
+                    if on_progress and (
+                        entries % 128 == 0
+                        or time.monotonic() - last_enumeration_update >= 0.1
+                    ):
                         progress("enumerating")
+                        last_enumeration_update = time.monotonic()
                     if entry.is_symlink():
                         skipped += 1
                         continue
@@ -422,7 +427,7 @@ def scan_sources(
                         break
                 if was_cancelled:
                     break
-                bindings = _import_bindings(tree)
+                bindings = _import_bindings(tree, nodes)
                 for node in nodes:
                     declarations = []
                     if isinstance(

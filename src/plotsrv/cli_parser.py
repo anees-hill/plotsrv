@@ -128,7 +128,7 @@ def build_parser() -> argparse.ArgumentParser:
         "target",
         nargs="?",
         default=None,
-        help="Import path or path to scan. Examples: pkg, pkg.mod, pkg.mod:fn, ./src, ./script.py. If omitted, uses project root detection.",
+        help="Import path or path to scan. Examples: pkg, pkg.mod, pkg.mod:fn, ./src, ./script.py. If omitted, uses configured discovery target, then project root detection.",
     )
 
     run_p.add_argument(
@@ -138,7 +138,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--port", action=_ExplicitValueAction, type=int, default=8000, help="Port to bind (default: 8000)"
     )
     run_p.add_argument(
-        "--quiet", action="store_true", help="Reduce uvicorn logging noise"
+        "--quiet", action="store_true", help="Reduce server logs and suppress discovery progress"
     )
     run_p.add_argument(
         "--name",
@@ -213,7 +213,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--watch",
         action=_WatchPathAction,
         default=[],
-        help=("Watch a file and publish it as a live view. Repeatable."),
+        help=("Watch a file and publish it as a live view. Repeatable; replaces configured watches."),
     )
     run_p.add_argument(
         "--watch-label",

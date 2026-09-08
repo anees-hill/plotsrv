@@ -183,3 +183,7 @@ allowlist when admitted stored live state should be loaded at startup.
 
 Run one server process per instance. Shared-state clustering, the publisher-agent
 CLI and remote file-watch orchestration are outside this feature.
+
+Source defaults, static discovery and local `run` overrides are described in
+[Configured sources](configured-sources.md). `serve` continues to ignore these
+publisher source settings.

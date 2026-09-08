@@ -312,11 +312,17 @@ def _populate_view_section(
     data, created = _load_config_data(p)
 
     from .connection_config import _ids
-    publisher = data.get("publisher-settings", {})
-    discovery = publisher.get("discovery", {}) if isinstance(publisher, dict) else {}
-    selection = discovery.get("selection") if isinstance(discovery, dict) else None
-    if selection is not None:
-        selection = _ids(selection, "selection")
+    from . import settings
+
+    publisher, instances = settings._split_global_and_instances(
+        data.get("publisher-settings", {})
+    )
+    instance = instances.get(settings.get_runtime_name())
+    if isinstance(instance, dict):
+        publisher = settings._deep_merge_dicts(publisher, instance)
+    discovery = publisher.get("discovery", {})
+    selection = discovery.get("selection", ()) if isinstance(discovery, dict) else ()
+    selection = _ids(selection, "selection")
     view_ids = discover_view_ids(target, selection=selection)
     section = ensure_section(data)
     views = _ensure_mapping(section, "views")
