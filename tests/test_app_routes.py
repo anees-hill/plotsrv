@@ -26,7 +26,7 @@ def reset_state(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app)
+    return TestClient(app, client=("127.0.0.1", 50000))
 
 
 def test_get_plot_404_when_none(client: TestClient) -> None:
@@ -444,7 +444,7 @@ def test_publish_normal_large_text_artifact_still_rejected(
     assert "publish_source=normal" in detail
 
 
-def test_publish_watch_large_text_artifact_bypasses_publish_text_limit(
+def test_publish_watch_large_text_artifact_cannot_bypass_publish_text_limit(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -461,12 +461,10 @@ def test_publish_watch_large_text_artifact_bypasses_publish_text_limit(
 
     resp = client.post("/publish", json=payload)
 
-    assert resp.status_code == 200
-    assert resp.json()["ok"] is True
-    assert resp.json()["ignored"] is False
+    assert resp.status_code == 413
 
 
-def test_publish_watch_source_is_case_and_space_insensitive(
+def test_publish_watch_source_cannot_bypass_limits_with_case_or_spaces(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -483,8 +481,7 @@ def test_publish_watch_source_is_case_and_space_insensitive(
 
     resp = client.post("/publish", json=payload)
 
-    assert resp.status_code == 200
-    assert resp.json()["ok"] is True
+    assert resp.status_code == 413
 
 
 def test_publish_normal_large_json_artifact_still_rejected(
@@ -509,7 +506,7 @@ def test_publish_normal_large_json_artifact_still_rejected(
     assert "publish_source=normal" in detail
 
 
-def test_publish_watch_large_json_artifact_bypasses_publish_json_limit(
+def test_publish_watch_large_json_artifact_cannot_bypass_publish_json_limit(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -526,8 +523,7 @@ def test_publish_watch_large_json_artifact_bypasses_publish_json_limit(
 
     resp = client.post("/publish", json=payload)
 
-    assert resp.status_code == 200
-    assert resp.json()["ok"] is True
+    assert resp.status_code == 413
 
 
 def test_publish_normal_large_text_artifact_413_is_actionable(

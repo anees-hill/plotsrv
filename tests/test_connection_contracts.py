@@ -319,6 +319,8 @@ def test_protocol_and_dashboard_identity():
         "unauthorised_publisher",
         "inadmissible_view",
         "oversize_data",
+        "invalid_request",
+        "ingestion_busy",
     }
 
 

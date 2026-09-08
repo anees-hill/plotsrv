@@ -6,7 +6,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import BackgroundTasks, HTTPException, Request
 
 from plotsrv import config, store
 import plotsrv.server as srv
@@ -385,7 +385,7 @@ def test_shutdown_schedules_background_task_when_enabled(
 
     tasks = BackgroundTasks()
 
-    out = srv.shutdown(tasks, request=object())
+    out = srv.shutdown(tasks, request=Request({"type": "http", "method": "POST", "headers": [], "client": ("127.0.0.1", 1)}))
 
     assert out == {"status": "shutting_down"}
     assert len(tasks.tasks) == 1

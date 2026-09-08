@@ -52,7 +52,7 @@ def test_pending_batch_recovers_after_receiver_restart(tmp_path, monkeypatch, st
     producer = StreamClient(host="127.0.0.1", port=1, registration=registration)
     changed_sessions = []
     producer.on_session_changed = changed_sessions.append
-    http = TestClient(app)
+    http = TestClient(app, client=("127.0.0.1", 50000))
     fail_delivery = False
 
     def request(path, payload, **kwargs):
@@ -108,7 +108,7 @@ def test_lost_ack_on_same_receiver_retries_without_new_session(monkeypatch, tmp_
     producer = StreamClient(host="127.0.0.1", port=1, registration=StreamRegistration(
         view_id="logs:ack", label="ack", section="logs", client_id="client", session_id="session"))
     lose_ack = True
-    with TestClient(app) as http:
+    with TestClient(app, client=("127.0.0.1", 50000)) as http:
         def request(path, payload, **kwargs):
             response = http.post(path, json=payload)
             response.raise_for_status()
@@ -138,7 +138,7 @@ def test_restored_session_requires_fresh_epoch_even_without_previous_handshake(m
         view_id="logs:restored", label="restored", section="logs",
         client_id="restore-client", session_id="restore-session"))
     try:
-        with TestClient(app) as http:
+        with TestClient(app, client=("127.0.0.1", 50000)) as http:
             def request(path, payload, **kwargs):
                 response = http.post(path, json=payload)
                 response.raise_for_status()

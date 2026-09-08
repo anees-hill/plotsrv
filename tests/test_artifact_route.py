@@ -13,14 +13,14 @@ from plotsrv.runtime import WatchConfig, register_watch_views
 def test_artifact_404_when_none() -> None:
     store.reset()
     config.set_table_view_mode("simple")
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
     r = client.get("/artifact")
     assert r.status_code == 404
 
 
 def test_artifact_plot_returns_html() -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
 
     store.set_plot(b"\x89PNGfake")
     r = client.get("/artifact")
@@ -33,7 +33,7 @@ def test_artifact_plot_returns_html() -> None:
 
 def test_artifact_table_returns_html() -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
 
     store.set_table(pd.DataFrame({"a": [1]}), html_simple="<table>hi</table>")
     r = client.get("/artifact")
@@ -47,7 +47,7 @@ def test_artifact_route_caches_current_render_and_invalidates_on_publish(
     monkeypatch,
 ) -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
     app_module = importlib.import_module("plotsrv.app")
     original_render_any = app_module.render_any
     calls = 0
@@ -91,7 +91,7 @@ def test_artifact_route_caches_representative_large_json_render(
     monkeypatch,
 ) -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
     app_module = importlib.import_module("plotsrv.app")
     original_render_any = app_module.render_any
     calls = 0
@@ -130,7 +130,7 @@ def test_file_backed_artifacts_are_not_cached_between_requests(
     monkeypatch,
 ) -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
     app_module = importlib.import_module("plotsrv.app")
     original_render_any = app_module.render_any
     calls = 0
@@ -177,7 +177,7 @@ def test_artifact_route_serves_file_backed_text_watch(
     monkeypatch,
 ) -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
 
     p = tmp_path / "app.log"
     p.write_text("first\nsecond\nthird\n", encoding="utf-8")
@@ -221,7 +221,7 @@ def test_artifact_route_serves_file_backed_markdown_watch(
     monkeypatch,
 ) -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
 
     p = tmp_path / "README.md"
     p.write_text("# Hello\n\nWorld", encoding="utf-8")
@@ -261,7 +261,7 @@ def test_artifact_route_file_backed_missing_file_returns_visible_watch_error(
     monkeypatch,
 ) -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
 
     p = tmp_path / "missing.log"
 
@@ -307,7 +307,7 @@ def test_artifact_route_file_backed_csv_does_not_render_as_artifact(
     monkeypatch,
 ) -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
 
     p = tmp_path / "data.csv"
     p.write_text("a\n1\n", encoding="utf-8")
@@ -341,7 +341,7 @@ def test_file_backed_artifact_error_is_not_truncated(
     monkeypatch,
 ) -> None:
     store.reset()
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
 
     p = tmp_path / "missing.log"
 

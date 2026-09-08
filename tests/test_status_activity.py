@@ -73,7 +73,7 @@ def test_status_exposes_activity_scope_source_and_last_arrival() -> None:
         view_id=view_id,
     )
 
-    response = TestClient(app).get("/status", params={"view": view_id})
+    response = TestClient(app, client=("127.0.0.1", 50000)).get("/status", params={"view": view_id})
 
     assert response.status_code == 200
     payload = response.json()
@@ -92,7 +92,7 @@ def test_status_exposes_activity_scope_source_and_last_arrival() -> None:
 
 
 def test_stream_activity_counts_records_but_excludes_heartbeats_and_retries() -> None:
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
     view_id = "logs:activity"
     identity = {
         "protocol_version": STREAM_PROTOCOL_VERSION,

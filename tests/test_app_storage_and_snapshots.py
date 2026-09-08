@@ -28,7 +28,7 @@ def reset_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def client() -> TestClient:
-    return TestClient(app_mod.app)
+    return TestClient(app_mod.app, client=("127.0.0.1", 50000))
 
 
 def test_storage_root_helper_uses_config(

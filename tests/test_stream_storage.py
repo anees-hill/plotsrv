@@ -55,7 +55,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # request time, so a fresh registry models a clean server process.
     monkeypatch.setattr(http_streams, "stream_registry", StreamRegistry())
     monkeypatch.setattr(config, "get_control_local_only", lambda: False)
-    return TestClient(app)
+    return TestClient(app, client=("127.0.0.1", 50000))
 
 
 def _configure_stream_storage(
@@ -528,7 +528,7 @@ def test_marker_only_gap_is_restored_as_visible_incomplete_history(
     monkeypatch.setattr(http_streams, "stream_registry", restored_registry)
 
     assert server_mod.restore_streams_from_storage() == 1
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
     catalogue = client.get("/stream/history", params={"view": view_id})
     assert catalogue.status_code == 200, catalogue.text
     sessions = catalogue.json()["sessions"]
@@ -1007,7 +1007,7 @@ def test_restore_exposes_each_session_through_history_without_reviving_them(
     monkeypatch.setattr(http_streams, "stream_registry", restored_registry)
 
     assert server_mod.restore_streams_from_storage() == 2
-    client = TestClient(app)
+    client = TestClient(app, client=("127.0.0.1", 50000))
     catalogue = client.get("/stream/history", params={"view": "logs:multi-session"})
     assert catalogue.status_code == 200, catalogue.text
     sessions = catalogue.json()["sessions"]
