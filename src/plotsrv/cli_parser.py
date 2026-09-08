@@ -204,8 +204,12 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
-    # Watches
-    run_p.add_argument(
+    run_p.add_argument("--scan-all", action="store_true", default=None,
+                       help="Include normally pruned cache/environment/vendor directories in discovery")
+    # Watches: an explicitly empty set is independent of target overrides.
+    watch_group = run_p.add_mutually_exclusive_group()
+    watch_group.add_argument("--no-watch", action="store_true", help="Disable configured watches for this run")
+    watch_group.add_argument(
         "--watch",
         action=_WatchPathAction,
         default=[],

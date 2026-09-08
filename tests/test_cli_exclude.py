@@ -57,7 +57,7 @@ def _dv(section: str, label: str) -> DiscoveredView:
 
     # common optional fields (only set if they exist)
     if "kind" in present:
-        payload["kind"] = "none"
+        payload["kind"] = "unknown"
     if "view_kind" in present:
         payload["view_kind"] = "none"
     if "decorator" in present:
@@ -90,7 +90,7 @@ def test_run_passive_dir_mode_excludes_views(monkeypatch: pytest.MonkeyPatch) ->
         _dv("etl-2", "metrics"),
     ]
 
-    monkeypatch.setattr(cli_mod, "discover_views", lambda _root: discovered)
+    monkeypatch.setattr(cli_mod, "discover_views", lambda _root, **kwargs: discovered)
 
     excludes = {"metrics", "etl-2", "etl-1:import"}
     includes: set[str] = set()
@@ -125,7 +125,7 @@ def test_run_passive_dir_mode_includes_only(monkeypatch: pytest.MonkeyPatch) -> 
         _dv("ops", "health"),
     ]
 
-    monkeypatch.setattr(cli_mod, "discover_views", lambda _root: discovered)
+    monkeypatch.setattr(cli_mod, "discover_views", lambda _root, **kwargs: discovered)
 
     excludes: set[str] = set()
     includes = {"etl-1", "ops:health"}  # section include + explicit view_id
@@ -160,7 +160,7 @@ def test_run_passive_dir_mode_include_then_exclude_exclude_wins(
         _dv("etl-2", "metrics"),
     ]
 
-    monkeypatch.setattr(cli_mod, "discover_views", lambda _root: discovered)
+    monkeypatch.setattr(cli_mod, "discover_views", lambda _root, **kwargs: discovered)
 
     includes = {"etl-1", "etl-2"}  # would allow everything
     excludes = {"etl-2:metrics"}  # but exclude one explicit view

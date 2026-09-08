@@ -208,21 +208,11 @@ def _resolve_target_to_path_if_importable(target: str) -> str | None:
     if ":" in target:
         return None
 
-    spec = importlib.util.find_spec(target)
-    if spec is None:
+    from .source_targets import resolve_source_target
+    try:
+        return str(resolve_source_target(target))
+    except ValueError:
         return None
-
-    # package
-    if spec.submodule_search_locations:
-        locs = list(spec.submodule_search_locations)
-        if locs:
-            return str(Path(locs[0]).resolve())
-
-    # module
-    if spec.origin:
-        return str(Path(spec.origin).resolve())
-
-    return None
 
 
 def _resolve_module_part(target: str) -> str:
@@ -483,6 +473,7 @@ def _passive_register_views(
     *,
     excludes: set[str],
     includes: set[str],
+    watch_specs=(), quiet: bool = False, include_pruned: bool = False, unscoped: bool = False,
 ) -> None:
     """
     AST discovery + view registration only. Does NOT start server. Does NOT loop.
@@ -491,13 +482,18 @@ def _passive_register_views(
     a fake "default" entry. The server/UI can still operate with the implicit
     active view until a real publish arrives.
     """
-    discovered_all = discover_views(scan_root)
+    from .discovery_progress import TerminalProgress
+    from .source_setup import build_manifest
+    progress = TerminalProgress(quiet=quiet, unscoped=unscoped)
+    discovered_all = discover_views(scan_root, on_progress=progress, on_issue=progress.issue, include_pruned=include_pruned)
     discovered = [
         dv
         for dv in discovered_all
         if _is_included(dv, includes) and not _is_excluded(dv, excludes)
     ]
 
+    # Validate the union before any registration; discovery does not send or seal.
+    build_manifest(discovered, watches=watch_specs)
     if len(discovered) == 0:
         return
 
@@ -530,16 +526,19 @@ def _resolve_scan_root_for_passive(target: str) -> str:
     if resolved is not None:
         return resolved
 
-    # If it's neither a path nor importable, still allow scanning current directory
-    # but keep this conservative: default to "." and let project-root safeguards handle it
-    return (
-        str(Path(mod_or_path).resolve())
-        if Path(mod_or_path).exists()
-        else str(Path.cwd().resolve())
-    )
+    raise ValueError("Discovery target could not be resolved statically; choose a source path")
 
 
-def _run_subprocess_as_main(target: str) -> subprocess.Popen[bytes]:
+def _source_process_options(source_base: Path | None) -> dict[str, Any]:
+    if source_base is None:
+        return {}
+    import os
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join([str(source_base), str(source_base / "src"), env.get("PYTHONPATH", "")])
+    return {"cwd": str(source_base), "env": env}
+
+
+def _run_subprocess_as_main(target: str, *, source_base: Path | None = None) -> subprocess.Popen[bytes]:
     """
     Run a module/package/file as __main__:
       - module/package: python -m <target>
@@ -548,11 +547,11 @@ def _run_subprocess_as_main(target: str) -> subprocess.Popen[bytes]:
     p = Path(target)
     if p.exists() and p.is_file():
         cmd = [sys.executable, str(p)]
-        return subprocess.Popen(cmd)
+        return subprocess.Popen(cmd, **_source_process_options(source_base))
 
     # Otherwise treat as module/package
     cmd = [sys.executable, "-m", target]
-    return subprocess.Popen(cmd)
+    return subprocess.Popen(cmd, **_source_process_options(source_base))
 
 
 def _parse_truncate_arg(raw: str | None, *, no_truncate: bool) -> object:
@@ -751,6 +750,7 @@ def _run_subprocess_call_importpath(
     *,
     host: str,
     port: int,
+    source_base: Path | None = None,
 ) -> subprocess.Popen[bytes]:
     """
     Run module:function in a subprocess, call it, publish its return to plotsrv.
@@ -806,7 +806,7 @@ publish_view(out, kind=kind, label=label, section=section, view_id=spec.view_id 
         host,
         str(int(port)),
     ]
-    return subprocess.Popen(cmd)
+    return subprocess.Popen(cmd, **_source_process_options(source_base))
 
 
 def _callable_loop(
@@ -817,6 +817,7 @@ def _callable_loop(
     call_every: float | None,
     keep_alive: bool,
     stop_event: threading.Event,
+    source_base: Path | None = None,
 ) -> None:
     """
     Run the target in a subprocess once or periodically.
@@ -861,9 +862,9 @@ def _callable_loop(
             return
 
         if ":" in target:
-            proc = _run_subprocess_call_importpath(target, host=host, port=port)
+            proc = _run_subprocess_call_importpath(target, host=host, port=port, **({"source_base": source_base} if source_base is not None else {}))
         else:
-            proc = _run_subprocess_as_main(target)
+            proc = _run_subprocess_as_main(target, **({"source_base": source_base} if source_base is not None else {}))
 
     # Always do an initial run
     _spawn_once()
@@ -916,6 +917,7 @@ def _run_passive_server_forever(
     watch_encoding: str = "utf-8",
     watch_update_limit_s: int | None = None,
     watch_force: bool = False,
+    include_pruned: bool = False, unscoped: bool = False,
 ) -> int:
     """
     Passive mode:
@@ -943,7 +945,15 @@ def _run_passive_server_forever(
         )
 
     # Register all known views before the server can render the initial UI.
-    _passive_register_views(scan_root, excludes=excludes, includes=includes)
+    try:
+        _passive_register_views(scan_root, excludes=excludes, includes=includes,
+                                watch_specs=watch_specs or (), quiet=quiet,
+                                include_pruned=include_pruned, unscoped=unscoped)
+    except ValueError as error:
+        return _die(str(error))
+    except KeyboardInterrupt:
+        return 130
+
 
     restore_latest()
     restore_streams()
@@ -1372,18 +1382,30 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as e:
         return _die(str(e))
 
-    # Target defaulting
-    target = args.target
-    if target is None:
-        try:
-            target = _default_run_target()
-        except ValueError as e:
-            return _die(str(e))
+    from .source_setup import resolve_source_setup
+    try:
+        sources = resolve_source_setup(
+            target=args.target,
+            watches=(watch_specs if watch_paths else [] if args.no_watch else None),
+            selection=tuple(includes) if includes else None,
+            include_pruned=args.scan_all,
+        )
+        if not args.quiet:
+            for message in sources.messages:
+                print(message, file=sys.stderr)
+        watch_specs = list(sources.watches)
+        if not watch_paths and args.watch_materialization is not None:
+            from dataclasses import replace
+            watch_specs = [replace(spec, materialization=args.watch_materialization) for spec in watch_specs]
+        includes = set(sources.selection)
+        target = sources.target if sources.target is not None else _default_run_target()
+        # Preserve explicit callable execution target; only its scan scope is static.
+        scan_root = (str(sources.scan_root(target)) if sources.target_base != Path.cwd()
+                     else _resolve_scan_root_for_passive(target))
+    except ValueError as error:
+        return _die(str(error))
 
     mode: RunMode = str(getattr(args, "mode", "passive"))
-
-    # In ALL modes, we do passive registration first. We just decide what scan root is.
-    scan_root = _resolve_scan_root_for_passive(target)
 
     if mode == "passive":
         return _run_passive_server_forever(
@@ -1400,6 +1422,7 @@ def main(argv: list[str] | None = None) -> int:
             watch_encoding=watch_encoding,
             watch_update_limit_s=watch_update_limit_s,
             watch_force=watch_force,
+            include_pruned=sources.include_pruned, unscoped=sources.unscoped,
         )
 
     # mode == "callable"
@@ -1408,7 +1431,16 @@ def main(argv: list[str] | None = None) -> int:
 
     client_host = _client_host_for_bind_host(args.host)
 
-    # Start server first
+    try:
+        _passive_register_views(scan_root, excludes=excludes, includes=includes,
+                                watch_specs=watch_specs, quiet=args.quiet,
+                                include_pruned=sources.include_pruned, unscoped=sources.unscoped)
+    except ValueError as error:
+        return _die(str(error))
+    except KeyboardInterrupt:
+        return 130
+
+
     start_server(
         host=args.host,
         port=args.port,
@@ -1416,8 +1448,6 @@ def main(argv: list[str] | None = None) -> int:
         quiet=args.quiet,
         restore_latest=False,
     )
-
-    _passive_register_views(scan_root, excludes=excludes, includes=includes)
 
     restore_latest = _get_restore_latest_hook()
     restore_latest()
@@ -1459,6 +1489,7 @@ def main(argv: list[str] | None = None) -> int:
             call_every=call_every,
             keep_alive=keep_alive,
             stop_event=stop_event,
+            **({"source_base": sources.target_base} if args.target is None and sources.target is not None and sources.target_base != Path.cwd() else {}),
         )
     except KeyboardInterrupt:
         stop_event.set()

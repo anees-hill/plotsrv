@@ -561,7 +561,7 @@ def test_populate_limits_writes_new_schema(
     monkeypatch.setattr(
         config_writer,
         "discover_view_ids",
-        lambda target: ["etl:import", "ops:logs"],
+        lambda target, **kwargs: ["etl:import", "ops:logs"],
     )
 
     path = tmp_path / "plotsrv.yml"
@@ -626,7 +626,7 @@ def test_populate_limits_merge_preserves_existing_view_entries(
     monkeypatch.setattr(
         config_writer,
         "discover_view_ids",
-        lambda target: ["etl:import", "ops:logs"],
+        lambda target, **kwargs: ["etl:import", "ops:logs"],
     )
 
     path = tmp_path / "plotsrv.yml"
@@ -676,7 +676,7 @@ def test_populate_limits_replace_replaces_view_entries_with_new_schema(
     monkeypatch.setattr(
         config_writer,
         "discover_view_ids",
-        lambda target: ["etl:import"],
+        lambda target, **kwargs: ["etl:import"],
     )
 
     path = tmp_path / "plotsrv.yml"
@@ -722,7 +722,7 @@ def test_populate_limits_does_not_delete_existing_legacy_limit_keys(
     monkeypatch.setattr(
         config_writer,
         "discover_view_ids",
-        lambda target: ["etl:import"],
+        lambda target, **kwargs: ["etl:import"],
     )
 
     path = tmp_path / "plotsrv.yml"

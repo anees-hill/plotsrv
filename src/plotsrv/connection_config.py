@@ -101,6 +101,7 @@ class PublisherSources:
     discovery_target: str | None = None
     selection: tuple[str, ...] = ()
     watch: tuple[WatchSpec, ...] = ()
+    include_pruned: bool = False
 
 
 def _ids(value: object, name: str) -> tuple[str, ...]:
@@ -119,18 +120,24 @@ def get_publisher_sources() -> PublisherSources:
         "publisher",
         {"destination", "discovery", "watch"},
     )
-    discovery = _mapping(cfg.get("discovery", {}), "discovery", {"target", "selection"})
+    discovery = _mapping(
+        cfg.get("discovery", {}), "discovery", {"target", "selection", "include_pruned"}
+    )
+    include_pruned = discovery.get("include_pruned", False)
+    if type(include_pruned) is not bool:
+        raise ValueError("discovery include_pruned must be a boolean")
     target = discovery.get("target")
     base = settings.get_runtime_config_dir() or Path.cwd()
     if target is not None:
         bounded_text(target, "discovery target", 4096)
         # Preserve module/package[:callable] expressions. Explicit filesystem
-        # expressions resolve beside config; discovery itself belongs to 04.
+        # expressions resolve beside config; module:callable keeps its import name.
         if (
             "/" in target
             or "\\" in target
             or target.startswith((".", "~"))
-            or target.endswith(".py")
+            or target.split(":", 1)[0].endswith(".py")
+            or (":" not in target and (base / target).exists())
         ):
             path = Path(target).expanduser()
             target = str(path if path.is_absolute() else base / path)
@@ -161,7 +168,10 @@ def get_publisher_sources() -> PublisherSources:
         )
     _ids([w.view_id for w in watch if w.view_id is not None], "watch view_id")
     return PublisherSources(
-        target, _ids(discovery.get("selection", []), "selection"), tuple(watch)
+        target,
+        _ids(discovery.get("selection", []), "selection"),
+        tuple(watch),
+        include_pruned,
     )
 
 

@@ -276,15 +276,19 @@ def _write_config_data(path: Path, data: dict[str, Any]) -> None:
 
 
 def _view_id_for_discovered(v: DiscoveredView) -> str:
-    section = (v.section or "default").strip() or "default"
-    label = (v.label or "default").strip() or "default"
-    return f"{section}:{label}"
+    return v.descriptor().view_id
 
 
-def discover_view_ids(target: str | Path) -> list[str]:
-    views = discover_views(target)
-    out = [_view_id_for_discovered(v) for v in views]
-    return sorted(set(out))
+def discover_view_ids(target: str | Path, *, selection=None) -> list[str]:
+    from .source_setup import select_views, build_manifest
+    from .connection_config import get_publisher_sources
+    from .discovery_progress import TerminalProgress
+    if selection is None:
+        selection = get_publisher_sources().selection
+    progress = TerminalProgress()
+    views = select_views(discover_views(target, on_progress=progress, on_issue=progress.issue), selection=selection)
+    build_manifest(views)
+    return sorted(_view_id_for_discovered(v) for v in views)
 
 
 def _ensure_mapping(parent: dict[str, Any], key: str) -> dict[str, Any]:
@@ -307,7 +311,13 @@ def _populate_view_section(
     p = Path(path).expanduser().resolve()
     data, created = _load_config_data(p)
 
-    view_ids = discover_view_ids(target)
+    from .connection_config import _ids
+    publisher = data.get("publisher-settings", {})
+    discovery = publisher.get("discovery", {}) if isinstance(publisher, dict) else {}
+    selection = discovery.get("selection") if isinstance(discovery, dict) else None
+    if selection is not None:
+        selection = _ids(selection, "selection")
+    view_ids = discover_view_ids(target, selection=selection)
     section = ensure_section(data)
     views = _ensure_mapping(section, "views")
 

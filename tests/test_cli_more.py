@@ -64,18 +64,13 @@ class _FakeSpec:
 def test_resolve_target_to_path_if_importable_module(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    modfile = tmp_path / "m.py"
-    modfile.write_text("x=1\n", encoding="utf-8")
-
-    def fake_find_spec(name: str) -> Any:
-        assert name == "pkg.mod"
-        return _FakeSpec(origin=str(modfile), submodule_search_locations=None)
-
-    monkeypatch.setattr(cli_mod.importlib.util, "find_spec", fake_find_spec)
-
-    assert cli_mod._resolve_target_to_path_if_importable("pkg.mod") == str(
-        modfile.resolve()
-    )
+    pkgdir = tmp_path / "pkg"
+    pkgdir.mkdir()
+    (pkgdir / "__init__.py").write_text("raise AssertionError('must not import')")
+    modfile = pkgdir / "mod.py"
+    modfile.write_text("x=1\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    assert cli_mod._resolve_target_to_path_if_importable("pkg.mod") == str(modfile.resolve())
 
 
 def test_resolve_target_to_path_if_importable_package(
@@ -84,11 +79,7 @@ def test_resolve_target_to_path_if_importable_package(
     pkgdir = tmp_path / "pkg"
     pkgdir.mkdir()
 
-    def fake_find_spec(name: str) -> Any:
-        assert name == "pkg"
-        return _FakeSpec(origin=None, submodule_search_locations=[str(pkgdir)])
-
-    monkeypatch.setattr(cli_mod.importlib.util, "find_spec", fake_find_spec)
+    monkeypatch.syspath_prepend(str(tmp_path))
 
     assert cli_mod._resolve_target_to_path_if_importable("pkg") == str(pkgdir.resolve())
 
@@ -139,7 +130,7 @@ def test_resolve_scan_root_for_passive_importable(
     assert cli_mod._resolve_scan_root_for_passive("pkg.mod") == str(modfile.resolve())
 
 
-def test_resolve_scan_root_for_passive_falls_back_to_cwd(
+def test_resolve_scan_root_for_passive_rejects_unknown_target(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -147,9 +138,8 @@ def test_resolve_scan_root_for_passive_falls_back_to_cwd(
         cli_mod, "_resolve_target_to_path_if_importable", lambda _t: None
     )
     # ensure it thinks it isn't a path
-    assert cli_mod._resolve_scan_root_for_passive("def-not-a-path") == str(
-        tmp_path.resolve()
-    )
+    with pytest.raises(ValueError, match="resolved statically"):
+        cli_mod._resolve_scan_root_for_passive("def-not-a-path")
 
 
 # ----------------------------

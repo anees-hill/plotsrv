@@ -341,7 +341,7 @@ def test_discovery_runtime_exact_ids(tmp_path):
 
     path = tmp_path / "app.py"
     path.write_text(
-        'publish_view(None, view_id="é:a:b", label="Different", section="Other")'
+        'from plotsrv import publish_view\npublish_view(None, view_id="é:a:b", label="Different", section="Other")'
     )
     discovered = discover_views(path)[0]
     assert discovered.descriptor().view_id == "é:a:b"
