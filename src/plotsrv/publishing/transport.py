@@ -9,8 +9,6 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import dataclass, field
 import json
-import http.client
-import io
 import logging
 import math
 import threading
@@ -19,6 +17,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
+from ..http_transport import _NoRedirect, _remaining, open_http as _open
 from ..contracts import ProtocolCapabilities
 from .models import PublishTarget
 
@@ -107,98 +106,6 @@ def health(target: PublishTarget) -> dict[str, Any]:
 def invalidate(target: PublishTarget) -> None:
     _context(target).expires = 0.0
 
-
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-def _remaining(deadline):
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        raise TimeoutError("publisher exchange deadline")
-    return remaining
-
-
-class _DeadlineReader(io.RawIOBase):
-    """Check the total deadline on every socket read, including HTTP headers.
-
-    A socket inactivity timeout alone resets on each byte from a trickling peer.
-    No timer or worker is needed; closing this file releases its socket reference.
-    """
-
-    def __init__(self, sock, deadline):
-        self.sock, self.deadline = sock, deadline
-        self.raw = sock.makefile("rb", buffering=0)
-
-    def readable(self):
-        return True
-
-    def readinto(self, buffer):
-        self.sock.settimeout(_remaining(self.deadline))
-        return self.raw.readinto(buffer)
-
-    def close(self):
-        try:
-            self.raw.close()
-        finally:
-            super().close()
-
-
-class _DeadlineSocket:
-    def __init__(self, sock, deadline):
-        self.sock, self.deadline = sock, deadline
-
-    def makefile(self, mode):
-        return io.BufferedReader(_DeadlineReader(self.sock, self.deadline))
-
-
-def _connection_type(base, deadline):
-    class Connection(base):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            create = self._create_connection
-
-            def connect(address, timeout, source_address):
-                sock = create(address, _remaining(deadline), source_address)
-                try:
-                    sock.settimeout(_remaining(deadline))
-                    return sock
-                except BaseException:
-                    sock.close()
-                    raise
-
-            self._create_connection = connect
-            self.response_class = lambda sock, *a, **kw: http.client.HTTPResponse(
-                _DeadlineSocket(sock, deadline), *a, **kw
-            )
-
-        def send(self, data):
-            if self.sock is None:
-                self.connect()
-            self.sock.settimeout(_remaining(deadline))
-            return super().send(data)
-
-    return Connection
-
-
-def _open(request, *, timeout):
-    deadline = time.monotonic() + timeout
-    http_connection = _connection_type(http.client.HTTPConnection, deadline)
-    https_connection = _connection_type(http.client.HTTPSConnection, deadline)
-
-    class HTTP(urllib.request.HTTPHandler):
-        def http_open(self, req):
-            return self.do_open(http_connection, req)
-
-    class HTTPS(urllib.request.HTTPSHandler):
-        def https_open(self, req):
-            # HTTPSConnection's default context verifies certificates/hostnames.
-            return self.do_open(https_connection, req, context=self._context)
-
-    return urllib.request.build_opener(_NoRedirect(), HTTP(), HTTPS()).open(
-        request, timeout=_remaining(deadline)
-    )
 
 
 def _exchange(
