@@ -343,3 +343,139 @@ def test_remote_traceback_keeps_explicit_identity(tmp_path, monkeypatch):
         path, _, body = state["requests"][-1]
         assert path == "/team/publish"
         assert json.loads(body)["view_id"] == "etl:custom:id"
+
+
+@pytest.mark.parametrize("status", [403, 413, 422])
+def test_rejected_updates_cool_down_before_recapture_or_renegotiation(status):
+    with endpoint() as (target, state):
+        transport.handshake(target, feature="publish")
+        state["status"] = status
+        for _ in range(10):
+            with pytest.raises(transport.TransportError):
+                transport.request_json(target, "/publish", {}, feature="publish")
+        assert len(state["requests"]) == 2  # initial handshake, one rejected update
+        assert transport.health(target)["retry_delay_s"] > 0
+
+
+@pytest.mark.parametrize(
+    "stage,status", [("headers", 200), ("body", 200), ("body", 403)]
+)
+def test_total_deadline_stops_trickling_headers_bodies_and_errors(stage, status):
+    stopped = threading.Event()
+
+    class Slow(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            header = f"HTTP/1.1 {status} Test\r\nContent-Length: 100\r\n\r\n".encode()
+            try:
+                if stage == "body":
+                    self.wfile.write(header)
+                for byte in (header if stage == "headers" else b" " * 100):
+                    self.wfile.write(bytes([byte]))
+                    self.wfile.flush()
+                    if stopped.wait(0.025):
+                        break
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    target = PublishTarget("remote", base_url=f"http://127.0.0.1:{server.server_port}")
+    try:
+        start = time.monotonic()
+        with pytest.raises(transport.TransportError):
+            transport._exchange(target, "/test", None, 0.15)
+        assert time.monotonic() - start < 0.4
+    finally:
+        stopped.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(2)
+
+
+def test_deadline_https_keeps_certificate_and_hostname_verification(
+    tmp_path, monkeypatch
+):
+    import shutil
+    import ssl
+    import subprocess
+
+    openssl = shutil.which("openssl")
+    if not openssl:
+        pytest.skip("openssl is needed to generate the local TLS fixture")
+    cert, key = tmp_path / "cert.pem", tmp_path / "key.pem"
+    subprocess.run(
+        [
+            openssl,
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-nodes",
+            "-keyout",
+            str(key),
+            "-out",
+            str(cert),
+            "-days",
+            "1",
+            "-subj",
+            "/CN=localhost",
+            "-addext",
+            "subjectAltName=DNS:localhost",
+        ],
+        check=True,
+        capture_output=True,
+        timeout=10,
+    )
+    slow, stopped = threading.Event(), threading.Event()
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            raw = b'{"ok":true}'
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            try:
+                if slow.is_set():
+                    for byte in raw:
+                        self.wfile.write(bytes([byte]))
+                        if stopped.wait(0.025):
+                            break
+                else:
+                    self.wfile.write(raw)
+            except (OSError, ssl.SSLError):
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    target = PublishTarget("remote", base_url=f"https://localhost:{server.server_port}")
+    try:
+        with pytest.raises(transport.TransportError):
+            transport._exchange(target, "/test", None, 0.5)
+        monkeypatch.setenv("SSL_CERT_FILE", str(cert))
+        assert transport._exchange(target, "/test", None, 0.5)["ok"]
+        wrong_host = PublishTarget(
+            "remote", base_url=f"https://127.0.0.1:{server.server_port}"
+        )
+        with pytest.raises(transport.TransportError):
+            transport._exchange(wrong_host, "/test", None, 0.5)
+        slow.set()
+        start = time.monotonic()
+        with pytest.raises(transport.TransportError):
+            transport._exchange(target, "/test", None, 0.15)
+        assert time.monotonic() - start < 0.4
+    finally:
+        stopped.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(2)

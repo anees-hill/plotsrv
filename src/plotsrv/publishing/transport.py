@@ -9,6 +9,8 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import dataclass, field
 import json
+import http.client
+import io
 import logging
 import math
 import threading
@@ -111,15 +113,98 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def _remaining(deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("publisher exchange deadline")
+    return remaining
+
+
+class _DeadlineReader(io.RawIOBase):
+    """Check the total deadline on every socket read, including HTTP headers.
+
+    A socket inactivity timeout alone resets on each byte from a trickling peer.
+    No timer or worker is needed; closing this file releases its socket reference.
+    """
+
+    def __init__(self, sock, deadline):
+        self.sock, self.deadline = sock, deadline
+        self.raw = sock.makefile("rb", buffering=0)
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        self.sock.settimeout(_remaining(self.deadline))
+        return self.raw.readinto(buffer)
+
+    def close(self):
+        try:
+            self.raw.close()
+        finally:
+            super().close()
+
+
+class _DeadlineSocket:
+    def __init__(self, sock, deadline):
+        self.sock, self.deadline = sock, deadline
+
+    def makefile(self, mode):
+        return io.BufferedReader(_DeadlineReader(self.sock, self.deadline))
+
+
+def _connection_type(base, deadline):
+    class Connection(base):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            create = self._create_connection
+
+            def connect(address, timeout, source_address):
+                sock = create(address, _remaining(deadline), source_address)
+                try:
+                    sock.settimeout(_remaining(deadline))
+                    return sock
+                except BaseException:
+                    sock.close()
+                    raise
+
+            self._create_connection = connect
+            self.response_class = lambda sock, *a, **kw: http.client.HTTPResponse(
+                _DeadlineSocket(sock, deadline), *a, **kw
+            )
+
+        def send(self, data):
+            if self.sock is None:
+                self.connect()
+            self.sock.settimeout(_remaining(deadline))
+            return super().send(data)
+
+    return Connection
+
+
 def _open(request, *, timeout):
-    # urllib closes each response/connection; no per-publication retained pool.
-    # Default HTTPSHandler verifies certificates. Never install an unverified SSL context.
-    return urllib.request.build_opener(_NoRedirect()).open(request, timeout=timeout)
+    deadline = time.monotonic() + timeout
+    http_connection = _connection_type(http.client.HTTPConnection, deadline)
+    https_connection = _connection_type(http.client.HTTPSConnection, deadline)
+
+    class HTTP(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            return self.do_open(http_connection, req)
+
+    class HTTPS(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            # HTTPSConnection's default context verifies certificates/hostnames.
+            return self.do_open(https_connection, req, context=self._context)
+
+    return urllib.request.build_opener(_NoRedirect(), HTTP(), HTTPS()).open(
+        request, timeout=_remaining(deadline)
+    )
 
 
 def _exchange(
     target: PublishTarget, path: str, payload: dict | None, timeout: float
 ) -> dict:
+    deadline = time.monotonic() + timeout
     try:
         headers = target.authorization_headers()
     except ValueError:
@@ -130,10 +215,15 @@ def _exchange(
             payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
         ).encode("utf-8")
         maximum = (
-            384 * 1024 if path.startswith("/watch/") else
-            640 * 1024
-            if path.startswith("/stream/")
-            else (1024 * 1024 if path.startswith("/catalogue/") else 8 * 1024 * 1024)
+            384 * 1024
+            if path.startswith("/watch/")
+            else (
+                640 * 1024
+                if path.startswith("/stream/")
+                else (
+                    1024 * 1024 if path.startswith("/catalogue/") else 8 * 1024 * 1024
+                )
+            )
         )
         if len(body) > maximum:
             raise TransportError("oversize_data")
@@ -145,13 +235,14 @@ def _exchange(
         method="GET" if body is None else "POST",
     )
     try:
-        with _open(request, timeout=timeout) as response:
+        with _open(request, timeout=_remaining(deadline)) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
         if len(raw) > MAX_RESPONSE_BYTES:
             raise TransportError("oversize_response")
         decoded = json.loads(raw)
         if not isinstance(decoded, dict):
             raise TransportError("invalid_response")
+        _remaining(deadline)
         return decoded
     except urllib.error.HTTPError as error:
         status = error.code
@@ -218,6 +309,9 @@ def _failure(ctx: _Context, error: TransportError) -> None:
         "unauthorised_publisher",
         "incompatible_protocol",
         "redirect_refused",
+        "inadmissible_view",
+        "invalid_request",
+        "oversize_data",
     ):
         ctx.retry_at = now + PERMANENT_COOLDOWN_S
     elif error.category in (
