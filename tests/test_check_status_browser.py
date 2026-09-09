@@ -88,16 +88,21 @@ def mount(page, data=None):
 
 def opened(page):
     page.click("#header-status-button")
-    page.wait_for_function("!document.getElementById('status-checks-load').disabled")
+    page.wait_for_function(
+        "document.getElementById('status-checks-load').getAttribute('aria-busy') !== 'true'"
+    )
 
 
-def test_read_keeps_failure_keyboard_focus_and_screenshots(page, tmp_path):
+def test_read_keeps_failure_keyboard_focus_and_screenshots(page):
     mount(page)
     assert page.locator("#header-check-attention").is_visible()
     page.screenshot(path="/tmp/plotsrv-13-header.png")
+    page.set_viewport_size({"width": 1100, "height": 1400})
     page.locator("#header-status-button").focus()
     page.keyboard.press("Enter")
-    page.wait_for_function("!document.getElementById('status-checks-load').disabled")
+    page.wait_for_function(
+        "document.getElementById('status-checks-load').getAttribute('aria-busy') !== 'true'"
+    )
     assert page.locator("#header-check-attention").is_hidden()
     assert "1 active failure" in page.locator("#status-checks-summary").inner_text()
     assert (
@@ -106,6 +111,7 @@ def test_read_keeps_failure_keyboard_focus_and_screenshots(page, tmp_path):
     )
     assert "Observed: 12481" in page.locator("#status-checks-current").inner_text()
     assert page.locator("#status-modal-activity-dots").is_visible()
+    assert page.locator(".ps-arrival-chart__dot").count() == 1
     page.screenshot(path="/tmp/plotsrv-13-modal.png", full_page=True)
     page.keyboard.press("Escape")
     assert page.locator("#header-status-button").evaluate(
@@ -136,7 +142,9 @@ def test_event_during_read_is_not_seen_and_recovery_explicit(page):
     ]
     page.evaluate("data => PLOTSRV.core.receiveCheckStatus(data)", newer)
     page.evaluate("finishRead()")
-    page.wait_for_function("!document.getElementById('status-checks-load').disabled")
+    page.wait_for_function(
+        "document.getElementById('status-checks-load').getAttribute('aria-busy') !== 'true'"
+    )
     assert page.locator("#header-check-attention").is_visible()
     assert page.get_by_role(
         "button", name="Show updated checks and activity"
@@ -238,7 +246,9 @@ def test_closed_read_restart_race_and_request_coalescing(page):
       PLOTSRV.core.receiveCheckStatus({...checkData,generation:'restarted'});
       finishRead();
     }""")
-    page.wait_for_function("!document.getElementById('status-checks-load').disabled")
+    page.wait_for_function(
+        "document.getElementById('status-checks-load').getAttribute('aria-busy') !== 'true'"
+    )
     assert "could not be loaded" in page.locator("#status-checks-summary").inner_text()
     assert (
         page.evaluate(
@@ -320,7 +330,7 @@ def test_bounded_history_render_and_idle_cost(page):
     measurements = page.evaluate("""() => {
       const start=performance.now();
       for(let i=0;i<1000;i++) PLOTSRV.core.receiveCheckStatus(checkData);
-      return {noticeMs:performance.now()-start, seenBytes:JSON.stringify(localStorage).length, cards:document.querySelectorAll('.ps-check-card').length};
+      return {noticeMs:performance.now()-start, seenBytes:Object.keys(localStorage).filter(k=>k.startsWith('plotsrv:v1:check_seen:')).reduce((n,k)=>n+localStorage.getItem(k).length,0), cards:document.querySelectorAll('.ps-check-card').length};
     }""")
     print("check UI bounded history:", measurements)
     assert measurements["seenBytes"] < 1024
@@ -329,3 +339,60 @@ def test_bounded_history_render_and_idle_cost(page):
     page.keyboard.press("Escape")
     page.wait_for_timeout(200)
     assert page.evaluate("checkReads") == 1
+    assert page.locator(".ps-check-card").count() == 0
+
+
+def test_saved_attention_survives_reload_and_denied_storage_reads(page):
+    data = mount(page)
+    opened(page)
+    page.keyboard.press("Escape")
+    page.add_script_tag(path=str(STATIC / "js/core/check_status.js"))
+    page.evaluate("data => PLOTSRV.core.receiveCheckStatus(data)", data)
+    assert page.locator("#header-check-attention").is_hidden()
+    page.evaluate("() => {Storage.prototype.getItem = () => {throw Error('denied');};}")
+    page.add_script_tag(path=str(STATIC / "js/core/check_status.js"))
+    page.evaluate("data => PLOTSRV.core.receiveCheckStatus(data)", data)
+    assert page.locator("#header-check-attention").is_visible()
+    opened(page)
+    assert (
+        "remembered only on this page"
+        in page.locator("#status-checks-personal").inner_text()
+    )
+    assert page.locator("#header-check-attention").is_hidden()
+
+
+def test_dark_theme_marker_contrast_and_closed_details_keyboard(page):
+    mount(page)
+    page.evaluate("document.documentElement.dataset.theme='dark'")
+    colours = page.locator("#header-check-attention").evaluate(
+        "e => {const s=getComputedStyle(e);return [s.color,s.backgroundColor];}"
+    )
+    assert colours[0] != colours[1]
+    opened(page)
+    first = page.locator("#status-checks-current summary").first
+    first.focus()
+    page.keyboard.press("Enter")
+    assert page.locator("#status-checks-current details").first.evaluate("e=>e.open")
+    page.screenshot(path="/tmp/plotsrv-13-modal-dark.png", full_page=True)
+    page.keyboard.press("Escape")
+    assert page.locator("#header-status-button").evaluate(
+        "e=>e===document.activeElement"
+    )
+
+
+def test_keyboard_refresh_retains_focus_and_escape_during_request(page):
+    mount(page)
+    opened(page)
+    page.evaluate(
+        "() => {window.fetch=(_,options)=>{window.readSignal=options.signal;return new Promise(()=>{});};}"
+    )
+    button = page.locator("#status-checks-load")
+    button.focus()
+    page.keyboard.press("Enter")
+    assert button.get_attribute("aria-busy") == "true"
+    assert button.evaluate("e=>e===document.activeElement")
+    page.keyboard.press("Escape")
+    assert page.evaluate("readSignal.aborted")
+    assert page.locator("#header-status-button").evaluate(
+        "e=>e===document.activeElement"
+    )

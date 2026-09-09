@@ -415,3 +415,25 @@ restored history and snapshot browsing. SSE tests stall an event loop across
 10,000 notices: at most one dispatch callback and four pending event classes remain
 per subscriber; slow status fetches retain one trailing refresh without changing
 the displayed data.
+
+## Browser check attention
+
+Run `python -m pytest -q -s tests/test_check_status_browser.py` with Playwright
+Chromium installed. The tests mount the real status/modal markup and assets,
+using evidence produced by the actual check engine; history replies are controlled
+to exercise races and failures without a network service.
+
+The bounded-history case renders 256 retained events plus one current-state card.
+It makes one history request and stores 45 characters of seen-watermark JSON for
+that fixture. Closing releases all 257 cards; subsequent idle time adds no request.
+One thousand repeated status deliveries took 79 ms in Chromium during a concurrent
+regression run on 2026-09-09. This is browser handling time for already-decoded
+status, not network, Python ingestion or full history rendering time; it is not a
+hard latency guarantee or an idle CPU/RSS measurement.
+
+Production limits remain 256 events / 256 KiB server history, at most eight rules
+for a source and 128 browser-local seen entries. History reads have one active
+request, a ten-second deadline and no automatic retries. The browser stores IDs,
+generation and cursors, never check values, and releases the rendered history on
+close. SSE supplies live notices through the existing coalescing status path;
+there is no new polling loop or publisher-side worker in this UI feature.

@@ -180,7 +180,11 @@
     const controller = new AbortController();
     request = controller;
     const button = el("status-checks-load");
-    if (button) button.disabled = true;
+    if (button) {
+      // Keep keyboard focus inside the modal while the one request is active.
+      button.setAttribute("aria-disabled", "true");
+      button.setAttribute("aria-busy", "true");
+    }
     const deadline = setTimeout(() => controller.abort(), 10000);
     try {
       // One bounded retained history read, only on opening or an explicit read action.
@@ -206,7 +210,10 @@
       clearTimeout(deadline);
       if (request === controller) {
         request = null;
-        if (button) button.disabled = false;
+        if (button) {
+          button.removeAttribute("aria-disabled");
+          button.removeAttribute("aria-busy");
+        }
       }
     }
   }
