@@ -329,6 +329,7 @@ def capture_detached(
         raise ValueError("invalid observation identity")
     c = Capture(budget, options)
     document = {
+        "selection": {"fields": list(options.fields), "path": list(options.path)},
         "version": 1,
         "captured_at_unix_s": time.time(),
         "view_id": view_id,
@@ -407,6 +408,7 @@ def capture_detached(
         document["base_sample"] = []
         document["exploratory"] = []
         document["metadata"] = {}
+        document["selection"] = None
         document["reasons"] = ["output_byte_budget"]
         encoded = json.dumps(
             document, ensure_ascii=False, separators=(",", ":")

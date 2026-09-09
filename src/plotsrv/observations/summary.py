@@ -227,6 +227,7 @@ def build_summary(
         "provenance": {
             "origin": "python_publisher",
             "consistency": document["consistency"],
+            "selection": document.get("selection"),
         },
         "sampling": {
             "method": document["sampling"],
