@@ -1967,3 +1967,8 @@ def get_publisher_sources():
 def get_server_connection_config():
     from .connection_config import get_server_connection_config as resolve
     return resolve()
+
+
+def get_check_rules():
+    from .checks_config import parse_checks
+    return parse_checks(settings.get_section("checks-settings", strict=True))
