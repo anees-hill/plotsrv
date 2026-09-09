@@ -437,3 +437,39 @@ request, a ten-second deadline and no automatic retries. The browser stores IDs,
 generation and cursors, never check values, and releases the rendered history on
 close. SSE supplies live notices through the existing coalescing status path;
 there is no new polling loop or publisher-side worker in this UI feature.
+
+## Webhook delivery
+
+Run `python -m pytest -q -s tests/benchmarks/test_bench_webhooks.py
+--benchmark-columns=min,median,max`. This separates foreground check admission
+from notification encoding/admission on the checks worker. Sources/configuration
+are prepared outside timing; admission credit and pending jobs are reset between
+100 rounds, as in the existing checks benchmark. It is not a sustainable rate
+that bypasses production quotas.
+
+Measured on 2026-09-09, Python 3.13:
+
+| Operation | Median | Maximum |
+| --- | ---: | ---: |
+| Foreground scalar check admission, no notifications | 16.547 µs | 38.654 µs |
+| Same admission while the notification sender is blocked | 16.167 µs | 49.054 µs |
+| Background notification encode/queue admission | 10.756 µs | 29.166 µs |
+
+The foreground trial does not include source creation or notification encoding;
+its check worker is held for repeatable capture measurement. The notification
+worker is independently blocked in a fake sender. These figures do not measure
+TLS handshake/DNS/server latency or assert that notifications improve performance.
+The public HTTP test separately verifies that accepted publication and genuine
+check recovery complete while the notification sender is blocked.
+
+A 1,001-event overload trial plateaued at 64 items / 34,670 encoded bytes for one
+rule's small scalar payload. It retained 56,138 traced bytes and peaked at 58,419 B;
+after bounded close and sender release, 208 traced bytes remained. Configuration,
+the worker and its first in-flight item were created before tracing; these are
+incremental Python allocations, not RSS or the maximum-payload case. The enforced
+aggregate cap is 256 KiB, including in-flight data, and individual payloads cap at
+8 KiB. Queue slots and payloads are reused for retries rather than accumulating
+attempts. A drained worker's 100 ms idle interval used about 0.059 ms of process CPU
+in this run; indefinite condition waits and absence of an unreferenced worker are
+also tested. Native DNS is not hard-cancellable, as documented in
+[Generic webhooks](../guides/webhooks.md).

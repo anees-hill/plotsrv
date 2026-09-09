@@ -17,7 +17,8 @@ For foreground catalogue registration and remote watch lifecycle, see
 [Publisher agent](publisher-agent.md).
 For bounded server-side scalar and accepted-event rules under `checks-settings`,
 see [Server-side checks](checks.md). Checks are separate from freshness and snapshot
-storage, and are not configured through decorator arguments.
+storage, and are not configured through decorator arguments. Optional named destinations
+under `webhook-settings` are documented in [Generic webhooks](webhooks.md).
 
 Create a starter config with:
 

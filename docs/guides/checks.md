@@ -90,9 +90,9 @@ with the normal config file/instance selection rules.
   or lookup of a neighbouring unit field. Observation rules require an exact
   matching unit in their typed evidence. Most observation numbers have no unit;
   omit `unit` for these and for shape/length metadata. Incompatible units are unknown.
-- Optional `notify` is reserved for notification destination references. Only an
-  empty list is currently accepted: nonempty unresolved references fail setup.
-  This slice sends no webhooks and adds no notification destination schema.
+- Optional `notify` selects up to two named server destinations under
+  `webhook-settings`. Unknown or duplicated references fail setup. See
+  [Generic webhooks](webhooks.md) for secrets, payloads, delivery bounds and policy.
 
 The existing JSON display document is also supported for bounded numeric/bool
 leaves, including normal local Python publication. Selection follows only the
@@ -216,7 +216,7 @@ active source, with one trailing notice after a burst. There is no idle polling 
 per-browser worker. A slow status fetch retains one pending refresh; check notices
 do not replace pending data updates or reload a filtered/historical presentation.
 Each state includes its `last_event_cursor`, so other views' events do not create
-attention for this view. Notification delivery is a separate later slice.
+attention for this view. For optional bounded POST delivery, see [Generic webhooks](webhooks.md).
 
 ## Reading checks in the browser
 
