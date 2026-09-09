@@ -183,16 +183,29 @@ def _column_label(c, index, position, pd, np):
     return c.omitted("unsupported_column_label")
 
 
-def _block_column(c, block, position, np, width):
+def _block_column(c, block, position, np, width, placements):
     # indexer, len(placement), and is_slice_like can all scan the full
     # placement array. Width must bound that scan before accessing any of them.
-    if width > c.b.max_fields:
-        c.reason("placement_budget")
-        return None
-    placement = block.mgr_locs
-    if type(placement) is not _class("pandas._libs.internals", "BlockPlacement"):
-        return None
-    indexer = placement.indexer
+    identity = id(block)
+    if identity not in placements:
+        if (
+            width > c.b.max_elements - c.elements
+            or width * 8 + 256 > c.b.max_capture_bytes - c.charged_bytes
+        ):
+            c.reason("placement_budget")
+            return None
+        # Charge a conservative upper bound on this native scan before access.
+        # Reuse the checked indexer across selected columns during this call.
+        # This permits modest-width frames without repeatedly paying for scans
+        # or creating full-width block maps. Neither cache nor source survives.
+        c.charge(reads=width, size=width * 8 + 256)
+        c.placement_scan_allowance += width
+        placement = block.mgr_locs
+        if type(placement) is not _class("pandas._libs.internals", "BlockPlacement"):
+            placements[identity] = None
+            return None
+        placements[identity] = placement.indexer
+    indexer = placements[identity]
     if type(indexer) is slice:
         start, stop, step = indexer.start, indexer.stop, indexer.step
         if not all(type(x) is int for x in (start, stop, step)) or step <= 0:
@@ -201,7 +214,7 @@ def _block_column(c, block, position, np, width):
             return (position - start) // step
     elif _safe_array(indexer, np) and indexer.dtype.kind in "iu" and indexer.ndim == 1:
         # Do not expand slice placements or scan arbitrary-width placements.
-        if len(indexer) > c.b.max_fields:
+        if len(indexer) > width:
             c.reason("fragmented_placement")
             return None
         for i in range(len(indexer)):
@@ -345,6 +358,7 @@ def capture_pandas(c, source, document, np, pd):
     if width > len(selected):
         c.reason("field_budget")
     readers = []  # Source-bound functions exist only during this synchronous call.
+    placements = {}  # At most max_blocks checked indexers, never a full map.
     try:
         # Capture schema before cells so one expensive first field cannot hide
         # later fields. No full .dtypes/.columns/schema conversion is involved.
@@ -373,7 +387,7 @@ def capture_pandas(c, source, document, np, pd):
                 for block, identity in zip(blocks, storage_ids):
                     if identity is None:
                         continue
-                    local = _block_column(c, block, position, np, width)
+                    local = _block_column(c, block, position, np, width, placements)
                     if local is not None:
                         reader, dtype = _pandas_reader(c, block, local, np)
                         break

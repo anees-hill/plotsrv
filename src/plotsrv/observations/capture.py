@@ -46,6 +46,7 @@ class Capture:
         self.options = options
         self.deadline = time.monotonic() + budget.capture_ms / 1000
         self.elements = 0
+        self.placement_scan_allowance = 0
         self.nodes = 0
         self.value_bytes = 0
         # Conservative working/inspection allowance, distinct from encoded output.
@@ -221,6 +222,9 @@ class Capture:
             ),
             "items": [],
         }
+        selected_keys = (
+            set() if kind is dict and depth == 0 and self.options.fields else None
+        )
         try:
             if kind is dict:
                 if initial > self.b.max_fields:
@@ -241,6 +245,8 @@ class Capture:
                         )
                     ):
                         continue
+                    if selected_keys is not None:
+                        selected_keys.add(key)
                     result["items"].append(
                         {
                             "key": self.value(key, depth + 1, category=False),
@@ -265,6 +271,10 @@ class Capture:
             self.active.remove(id(value))
             if kind is not dict:
                 result["items"].sort(key=lambda item: item["position"])
+            if selected_keys is not None and any(
+                key not in selected_keys for key in self.options.fields
+            ):
+                self.reason("field_not_inspected_or_absent")
         if len(value) != initial:
             self.reason("concurrent_mutation")
             result["items"] = []
@@ -380,7 +390,9 @@ def capture_detached(
         document["base_sample"] = []
         document["exploratory"] = []
     document["coverage"] = {
-        "elements_read": c.elements,
+        "elements_read": c.elements - c.placement_scan_allowance,
+        "element_units_charged": c.elements,
+        "placement_scan_allowance": c.placement_scan_allowance,
         "nodes": c.nodes,
         "value_bytes": c.value_bytes,
         "charged_capture_bytes": c.charged_bytes,

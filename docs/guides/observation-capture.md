@@ -67,7 +67,7 @@ publish-settings:
 | --- | ---: | ---: |
 | Base positions per sequence/column (`max_rows`) | 32 | 1–128 |
 | Fields inspected (`max_fields`) | 16 | 1–32 |
-| Scalar/index getter attempts (`max_elements`) | 1,024 | 1–4,096 |
+| Element reads + placement scan allowance (`max_elements`) | 1,024 | 1–4,096 |
 | Typed value allocations (`max_nodes`) | 1,024 | 1–4,096 |
 | Nested container depth (`max_depth`) | 6 | 1–8 |
 | Variable value bytes (`max_value_bytes`) | 256 | 16–1,024 |
@@ -82,7 +82,8 @@ publish-settings:
 | Reserved output bytes (`max_pending_bytes`) | 512 KiB | 4 KiB–4 MiB |
 | Remembered view identities (`max_view_ids`) | 128 | 1–256 |
 
-The dimension/block keys are `max_dimensions` and `max_blocks`; interval keys are `process_interval_s` and `view_interval_s`.
+The dimension/block keys are `max_dimensions` and `max_blocks`; interval keys
+are `process_interval_s` and `view_interval_s`.
 All budgets apply together: 32 rows × 16 fields is not a promise to capture all
 512 cells. Schema is captured before table values. Each supported selected field
 gets an equal share of the remaining read/node/byte allowance; unused capacity is
@@ -112,12 +113,16 @@ a long time to advance even a single iterator entry. Before iteration, the entir
 backing table size is charged using constant-time `dict.__sizeof__`, including for
 nested dictionaries and path lookup. Oversized tables are omitted with
 `mapping_storage_budget`; other Python implementations omit dictionary inspection.
-Read counters count requested elements, not backing-table slots or native CPU work. String prefixes are sliced before encoding;
+`elements_read` counts explicit getter/iterator attempts, including metadata and
+masks; `placement_scan_allowance` records the conservative native placement scan
+reservation. Their sum, `element_units_charged`, is limited by `max_elements`.
+None is an exact native CPU or dictionary-slot count. String prefixes are sliced before encoding;
 structural limits also bound serialization and its temporary copies. If the
 encoded envelope exceeds its output allowance, samples and metadata are discarded
 and `output_byte_budget` is recorded. The source is never converted a second time.
 The elapsed deadline is checked between bounded operations; it cannot interrupt a
-native call, preempt a page fault, or guarantee wall-clock latency. Serialization
+native call, preempt a page fault or garbage collection, or guarantee wall-clock
+latency. Serialization
 and bookkeeping still have bounded work after a deadline. Raising limits or
 capture frequency increases application CPU/memory cost.
 
@@ -153,10 +158,13 @@ are identified as UTC storage, without invoking arbitrary timezone formatting.
 
 Pandas avoids `iloc` bookkeeping that can build full-width block maps, index
 hashing, full column/dtype lists, `memory_usage`, deep copies and whole-frame
-conversions. Even a placement's `indexer` accessor can scan its full array. Frames
-wider than `max_fields` are sampled only when validated column maps already exist;
-otherwise they retain bounded labels/shape and `placement_budget`, without building
-maps or reading placements. Excessive blocks, unknown indexes and categorical,
+conversions. Even a placement's `indexer` accessor can scan its full array. Existing validated column maps can be used directly. Otherwise each block's
+placement is accessed only after charging the whole frame width against the
+remaining element and byte allowances, then reused within the synchronous call.
+This bounds even a cold placement's potential scan while supporting modest-width
+frames without creating full maps. If that width cannot fit, the frame retains
+bounded labels/shape and `placement_budget`, without reading placements.
+Excessive blocks, unknown indexes and categorical,
 Arrow or custom extensions remain restricted. A few rows do not exempt huge cells
 from these checks.
 
@@ -215,7 +223,9 @@ foundation. The summary/public API integration must enforce the examples flag at
 its export boundary. Field names, categories and summaries can contain secrets;
 bounds are not anonymisation or secret detection.
 
-The capture never mutates an input and owns its resulting bytes. Mutating or
+The capture leaves input values and schema unchanged and owns its resulting
+bytes. pandas may warm its small placement cache within the charged inspection
+bound; no whole-frame maps or materialized columns are created. Mutating or
 releasing a source after return cannot change a retained envelope. It detects
 obvious length, manager, block-storage, shape, dtype and frame replacement changes
 and discards inconsistent samples. It does not promise an atomic snapshot during
@@ -235,7 +245,11 @@ python -m pytest -q -s tests/benchmarks/test_bench_observation_capture.py \
 
 The benchmark initializes sources and the engine before timing, measures accepted
 `submit` calls with cadence reset between trials, and separately measures rejected
-calls. Memory trials report Python traced peak, retained bytes and post-drain
-bytes; they exclude input allocation and are not RSS/native-allocation measures.
-Tracing itself changes execution time and can cause earlier soft-deadline exits.
+calls. Memory trials report Python traced peak, retained bytes and post-drain bytes,
+excluding input allocation. Separate maximum-budget cases disable the deadline
+only in the test to exercise structural limits under tracing. A separate Linux
+subprocess measures RSS for the disabled Polars scalar-column adapter. Repeated
+rejection and cold sparse-dictionary/wide-pandas cases cover failure costs.
+Tracing itself changes execution time and can cause earlier soft-deadline exits
+in the normal default-budget cases.
 See [Testing & Benchmarks](../about/testing-and-benchmarks.md) for a recorded run.

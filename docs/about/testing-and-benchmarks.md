@@ -166,35 +166,94 @@ python -m pytest -q -s tests/benchmarks/test_bench_observation_capture.py \
   --benchmark-columns=min,median,max
 ```
 
-One Linux/Python 3.13 development-machine run on 2026-09-09, with default budgets,
-100 measured rounds and five warmup rounds, produced:
+A Linux/Python 3.13 development-machine run after the capture safety fixes on
+2026-09-09 passed all 28 benchmark cases. With default budgets, 100 measured
+rounds and five warmup rounds for accepted calls:
 
 | Input | Median synchronous submit | Maximum in these trials | Traced peak | Traced retained | After drain |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Rejected, closed mailbox | 1.69 µs | 2.11 µs | 464 B | 240 B | 32 B |
-| Three scalar metrics | 49.55 µs | 321.07 µs | 7,349 B | 4,981 B | 356 B |
-| NumPy broadcast array, 10 billion logical elements | 284.53 µs | 754.59 µs | 23,467 B | 18,595 B | 1,751 B |
-| pandas frame, 100,000 rows × 8 float columns | 1.064 ms | 1.479 ms | 85,410 B | 28,181 B | 536 B |
-| Dictionary with one 16 MB string | 55.23 µs | 103.47 µs | 6,679 B | 3,947 B | 356 B |
+| Rejected, closed mailbox | 3.24 µs | 34.59 µs | 392 B | 240 B | 32 B |
+| Three scalar metrics | 91.87 µs | 499.71 µs | 7,445 B | 4,837 B | 332 B |
+| NumPy broadcast array, 10 billion logical elements | 564.96 µs | 1.557 ms | 24,889 B | 19,737 B | 1,277 B |
+| pandas frame, 100,000 rows × 8 float columns | 2.314 ms | 2.802 ms | 48,437 B | 26,319 B | 737 B |
+| Dictionary with one 16 MB string | 74.09 µs | 376.57 µs | 6,703 B | 3,802 B | 332 B |
 
 Inputs, library imports and engine initialization are outside measurement.
 Admission cadence is reset outside the timed boundary so accepted calls are
-measured; normal operation instead limits default capture to four calls per
-second across the process and one per second per view. The broadcast array tests
-logical shape/strides, not physical allocation of 10 billion elements; separate
-retention tests use physically allocated array parents and noncontiguous views.
+measured; normal operation refills four tokens per second across the process,
+with an initial burst of at most four and at most one capture per second per view.
+The broadcast array tests logical shape/strides, not physical allocation of ten
+billion elements; retention tests also use allocated parents/noncontiguous views.
+
+Repeated runs varied enough to warrant a paired comparison. A separate local
+measurement loaded baseline commit `498da87` and the fixed modules into the same
+process, alternated which version ran first, and measured 300 calls each after 20
+warmups with the same preallocated sources (setup/drain excluded, no tracing):
+
+| Input | Baseline median | Fixed median | Baseline / fixed p95 |
+| --- | ---: | ---: | ---: |
+| Three scalar metrics | 82.40 µs | 90.49 µs | 115.28 / 124.37 µs |
+| Broadcast array | 340.77 µs | 392.37 µs | 532.32 / 587.05 µs |
+| 100,000 × 8 pandas frame | 1.237 ms | 1.567 ms | 1.617 / 2.013 ms |
+| Dictionary with a 16 MB string | 60.79 µs | 65.17 µs | 103.90 / 107.83 µs |
+
+Schema-first field sharing, distributed partial capture and stricter inspection
+accounting add synchronous work; they do not promise a speedup. Samples now cover
+more fields and include dtype metadata. No limits were raised to conceal cost.
+These trials do not establish universal overhead or hard latency bounds; measure
+representative pipelines before increasing capture frequency.
 
 Memory is measured separately with tracemalloc, includes temporary Python
 allocations, and excludes the existing source. It is not RSS, native allocator
 usage, a hard latency bound, or whole-pipeline overhead. Tracing can cause earlier
 soft-deadline exits, particularly for a frame; a partial sample remains labelled.
-Single-envelope sizes in this run were 820 B, 2,375 B, 8,632 B and 890 B respectively
-for the four accepted inputs. Post-drain measurements retain bounded engine/cadence
+Single-envelope sizes were 876 B, 2,431 B, 4,897 B and 945 B respectively for the
+four accepted inputs. Post-drain measurements retain bounded engine/cadence
 bookkeeping and allocator effects.
 
-A separate full-mailbox trial using repeated oversized Unicode strings retained
-99,008 B with a traced peak of 115,957 B. After all eight leases were acknowledged
-and work references released, 1,888 B remained traced, including the cadence
-entries. The ninth submission was rejected before capture. These numbers are
-illustrative; rerun with representative workloads and ownership/storage layouts.
-The capture engine creates no idle threads, timers or network work.
+A full-mailbox trial with oversized Unicode strings retained 97,415 B with a
+114,099 B traced peak. After eight leases were acknowledged and work references
+released, 1,888 B remained traced, including cadence entries. The ninth submission
+was rejected before capture.
+
+Cold layout trials construct fresh inputs outside each of ten timed calls, so a
+warmed pandas placement cannot hide a first-call scan:
+
+| Fresh input | Median capture | Maximum in these trials |
+| --- | ---: | ---: |
+| Dict: 100,000 slots, all but one deleted | 148.29 µs | 188.14 µs |
+| Dict: 1,000,000 slots, all but one deleted | 166.29 µs | 258.02 µs |
+| pandas: 100,000 columns after dtype selection, no cached maps | 178.23 µs | 206.98 µs |
+| pandas: 1,000,000 columns after dtype selection, no cached maps | 211.36 µs | 269.76 µs |
+
+These paths omit unsafe storage before iterator/placement access: zero dictionary
+entries or dataframe values are read. pandas reads one bounded column label.
+The extra cold-call latency includes allocator/cache/GC effects following fixture
+creation; it does not demonstrate a proportional source scan.
+
+Rejected-call trials run 100 rounds of 100 calls with frozen cadence time.
+For 8- and 512-character identities respectively, median time was 1.23/1.30 µs
+(view cadence), 2.38/2.46 µs (process cadence), 4.87/3.55 µs (full), and
+1.09/0.82 µs (busy). Before caching valid identities in the bounded cadence table,
+the 512-character view-cadence case measured 34.51 µs on the same machine.
+
+Maximum-budget memory trials explicitly disable the supplemental deadline **in the
+test only**, so tracing cannot stop them before structural limits are exercised.
+They use 1 MiB capture allowance, 4,096 reads/nodes, depth 8, 128 rows, 32 fields,
+1,024-byte values and 256 KiB output (4 KiB for forced output overflow):
+
+| Input | Traced peak | Retained | After release | Encoded output |
+| --- | ---: | ---: | ---: | ---: |
+| Eight levels of 128-way nested sequences | 517,536 B | 80,864 B | 92 B | 56,935 B |
+| Oversized Unicode strings | 143,197 B | 53,864 B | 92 B | 34,167 B |
+| Strings requiring JSON escapes, forced output overflow | 429,128 B | 20,142 B | 92 B | 445 B |
+| Binary values with examples enabled | 482,802 B | 164,997 B | 92 B | 142,244 B |
+
+A separate Linux subprocess retained a four-million-row Polars frame with an
+unmaterialized scalar column. The disabled adapter returned its fixed reason in
+0.151 ms; current RSS, peak RSS and post-drain RSS each increased by 0 bytes in
+that trial. Native-access trap tests also enforce that no shape/series getter is
+called. This does not establish a native-memory bound for future Polars adapters.
+
+These are development-machine observations, not universal latency or allocation
+guarantees. The capture engine creates no idle threads, timers or network work.

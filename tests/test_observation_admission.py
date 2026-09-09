@@ -411,3 +411,15 @@ assert os.waitpid(pid, 0)[1] == 0
 assert engine.stats()["pending"] == 1
 """
     subprocess.run([sys.executable, "-c", script], check=True, timeout=10)
+
+
+def test_identity_validation_is_cached_only_for_bounded_valid_ids(clock):
+    engine = CaptureEngine()
+    assert engine.submit("\ud800", 1) == "invalid_identity"
+    assert "\ud800" not in engine._views
+    valid = "😀" * 512
+    assert engine.submit(valid, 1) == "accepted"
+    assert engine.submit(valid, 1) == "view_cadence"
+    work = engine.take()
+    assert work.envelope.document()["view_id"] == valid
+    assert engine.finish(work.token)

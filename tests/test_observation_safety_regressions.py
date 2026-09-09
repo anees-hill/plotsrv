@@ -246,3 +246,58 @@ def test_supported_scalar_source_labels_are_truthful(source):
     result = capture_detached(source, budget=BUDGET).document()
     assert result["source_type"] == "scalar"
     assert "unsupported_value" not in result["reasons"]
+
+
+def test_dictionary_unmatched_selection_has_an_explicit_reason():
+    result = capture_detached(
+        {"x": 1}, budget=BUDGET, options=CaptureOptions(fields=("missing",))
+    ).document()
+    assert result["base_sample"][0]["items"] == []
+    assert result["reasons"] == ["field_not_inspected_or_absent"]
+
+
+def test_unknown_block_is_not_accessed_and_does_not_invalidate_other_columns():
+    frame = pd.DataFrame({"integer": [1, 2], "float": [1.0, 2.0]})
+    ordinary, replaced = frame._mgr.blocks
+    calls = []
+
+    class UnknownBlock(type(replaced)):
+        def __getattribute__(self, name):
+            if name in ("values", "mgr_locs"):
+                calls.append(name)
+                raise AssertionError("custom block access")
+            return super().__getattribute__(name)
+
+    unsafe = UnknownBlock(replaced.values, placement=replaced.mgr_locs, ndim=2)
+    frame._mgr.blocks = (ordinary, unsafe)
+    result = capture_detached(frame, budget=BUDGET).document()
+    assert len(result["base_sample"]) == 1
+    assert result["base_sample"][0]["samples"][0]["value"]["value"] == 1
+    assert "unsupported_pandas_block" in result["reasons"]
+    assert calls == []
+
+
+@pytest.mark.parametrize("width", [17, 100])
+def test_modest_uncached_frames_charge_layout_once_and_keep_useful_values(
+    width, monkeypatch
+):
+    frame = pd.DataFrame(np.arange(1000 * width).reshape(1000, width)).select_dtypes(
+        include="number"
+    )
+    assert frame._mgr._blknos is None
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append(1)
+        raise AssertionError("full column map rebuild")
+
+    monkeypatch.setattr(type(frame._mgr), "_rebuild_blknos_and_blklocs", forbidden)
+    result = capture_detached(frame, budget=BUDGET).document()
+    assert len(result["base_sample"]) == BUDGET.max_fields
+    assert all(len(f["samples"]) >= 3 for f in result["base_sample"])
+    coverage = result["coverage"]
+    assert coverage["placement_scan_allowance"] == width
+    assert coverage["element_units_charged"] == width + coverage["elements_read"]
+    assert coverage["element_units_charged"] <= BUDGET.max_elements
+    assert frame._mgr._blknos is None
+    assert calls == []

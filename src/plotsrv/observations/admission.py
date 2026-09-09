@@ -107,11 +107,7 @@ class CaptureEngine:
         try:
             if self._pid != os.getpid():
                 return "forked_instance"
-            if (
-                type(view_id) is not str
-                or not 0 < len(view_id) <= 512
-                or any(0xD800 <= ord(c) <= 0xDFFF for c in view_id)
-            ):
+            if type(view_id) is not str or not 0 < len(view_id) <= 512:
                 return "invalid_identity"
             if type(options) is not CaptureOptions:
                 return "invalid_options"
@@ -142,6 +138,10 @@ class CaptureEngine:
                         del self._views[oldest]
                         self._waiting.pop(oldest, None)
                         self._yielded.discard(oldest)
+                    # Existing bounded IDs were validated at admission. Avoid
+                    # rescanning long strings on every skipped hot-path call.
+                    if any(0xD800 <= ord(c) <= 0xDFFF for c in view_id):
+                        return "invalid_identity"
                     self._views[view_id] = 0.0
                 if not self._admit_cadence(view_id, now):
                     return "process_cadence"
