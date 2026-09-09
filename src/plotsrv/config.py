@@ -1099,6 +1099,21 @@ def _publish_live_settings() -> dict[str, Any]:
     return _deep_merge_dicts(dict(default_live), dict(live))
 
 
+def get_observation_budget():
+    """Validated internal capture limits; invalid settings fail closed to defaults.
+
+    Loaded only on explicit capture-engine initialization, never on ordinary
+    publication or in the synchronous per-observation admission path.
+    """
+    from .observations.models import ObservationBudget
+
+    raw = _merged_section("publish-settings").get("observe", {})
+    try:
+        return ObservationBudget.from_mapping(raw)
+    except (TypeError, ValueError):
+        return ObservationBudget()
+
+
 def get_publish_async_enabled() -> bool:
     """Whether live publish calls use the bounded worker by default."""
     live = _publish_live_settings()
