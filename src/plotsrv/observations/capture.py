@@ -21,6 +21,25 @@ def positions(length: int, count: int) -> list[int]:
     return [i * (length - 1) // (count - 1) for i in range(count)]
 
 
+def spread_first(ordered: list[int]) -> list[int]:
+    """Visit endpoints, then bisect remaining spans, even on an early exit.
+
+    Only use on bounded position lists; never on the source itself.
+    """
+    if len(ordered) < 3:
+        return ordered
+    result = [ordered[0], ordered[-1]]
+    spans = [(1, len(ordered) - 2)]
+    for left, right in spans:
+        mid = (left + right) // 2
+        result.append(ordered[mid])
+        if left < mid:
+            spans.append((left, mid - 1))
+        if mid < right:
+            spans.append((mid + 1, right))
+    return result
+
+
 class Capture:
     def __init__(self, budget: ObservationBudget, options: CaptureOptions):
         self.b = budget
@@ -29,11 +48,21 @@ class Capture:
         self.elements = 0
         self.nodes = 0
         self.value_bytes = 0
-        # Conservative working-object allowance, distinct from encoded output.
+        # Conservative working/inspection allowance, distinct from encoded output.
         self.charged_bytes = 2048
         self.reasons: set[str] = set()
         self.active: set[int] = set()
         self.categories: set[str] = set()
+        self.field_limits: tuple[int, int, int] | None = None
+
+    def share_field(self, remaining: int) -> None:
+        """Reserve an equal share of remaining effort for each selected field."""
+        self.field_limits = (
+            self.elements + (self.b.max_elements - self.elements) // remaining,
+            self.nodes + (self.b.max_nodes - self.nodes) // remaining,
+            self.charged_bytes
+            + (self.b.max_capture_bytes - self.charged_bytes) // remaining,
+        )
 
     def reason(self, code: str) -> None:
         if len(self.reasons) < 16:
@@ -51,7 +80,16 @@ class Capture:
         ):
             if failed:
                 self.reason(code)
-                raise _Limit
+                raise _Limit(code)
+        if self.field_limits is not None:
+            for total, limit, code in zip(
+                (self.elements + reads, self.nodes + nodes, self.charged_bytes + size),
+                self.field_limits,
+                ("field_element_budget", "field_node_budget", "field_byte_budget"),
+            ):
+                if total > limit:
+                    self.reason(code)
+                    raise _Limit(code)
         self.elements += reads
         self.nodes += nodes
         self.charged_bytes += size
@@ -210,7 +248,8 @@ class Capture:
                         }
                     )
             else:
-                for index in positions(initial, self.b.max_rows):
+                self.charge(size=128 * min(initial, self.b.max_rows))
+                for index in spread_first(positions(initial, self.b.max_rows)):
                     self.charge(reads=1)
                     result["items"].append(
                         {
@@ -224,6 +263,8 @@ class Capture:
             pass
         finally:
             self.active.remove(id(value))
+            if kind is not dict:
+                result["items"].sort(key=lambda item: item["position"])
         if len(value) != initial:
             self.reason("concurrent_mutation")
             result["items"] = []
@@ -327,7 +368,10 @@ def capture_detached(
                 ),
                 "unsupported",
             )
-            document["base_sample"].append(c.value(source))
+            value = c.value(source)
+            if document["source_type"] == "unsupported" and value["type"] != "omitted":
+                document["source_type"] = "scalar"
+            document["base_sample"].append(value)
     except _Limit:
         pass
     except Exception:

@@ -22,7 +22,6 @@ class ObservationBudget:
     exploratory_rows: int = 4
     max_dimensions: int = 8
     max_blocks: int = 32
-    max_chunks: int = 8
     capture_ms: float = 10.0
     view_interval_s: float = 1.0
     process_interval_s: float = 0.25
@@ -44,7 +43,6 @@ class ObservationBudget:
             "exploratory_rows": (0, 16),
             "max_dimensions": (1, 8),
             "max_blocks": (1, 32),
-            "max_chunks": (1, 8),
             "max_pending": (1, 32),
             "max_pending_bytes": (4096, 4 * 1024 * 1024),
             "max_view_ids": (1, 256),
@@ -86,7 +84,7 @@ class ObservationBudget:
 @dataclass(frozen=True, slots=True)
 class CaptureOptions:
     # Strings select bounded-inspected dictionary/pandas names; integers are
-    # positional table columns. Polars deliberately supports positions only.
+    # positional table columns.
     fields: tuple[str | int, ...] = ()
     path: tuple[str | int, ...] = ()
     include_examples: bool = False

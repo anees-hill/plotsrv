@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import sys
 
-from .capture import positions
+from .capture import _Limit, positions, spread_first
 
 
 def _class(module: str, name: str):
@@ -47,6 +47,7 @@ def _array_value(c, array, index, np, *, category=True):
         unit, step = np.datetime_data(dtype)
         return {
             "type": "temporal",
+            "kind": "datetime" if kind == "M" else "duration",
             "ticks": str(value.view("i8").item()),
             "unit": unit,
             "step": step,
@@ -55,28 +56,47 @@ def _array_value(c, array, index, np, *, category=True):
     return c.value(value, category=category)
 
 
-def _sample(c, length, read, document):
+def _sampling_plan(c, length):
+    count = min(length, c.b.max_rows)
+    # Account for position lists and bounded sorting/span scratch before making
+    # them. A DataFrame shares this one plan across all its selected columns.
+    c.charge(size=128 * (2 * count + 2 * c.b.exploratory_rows + 1))
+    base = positions(length, count)
+    candidates = positions(length, count + c.b.exploratory_rows + 1)
+    available = [p for p in candidates if p not in base]
+    probes = [available[i] for i in positions(len(available), c.b.exploratory_rows)]
+    return spread_first(base), spread_first(probes)
+
+
+def _sample(c, length, read, document, plan):
     """Keep exploratory probes separate from the base sample's denominator."""
-    base = positions(length, c.b.max_rows)
+    base, probes = plan
     saw_value = False
-    for index in base:
-        c.charge(size=256)
-        value = read(index)
-        document["base_sample"].append({"position": index, "value": value})
-        if value.get("type") not in ("null", "omitted", "missing_or_unsupported"):
-            saw_value = True
     if length > len(base):
         c.reason("row_budget")
-    # Probe interior offsets only when the base supplied no usable values.
-    if not saw_value and c.b.exploratory_rows:
-        candidates = positions(
-            length, min(128, c.b.max_rows + c.b.exploratory_rows + 1)
-        )
-        for index in (p for p in candidates if p not in base):
-            if len(document["exploratory"]) >= c.b.exploratory_rows:
-                break
+    try:
+        for index in base:
             c.charge(size=256)
-            document["exploratory"].append({"position": index, "value": read(index)})
+            value = read(index)
+            document["base_sample"].append({"position": index, "value": value})
+            if value.get("type") not in (
+                "null",
+                "nonfinite",
+                "omitted",
+                "missing_or_unsupported",
+            ) and not value.get("null", False):
+                saw_value = True
+        # NaN and NaT are uninformative too. Select disjoint probes across the
+        # entire source, without enlarging any read/node/byte/deadline budget.
+        if not saw_value:
+            for index in probes:
+                c.charge(size=256)
+                document["exploratory"].append(
+                    {"position": index, "value": read(index)}
+                )
+    finally:
+        for key in ("base_sample", "exploratory"):
+            document[key].sort(key=lambda item: item["position"])
 
 
 def capture_array(c, source, document, np):
@@ -105,7 +125,7 @@ def capture_array(c, source, document, np):
         return _array_value(c, source, tuple(reversed(coords)), np)
 
     try:
-        _sample(c, source.size, read, document)
+        _sample(c, source.size, read, document, _sampling_plan(c, source.size))
     finally:
         if (
             source.shape != shape
@@ -117,18 +137,50 @@ def capture_array(c, source, document, np):
             document["exploratory"] = []
 
 
+def _index_array(index, pd, np):
+    if type(index) is pd.Index:
+        array = index._data
+    elif type(index) is pd.DatetimeIndex or type(index) is pd.TimedeltaIndex:
+        data = index._data
+        if not any(
+            type(data) is _class(module, name)
+            for module, name in (
+                ("pandas.core.arrays.datetimes", "DatetimeArray"),
+                ("pandas.core.arrays.timedeltas", "TimedeltaArray"),
+            )
+        ):
+            return None
+        array = data._ndarray
+    else:
+        return None
+    return array if _safe_array(array, np) and array.ndim == 1 else None
+
+
 def _index_length(index, pd, np):
     if type(index) is pd.RangeIndex and type(index._range) is range:
         return len(index._range)
-    if type(index) is pd.Index and _safe_array(index._data, np):
-        return len(index._data)
+    array = _index_array(index, pd, np)
+    if array is not None:
+        return len(array)
+    if type(index) is pd.MultiIndex:
+        codes = index._codes
+        if type(codes) is _class(
+            "pandas.core.indexes.frozen", "FrozenList"
+        ) and list.__len__(codes):
+            first = list.__getitem__(codes, 0)
+            if _safe_array(first, np) and first.ndim == 1:
+                return len(first)
     return None
 
 
 def _column_label(c, index, position, pd, np):
     if type(index) is pd.RangeIndex:
         return c.value(index._range[position])
-    return _array_value(c, index._data, position, np, category=False)
+    array = _index_array(index, pd, np)
+    if array is not None:
+        return _array_value(c, array, position, np, category=False)
+    # MultiIndex shape does not require expanding/hashing its levels or values.
+    return c.omitted("unsupported_column_label")
 
 
 def _block_column(c, block, position, np, width):
@@ -173,13 +225,42 @@ def _existing_column_maps(manager, width, np):
     return None
 
 
+def _known_block(block):
+    return any(
+        type(block) is _class("pandas.core.internals.blocks", name)
+        for name in (
+            "NumpyBlock",
+            "ExtensionBlock",
+            "DatetimeLikeBlock",
+            "DatetimeTZBlock",
+        )
+    )
+
+
+def _dtype_metadata(c, array, np):
+    c.charge(size=512)
+    dtype = array.dtype
+    result = {"kind": dtype.kind, "itemsize": dtype.itemsize}
+    if dtype.kind in "Mm":
+        unit, step = np.datetime_data(dtype)
+        result.update(
+            temporal_kind="datetime" if dtype.kind == "M" else "duration",
+            unit=unit,
+            step=step,
+        )
+    return result
+
+
 def _pandas_reader(c, block, local, np):
+    if not _known_block(block):
+        return None, None
+    array = block.values
     if type(block) is _class("pandas.core.internals.blocks", "NumpyBlock"):
-        array = block.values
-        if _safe_array(array, np) and array.ndim == 2:
-            return lambda row: _array_value(c, array, (local, row), np)
+        if _safe_array(array, np) and array.ndim == 2 and local < array.shape[0]:
+            return lambda row: _array_value(
+                c, array, (local, row), np
+            ), _dtype_metadata(c, array, np)
     if type(block) is _class("pandas.core.internals.blocks", "ExtensionBlock"):
-        array = block.values
         if any(
             type(array) is _class(module, name)
             for module, name in (
@@ -193,32 +274,46 @@ def _pandas_reader(c, block, local, np):
                 _safe_array(data, np)
                 and _safe_array(mask, np)
                 and data.ndim == mask.ndim == 1
+                and len(data) == len(mask)
                 and mask.dtype.kind == "b"
+                and local == 0
             ):
 
                 def read(row):
                     c.charge(reads=1)
                     return (
-                        {"type": "null"}
+                        c.value(None)
                         if bool(mask[row])
                         else _array_value(c, data, row, np)
                     )
 
-                return read
-        if any(
-            type(array) is _class(module, name)
-            for module, name in (
-                ("pandas.core.arrays.string_", "StringArray"),
-                ("pandas.core.arrays.datetimes", "DatetimeArray"),
-                ("pandas.core.arrays.timedeltas", "TimedeltaArray"),
-            )
+                dtype = _dtype_metadata(c, data, np)
+                dtype["nullable"] = True
+                return read, dtype
+    if any(
+        type(array) is _class(module, name)
+        for module, name in (
+            ("pandas.core.arrays.string_", "StringArray"),
+            ("pandas.core.arrays.datetimes", "DatetimeArray"),
+            ("pandas.core.arrays.timedeltas", "TimedeltaArray"),
+        )
+    ):
+        data = array._ndarray
+        if (
+            _safe_array(data, np)
+            and data.ndim in (1, 2)
+            and (local == 0 if data.ndim == 1 else local < data.shape[0])
         ):
-            data = array._ndarray
-            if _safe_array(data, np) and data.ndim in (1, 2):
-                return lambda row: _array_value(
+            dtype = _dtype_metadata(c, data, np)
+            if type(block) is _class("pandas.core.internals.blocks", "DatetimeTZBlock"):
+                # The copied ticks are UTC; never stringify arbitrary tzinfo.
+                dtype["timezone"] = "UTC"
+            return (
+                lambda row: _array_value(
                     c, data, row if data.ndim == 1 else (local, row), np
                 )
-    return None
+            ), dtype
+    return None, None
 
 
 def capture_pandas(c, source, document, np, pd):
@@ -229,71 +324,92 @@ def capture_pandas(c, source, document, np, pd):
         return
     columns, rows = manager.axes
     width, height = _index_length(columns, pd, np), _index_length(rows, pd, np)
+    document["metadata"] = {"shape": [height, width], "fields": []}
     if width is None or height is None:
         c.reason("unsupported_pandas_index")
         return
-    document["metadata"] = {"shape": [height, width], "fields": []}
     blocks = manager.blocks
     if type(blocks) is not tuple or len(blocks) > c.b.max_blocks:
         c.reason("block_budget")
         return
-    if any(
-        type(block) is not _class("pandas.core.internals.blocks", "NumpyBlock")
-        and type(block) is not _class("pandas.core.internals.blocks", "ExtensionBlock")
-        for block in blocks
-    ):
+    storage_ids = tuple(
+        id(block.values) if _known_block(block) else None for block in blocks
+    )
+    if any(identity is None for identity in storage_ids):
         c.reason("unsupported_pandas_block")
-        return
-    storage_ids = tuple(id(block.values) for block in blocks)
     column_maps = _existing_column_maps(manager, width, np)
     selected = list(range(min(width, c.b.max_fields)))
-    if c.options.fields and all(type(x) is int for x in c.options.fields):
+    by_position = bool(c.options.fields) and type(c.options.fields[0]) is int
+    if by_position:
         selected = [x for x in c.options.fields[: c.b.max_fields] if x < width]
     if width > len(selected):
         c.reason("field_budget")
+    readers = []  # Source-bound functions exist only during this synchronous call.
     try:
+        # Capture schema before cells so one expensive first field cannot hide
+        # later fields. No full .dtypes/.columns/schema conversion is involved.
         for position in selected:
-            c.categories.clear()
-            c.charge(size=512)
+            c.charge(size=1024)
             label = _column_label(c, columns, position, pd, np)
-            if c.options.fields and not all(type(x) is int for x in c.options.fields):
-                if not any(
-                    type(x) is str
-                    and label.get("type") == "string"
+            if c.options.fields and not by_position:
+                if not (
+                    label.get("type") == "string"
                     and not label.get("truncated")
                     and not label.get("encoding_replaced")
-                    and label["value"] == x
-                    for x in c.options.fields
+                    and label["value"] in c.options.fields
                 ):
                     continue
             field = {"position": position, "label": label}
             document["metadata"]["fields"].append(field)
-            reader = None
+            reader, dtype = None, None
             if column_maps is not None:
                 c.charge(reads=2)
-                block_index = int(column_maps[0][position])
-                local = int(column_maps[1][position])
+                block_index, local = int(column_maps[0][position]), int(
+                    column_maps[1][position]
+                )
                 if 0 <= block_index < len(blocks) and local >= 0:
-                    reader = _pandas_reader(c, blocks[block_index], local, np)
+                    reader, dtype = _pandas_reader(c, blocks[block_index], local, np)
             else:
-                for block in blocks:
+                for block, identity in zip(blocks, storage_ids):
+                    if identity is None:
+                        continue
                     local = _block_column(c, block, position, np, width)
                     if local is not None:
-                        reader = _pandas_reader(c, block, local, np)
+                        reader, dtype = _pandas_reader(c, block, local, np)
                         break
             if reader is None:
                 field["reason"] = "unsupported_column_storage"
                 c.reason("unsupported_column_storage")
-                continue
+            else:
+                field["dtype"] = dtype
+                readers.append((field, reader))
+        if c.options.fields:
+            fields = document["metadata"]["fields"]
+            found = {
+                field["position"] if by_position else field["label"]["value"]
+                for field in fields
+            }
+            if any(value not in found for value in c.options.fields):
+                c.reason("field_not_inspected_or_absent")
+        plan = _sampling_plan(c, height) if readers else None
+        for offset, (field, reader) in enumerate(readers):
+            c.categories.clear()
+            c.share_field(len(readers) - offset)
             samples = {"base_sample": [], "exploratory": []}
-            # Insert first so a structural limit preserves already-captured evidence.
             document["base_sample"].append(
-                {"field": position, "samples": samples["base_sample"]}
+                {"field": field["position"], "samples": samples["base_sample"]}
             )
             document["exploratory"].append(
-                {"field": position, "samples": samples["exploratory"]}
+                {"field": field["position"], "samples": samples["exploratory"]}
             )
-            _sample(c, height, reader, samples)
+            try:
+                _sample(c, height, reader, samples, plan)
+            except _Limit as limit:
+                field["reason"] = limit.args[0] if limit.args else "capture_budget"
+                if not field["reason"].startswith("field_"):
+                    raise
+            finally:
+                c.field_limits = None
     finally:
         if (
             source._mgr is not manager
@@ -303,6 +419,7 @@ def capture_pandas(c, source, document, np, pd):
             or any(
                 id(block.values) != identity
                 for block, identity in zip(blocks, storage_ids)
+                if identity is not None
             )
         ):
             c.reason("concurrent_mutation")
