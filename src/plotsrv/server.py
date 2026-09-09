@@ -931,6 +931,8 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
             _SERVER_RUNNING = False
 
     stop_storage_worker(join=False)
+    from .checks import shutdown as stop_checks
+    stop_checks(timeout=max(0.0, flush_deadline - time.monotonic()) if join else 0.0)
     # Unlike snapshot work, every admitted stream task can carry meaningful
     # observation history. Drain its independent bounded queue before a normal
     # process exit, while retaining the server's bounded shutdown delay.

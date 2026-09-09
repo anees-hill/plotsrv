@@ -76,6 +76,8 @@ class BrowserUpdateHub:
             if fingerprint is not None:
                 self._fingerprints[view_id] = fingerprint
             self._revision += 1
+            if change_type == "checks" and view_id in self._latest:
+                metadata = {**self._latest[view_id].metadata, **(metadata or {})}
             event = BrowserUpdate(
                 revision=self._revision,
                 view_id=view_id,
@@ -127,9 +129,9 @@ class BrowserUpdateHub:
         subscription = BrowserUpdateSubscription(
             view_id=view_id,
             loop=loop,
-            # Preserve one data, stored-run, and global-catalogue notice. Each
+            # Preserve one data, stored-run, check, and global-catalogue notice. Each
             # class remains coalesced, so a slow browser has a strict bound.
-            queue=asyncio.Queue(maxsize=3),
+            queue=asyncio.Queue(maxsize=4),
         )
         with self._lock:
             if len(self._subscribers) >= self._max_subscribers:
@@ -210,6 +212,8 @@ class BrowserUpdateHub:
                 if candidate.change_type == "catalogue"
                 else "stream_history"
                 if candidate.change_type == "stream_history"
+                else "checks"
+                if candidate.change_type == "checks"
                 else "view"
             )
             previous = newest.get(category)

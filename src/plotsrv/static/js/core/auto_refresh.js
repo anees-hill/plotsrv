@@ -204,6 +204,18 @@
       });
   }
 
+  function refreshCheckStatus() {
+    state.checkStatusDirty = true;
+    if (state.checkStatusRequest || typeof core.refreshStatus !== "function") return;
+    state.checkStatusDirty = false;
+    state.checkStatusRequest = Promise.resolve().then(function () {
+      return core.refreshStatus();
+    }).catch(function () {}).finally(function () {
+      state.checkStatusRequest = null;
+      if (state.checkStatusDirty) refreshCheckStatus();
+    });
+  }
+
   function receiveBrowserUpdate(payload) {
     if (!payload || typeof payload !== "object") return;
     const revision = Number(payload.revision);
@@ -232,6 +244,10 @@
       return;
     }
     if (payload.view_id && payload.view_id !== config.activeViewId) return;
+    if (payload.change_type === "checks") {
+      refreshCheckStatus();
+      return;
+    }
     if (payload.change_type === "stream_history" ||
         (payload.change_type === "reconnect" && config.kind === "stream") ||
         payload.history_catalogue_changed === true) {

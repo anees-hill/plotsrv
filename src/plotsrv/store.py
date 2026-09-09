@@ -1034,7 +1034,15 @@ def _synchronise_store_api(func: Callable[..., Any]) -> Callable[..., Any]:
                     vid = values.get("view_id") or _ACTIVE_VIEW_ID
                 require_admitted(vid)
                 _ensure_view(vid)
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+            if func.__name__ in ("set_plot", "set_table", "set_artifact") and values.get("record_arrival", True):
+                from .checks import accept_state
+                st = get_view_state(vid)
+                art = st.artifact
+                accept_state(vid, art.obj if art else None,
+                             revision=st.render_revision, received_at=st.status["last_updated"],
+                             supported=bool(art and art.kind == "json" and not (art.truncation and art.truncation.truncated)))
+            return result
 
     return wrapped
 

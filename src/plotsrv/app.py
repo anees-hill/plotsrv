@@ -662,6 +662,19 @@ def _snapshot_capability(view_id: str) -> dict[str, Any]:
     return base
 
 
+@app.get("/checks")
+def check_status(request: Request, view: str | None = None, after: int = 0,
+                 generation: str | None = None) -> dict[str, object]:
+    if config.get_status_local_only():
+        require_local_request(request)
+    if not 0 <= after <= 2**53 - 1 or generation is not None and len(generation) > 64:
+        raise HTTPException(status_code=422, detail="Invalid check cursor")
+    from .ingestion import state as ingestion_state
+    ingestion_state()
+    from .checks import current
+    return current().snapshot(view, after=after, generation=generation)
+
+
 @app.get("/status")
 def status(request: Request, view: str | None = None) -> dict[str, object]:
     if config.get_status_local_only():
@@ -679,6 +692,9 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     s["view_id"] = vid
     s["view_menu_revision"] = store.get_view_menu_revision()
     s["freshness"] = store.get_freshness(view_id=vid)
+    from .checks import current as current_checks
+    checks = current_checks()
+    s["checks"] = checks.snapshot(vid, include_events=False) if checks else None
 
     kind = store.get_kind(vid)
     activity = store.get_data_activity(view_id=vid)

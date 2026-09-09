@@ -91,6 +91,9 @@ class IngestionState:
         self._active = 0
         self._tokens = float(MAX_INGESTION_REQUESTS_PER_SECOND)
         self._last_refill = time.monotonic()
+        from .config import get_check_rules
+        from .checks import configure
+        configure(get_check_rules(), self.generation)
         if cfg.allow_remote_without_key and self._key_digest is None:
             logging.getLogger(__name__).warning(
                 "Publisher ingestion permits remote requests without a key; use only on a trusted private endpoint."
@@ -173,11 +176,17 @@ def reset_ingestion() -> None:
     """Explicit process-state reset, used with store.reset; not an HTTP action."""
     global _state
     with _setup_lock:
+        from .checks import reset
+        reset()
         _state = None
 
 
 def setup_ingestion(bind_host: str | None = None) -> None:
     current = state()
+    from .checks import current as current_checks, configure
+    from .config import get_check_rules
+    if current_checks() is not None and current_checks()._closed:
+        configure(get_check_rules(), uuid4().hex)
     fresh = get_server_connection_config()
     if fresh != current.config:
         raise ValueError("ingestion configuration changed; restart the process")
@@ -422,7 +431,11 @@ class IngestionMiddleware:
 @asynccontextmanager
 async def ingestion_lifespan(app):
     setup_ingestion()
-    yield
+    try:
+        yield
+    finally:
+        from .checks import shutdown
+        shutdown()
 
 
 router = APIRouter()
@@ -447,6 +460,7 @@ def capabilities(request: Request):
             "watch-v1",
             "watch-v2",
             "observation-v1",
+            "checks-v1",
         ),
     ).to_dict()
     return {

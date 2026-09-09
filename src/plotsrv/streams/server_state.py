@@ -642,6 +642,10 @@ class StreamRegistry:
             state.last_batch_record_count = len(append.records)
             state.accepted_batches += 1
             state.next_batch_sequence += 1
+            from ..checks import accept_events
+            accept_events(append.view_id, accepted_raw_records,
+                          session=append.session_id, batch_id=append.batch_id,
+                          batch_sequence=append.batch_sequence)
             self._record_activity(state, lifecycle=LIVE, pending_delivery=False)
             store.record_data_arrival(
                 view_id=append.view_id,
