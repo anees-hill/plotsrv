@@ -401,6 +401,31 @@ def test_omitted_compact_evidence_cannot_become_baseline(monkeypatch):
     assert "omitted" in compatibility(history.compact(value), entries[0])
 
 
+@pytest.mark.parametrize(
+    "old_source,new_source",
+    [
+        (np.arange(100), np.arange(100, dtype=float)),
+        ({"values": [1, 2]}, {"values": ["a", "b"]}),
+    ],
+)
+def test_array_dtype_and_observed_container_types_fence_comparisons(
+    old_source, new_source
+):
+    old, new = summary(old_source, at=1), summary(new_source, at=2)
+    message, rows = changes(history.compact(new), history.compact(old))
+    assert "schema" in message and "unavailable" in message
+    old_key = next(c for c in project(old)["columns"] if c.startswith("evidence_"))
+    assert old_key not in project(new)["columns"]
+
+
+def test_unfamiliar_bounded_metadata_degrades_without_raw_data_or_server_error():
+    value = summary(pd.DataFrame({"x": [1, 2]}))
+    value["metadata"]["fields"] = ["unfamiliar"]
+    result = render_observation(value, view_id="test")
+    assert "format is unavailable" in result.html
+    assert "unfamiliar" not in result.html
+
+
 @pytest.mark.parametrize("enabled", [False, True])
 def test_receiver_reuses_optional_snapshot_worker(enabled, tmp_path, monkeypatch):
     from plotsrv import config

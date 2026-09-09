@@ -54,6 +54,7 @@ def mount(page, html):
 
 def test_overview_default_live_filter_and_keyboard_suggestion_save(page):
     mount(page, document())
+    assert page.evaluate("document.body.scrollWidth <= window.innerWidth")
     assert page.get_by_role("heading", name="Observation overview").is_visible()
     assert page.locator("#table-save-view-btn").is_disabled()
     assert (

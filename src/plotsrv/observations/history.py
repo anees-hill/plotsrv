@@ -40,6 +40,7 @@ def compact(summary):
                 "path",
                 "position",
                 "scope",
+                "types",
                 "value",
                 "positions_captured",
                 "values_inspected",

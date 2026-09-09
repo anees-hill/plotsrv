@@ -317,3 +317,51 @@ UTF-8 encoding and temporary JSON buffers also allocate. Only one consumer build
 summaries, pending/in-flight captures remain reserved, and decoded evidence is
 released without depending on cyclic GC (verified with GC disabled). No original
 pipeline object crosses the capture boundary.
+
+## Observation presentation and recent history (Prompt 11)
+
+Run `python -m pytest -q -s tests/benchmarks/test_bench_observation_presentation.py
+--benchmark-columns=min,median,max`. The source is constructed and captured before
+timing: a 100,000 × 8 integer DataFrame, default structural budgets, 50 ms capture
+deadline for repeatable preparation. Receipt uses the shared server boundary with
+storage disabled. Rendering uses only its exported summary and up to 16 compact
+entries; cached rendering uses the existing artifact cache.
+
+Recorded on 2026-09-09, Python 3.13, 100 trials per operation:
+
+| Server operation | Median | Maximum |
+| --- | ---: | ---: |
+| Receipt, recent-history append disabled for comparison | 2.267 ms | 9.572 ms |
+| Receipt with bounded recent history | 2.307 ms | 8.853 ms |
+| Uncached observation presentation | 3.608 ms | 19.403 ms |
+| Cached artifact response | 13.431 µs | 2.166 ms |
+
+Browser regression checks were running concurrently. An earlier, less contended
+run measured receipt medians of 1.194 / 1.236 ms without/with history and uncached
+rendering at 1.575 ms. These independent medians are not a paired measurement of
+overhead or latency guarantees. Receipt/rendering run on the consumer/server side,
+not the observed function's capture boundary. Presentation adds no source scan,
+timer, retry loop or worker thread.
+
+An 8,192-append memory trial (256 source IDs × 32 revisions) reached the shared
+encoded cap: 4,191,708 B retained across 978 entries / 62 sources. Python tracing
+measured 4,294,550 B retained, 4,313,166 B peak and 308 B after clearing and GC.
+The entry/source caps are simultaneous, so byte pressure can retain fewer than
+128 sources or 16 entries each. Thread identities were unchanged. This is the new
+history cache alone, excluding sources, current summaries and existing render
+caches, not total server RSS.
+
+Rendering the prepared eight-field observation produced 54,948 B HTML, with
+267,302 B traced peak, 123,586 B retained at return and 142 B after release/GC.
+The browser projection has an independent 192 KiB encoded bound, at most 32 fields,
+eight distributions, four scalar-history columns and 16 optional examples. Whole
+HTML and temporary decoded/escaped trees also allocate. The tests additionally
+exercise wide Unicode evidence, per-source/global eviction, missing history
+admission, incompatible schemas/scopes, remote authentication and storage on/off.
+
+The existing warm capture-boundary benchmark was rerun separately (100 trials):
+median 3.035 µs for closed-engine rejection, 55.713 µs for a small metrics dict,
+55.588 µs for a huge string cell, 315.549 µs for a broadcast large array and
+1.567 ms for a 100,000 × 8 DataFrame. Observed maxima ranged up to 10.323 ms for
+the frame. These are measured captures/rejections with setup outside timing,
+not public cold-start costs or hard cancellation deadlines.

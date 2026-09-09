@@ -34,14 +34,30 @@ def render_observation(
     storage_message=None,
 ):
     try:
-        validate_summary(summary, view_id=view_id)
-        data = project(summary, entries if not snapshot else ())
-    except (ValueError, KeyError, TypeError, OverflowError):
+        return _render_observation(
+            summary,
+            view_id=view_id,
+            entries=entries,
+            pruned=pruned,
+            snapshot=snapshot,
+            description=description,
+            storage_message=storage_message,
+        )
+    except Exception:
+        # Wire validation bounds the tree, but unfamiliar nested evidence must
+        # degrade without a raw-object fallback or a browser request failure.
         return RenderResult(
             kind="json",
             html='<p class="note">This observation format is unavailable. The published object has not been inspected again.</p>',
             meta={"observation": True},
         )
+
+
+def _render_observation(
+    summary, *, view_id, entries, pruned, snapshot, description, storage_message
+):
+    validate_summary(summary, view_id=view_id)
+    data = project(summary, entries if not snapshot else ())
     previous = entries[-2] if len(entries) > 1 and not snapshot else None
     message, differences = changes(compact(summary), previous)
     inspected = sum(field["values_inspected"] for field in summary["fields"])
@@ -55,7 +71,7 @@ def render_observation(
     notes = []
     if all_null:
         notes.append(
-            f"{all_null} fields contain only missing values among those inspected."
+            f"{all_null} {'field contains' if all_null == 1 else 'fields contain'} only missing values among those inspected."
         )
     if not data["distributions"]:
         notes.append(
@@ -139,6 +155,8 @@ def render_observation(
         encoded = json.dumps(
             data, ensure_ascii=True, allow_nan=False, separators=(",", ":")
         )
+    if len(encoded.encode()) > MAX_BROWSER_BYTES:
+        raise ValueError("observation presentation budget")
     examples_html = ""
     if data["examples"]:
         examples_html = (

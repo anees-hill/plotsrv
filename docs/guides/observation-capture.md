@@ -53,9 +53,69 @@ without receiving a raw-object replacement payload. The transport protocol stays
 at version 1; the summary and recipe have their own version 1.
 
 The server keeps the current bounded summary as a JSON artifact using the existing
-logical view ID, including catalogue-locked admission. This slice adds no dashboard
-profile or separate history service. JSON inspection is available now; observation
-presentations come in the next slice.
+logical view ID, including catalogue-locked admission. Its observation overview
+shows known shape, captured coverage, scoped field evidence and compatible changes.
+Suggested presentations use the normal table/plot controls and browser-local My
+views. Ordinary custom scalars, dictionaries, tables and plots retain their existing
+renderers and source descriptions; they do not need observation to be useful.
+
+## Observation views and recent changes
+
+The default Fields / structure table shows supplied metrics, inspected and
+uninspected counts, missingness and available observed ranges/means. The overview
+distinguishes cheap whole-source shape from sample findings. An all-null sample is
+useful missingness evidence; an unsupported/uninspected field has no missingness
+denominator. Neither creates a collection of empty charts.
+
+Choose **Suggested views** for field overview, observed missingness, up to three
+observed distributions, or up to three compatible scalar histories when available.
+These are ordinary transient ViewSpecs: change filters/columns/plot settings, then
+**Save view** to keep that presentation in **My views** on this browser. Saving does
+not publish a new source or store observation data in browser settings. Saved
+distributions and scalar plots bind to the captured field's identity, selected
+branch, schema and units. If that meaning disappears, the presentation pauses
+instead of following a different field. Explicit filters and plot inspection keep
+the existing smart-update protections; the default overview can update live.
+
+Distributions use at most eight captured bins/categories for at most eight fields;
+category prefixes can combine distinct original values. Counts describe retained
+observed evidence, not whole-source frequencies. Examples appear only when
+explicitly allowed and retained, with at most 16 displayed values. Space is reserved
+for exploratory probes; those remain separate from base statistics. Capture details
+disclose limits, omissions and provenance without embedding excluded raw samples.
+
+The server retains compact recent evidence, with fixed limits of 16 entries and
+256 KiB per source, 128 sources and 4 MiB of encoded evidence overall. Each entry is
+at most 24 KiB; oversized comparison evidence is omitted, not treated as zero.
+Recent entries exclude examples, categories and histograms. Limits cover encoded
+bytes, not total Python heap or the separate existing current-artifact/render caches.
+There are no new background threads, timers, polling, network requests or source
+reads. History receipt is best effort; lock contention drops evidence and a missed
+revision prevents comparison across that gap.
+
+This recent window belongs to the current server process and can be evicted earlier
+under shared memory pressure. Optional disk persistence uses existing
+`storage-settings` and snapshot retention/admission, with the bounded exported
+summary as its payload. Stored snapshots are fixed historical evidence; browsing
+does not capture/publish again or load a prior baseline automatically. A missing
+snapshot stays historical and requires an explicit return to Latest.
+
+Changes compare only compatible publisher sessions, selected source scope, summary
+recipe, sampling policy, captured schema and metric identity/units. Older summaries
+without selection provenance remain readable but cannot establish compatible
+changes. Known shape/schema changes are descriptive. Supplied numeric metrics get
+simple deltas; observed mean/missingness changes retain their sample labels and are
+**not statistical drift tests**. The comparison window stops at an incompatible,
+repeated or out-of-order capture. Scalar plots show irregular server receipt times
+without interpolation, zero filling or summing repeated cumulative values. Large
+integers/rationals remain exact text when the shared plot cannot represent them
+without loss. Publisher skipped/dropped/coalesced/failed diagnostics are labelled
+process-wide and best effort, not counts of missing runs for this source.
+
+Deliberately deferred: distribution-to-distribution drift tests, correlations,
+automatic business reconciliation, persisted-baseline joins and complete-run
+ledgers. Supply domain-specific metrics yourself and publish them normally or
+observe the bounded metric dictionary.
 
 ## Admission and ownership
 
@@ -309,14 +369,14 @@ Exploratory useful-value counts and optional examples are separate from base
 statistics and never enlarge their denominator.
 
 Each exported summary includes source type, cheap shape/schema, capture time,
-publisher session, consistency, recipe/version, sampling limits and omission
+publisher session, selected fields/path, consistency, recipe/version, sampling limits and omission
 reasons. Payloads are at most 64 KiB (or the configured lower output limit), and
 whole requests at most 80 KiB. Oversize summaries remove examples first and then
 bounded sections with an explicit reason; they never serialize the original
 object again. Working trees and serialization copies have additional bounded
 allocation; the byte budget is not a whole-process RSS cap.
 
-Examples are disabled by default, but scalar values, field/path names, category
+Examples are disabled by default, but scalar values, selected field/path names, category
 prefixes and aggregates are still exported and **may contain sensitive data**.
 Selection narrows what is captured; this is not redaction or secret detection.
 Enable `ObservationOptions(include_examples=True)` only when bounded sampled
@@ -360,8 +420,10 @@ network activity.
 
 ```bash
 python -m pytest -q tests/test_observation_capture.py tests/test_observation_admission.py \
-  tests/test_observation_safety_regressions.py
+  tests/test_observation_safety_regressions.py tests/test_observation_presentation.py \
+  tests/test_observation_browser.py
 python -m pytest -q -s tests/benchmarks/test_bench_observation_capture.py \
+  tests/benchmarks/test_bench_observation_presentation.py \
   --benchmark-columns=min,median,max
 ```
 

@@ -10,6 +10,7 @@
 .ps-observation summary { cursor: pointer; font-weight: 600; }
 .ps-observation summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
 .ps-observation .ps-table-topbar, .ps-observation .ps-table-topbar__right { flex-wrap: wrap; }
+.ps-observation .ps-table-topbar__right { flex: 1 1 100%; min-width: 0; }
 .ps-observation-suggestions { display: inline-flex; margin: .2rem .4rem; max-width: 100%; }
 .ps-observation-suggestions select { max-width: min(22rem, 100%); }
 .ps-observation-scope { margin: .75rem 0; }

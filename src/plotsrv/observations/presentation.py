@@ -137,13 +137,28 @@ def compatibility(current, previous):
     return None
 
 
+def _source_schema(document):
+    metadata = document.get("metadata", {})
+    return {
+        key: metadata[key]
+        for key in ("fields", "dtype_kind", "itemsize", "unit", "timezone")
+        if key in metadata
+    }
+
+
+def _observed_types(document, field):
+    # For containers without declared dtypes, changes describe captured types only.
+    return [] if _source_schema(document) else sorted(field.get("types", {}))
+
+
 def _schema(document):
-    return document.get("metadata", {}).get("fields", []), [
+    return _source_schema(document), [
         (
             field_key(f),
             f.get("scope"),
             (f.get("value") or {}).get("type"),
             (f.get("value") or {}).get("unit"),
+            _observed_types(document, f),
         )
         for f in document.get("fields", [])
     ]
@@ -298,6 +313,10 @@ def binding(summary, field):
         "field": field_key(field),
         "schema": schema,
         "source": summary["source_type"],
+        "source_schema": {
+            key: val for key, val in _source_schema(summary).items() if key != "fields"
+        },
+        "observed_types": _observed_types(summary, field),
         "selection": summary["provenance"].get("selection"),
         "recipe": summary["recipe_version"],
         "scope": field["scope"],
@@ -513,7 +532,8 @@ def project(summary, entries=()):
         recipe["presentation"]["hidden"] = [
             c for c in columns if c not in recipe["presentation"]["columns"]
         ]
-    labels = {column: name for column, _, name in scalar_columns}
+    labels = {column: column.replace("_", " ").capitalize() for column in COLUMNS}
+    labels.update({column: name for column, _, name in scalar_columns})
     labels.update({marker: "Observed bins · " + name for marker, name in distributions})
     return dict(
         columns=columns,
