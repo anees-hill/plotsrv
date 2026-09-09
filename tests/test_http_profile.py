@@ -250,3 +250,93 @@ def test_uninspected_wide_record_cannot_spoof_derived_request_field():
     assert profile.disabled
     assert not profile.describe("x", [])["recipes"]
     assert profile.projection(1) is None
+
+
+def test_shared_budget_bounds_many_profiles_and_releases_without_a_retry_loop():
+    from plotsrv.streams.http_profile import ProfileBudget
+
+    budget = ProfileBudget(limit=4096)
+    profiles = [HttpProfile(budget=budget) for _ in range(20)]
+    for profile in profiles:
+        profile.add(1, event(), NOW)
+        assert 0 <= budget.used <= budget.limit
+    assert any(profile.disabled for profile in profiles)
+    assert sum(len(profile.rows) for profile in profiles) < 20
+    disabled = next(p for p in profiles if p.disabled)
+    used = budget.used
+    for i in range(2, 100):
+        disabled.add(i, event(), NOW)
+    assert budget.used == used
+    for profile in profiles:
+        profile.clear()
+    assert budget.used == 0
+    replacement = HttpProfile(budget=budget)
+    replacement.add(1, event(), NOW)
+    assert replacement.rows and not replacement.disabled
+    replacement.evict(1)
+    assert budget.used == 0
+
+
+def test_budget_pressure_never_rejects_raw_ingestion_and_reset_releases(client):
+    from plotsrv.streams.server_state import stream_registry
+
+    _register_stream(client)
+    stream_registry._http_profile_budget.limit = 2000
+    try:
+        records = [event(path="/" + "x" * 1000), event()]
+        _append(client, batch_sequence=0, records=records)
+        data = client.get("/stream/data", params={"view": "logs:worker stream"}).json()
+        assert [row["data"] for row in data["records"]] == records
+        assert not data["http_profile"]["recipes"]
+        assert "memory budget" in data["http_profile"]["unavailable"]
+        assert stream_registry._http_profile_budget.used == 0
+    finally:
+        stream_registry.clear()
+        stream_registry._http_profile_budget.limit = 8 * 1024 * 1024
+
+
+def test_registry_replacement_and_clear_release_profile_charges():
+    from plotsrv.streams.server_state import StreamRegistry
+    from plotsrv.streams.models import StreamRegistration, StreamAppend, StreamClose
+
+    registry = StreamRegistry()
+    registry.register(StreamRegistration("budget", "Budget", "test", "c", "s"))
+    registry.append(StreamAppend("budget", "c", "s", "b", 0, (event(),)))
+    assert registry._http_profile_budget.used > 0
+    registry.close(StreamClose("budget", "c", "s", True))
+    registry.register(StreamRegistration("budget", "Budget", "test", "c", "new"))
+    assert registry._http_profile_budget.used == 0
+    registry.append(StreamAppend("budget", "c", "new", "b", 0, (event(),)))
+    registry.clear()
+    assert registry._http_profile_budget.used == 0
+
+
+def test_documented_demo_runs_through_text_framing_and_http_profile(
+    tmp_path, monkeypatch
+):
+    import runpy
+    from pathlib import Path
+    from plotsrv.streams.text_source import TextFollower
+
+    source = tmp_path / "demo.log"
+    source.write_text("")
+    batches = []
+    follower = TextFollower(
+        source, on_batch=lambda batch: batches.append(batch) or True
+    )
+    try:
+        monkeypatch.setattr("sys.argv", ["write_http_demo.py", str(source)])
+        runpy.run_path(
+            str(Path(__file__).parents[1] / "examples/write_http_demo.py"),
+            run_name="__main__",
+        )
+        assert follower.drain(timeout_s=2)
+    finally:
+        follower.close()
+    records = [row.data for batch in batches for row in batch.records]
+    assert len(records) == 32
+    assert sum(row["event"]["kind"] == "traceback" for row in records) == 1
+    profile, data = describe(records)
+    assert data["request_count"] == 30
+    assert data["time_origin"] == "event"
+    assert len(data["recipes"]) == 8

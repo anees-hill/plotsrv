@@ -270,6 +270,14 @@ from actual retained durations, never by averaging stored percentiles.
 Stored sessions and existing generic compact summaries do not preserve the joint
 HTTP fields required by these recipes. HTTP historical presentations are explicitly
 unavailable there; existing raw-history and generic-summary controls remain usable.
+A shared **8 MiB projection allocation budget** also covers all live stream
+profiles together, with conservative charges for row bookkeeping and string
+storage. This is not a whole-server RSS limit. If capacity is exhausted, the
+affected profile stops with an explanation; raw ingestion continues. Eviction,
+replacement of a session and registry shutdown release its charges. A new
+publisher session can try again when capacity is available; there is no hidden
+retry loop or silent omission inside a still-active recipe. Closed sessions retain
+their evidence until normal retention, replacement or server shutdown releases it.
 There is no new history store, queue, worker, timer, polling request or publisher
 payload. Projections add bounded server memory and browser-response bytes. Server
 recipe construction examines at most 512 projections on a browser read. Sources

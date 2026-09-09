@@ -36,7 +36,7 @@ from .models import (
     validate_stream_batch,
     validate_stream_record,
 )
-from .http_profile import HttpProfile
+from .http_profile import HttpProfile, ProfileBudget
 from .summaries import SummaryLimits, SummaryWindow
 
 
@@ -451,6 +451,7 @@ class StreamRegistry:
         self.heartbeat_timeout_s = float(heartbeat_timeout_s)
         self._monotonic_clock = monotonic_clock
         self._observation_clock = observation_clock
+        self._http_profile_budget = ProfileBudget()
         self._streams: dict[str, StreamViewState] = {}
         self._historical_streams: dict[str, dict[str, StreamViewState]] = {}
         self._history_catalogue_revisions: dict[str, int] = {}
@@ -522,8 +523,14 @@ class StreamRegistry:
                 raise StreamConflictError(str(error)) from error
 
             from ..config import get_stream_http_profile
+
+            if current is not None:
+                current.http_profile.clear()
             state = StreamViewState(
-                http_profile=HttpProfile(get_stream_http_profile(registration.view_id)),
+                http_profile=HttpProfile(
+                    get_stream_http_profile(registration.view_id),
+                    budget=self._http_profile_budget,
+                ),
                 registration=registration,
                 last_heartbeat_monotonic=now_monotonic,
             )
@@ -920,7 +927,9 @@ class StreamRegistry:
             "historical_updated_at": state.historical_updated_at,
             **self._status_dict(state),
             "columns": list(state.schema.columns),
-            "http_profile": state.http_profile.describe(view_id, list(state.schema.columns), historical=state.historical),
+            "http_profile": state.http_profile.describe(
+                view_id, list(state.schema.columns), historical=state.historical
+            ),
             "schema_revision": state.schema.revision,
             "summary_revision": state.summary_revision,
             "cumulative": state.cumulative.as_browser_dict(),
@@ -930,7 +939,16 @@ class StreamRegistry:
                 {
                     "browser_sequence": row.browser_sequence,
                     "data": deepcopy(row.data),
-                    **({"http_projection": projection} if (projection := state.http_profile.projection(row.browser_sequence)) is not None else {}),
+                    **(
+                        {"http_projection": projection}
+                        if (
+                            projection := state.http_profile.projection(
+                                row.browser_sequence
+                            )
+                        )
+                        is not None
+                        else {}
+                    ),
                     "observed_at": row.observed_at.isoformat(),
                 }
                 for row in rows
@@ -1520,6 +1538,8 @@ class StreamRegistry:
     def clear(self) -> None:
         """Clear stream state for process-local tests and controlled shutdowns."""
         with self._lock:
+            for state in self._streams.values():
+                state.http_profile.clear()
             self._streams.clear()
             self._historical_streams.clear()
             self._history_catalogue_revisions.clear()

@@ -7,8 +7,10 @@ from tests.test_http_profile import describe, event
 
 def payload(records):
     profile, descriptor = describe(records)
+    columns = list(dict.fromkeys(k for r in records for k in r))
+    descriptor = profile.describe("test:layout", columns)
     return {
-        "columns": list(dict.fromkeys(k for r in records for k in r)),
+        "columns": columns,
         "http_profile": descriptor,
         "session_id": "session",
         "schema_revision": 1,

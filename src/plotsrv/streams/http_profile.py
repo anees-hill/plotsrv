@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 import re
+import sys
 from typing import Any
 
 MAX_RECORDS = 512
@@ -133,8 +134,36 @@ def detect(data: dict) -> dict | None:
     return candidates[0] if len(candidates) == 1 else None
 
 
+class ProfileBudget:
+    """Shared projection allocation budget, protected by the registry lock.
+
+    Charges include a conservative allowance for row/container bookkeeping;
+    this bounds this feature's allocations, not whole-server RSS.
+    """
+
+    def __init__(self, limit: int = 8 * 1024 * 1024):
+        self.limit = limit
+        self.used = 0
+
+    def acquire(self, amount: int) -> bool:
+        if self.used + amount > self.limit:
+            return False
+        self.used += amount
+        return True
+
+
+def projection_cost(row: dict | None) -> int:
+    return (
+        192
+        if row is None
+        else 768 + sum(sys.getsizeof(value) for value in row.values())
+    )
+
+
 class HttpProfile:
-    def __init__(self, override: Any = None):
+    def __init__(self, override: Any = None, *, budget: ProfileBudget | None = None):
+        self.budget = budget
+        self.retained_cost = 0
         self.error = None
         try:
             self.mapping = validate_override(override)
@@ -157,20 +186,29 @@ class HttpProfile:
             # in rows accepted before recognition starts. Fail only the profile.
             self.disabled = True
             self.error = "HTTP interpretation stopped: a record exceeds the 32-field inspection bound. Raw stream remains available."
-            self.rows.clear()
+            self.clear()
             return
         elif any(key.startswith(PREFIX) for key in data):
             # A source key can never impersonate or overwrite a derived column.
             self.disabled = True
-            self.rows.clear()
+            self.clear()
             return
         else:
             projection = self._project(data, received_at)
         if projection is None and self.identity is None:
             return
+        if sequence in self.rows:
+            self.evict(sequence)
+        elif len(self.rows) >= MAX_RECORDS:
+            self.evict(next(iter(self.rows)))
+        cost = projection_cost(projection)
+        if self.budget is not None and not self.budget.acquire(cost):
+            self.disabled = True
+            self.error = "HTTP interpretation stopped: the shared server projection memory budget is full. Raw stream remains available; a new publisher session can retry when capacity is available."
+            self.clear()
+            return
+        self.retained_cost += cost
         self.rows[sequence] = projection
-        if len(self.rows) > MAX_RECORDS:
-            self.rows.popitem(last=False)
 
     def _project(self, data: dict, received_at: datetime) -> dict | None:
         mapping = self.mapping or detect(data)
@@ -236,7 +274,18 @@ class HttpProfile:
         return result
 
     def evict(self, sequence: int) -> None:
-        self.rows.pop(sequence, None)
+        if sequence not in self.rows:
+            return
+        cost = projection_cost(self.rows.pop(sequence))
+        self.retained_cost -= cost
+        if self.budget is not None:
+            self.budget.used -= cost
+
+    def clear(self) -> None:
+        if self.budget is not None:
+            self.budget.used -= self.retained_cost
+        self.retained_cost = 0
+        self.rows.clear()
 
     def describe(
         self, source_id: str, raw_columns: list[str], *, historical: bool = False
