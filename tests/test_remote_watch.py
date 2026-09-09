@@ -518,3 +518,29 @@ def test_large_text_preview_survives_default_receiver_limits_and_off_display_lim
     assert len(store.get_artifact(view_id="watch:exact:é").obj) <= MAX_TEXT_CHARS
     assert not receiver.public_meta("watch:exact:é")["full_download"]
     assert receiver.public_meta("watch:exact:é")["limitation"]
+
+
+def test_ini_interpolation_is_literal_and_default_fanout_is_bounded(client, tmp_path):
+    # This tiny input used to allocate >127 MiB before the output check.
+    raw = b"[section]\na0 = " + b"x" * 100 + b"\n"
+    for level in range(1, 6):
+        raw += f"a{level} = ".encode() + (f"%(a{level-1})s" * 10).encode() + b"\n"
+    path = tmp_path / "source.ini"
+    path.write_bytes(raw)
+    captured = capture(path)
+    prepared, limitation = prepare(captured.raw, captured.source)
+    assert limitation is None
+    assert len(json.dumps(prepared)) < 30_000
+    assert "%(a4)s" in json.dumps(prepared)
+    session = register(client)
+    post(client, envelope(session, raw, name=path.name))
+    assert receiver.public_meta("watch:exact:é")["full_download"]
+
+    raw = b"[DEFAULT]\na=" + b"x" * 4000 + b"\n"
+    raw += b"".join(f"[s{i}]\n".encode() for i in range(1000))
+    path.write_bytes(raw)
+    captured = capture(path)
+    prepared, limitation = prepare(captured.raw, captured.source)
+    assert prepared["artifact_kind"] == "text"
+    assert limitation
+    assert len(json.dumps(prepared)) < 30_000

@@ -143,12 +143,22 @@ def coerce_file_to_publishable(
         import configparser
 
         txt = raw.decode(encoding, errors="replace")
-        cfg = configparser.ConfigParser()
+        # Observation displays literal values. Interpolation can expand a tiny
+        # source exponentially before any renderer/output limit can protect us.
+        cfg = configparser.ConfigParser(interpolation=None)
         cfg.read_string(txt)
 
         out: dict[str, Any] = {}
+        fields = chars = 0
         for section in cfg.sections():
-            out[section] = {k: v for k, v in cfg.items(section)}
+            values = cfg.items(section)
+            fields += len(values) + 1
+            chars += len(section) + sum(len(k) + len(v) for k, v in values)
+            # DEFAULT values are repeated for each section: bound that expansion
+            # before constructing the structured document or serializing it.
+            if fields > 10_000 or chars > 256 * 1024:
+                raise ValueError("INI preview limit")
+            out[section] = dict(values)
 
         doc = _build_structured_document(
             out,
