@@ -239,6 +239,7 @@
   }
 
   function saveSupportingTablePreference() {
+    if (core.presentationChanged) core.presentationChanged();
     try {
       localStorage.setItem(
         supportingTablePreferenceKey(),
@@ -318,7 +319,7 @@
       yLabel: parsed && typeof parsed.yLabel === "string" ? parsed.yLabel : "",
       xScale: parsed && parsed.xScale === "log" ? "log" : defaults.xScale,
       yScale: parsed && parsed.yScale === "log" ? "log" : defaults.yScale,
-      zeroBaseline: parsed && parsed.zeroBaseline === true,
+      zeroBaseline: !!(parsed && parsed.zeroBaseline === true),
       showPoints: !parsed || parsed.showPoints !== false,
       legend: parsed && ["top", "right", "bottom"].includes(parsed.legend) ? parsed.legend : defaults.legend,
       titleAlign: parsed && parsed.titleAlign === "center" ? "center" : defaults.titleAlign,
@@ -334,6 +335,7 @@
   }
 
   function savePreferences() {
+    if (core.presentationChanged) core.presentationChanged();
     try {
       localStorage.setItem(preferenceKey(), JSON.stringify(preferences()));
     } catch (e) {
@@ -710,6 +712,7 @@
     const output = document.getElementById("table-plot-output");
     if (!output || typeof core.renderTablePlot !== "function") return null;
 
+    if (state.myViewBlocked) { output.replaceChildren(); return null; }
     renderControls();
     const prefs = normalizePreferences();
     const options = {
@@ -855,6 +858,7 @@
     if (!surface || !controls || !output || !tableButton || !plotButton) return;
 
     state.tablePlotMode = nextMode;
+    if (core.presentationChanged) core.presentationChanged();
     if (typeof core.notifyUpdateEligibilityChanged === "function") {
       core.notifyUpdateEligibilityChanged();
     }
@@ -1140,6 +1144,7 @@
     state.tablePlotSummaryRows = rows;
     state.tablePlotSummaryFields = summaryFields;
     state.tablePlotSummaryFieldTypes = summaryTypes;
+    if (core.checkPersonalViewSchema) core.checkPersonalViewSchema();
     if (currentMode() === "plot" && preferences().source === "summary") {
       scheduleTablePlotRefresh();
     }
@@ -1307,6 +1312,23 @@
     return true;
   }
 
+  core.extractPlotPresentation = function () {
+    return {mode: currentMode() === "plot" ? (supportingTableCollapsed() ? "plot" : "plot+data") : "table",
+      plot: Object.assign({}, preferences())};
+  };
+  core.applyPlotPresentation = function (p) {
+    if (state.myViewBlocked) {
+      const output = document.getElementById("table-plot-output");
+      if (output) output.replaceChildren();
+    }
+    state.tablePlotPreferences = Object.assign(defaultPreferences(), p.plot);
+    state.tablePlotSupportingCollapsed = p.mode !== "plot+data";
+    applyMode(p.mode === "table" ? "table" : "plot");
+  };
+  core.resetPlotPresentation = function () {
+    state.tablePlotPreferences = defaultPreferences();
+    applyMode("table");
+  };
   core.configureTablePlotSurface = configureTablePlotSurface;
   core.refreshTablePlot = scheduleTablePlotRefresh;
   core.refreshTablePlotImmediately = refreshTablePlot;

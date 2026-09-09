@@ -966,3 +966,20 @@
     min-width: 150px;
   }
 }
+
+/* Personal presentations occupy the existing Reset action slot. */
+.ps-my-view-actions { display: inline-flex; align-items: stretch; }
+.ps-my-view-actions .ps-btn { margin: 0; border-radius: 0; }
+.ps-my-view-actions .ps-btn:first-child { border-radius: 6px 0 0 6px; }
+.ps-my-view-actions .ps-btn:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
+.ps-my-view-actions .ps-btn:disabled { opacity: .45; cursor: default; }
+#my-view-notice, #my-view-unavailable { font-size: .85rem; padding: .4rem 0; overflow-wrap: anywhere; }
+#my-view-notice .ps-btn { margin-left: .5rem; }
+.ps-viewselect__item[data-personal-view] { grid-template-columns: minmax(0, 1fr) auto; }
+.ps-viewselect__delete { position: absolute; z-index: 2; right: .3rem; top: 50%; transform: translateY(-50%); width: 36px; min-height: 36px; background: transparent; color: inherit; border: 0; font-size: 1.3rem; cursor: pointer; }
+.ps-viewselect__delete:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
+.ps-my-view-dialog { width: min(440px, calc(100vw - 32px)); box-sizing: border-box; border: 1px solid #888; border-radius: 8px; color: var(--text); background: var(--button-bg); padding: 24px; }
+.ps-my-view-dialog::backdrop { background: #0006; }
+.ps-my-view-dialog label { display: block; margin: 12px 0; }
+.ps-my-view-dialog input { display: block; box-sizing: border-box; width: 100%; min-height: 36px; margin-top: 4px; }
+.ps-my-view-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }

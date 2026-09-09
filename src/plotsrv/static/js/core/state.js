@@ -56,6 +56,7 @@
     }
   }
 
+  config.dashboardName = raw.dashboard_name || "default";
   config.activeViewId = raw.active_view_id || "default";
   config.kind = raw.kind || "none";
   config.tableViewMode = raw.table_view_mode || "rich";

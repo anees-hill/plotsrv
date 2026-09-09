@@ -55,6 +55,7 @@
   }
 
   function refreshChromeAfterLoad() {
+    if (core.checkPersonalViewSurface) core.checkPersonalViewSurface();
     if (typeof core.configureBottomBar === "function") {
       core.configureBottomBar();
     }

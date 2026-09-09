@@ -200,7 +200,7 @@
 
   function initialViewSelectorMode() {
     const stored = loadStoredMode();
-    if (stored === "grouped" || stored === "az") return stored;
+    if (stored === "grouped" || stored === "az" || stored === "my") return stored;
     return "grouped";
   }
 
@@ -554,7 +554,7 @@
     }
 
     function renderTabs() {
-      const modes = [["grouped", "Grouped"], ["az", "A–Z"]];
+      const modes = [["grouped", "Grouped"], ["az", "A–Z"], ["my", "My views"]];
       const nodes = modes.map(function (entry) {
         const tab = element("button", "ps-viewselect__tab", entry[1]);
         const selected = entry[0] === controller.mode;
@@ -585,7 +585,30 @@
       const query = controller.query.trim();
       const pinnedIds = new Set(controller.pinned);
 
-      if (query) {
+      if (controller.mode === "my") {
+        const loaded = core.viewSpec ? core.viewSpec.read() : {items:[], error:null};
+        const matching = loaded.items.filter(item => (item.spec.name + " " + item.spec.caption + " " + item.spec.sourceId).toLowerCase().includes(query.toLowerCase()));
+        const known = new Set(controller.catalogue.map(view => view.view_id));
+        if (loaded.error || !matching.length) fragment.appendChild(element("p", "ps-viewselect__empty", loaded.error || (query ? "No matching saved views." : "Change table or plot settings, then choose + My views to save a presentation on this browser. Ordinary sources remain in Grouped and A–Z.")));
+        matching.forEach(item => {
+          const row = element("div", "ps-viewselect__entry");
+          const open = element("button", "ps-viewselect__item"); open.type = "button";
+          open.setAttribute("data-plotsrv-view", item.spec.sourceId); open.setAttribute("data-personal-view", item.id);
+          const current = new URL(window.location.href).searchParams.get("my_view") === item.id;
+          open.setAttribute("data-selected", current ? "true" : "false");
+          if (current) open.setAttribute("aria-current", "page");
+          open.disabled = !known.has(item.spec.sourceId);
+          const copy = element("span", "ps-viewselect__itemcopy");
+          copy.appendChild(element("span", "ps-viewselect__itemlabel", item.spec.name));
+          copy.appendChild(element("span", "ps-viewselect__itemmeta", (known.has(item.spec.sourceId) ? item.spec.caption || item.spec.sourceId : "Source unavailable — " + item.spec.sourceId)));
+          open.appendChild(copy);
+          const check = element("span", "ps-viewselect__check", "✓"); check.setAttribute("aria-hidden", "true"); open.appendChild(check);
+          row.appendChild(open);
+          const remove = element("button", "ps-viewselect__delete", "×"); remove.type = "button";
+          remove.setAttribute("data-personal-delete", item.id); remove.setAttribute("aria-label", "Delete saved view " + item.spec.name);
+          row.appendChild(remove); fragment.appendChild(row);
+        });
+      } else if (query) {
         appendGroup(
           fragment,
           "Search results",
@@ -679,7 +702,7 @@
     }
 
     function setMode(mode, focusTab) {
-      if (mode !== "grouped" && mode !== "az") return;
+      if (mode !== "grouped" && mode !== "az" && mode !== "my") return;
       controller.mode = mode;
       saveViewSelectorMode(mode);
       render();
@@ -786,7 +809,25 @@
       });
       items[index].focus();
     });
-    results.addEventListener("click", function (event) {
+    window.addEventListener("plotsrv-my-views-changed", scheduleRender);
+    results.addEventListener("click", async function (event) {
+      const personal = event.target.closest && event.target.closest("[data-personal-view], [data-personal-delete]");
+      if (personal) {
+        event.preventDefault(); event.stopPropagation();
+        const deleting = personal.hasAttribute("data-personal-delete");
+        const id = personal.getAttribute(deleting ? "data-personal-delete" : "data-personal-view");
+        const item = core.viewSpec.read().items.find(value => value.id === id);
+        if (!item) { render(); return; }
+        if (deleting) {
+          if (await core.deletePersonalView(item)) {
+            if (controller.renderFrame !== null) cancelAnimationFrame(controller.renderFrame);
+            render();
+            const next = results.querySelector("[data-personal-delete]") || search;
+            if (next) next.focus();
+          }
+        } else window.location.href = core.personalViewUrl(item);
+        return;
+      }
       const recentToggle = event.target.closest && event.target.closest("[data-view-recent-toggle]");
       if (recentToggle) {
         event.preventDefault();
@@ -820,7 +861,7 @@
       const viewId = item.getAttribute("data-plotsrv-view");
       if (!viewId) return;
       controller.recent = rememberRecentView(viewId, controller.catalogue);
-      window.location.href = "/?view=" + encodeURIComponent(viewId);
+      window.location.href = window.location.pathname + "?view=" + encodeURIComponent(viewId);
     });
     menu.addEventListener("keydown", function (event) {
       if (event.key === "Escape") {

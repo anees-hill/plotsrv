@@ -269,12 +269,15 @@ def render_table_explorer(
                 Columns
               </button>
 
-              <button id="table-reset-btn" type="button" class="ps-btn">
-                Reset view
-              </button>
+              <div class="ps-my-view-actions" role="group" aria-label="Presentation settings">
+                <button id="table-save-view-btn" type="button" class="ps-btn" disabled>+ My views</button>
+                <button id="table-reset-btn" type="button" class="ps-btn">Reset changes</button>
+              </div>
             </div>
           </div>
         </div>
+
+        <div id="my-view-notice" role="status" hidden></div>
 
         <div id="table-filter-panel" class="ps-table-filter-panel" hidden>
           <div class="ps-table-filter-panel__header">

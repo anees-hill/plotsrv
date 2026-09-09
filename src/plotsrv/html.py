@@ -429,7 +429,7 @@ def render_index(
         """
 
     dropdown_html = ""
-    if getattr(ui, "show_view_selector", True) and len(views) > 0:
+    if getattr(ui, "show_view_selector", True):
         groups: dict[str, list[ViewMeta]] = {}
         sections: list[str] = []
         for v in views:
@@ -445,7 +445,7 @@ def render_index(
                 active_meta = v
                 break
         active_label = _escape_html(
-            active_meta.label if active_meta else active_view_id
+            active_meta.label if active_meta else (active_view_id if views else "Views")
         )
         active_icon = _safe_url_attr(_icon_url(active_meta))
 
@@ -493,8 +493,8 @@ def render_index(
             menu_parts.append("</div></section>")
 
         tab_parts: list[str] = []
-        modes = ["grouped", "az"]
-        mode_labels = {"grouped": "Grouped", "az": "A–Z"}
+        modes = ["grouped", "az", "my"]
+        mode_labels = {"grouped": "Grouped", "az": "A–Z", "my": "My views"}
         for mode in modes:
             selected = "true" if mode == initial_mode else "false"
             tab_parts.append(
@@ -1104,9 +1104,11 @@ def render_index(
         }
         for item in configured_compact
     ]
+    from . import settings
     cfg_json = json.dumps(
         {
             "active_view_id": active_view_id,
+            "dashboard_name": settings.get_runtime_name(),
             "kind": kind,
             "table_view_mode": table_view_mode,
             "max_table_rows_simple": max_table_rows_simple,

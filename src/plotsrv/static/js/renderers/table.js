@@ -120,6 +120,7 @@
 
   function saveTableUiState() {
     const ui = getTableUiState();
+    if (core.presentationChanged) core.presentationChanged();
 
     try {
       localStorage.setItem(tablePrefKey(), JSON.stringify(ui));
@@ -897,7 +898,7 @@
 
   function getCurrentFilteredLoadedRows() {
     const rows = Array.isArray(state.tableRows) ? state.tableRows : [];
-    return rows.filter(rowMatchesCurrentTableFilters);
+    return state.myViewBlocked ? [] : rows.filter(rowMatchesCurrentTableFilters);
   }
 
   function applyAllTableFilters(options) {
@@ -908,6 +909,11 @@
     const filters = getCompleteFilters();
     const fields = Array.isArray(state.tableFields) ? state.tableFields : [];
 
+    if (state.myViewBlocked) {
+      state.tabulatorInstance.setFilter(function () { return false; });
+      refreshActiveTablePlot(true);
+      return;
+    }
     if (!searchQuery && !filters.length) {
       state.tabulatorInstance.clearFilter(true);
       refreshTableStatus();
@@ -1200,6 +1206,7 @@
 
     if (resetBtn && !resetBtn.dataset.plotsrvBound) {
       resetBtn.addEventListener("click", function () {
+        if (core.resetPersonalView && core.resetPersonalView()) return;
         state.tableUiState = defaultTableUiState();
         saveTableUiState();
 
@@ -1512,6 +1519,7 @@
       table._plotsrvUpdatePolicyBound = true;
     }
 
+    if (core.checkPersonalViewSchema) core.checkPersonalViewSchema();
     bindTableToolbar();
     // Tabulator builds asynchronously. Calling setGroupBy before tableBuilt
     // can leave its display pipeline empty even though getData() has rows.
@@ -1525,6 +1533,7 @@
           applyAllTableFilters();
           refreshTableStatus();
           if (typeof core.configureTablePlotSurface === "function") core.configureTablePlotSurface();
+          if (core.mountPersonalViews) core.mountPersonalViews();
         });
       }
       return;
@@ -1535,9 +1544,11 @@
     if (typeof core.configureTablePlotSurface === "function") {
       core.configureTablePlotSurface();
     }
+    if (core.mountPersonalViews) core.mountPersonalViews();
   }
 
   function destroyMountedTable() {
+    if (core.capturePersonalBeforeRemount) core.capturePersonalBeforeRemount();
     const table = state.tabulatorInstance;
     state.tabulatorInstance = null;
     state.tableAppliedGrouping = undefined;
@@ -1757,6 +1768,33 @@
     return exportCompletePublishedTable();
   }
 
+  core.extractTablePresentation = function () {
+    const ui = getTableUiState();
+    return {
+      search: ui.searchQuery || "",
+      filters: getCompleteFilters().map(f => ({field:f.field, op:f.op, value:f.value, valueTo:f.valueTo})),
+      sort: currentSorters(state.tabulatorInstance).map(s => ({field:s.column, dir:s.dir})),
+      group: ui.groupBy || "", columns: state.tabulatorInstance.getColumns().map(c => c.getField()).filter(Boolean), hidden: getHiddenColumns().slice()
+    };
+  };
+  core.applyTablePresentation = function (p) {
+    state.tableUiState = Object.assign(defaultTableUiState(), {
+      searchQuery:p.search, filters:p.filters.map(normalizeFilter), groupBy:p.group || null,
+      hiddenColumns:p.hidden.slice(), filtersOpen:!!p.filters.length
+    });
+    const table = state.tabulatorInstance;
+    const defs = buildColumnDefs(state.tableFields);
+    const ordered = p.columns.map(field => defs.find(d => d.field === field)).filter(Boolean);
+    defs.forEach(d => { if (!ordered.includes(d)) ordered.push(d); });
+    return Promise.resolve(table.setColumns(ordered)).then(function () {
+      if (state.tabulatorInstance !== table) return;
+      table.setSort(p.sort.map(s => ({column:s.field,dir:s.dir})));
+      const search = document.getElementById("table-search-input");
+      if (search) search.value = p.search;
+      renderGroupingControl(); renderFilterRows(); renderColumnsList(); renderActiveFilters();
+      syncFilterPanelUi(); applyColumnVisibilityState(); applyTableGrouping(); applyAllTableFilters({immediatePlot:true});
+    });
+  };
   core.loadTable = loadTable;
   core.exportTable = exportTable;
   core.exportFilteredRichTable = exportFilteredRichTable;
