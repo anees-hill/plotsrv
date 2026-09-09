@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 
-from . import config, store
+from . import config
 from .storage.backend import load_snapshot
 
 
@@ -37,61 +36,27 @@ def _snapshot_summary_dict(
     }
 
 
-def _parse_iso_datetime(value: Any) -> datetime | None:
-    if not isinstance(value, str) or not value.strip():
-        return None
-
-    try:
-        dt = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=UTC)
-
-    return dt.astimezone(UTC)
-
-
 def _latest_snapshot_is_live_equivalent(*, view_id: str, snap: Any) -> bool:
-    """
-    Best-effort check that the newest snapshot represents current live state.
-
-    A snapshot written as part of the current publish is normally created at or
-    just after the store last_updated timestamp. If the live view has updated
-    since the latest snapshot, last_updated will be later and this returns false.
-    """
-    status = store.get_status(view_id=view_id)
-    last_updated = _parse_iso_datetime(status.get("last_updated"))
-    snap_created = _parse_iso_datetime(getattr(snap, "created_at", None))
-
-    if last_updated is None or snap_created is None:
-        return False
-
-    if snap_created < last_updated:
-        return False
-
-    live_kind = store.get_kind(view_id)
-    snap_kind = str(getattr(snap, "kind", "") or "").strip().lower()
-
-    if live_kind == "artifact":
-        try:
-            art = store.get_artifact(view_id=view_id)
-            return str(art.kind).strip().lower() == snap_kind
-        except LookupError:
-            return False
-
-    return live_kind == snap_kind
+    # Stored metadata has no durable identity tying it to a live revision.
+    # Timestamps (including equal timestamps) cannot prove equal content.
+    return False
 
 
 def _load_snapshot_or_404(*, view_id: str, snapshot_id: str):
+    from .storage.navigation import valid_snapshot_id
+
+    if not valid_snapshot_id(snapshot_id):
+        raise HTTPException(status_code=404, detail="Snapshot unavailable")
     try:
         return load_snapshot(
             root_dir=_storage_root(),
             view_id=view_id,
             snapshot_id=snapshot_id,
         )
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+    except (LookupError, OSError, ValueError, TypeError) as e:
+        raise HTTPException(
+            status_code=404, detail="Snapshot unavailable or unreadable"
+        ) from e
 
 
 def _render_plot_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, Any]:

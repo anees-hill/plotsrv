@@ -753,6 +753,59 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
     return s
 
 
+@app.get("/history/navigation")
+def get_history_navigation(
+    request: Request,
+    view: str | None = None,
+    selected: str | None = None,
+    before: str | None = None,
+    limit: int = 50,
+    start: str | None = None,
+    end: str | None = None,
+) -> dict[str, Any]:
+    from .storage.navigation import NavigationUnavailable, navigation_page
+
+    if config.get_history_local_only():
+        require_local_request(request)
+    vid = view or store.get_active_view_id()
+    capability = _snapshot_capability(vid)
+    if not capability["enabled"]:
+        return {
+            "view_id": vid,
+            "capability": capability,
+            "result": "unavailable",
+            "snapshots": [],
+            "count": 0,
+            "older": None,
+            "newer": None,
+        }
+    try:
+        page = navigation_page(
+            root_dir=_storage_root(),
+            view_id=vid,
+            selected=selected,
+            before=before,
+            limit=limit,
+            start=start,
+            end=end,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400, detail="Invalid snapshot navigation query"
+        ) from exc
+    except (NavigationUnavailable, OSError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Snapshot metadata navigation is unavailable or exceeds its read budget.",
+        ) from exc
+    return {
+        **page,
+        "view_id": vid,
+        "capability": capability,
+        "result": "available" if page["count"] else "empty",
+    }
+
+
 @app.get("/history")
 def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
     if config.get_history_local_only():

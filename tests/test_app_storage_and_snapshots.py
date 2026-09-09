@@ -100,7 +100,7 @@ def test_history_marks_latest_snapshot(client: TestClient, tmp_path: Path) -> No
     assert data["snapshots"][0]["is_latest"] is True
 
 
-def test_history_marks_latest_snapshot_live_equivalent_when_current(
+def test_history_does_not_infer_equivalence_from_creation_time(
     client: TestClient,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -122,7 +122,7 @@ def test_history_marks_latest_snapshot_live_equivalent_when_current(
         view_id="ops:log",
     )
 
-    # Ensure snapshot appears at/after live update for this cheap equivalence check.
+    # Even apparently matching contents/timestamps lack durable revision proof.
     monkeypatch.setattr(
         app_mod.store,
         "get_status",
@@ -138,7 +138,7 @@ def test_history_marks_latest_snapshot_live_equivalent_when_current(
 
     data = r.json()
     assert data["snapshots"][0]["is_latest"] is True
-    assert data["snapshots"][0]["is_live_equivalent"] is True
+    assert data["snapshots"][0]["is_live_equivalent"] is False
 
 
 def test_history_does_not_mark_old_snapshot_live_equivalent(

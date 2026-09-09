@@ -134,7 +134,16 @@ def list_snapshots(*, root_dir: Path, view_id: str) -> list[SnapshotMeta]:
         except Exception:
             continue
 
-    out.sort(key=lambda x: x.snapshot_id, reverse=True)
+    def order(meta: SnapshotMeta) -> tuple[datetime, str]:
+        try:
+            created = datetime.fromisoformat(meta.created_at)
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            return created.astimezone(timezone.utc), meta.snapshot_id
+        except (TypeError, ValueError):
+            return datetime.min.replace(tzinfo=timezone.utc), meta.snapshot_id
+
+    out.sort(key=order, reverse=True)
     return out
 
 
@@ -150,6 +159,8 @@ def load_snapshot(*, root_dir: Path, view_id: str, snapshot_id: str) -> LoadedSn
     if not isinstance(raw, dict):
         raise LookupError(f"Snapshot metadata invalid: {snapshot_id}")
 
+    if raw.get("view_id") != view_id or raw.get("snapshot_id") != snapshot_id:
+        raise LookupError("Snapshot identity does not match the requested view")
     meta = _meta_from_dict(raw)
     payload_path = Path(meta.path_payload)
 
