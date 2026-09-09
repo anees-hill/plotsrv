@@ -32,7 +32,9 @@ def _drain(engine):
         assert engine.finish(work.token)
     # Isolate admitted-call cost without sleeping or including cadence in timing.
     engine._views.clear()
-    engine._next_process = 0.0
+    engine._waiting.clear()
+    engine._yielded.clear()
+    engine._tokens = float(engine._burst)
 
 
 @pytest.mark.parametrize(
@@ -106,10 +108,10 @@ def test_full_mailbox_memory_report():
     gc.collect()
     tracemalloc.start()
     for index in range(engine.budget.max_pending):
-        engine._next_process = 0.0
+        engine._tokens = float(engine._burst)
         assert engine.submit(str(index), source) == "accepted"
     retained, peak = tracemalloc.get_traced_memory()
-    engine._next_process = 0.0
+    engine._tokens = float(engine._burst)
     assert engine.submit("overflow", source) == "overloaded"
     assert engine.stats()["reserved"] == engine.budget.max_pending
     while (work := engine.take()) is not None:

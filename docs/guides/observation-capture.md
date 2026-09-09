@@ -42,7 +42,11 @@ mailbox directly, without putting source objects into the existing publish queue
 its reservation remains until then. In-flight leases remain charged until the
 consumer acknowledges them. `reopen()` succeeds only after all reservations have
 been released, so restart cannot overlap an abandoned capture. Close performs no
-blocking drain. There is no autonomous worker or retry loop in this foundation.
+blocking drain. If close encounters a busy lock, its holder releases queued
+payloads on exit; cleanup needs no later submission or idle polling. After a fork,
+`get_capture_engine()` creates a fresh process-local engine and lock; direct
+inherited engines reject work with `forked_instance`.
+There is no autonomous worker or retry loop in this foundation.
 
 ## Default budgets
 
@@ -73,7 +77,7 @@ publish-settings:
 | Additional exploratory positions per sequence/column (`exploratory_rows`) | 4 | 0–16 |
 | Dimensions / pandas blocks / Polars chunks | 8 / 32 / 8 | 1–8 / 1–32 / 1–8 |
 | Soft capture deadline (`capture_ms`) | 10 ms | 0.1–50 ms |
-| Minimum process / view interval | 0.25 s / 1 s | 0.001–3,600 s / 0.01–3,600 s |
+| Average process / minimum view interval | 0.25 s / 1 s | 0.001–3,600 s / 0.01–3,600 s |
 | Reservations (`max_pending`) | 8 | 1–32 |
 | Reserved output bytes (`max_pending_bytes`) | 512 KiB | 4 KiB–4 MiB |
 | Remembered view identities (`max_view_ids`) | 128 | 1–256 |
@@ -86,11 +90,19 @@ the same aggregate allowance. Categories are bounded per table column, or across
 a builtin object/array. Fields and depth also bound traversal overhead.
 
 Booleans, infinities, unknown keys and out-of-range numbers are invalid settings.
-The internal budget constructor raises a fixed configuration error; the config
-getter uses the complete conservative default budget if the settings are invalid,
-without logging their contents. Output reservations must fit at least one maximum
+Validation raises a configuration error during setup without echoing values;
+it never replaces stricter valid limits with larger defaults when another
+setting is invalid. Output reservations must fit at least one maximum
 envelope. An identity whose cadence has not expired is not evicted to admit a
 new identity; many different IDs cannot bypass the process cadence or grow a cache.
+
+Process cadence uses a token bucket: at most four captures can start together
+(fewer if queue count/byte limits require it), refilling at one token per
+`process_interval_s`. Waiting view IDs get bounded retry priority so a stable
+call order cannot always select only the first view. A caller yields once to an
+absent waiter before using an available token; an inactive view cannot permanently
+block active views. There are no queued sources or timer-driven retries. View
+cadence still enforces a minimum gap for each accepted identity.
 
 The capture byte charge is a conservative allowance for working evidence, not an
 allocator or whole-process RSS limit. String prefixes are sliced before encoding;

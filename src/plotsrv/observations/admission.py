@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+import os
 import threading
 import time
 
@@ -15,93 +16,143 @@ class _Reservation:
     token: int
     view_id: str
     state: str = "capturing"
-    cancelled: bool = False
 
 
 class CaptureEngine:
-    """Reserve downstream count/bytes before looking at the source.
+    """Reserve count/bytes before inspection, including in-flight work.
 
-    Reservations include capture, pending and in-flight work. The future worker
-    must finish its lease after summary/delivery, not merely when dequeuing it.
-    The publisher hot path never waits for this lock. Contended cancellation
-    is reaped at the next operation; it holds only a tiny reservation, no source.
-    One engine (get_capture_engine) owns the process-wide budget.
+    The hot path never waits on a lock. Close requests are also checked when
+    every lock owner exits, so abandoned bytes do not require another submit.
+    Use get_capture_engine() for the single process-local instance; inherited
+    direct instances reject work after fork rather than touching orphaned locks.
     """
 
     def __init__(self, budget: ObservationBudget = ObservationBudget()):
         if type(budget) is not ObservationBudget:
             raise ValueError("invalid observation budget")
-        # Initialize adapters here, outside the per-call capture boundary.
-        from . import adapters  # noqa: F401
+        from . import adapters  # noqa: F401 -- initialization, not the hot path
 
         self.budget = budget
+        self._pid = os.getpid()
         self._lock = threading.Lock()
         self._reservations: dict[int, _Reservation] = {}
         self._pending: OrderedDict[int, ObservationWork] = OrderedDict()
         self._views: OrderedDict[str, float] = OrderedDict()
-        self._next_process = 0.0
+        # Only IDs, never sources. FIFO retry priority prevents stable call order
+        # from starving later views. A caller yields once to an absent head, then
+        # may use spare tokens; an inactive view cannot block a live one forever.
+        self._waiting: OrderedDict[str, None] = OrderedDict()
+        self._yielded: set[str] = set()
+        self._burst = min(
+            4, budget.max_pending, budget.max_pending_bytes // budget.max_output_bytes
+        )
+        self._tokens = float(self._burst)
+        self._refilled_at = time.monotonic()
         self._next_token = 0
         self._closed = False
 
     def _reap(self) -> None:
+        if self._closed:
+            # Release payloads even if later bookkeeping allocation fails.
+            self._pending.clear()
         for token, reservation in tuple(self._reservations.items()):
             if reservation.state == "cancelled" or (
                 self._closed and reservation.state == "pending"
             ):
                 self._pending.pop(token, None)
                 del self._reservations[token]
+        if self._closed:
+            self._waiting.clear()
+            self._yielded.clear()
+
+    def _release(self) -> None:
+        self._lock.release()
+        # Check AFTER release: close either acquires the free lock itself, or
+        # its flag is seen by this owner (or the next contending owner) on exit.
+        if self._closed and self._lock.acquire(blocking=False):
+            try:
+                self._reap()
+            except Exception:
+                pass  # Best effort even under allocation failure.
+            finally:
+                self._lock.release()
+
+    def _admit_cadence(self, view_id: str, now: float) -> bool:
+        self._tokens = min(
+            self._burst,
+            self._tokens
+            + max(0.0, now - self._refilled_at) / self.budget.process_interval_s,
+        )
+        self._refilled_at = now
+        if self._tokens < 1:
+            self._waiting.setdefault(view_id, None)
+            return False
+        if self._waiting:
+            head = next(iter(self._waiting))
+            if view_id != head and view_id not in self._yielded:
+                self._waiting.setdefault(view_id, None)
+                self._yielded.add(view_id)
+                return False
+            if view_id == head:
+                self._yielded.clear()
+        self._waiting.pop(view_id, None)
+        self._yielded.discard(view_id)
+        self._tokens -= 1
+        return True
 
     def submit(
         self, view_id: str, source: object, options: CaptureOptions = CaptureOptions()
     ) -> str:
-        """Return a fixed outcome code; failed admission never inspects source."""
-        if (
-            type(view_id) is not str
-            or not 0 < len(view_id) <= 512
-            or any(0xD800 <= ord(c) <= 0xDFFF for c in view_id)
-        ):
-            return "invalid_identity"
-        if type(options) is not CaptureOptions:
-            return "invalid_options"
-        if not self._lock.acquire(blocking=False):
-            return "busy"
         reservation = None
         try:
-            self._reap()
-            if self._closed:
-                return "closed"
-            now = time.monotonic()
-            if now < self._next_process:
-                return "process_cadence"
-            if now < self._views.get(view_id, 0.0):
-                return "view_cadence"
-            if any(r.state == "capturing" for r in self._reservations.values()):
-                return "capture_busy"
-            if any(r.view_id == view_id for r in self._reservations.values()):
-                return "view_pending"
+            if self._pid != os.getpid():
+                return "forked_instance"
             if (
-                len(self._reservations) >= self.budget.max_pending
-                or (len(self._reservations) + 1) * self.budget.max_output_bytes
-                > self.budget.max_pending_bytes
+                type(view_id) is not str
+                or not 0 < len(view_id) <= 512
+                or any(0xD800 <= ord(c) <= 0xDFFF for c in view_id)
             ):
-                return "overloaded"
-            if (
-                view_id not in self._views
-                and len(self._views) >= self.budget.max_view_ids
-            ):
-                oldest, expiry = next(iter(self._views.items()))
-                if now < expiry:
-                    return "identity_capacity"
-                del self._views[oldest]
-            self._next_token = (self._next_token + 1) % (2**63)
-            reservation = _Reservation(self._next_token, view_id)
-            self._reservations[reservation.token] = reservation
-            self._next_process = now + self.budget.process_interval_s
-            self._views.pop(view_id, None)
-            self._views[view_id] = now + self.budget.view_interval_s
-        finally:
-            self._lock.release()
-        try:
+                return "invalid_identity"
+            if type(options) is not CaptureOptions:
+                return "invalid_options"
+            if not self._lock.acquire(blocking=False):
+                return "busy"
+            try:
+                self._reap()
+                if self._closed:
+                    return "closed"
+                now = time.monotonic()
+                if now < self._views.get(view_id, 0.0):
+                    return "view_cadence"
+                if any(r.state == "capturing" for r in self._reservations.values()):
+                    return "capture_busy"
+                if any(r.view_id == view_id for r in self._reservations.values()):
+                    return "view_pending"
+                if (
+                    len(self._reservations) >= self.budget.max_pending
+                    or (len(self._reservations) + 1) * self.budget.max_output_bytes
+                    > self.budget.max_pending_bytes
+                ):
+                    return "overloaded"
+                if view_id not in self._views:
+                    if len(self._views) >= self.budget.max_view_ids:
+                        oldest, expiry = next(iter(self._views.items()))
+                        if now < expiry:
+                            return "identity_capacity"
+                        del self._views[oldest]
+                        self._waiting.pop(oldest, None)
+                        self._yielded.discard(oldest)
+                    self._views[view_id] = 0.0
+                if not self._admit_cadence(view_id, now):
+                    return "process_cadence"
+                self._next_token = (self._next_token + 1) % (2**63)
+                reservation = _Reservation(self._next_token, view_id)
+                self._reservations[reservation.token] = reservation
+                self._views.move_to_end(view_id)
+                self._views[view_id] = now + self.budget.view_interval_s
+            finally:
+                self._release()
+
             from .capture import capture_detached
 
             envelope = capture_detached(
@@ -110,29 +161,31 @@ class CaptureEngine:
             if not self._lock.acquire(blocking=False):
                 return "busy"
             try:
-                if self._closed or reservation.cancelled:
+                if self._closed:
                     return "closed"
+                # Change state only after both allocations succeed. Any failure
+                # leaves a capturing reservation for the finally rollback.
+                work = ObservationWork(reservation.token, view_id, envelope)
+                self._pending[reservation.token] = work
                 reservation.state = "pending"
-                self._pending[reservation.token] = ObservationWork(
-                    reservation.token, view_id, envelope
-                )
                 return "accepted"
             finally:
-                self._lock.release()
+                self._release()
         except Exception:
             return "capture_failed"
         finally:
-            if reservation.state == "capturing":
-                reservation.cancelled = True
+            if reservation is not None and reservation.state == "capturing":
                 reservation.state = "cancelled"
                 if self._lock.acquire(blocking=False):
                     try:
                         self._reap()
+                    except Exception:
+                        pass
                     finally:
-                        self._lock.release()
+                        self._release()
 
     def take(self) -> ObservationWork | None:
-        if not self._lock.acquire(blocking=False):
+        if self._pid != os.getpid() or not self._lock.acquire(blocking=False):
             return None
         try:
             self._reap()
@@ -142,10 +195,14 @@ class CaptureEngine:
             self._reservations[token].state = "in_flight"
             return work
         finally:
-            self._lock.release()
+            self._release()
 
     def finish(self, token: int) -> bool:
-        if type(token) is not int or not self._lock.acquire(blocking=False):
+        if (
+            self._pid != os.getpid()
+            or type(token) is not int
+            or not self._lock.acquire(blocking=False)
+        ):
             return False
         try:
             self._reap()
@@ -155,22 +212,21 @@ class CaptureEngine:
             del self._reservations[token]
             return True
         finally:
-            self._lock.release()
+            self._release()
 
     def close(self) -> None:
+        if self._pid != os.getpid():
+            return
         self._closed = True
         if not self._lock.acquire(blocking=False):
             return
         try:
-            for reservation in self._reservations.values():
-                if reservation.state != "in_flight":
-                    reservation.cancelled = True
             self._reap()
         finally:
-            self._lock.release()
+            self._release()
 
     def reopen(self) -> bool:
-        if not self._lock.acquire(blocking=False):
+        if self._pid != os.getpid() or not self._lock.acquire(blocking=False):
             return False
         try:
             self._reap()
@@ -179,10 +235,13 @@ class CaptureEngine:
             self._closed = False
             return True
         finally:
-            self._lock.release()
+            self._release()
 
     def stats(self) -> dict:
-        with self._lock:
+        if self._pid != os.getpid():
+            return {"closed": True, "reason": "forked_instance"}
+        self._lock.acquire()
+        try:
             self._reap()
             return {
                 "pending": len(self._pending),
@@ -190,12 +249,25 @@ class CaptureEngine:
                 "reserved_bytes": len(self._reservations)
                 * self.budget.max_output_bytes,
                 "view_ids": len(self._views),
+                "waiting_ids": len(self._waiting),
                 "closed": self._closed,
             }
+        finally:
+            self._release()
 
 
 _ENGINE: CaptureEngine | None = None
 _ENGINE_LOCK = threading.Lock()
+
+
+def _after_fork() -> None:
+    global _ENGINE, _ENGINE_LOCK
+    _ENGINE = None
+    _ENGINE_LOCK = threading.Lock()
+
+
+if hasattr(os, "register_at_fork"):
+    os.register_at_fork(after_in_child=_after_fork)
 
 
 def get_capture_engine() -> CaptureEngine:

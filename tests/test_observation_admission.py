@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import gc
+import os
+import subprocess
+import sys
 import threading
 import weakref
 from dataclasses import replace
@@ -25,6 +28,7 @@ def clock(monkeypatch):
         dict(max_rows=True),
         dict(max_fields=100000),
         dict(capture_ms=float("nan")),
+        dict(capture_ms=10**1000),
         dict(process_interval_s=0),
         dict(max_output_bytes=65536, max_pending_bytes=4096),
         dict(max_depth=-1),
@@ -66,9 +70,14 @@ def test_config_validates_without_echoing_input(monkeypatch, caplog):
     )
     assert config.get_observation_budget().max_rows == 8
     monkeypatch.setattr(
-        config, "_merged_section", lambda section: {"observe": {"token": "SECRET"}}
+        config,
+        "_merged_section",
+        lambda section: {"observe": {"max_rows": 1, "token": "SECRET"}},
     )
-    assert config.get_observation_budget() == ObservationBudget()
+    with pytest.raises(
+        ValueError, match="^invalid publish-settings.observe configuration$"
+    ):
+        config.get_observation_budget()
     assert "SECRET" not in caplog.text
 
 
@@ -109,7 +118,9 @@ def test_byte_reservation_caps_queue_independently(clock):
 
 def test_process_view_cadence_and_bounded_identity_catalogue(clock):
     engine = CaptureEngine(
-        replace(ObservationBudget(), max_view_ids=2, process_interval_s=0.05)
+        replace(
+            ObservationBudget(), max_pending=1, max_view_ids=2, process_interval_s=0.05
+        )
     )
     assert engine.submit("a", 1) == "accepted"
     work = engine.take()
@@ -261,3 +272,142 @@ def test_singleton_does_not_reparse_config_per_call(monkeypatch):
     monkeypatch.setattr(config, "get_observation_budget", budget)
     assert admission.get_capture_engine() is admission.get_capture_engine()
     assert calls == [1]
+
+
+@pytest.mark.parametrize("allocation", ["work", "pending", "cadence"])
+def test_allocation_failure_rolls_back_reservation(clock, monkeypatch, allocation):
+    from collections import OrderedDict
+
+    engine = CaptureEngine()
+
+    class FailingInsertion(OrderedDict):
+        def __setitem__(self, key, value):
+            super().__setitem__(key, value)
+            raise MemoryError("sensitive failure details")
+
+    def failed(*args, **kwargs):
+        raise MemoryError("sensitive failure details")
+
+    with monkeypatch.context() as patch:
+        if allocation == "work":
+            patch.setattr(admission, "ObservationWork", failed)
+        elif allocation == "pending":
+            patch.setattr(engine, "_pending", FailingInsertion())
+        else:
+            patch.setattr(engine, "_views", FailingInsertion())
+        assert engine.submit("a", 1) == "capture_failed"
+        assert not engine._pending
+        assert not engine._reservations
+    clock[0] += 2
+    assert engine.submit("a", 1) == "accepted"
+
+
+@pytest.mark.parametrize("operation", ["stats", "queue_commit"])
+def test_contended_close_releases_payload_without_another_call(
+    clock, monkeypatch, operation
+):
+    engine = CaptureEngine()
+    assert engine.submit("existing", 1) == "accepted"
+    entered, release = threading.Event(), threading.Event()
+    if operation == "stats":
+        real = engine._reap
+
+        def paused():
+            entered.set()
+            assert release.wait(2)
+            return real()
+
+        monkeypatch.setattr(engine, "_reap", paused)
+        target = engine.stats
+    else:
+        real = admission.ObservationWork
+
+        def paused(*args):
+            entered.set()
+            assert release.wait(2)
+            return real(*args)
+
+        monkeypatch.setattr(admission, "ObservationWork", paused)
+        target = lambda: engine.submit("new", 2)
+    thread = threading.Thread(target=target)
+    thread.start()
+    try:
+        assert entered.wait(2)
+        engine.close()
+        assert thread.is_alive()  # close did not wait for the holder
+    finally:
+        release.set()
+        thread.join(2)
+    assert not thread.is_alive()
+    # Inspect raw containers: no later API call gets a chance to reap them.
+    assert not engine._pending
+    assert not engine._reservations
+
+
+@pytest.mark.parametrize("count", [3, 9])
+def test_fixed_order_views_share_bounded_process_cadence(clock, count):
+    engine = CaptureEngine()
+    accepted = [0] * count
+    for _ in range(30):
+        for index in range(count):
+            if engine.submit(str(index), index) == "accepted":
+                accepted[index] += 1
+                work = engine.take()
+                assert engine.finish(work.token)
+        clock[0] += 1
+    assert min(accepted) >= (30 if count == 3 else 5)
+    assert sum(accepted) <= engine._burst + 29 / engine.budget.process_interval_s
+
+
+def test_absent_waiter_cannot_permanently_block_an_active_view(clock):
+    engine = CaptureEngine(replace(ObservationBudget(), max_pending=1))
+    assert engine.submit("first", 1) == "accepted"
+    work = engine.take()
+    assert engine.finish(work.token)
+    assert engine.submit("absent", 1) == "process_cadence"
+    clock[0] += 2
+    assert engine.submit("active", 1) == "process_cadence"
+    assert engine.submit("active", 1) == "accepted"
+
+
+def test_many_rejected_identities_do_not_grow_cadence_state(clock):
+    engine = CaptureEngine()
+    for index in range(10000):
+        engine.submit(str(index).zfill(512), object())
+        if (work := engine.take()) is not None:
+            assert engine.finish(work.token)
+    assert len(engine._views) <= engine.budget.max_view_ids
+    assert set(engine._waiting).issubset(engine._views)
+    assert engine._yielded.issubset(engine._views)
+
+
+@pytest.mark.skipif(not hasattr(os, "fork"), reason="requires fork")
+def test_fork_replaces_singleton_and_rejects_inherited_locked_engine():
+    # Isolate fork from pytest's own threads/plugins. Both inherited locks are
+    # held at fork; the child must neither acquire nor wait on either of them.
+    script = """
+import os, signal
+from plotsrv.observations import admission
+engine = admission.get_capture_engine()
+assert engine.submit("pending", 1) == "accepted"
+admission._ENGINE_LOCK.acquire()
+engine._lock.acquire()
+pid = os.fork()
+if pid == 0:
+    signal.alarm(3)
+    try:
+        fresh = admission.get_capture_engine()
+        assert fresh is not engine
+        assert fresh.submit("child", 1) == "accepted"
+        assert engine.submit("inherited", 1) == "forked_instance"
+        assert engine.take() is None
+        assert engine.stats()["reason"] == "forked_instance"
+    except BaseException:
+        os._exit(1)
+    os._exit(0)
+engine._lock.release()
+admission._ENGINE_LOCK.release()
+assert os.waitpid(pid, 0)[1] == 0
+assert engine.stats()["pending"] == 1
+"""
+    subprocess.run([sys.executable, "-c", script], check=True, timeout=10)

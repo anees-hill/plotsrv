@@ -61,8 +61,8 @@ class ObservationBudget:
             value = getattr(self, name)
             if (
                 type(value) not in (int, float)
-                or not math.isfinite(value)
                 or not low <= value <= high
+                or not math.isfinite(value)
             ):
                 raise ValueError(f"{name} is outside its finite safety bounds")
         if self.max_output_bytes > self.max_pending_bytes:

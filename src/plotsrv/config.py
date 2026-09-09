@@ -1100,7 +1100,7 @@ def _publish_live_settings() -> dict[str, Any]:
 
 
 def get_observation_budget():
-    """Validated internal capture limits; invalid settings fail closed to defaults.
+    """Validate internal capture limits before the observation engine starts.
 
     Loaded only on explicit capture-engine initialization, never on ordinary
     publication or in the synchronous per-observation admission path.
@@ -1110,8 +1110,8 @@ def get_observation_budget():
     raw = _merged_section("publish-settings").get("observe", {})
     try:
         return ObservationBudget.from_mapping(raw)
-    except (TypeError, ValueError):
-        return ObservationBudget()
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("invalid publish-settings.observe configuration") from None
 
 
 def get_publish_async_enabled() -> bool:
