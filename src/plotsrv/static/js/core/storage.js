@@ -38,8 +38,9 @@
   core.savePref = function (key, value) {
     try {
       localStorage.setItem(key, String(value));
+      return true;
     } catch (e) {
-      // ignore
+      return false
     }
   };
 
