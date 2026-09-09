@@ -131,7 +131,12 @@ def _column_label(c, index, position, pd, np):
     return _array_value(c, index._data, position, np, category=False)
 
 
-def _block_column(c, block, position, np):
+def _block_column(c, block, position, np, width):
+    # indexer, len(placement), and is_slice_like can all scan the full
+    # placement array. Width must bound that scan before accessing any of them.
+    if width > c.b.max_fields:
+        c.reason("placement_budget")
+        return None
     placement = block.mgr_locs
     if type(placement) is not _class("pandas._libs.internals", "BlockPlacement"):
         return None
@@ -151,6 +156,20 @@ def _block_column(c, block, position, np):
             c.charge(reads=1)
             if int(indexer[i]) == position:
                 return i
+    return None
+
+
+def _existing_column_maps(manager, width, np):
+    maps = manager._blknos, manager._blklocs
+    if all(
+        _safe_array(array, np)
+        and array.ndim == 1
+        and len(array) == width
+        and array.dtype.kind in "iu"
+        and array.dtype.itemsize <= 8
+        for array in maps
+    ):
+        return maps
     return None
 
 
@@ -226,6 +245,7 @@ def capture_pandas(c, source, document, np, pd):
         c.reason("unsupported_pandas_block")
         return
     storage_ids = tuple(id(block.values) for block in blocks)
+    column_maps = _existing_column_maps(manager, width, np)
     selected = list(range(min(width, c.b.max_fields)))
     if c.options.fields and all(type(x) is int for x in c.options.fields):
         selected = [x for x in c.options.fields[: c.b.max_fields] if x < width]
@@ -249,11 +269,18 @@ def capture_pandas(c, source, document, np, pd):
             field = {"position": position, "label": label}
             document["metadata"]["fields"].append(field)
             reader = None
-            for block in blocks:
-                local = _block_column(c, block, position, np)
-                if local is not None:
-                    reader = _pandas_reader(c, block, local, np)
-                    break
+            if column_maps is not None:
+                c.charge(reads=2)
+                block_index = int(column_maps[0][position])
+                local = int(column_maps[1][position])
+                if 0 <= block_index < len(blocks) and local >= 0:
+                    reader = _pandas_reader(c, blocks[block_index], local, np)
+            else:
+                for block in blocks:
+                    local = _block_column(c, block, position, np, width)
+                    if local is not None:
+                        reader = _pandas_reader(c, block, local, np)
+                        break
             if reader is None:
                 field["reason"] = "unsupported_column_storage"
                 c.reason("unsupported_column_storage")
@@ -284,83 +311,8 @@ def capture_pandas(c, source, document, np, pd):
 
 
 def capture_polars(c, source, document, pl):
+    # PyDataFrame.to_series can materialize/cache an entire ScalarColumn.
+    # Even height/width acquire native locks. Until a bounded, nonblocking
+    # storage interface exists, never touch native state or typed getters.
     document["source_type"] = "polars.DataFrame"
-    native = source._df
-    if type(native) is not _class("polars._plr", "PyDataFrame"):
-        c.reason("unsupported_polars_storage")
-        return
-    height, width = source.height, source.width
-    document["metadata"] = {
-        "shape": [height, width],
-        "fields": [],
-        "labels": "positional",
-    }
-    if any(type(x) is str for x in c.options.fields):
-        c.reason("polars_requires_positional_fields")
-        return
-    selected = (
-        list(c.options.fields[: c.b.max_fields])
-        if c.options.fields
-        else list(range(min(width, c.b.max_fields)))
-    )
-    if width > len(selected):
-        c.reason("field_budget")
-    try:
-        for position in selected:
-            c.categories.clear()
-            if position >= width:
-                continue
-            c.charge(size=1024)
-            series = source.to_series(position)._s
-            if (
-                type(series) is not _class("polars._plr", "PySeries")
-                or series.n_chunks() > c.b.max_chunks
-            ):
-                c.reason("chunk_budget")
-                continue
-            document["metadata"]["fields"].append({"position": position})
-            # These native typed getters return None for a type mismatch. They do
-            # not construct Python strings/lists/schema or invoke Object callbacks.
-            # A reader is selected only after a non-null numeric value is found.
-            chosen = None
-
-            def read(row):
-                nonlocal chosen
-                if chosen is not None:
-                    c.charge(reads=1)
-                    return c.value(chosen(row))
-                for name in (
-                    "get_i64",
-                    "get_f64",
-                    "get_i32",
-                    "get_f32",
-                    "get_u64",
-                    "get_u32",
-                    "get_i16",
-                    "get_u16",
-                    "get_i8",
-                    "get_u8",
-                ):
-                    c.charge(reads=1)
-                    getter = getattr(series, name)
-                    value = getter(row)
-                    if value is not None:
-                        chosen = getter
-                        return c.value(value)
-                c.charge(nodes=1, size=768)
-                c.reason("polars_missing_or_unsupported")
-                return {"type": "missing_or_unsupported"}
-
-            samples = {"base_sample": [], "exploratory": []}
-            document["base_sample"].append(
-                {"field": position, "samples": samples["base_sample"]}
-            )
-            document["exploratory"].append(
-                {"field": position, "samples": samples["exploratory"]}
-            )
-            _sample(c, height, read, samples)
-    finally:
-        if source._df is not native or source.height != height or source.width != width:
-            c.reason("concurrent_mutation")
-            document["base_sample"] = []
-            document["exploratory"] = []
+    c.reason("polars_capture_unavailable")

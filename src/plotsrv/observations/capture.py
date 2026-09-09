@@ -91,6 +91,21 @@ class Capture:
             "encoding_replaced": replaced,
         }
 
+    def mapping_entries(self, value: dict):
+        # len(dict) says nothing about deleted slots. On CPython __sizeof__ is
+        # constant-time and accounts for the backing table. Charge its entire
+        # possible scan before constructing/advancing an iterator, including
+        # nested dictionaries and selected paths. Do not introspect other VMs.
+        if sys.implementation.name != "cpython":
+            self.reason("unsupported_mapping_storage")
+            raise _Limit
+        storage = dict.__sizeof__(value)
+        if storage > self.b.max_capture_bytes - self.charged_bytes:
+            self.reason("mapping_storage_budget")
+            raise _Limit
+        self.charge(size=storage)
+        return iter(value.items())
+
     def value(self, value: object, depth: int = 0, *, category: bool = True) -> dict:
         self.charge(nodes=1, size=768)
         kind = type(value)
@@ -172,7 +187,7 @@ class Capture:
             if kind is dict:
                 if initial > self.b.max_fields:
                     self.reason("field_budget")
-                entries = iter(value.items())
+                entries = self.mapping_entries(value)
                 for _ in range(min(initial, self.b.max_fields)):
                     self.charge(reads=1)
                     key, item = next(entries)
@@ -218,7 +233,7 @@ class Capture:
         for key in self.options.path:
             if type(source) is dict:
                 found = False
-                entries = iter(source.items())
+                entries = self.mapping_entries(source)
                 for _ in range(min(len(source), self.b.max_fields)):
                     self.charge(reads=1)
                     candidate, value = next(entries)

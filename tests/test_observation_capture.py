@@ -200,8 +200,9 @@ def test_wide_pandas_never_builds_column_index_or_full_conversions(monkeypatch):
     monkeypatch.setattr(type(source._mgr), "_rebuild_blknos_and_blklocs", forbidden)
     result = capture(source, options=CaptureOptions(fields=(99999,)))
     assert result["metadata"]["shape"] == [2, 100_000]
-    assert result["base_sample"][0]["field"] == 99999
-    assert result["coverage"]["elements_read"] == 2
+    assert result["base_sample"] == []
+    assert "placement_budget" in result["reasons"]
+    assert result["coverage"]["elements_read"] == 0
     assert source._mgr._blknos is None
 
 
@@ -282,44 +283,25 @@ def test_output_byte_limit_and_no_source_in_errors(monkeypatch, caplog):
     assert "SECRET" not in json.dumps(result) + caplog.text
 
 
-def test_polars_numeric_and_unsafe_cells_are_bounded(monkeypatch):
+def test_polars_capture_is_disabled_without_native_access(monkeypatch):
     pl = pytest.importorskip("polars")
-    source = pl.DataFrame(
-        {"x": [1, 2], "text": ["x" * 1_000_000] * 2, "nested": [[1] * 100000] * 2}
-    )
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("variable-sized conversion")
-
-    for name in ("to_numpy", "to_pandas", "rows", "to_dicts"):
-        monkeypatch.setattr(pl.DataFrame, name, forbidden)
-    for name in ("get_str", "get_list", "get_object", "get_index", "dtype"):
-        monkeypatch.setattr(type(source.to_series()._s), name, forbidden)
-    result = capture(source)
-    assert result["metadata"]["shape"] == [2, 3]
-    assert result["base_sample"][0]["samples"][1]["value"]["value"] == 2
-    assert result["coverage"]["elements_read"] == 42
-    assert "polars_missing_or_unsupported" in result["reasons"]
-    assert len(json.dumps(result)) < 4096
-    assert (
-        "polars_requires_positional_fields"
-        in capture(source, options=CaptureOptions(fields=("x",)))["reasons"]
-    )
-
-
-def test_polars_fragmentation_and_detachment():
-    pl = pytest.importorskip("polars")
-    source = pl.concat([pl.DataFrame({"x": [i]}) for i in range(20)], rechunk=False)
-    result = capture(source)
-    assert result["reasons"] == ["chunk_budget"]
-    assert result["coverage"]["elements_read"] == 0
     source = pl.DataFrame({"x": [1, 2]})
     ref = weakref.ref(source)
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append(1)
+        raise AssertionError("native access")
+
+    monkeypatch.setattr(pl.DataFrame, "height", property(forbidden))
+    monkeypatch.setattr(pl.DataFrame, "width", property(forbidden))
+    monkeypatch.setattr(pl.DataFrame, "to_series", forbidden)
     envelope = capture_detached(source, budget=BUDGET)
+    assert envelope.document()["reasons"] == ["polars_capture_unavailable"]
+    assert calls == []
     del source
     gc.collect()
     assert ref() is None
-    assert envelope.document()["base_sample"][0]["samples"][0]["value"]["value"] == 1
 
 
 def test_elapsed_deadline_is_additional_to_structural_limits(monkeypatch):
@@ -415,7 +397,7 @@ def test_polars_lazy_and_missing_native_getter_fail_closed(monkeypatch):
     assert capture(lazy)["reasons"] == ["unsupported_value"]
     monkeypatch.delattr(type(source.to_series()._s), "get_i64")
     result = capture(source)
-    assert result["reasons"] == ["unsafe_or_changed_source"]
+    assert result["reasons"] == ["polars_capture_unavailable"]
     assert result["base_sample"] == []
 
 
