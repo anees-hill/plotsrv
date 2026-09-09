@@ -17,7 +17,7 @@ def save(page, name="My grouped table"):
     page.click("#table-save-view-btn")
     page.get_by_label("Name", exact=True).fill(name)
     page.get_by_label("Caption", exact=True).fill("A <safe> caption")
-    page.get_by_role("button", name="Save view", exact=True).click()
+    page.get_by_role("dialog").get_by_role("button", name="Save view", exact=True).click()
     page.wait_for_function("PLOTSRV.core.viewSpec.read().items.length > 0")
 
 
@@ -136,7 +136,7 @@ def test_storage_bounds_corruption_quota_and_base_path(personal):
     page.select_option("#table-group-by-select", "pot")
     page.click("#table-save-view-btn")
     page.get_by_label("Name", exact=True).fill("Cannot save")
-    page.get_by_role("button", name="Save view", exact=True).click()
+    page.get_by_role("dialog").get_by_role("button", name="Save view", exact=True).click()
     assert "disabled or full" in page.get_by_role("alert").inner_text()
     assert page.locator("dialog").is_visible()
 
@@ -176,7 +176,9 @@ def test_selector_exact_tabs_empty_state_delete_cancel_and_focus(personal, width
     save(page, "<img src=x onerror=alert(1)>")
     page.locator(".ps-viewselect__btn").click()
     page.get_by_role("tab", name="My views", exact=True).click()
-    assert page.locator("[data-personal-view] img").count() == 0
+    assert page.locator("[data-personal-view] img").count() == 1
+    assert page.locator("[data-personal-view] img").get_attribute("src").endswith("/logo_table.png")
+    assert page.locator("[data-personal-view] .ps-viewselect__itemlabel").inner_text() == "<img src=x onerror=alert(1)>"
     before = page.url
     page.once("dialog", lambda dialog: dialog.dismiss())
     page.locator("[data-personal-delete]").click()

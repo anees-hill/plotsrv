@@ -116,7 +116,7 @@
     try {
       button.disabled =
         state.myViewBlocked || meaningful(capture()) === meaningful(baseline);
-      button.textContent = active ? "Save changes…" : "+ My views";
+      button.textContent = "Save view";
       button.title = button.disabled
         ? "Change table or plot settings to save a presentation"
         : "Save presentation settings on this browser";
@@ -228,7 +228,7 @@
     form.appendChild(title);
     const explanation = document.createElement("p");
     explanation.textContent =
-      "Saves presentation settings for the source’s latest data on this browser only. It does not save data, a historical snapshot or a stream session. Clearing browser storage removes these settings.";
+      "This view is saved only in your browser and is not shared with other dashboard users or sent to the server. Anyone using this browser profile can see it. It saves presentation settings for the source’s latest data. It does not save data, a historical snapshot or a stream session. Clearing browser storage removes these settings.";
     form.appendChild(explanation);
     function field(labelText, value, maximum, required) {
       const label = document.createElement("label");

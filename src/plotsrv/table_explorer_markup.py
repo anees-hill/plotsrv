@@ -270,8 +270,8 @@ def render_table_explorer(
               </button>
 
               <div class="ps-my-view-actions" role="group" aria-label="Presentation settings">
-                <button id="table-save-view-btn" type="button" class="ps-btn" disabled>+ My views</button>
-                <button id="table-reset-btn" type="button" class="ps-btn">Reset changes</button>
+                <button id="table-save-view-btn" type="button" class="ps-btn" disabled>Save view</button>
+                <button id="table-reset-btn" type="button" class="ps-btn">Reset view</button>
               </div>
             </div>
           </div>

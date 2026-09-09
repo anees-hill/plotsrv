@@ -1,10 +1,12 @@
 # My views
 
 My views saves a table or plot presentation on the current browser. It does not
-save data or create a server-side view, account or shared dashboard.
+save data or create a server-side view, account or shared dashboard. Saved views
+are not shared with other dashboard users; anyone using the same browser profile
+can see them.
 
 Change the search, filters, sorting, grouping, columns or plot settings, then
-choose **+ My views** beside **Reset changes**. The save action is disabled until
+choose **Save view** beside **Reset view**. The save action is disabled until
 meaningful settings differ from the presentation you opened. Enter a name and
 an optional caption. This works with rich tables, stream table/plot explorers
 and rectangular JSON tables. Images and other sources without adjustable table
@@ -17,8 +19,8 @@ delete its saved settings, and the selector remains available when the server's
 catalogue is empty.
 
 Opening a saved presentation marks it as active. After editing, choose
-**Save changes…**, then **Update** or **Save as new**. Cancel leaves the saved
-configuration untouched. **Reset changes** restores an active saved presentation;
+**Save view**, then **Update** or **Save as new**. Cancel leaves the saved
+configuration untouched. **Reset view** restores an active saved presentation;
 for ordinary or incompatible presentations it returns to ordinary table/plot
 defaults. Use the small **×** beside a saved entry to delete it. Confirmation
 explains that only this browser's saved configuration is deleted, never data.

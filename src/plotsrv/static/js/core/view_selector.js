@@ -588,8 +588,8 @@
       if (controller.mode === "my") {
         const loaded = core.viewSpec ? core.viewSpec.read() : {items:[], error:null};
         const matching = loaded.items.filter(item => (item.spec.name + " " + item.spec.caption + " " + item.spec.sourceId).toLowerCase().includes(query.toLowerCase()));
-        const known = new Set(controller.catalogue.map(view => view.view_id));
-        if (loaded.error || !matching.length) fragment.appendChild(element("p", "ps-viewselect__empty", loaded.error || (query ? "No matching saved views." : "Change table or plot settings, then choose + My views to save a presentation on this browser. Ordinary sources remain in Grouped and A–Z.")));
+        const known = new Map(controller.catalogue.map(view => [view.view_id, view]));
+        if (loaded.error || !matching.length) fragment.appendChild(element("p", "ps-viewselect__empty", loaded.error || (query ? "No matching saved views." : "Change table or plot settings, then choose Save view to save a presentation on this browser. Ordinary sources remain in Grouped and A–Z.")));
         matching.forEach(item => {
           const row = element("div", "ps-viewselect__entry");
           const open = element("button", "ps-viewselect__item"); open.type = "button";
@@ -598,6 +598,10 @@
           open.setAttribute("data-selected", current ? "true" : "false");
           if (current) open.setAttribute("aria-current", "page");
           open.disabled = !known.has(item.spec.sourceId);
+          const image = element("img", "ps-viewselect__itemicon");
+          image.src = iconUrl(known.get(item.spec.sourceId) || {icon_key: "unknown"});
+          image.alt = "";
+          open.appendChild(image);
           const copy = element("span", "ps-viewselect__itemcopy");
           copy.appendChild(element("span", "ps-viewselect__itemlabel", item.spec.name));
           copy.appendChild(element("span", "ps-viewselect__itemmeta", (known.has(item.spec.sourceId) ? item.spec.caption || item.spec.sourceId : "Source unavailable — " + item.spec.sourceId)));

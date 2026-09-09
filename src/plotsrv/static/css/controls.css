@@ -975,7 +975,7 @@
 .ps-my-view-actions .ps-btn:disabled { opacity: .45; cursor: default; }
 #my-view-notice, #my-view-unavailable { font-size: .85rem; padding: .4rem 0; overflow-wrap: anywhere; }
 #my-view-notice .ps-btn { margin-left: .5rem; }
-.ps-viewselect__item[data-personal-view] { grid-template-columns: minmax(0, 1fr) auto; }
+.ps-viewselect__item[data-personal-view] { grid-template-columns: 24px minmax(0, 1fr) auto; }
 .ps-viewselect__delete { position: absolute; z-index: 2; right: .3rem; top: 50%; transform: translateY(-50%); width: 36px; min-height: 36px; background: transparent; color: inherit; border: 0; font-size: 1.3rem; cursor: pointer; }
 .ps-viewselect__delete:focus-visible { outline: 2px solid currentColor; outline-offset: -3px; }
 .ps-my-view-dialog { width: min(440px, calc(100vw - 32px)); box-sizing: border-box; border: 1px solid #888; border-radius: 8px; color: var(--text); background: var(--button-bg); padding: 24px; }
