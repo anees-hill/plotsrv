@@ -220,3 +220,88 @@ raise SystemExit(main(['publish', '--every', '0.1', '--quiet']))
             producer.kill()
             producer.communicate(timeout=3)
         server.close()
+
+
+def test_explicit_local_watch_overrides_unused_remote_credential(tmp_path, monkeypatch):
+    cfg = tmp_path / "publisher.yml"
+    cfg.write_text(
+        "publisher-settings:\n  destination:\n    url: https://example.test\n    bearer_token_env: MISSING_WATCH_KEY\n"
+    )
+    monkeypatch.delenv("MISSING_WATCH_KEY", raising=False)
+    calls = []
+    monkeypatch.setattr(cli, "_run_watch_mode", lambda *a, **kw: calls.append(kw) or 0)
+    assert (
+        cli.main(
+            [
+                "watch",
+                "source.txt",
+                "--config",
+                str(cfg),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8002",
+            ]
+        )
+        == 0
+    )
+    assert calls[0]["port"] == 8002
+
+
+def test_sigint_during_trickling_handshake_exits_without_workers(tmp_path):
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import threading
+
+    entered, stopped = threading.Event(), threading.Event()
+
+    class Slow(BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header("Content-Length", "100")
+            self.end_headers()
+            entered.set()
+            try:
+                while not stopped.wait(0.025):
+                    self.wfile.write(b" ")
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError):
+                pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Slow)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    script = """
+import sys
+from plotsrv.publisher_agent import RemoteWatcher, foreground
+from plotsrv.runtime import WatchConfig
+from plotsrv.publishing.models import PublishTarget
+watcher = RemoteWatcher([WatchConfig(path='unused.txt')], PublishTarget(
+    'remote', base_url=sys.argv[1], request_timeout_s=0.3), every=0.1)
+raise SystemExit(foreground(watcher))
+"""
+    producer = subprocess.Popen(
+        [sys.executable, "-c", script, f"http://127.0.0.1:{server.server_port}"],
+        cwd=tmp_path,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert entered.wait(8)
+        start = time.monotonic()
+        producer.send_signal(signal.SIGINT)
+        out, err = producer.communicate(timeout=2)
+        assert producer.returncode == 0, (out, err)
+        assert time.monotonic() - start < 1.5
+        assert not (tmp_path / "unused.txt").exists()
+    finally:
+        if producer.poll() is None:
+            producer.kill()
+            producer.communicate(timeout=3)
+        stopped.set()
+        server.shutdown()
+        server.server_close()
+        thread.join(2)

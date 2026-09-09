@@ -18,7 +18,14 @@ from .publishing.models import PublishTarget
 from .publishing.transport import handshake, request_json, TransportError
 from .runtime import WatchConfig, resolve_watch_max_bytes
 from .source_setup import build_manifest, resolve_source_setup, watch_descriptor
-from .watch_capture import capture, prepare, signature, MAX_WATCHES, MAX_SOURCE_BYTES
+from .watch_capture import (
+    capture,
+    prepare,
+    signature,
+    MAX_WATCHES,
+    SESSION_LEASE_S,
+    WATCH_FEATURE,
+)
 
 
 @dataclass
@@ -36,6 +43,9 @@ class WatchState:
     status: str = "waiting"
     next_due: float = 0
     fenced: bool = False
+    refresh_at: float = 0
+    changed_polls: int = 0
+    attempted: tuple | None = None
 
 
 class RemoteWatcher:
@@ -68,7 +78,7 @@ class RemoteWatcher:
 
     def send(self, route, body):
         return request_json(
-            self.target, route, body, feature="watch-v1", timeout_s=self.timeout
+            self.target, route, body, feature=WATCH_FEATURE, timeout_s=self.timeout
         )
 
     def tick(self):
@@ -76,23 +86,27 @@ class RemoteWatcher:
             if self.stop.is_set():
                 break
             now = time.monotonic()
-            if now < current.next_due:
+            if now < current.next_due and (
+                current.session is None or now < current.refresh_at
+            ):
                 continue
-            current.next_due = now + max(self.every, current.spec.update_limit_s or 0)
             try:
                 caps = handshake(
-                    self.target, feature="watch-v1", timeout_s=self.timeout
+                    self.target, feature=WATCH_FEATURE, timeout_s=self.timeout
                 )
+                if self.stop.is_set():
+                    break
                 if current.server_generation != caps.server_generation:
                     current.session = None
                     current.accepted = None
                     current.status = "waiting"
                     current.fenced = False
+                    current.attempted = None
                     current.server_generation = caps.server_generation
                 if current.fenced:
                     continue
                 vid = current.descriptor.view_id
-                if current.session is None:
+                if current.session is None or now >= current.refresh_at:
                     response = self.send(
                         "/watch/register",
                         dict(
@@ -103,15 +117,34 @@ class RemoteWatcher:
                             section=current.descriptor.section,
                         ),
                     )
-                    current.session = response["session"]
+                    session = response.get("session")
+                    if not isinstance(session, str) or not session or len(session) > 64:
+                        raise TransportError("invalid_response")
+                    if session != current.session:
+                        current.accepted = None
+                        current.attempted = None
+                    current.session = session
+                    current.refresh_at = time.monotonic() + SESSION_LEASE_S / 3
+                if self.stop.is_set():
+                    break
+                if now < current.next_due:
+                    continue
+                current.next_due = now + max(
+                    self.every, current.spec.update_limit_s or 0
+                )
                 path = Path(current.spec.path).expanduser().absolute()
                 status = "available"
+                sig = None
                 try:
                     sig = signature(path.lstat())
                     if sig != current.observed:
                         current.observed = sig
-                        # Debounce: require the same version at the next admitted poll.
-                        continue
+                        current.changed_polls += 1
+                        # Prefer a stable poll, but continuous changes must not
+                        # starve snapshots. Attempt at least every second poll.
+                        if current.changed_polls < 2:
+                            continue
+                    current.changed_polls = 0
                     if sig == current.accepted and current.status == "available":
                         continue
                     captured = capture(
@@ -122,9 +155,12 @@ class RemoteWatcher:
                         kind=current.spec.kind,
                     )
                     self.bytes_read += captured.bytes_read
+                    sig = captured.signature
+                    current.observed = sig
                     prepare(captured.raw, captured.source)
-                    if current.inode != sig[:2] or (
-                        current.accepted and sig[2] < current.accepted[2]
+                    if current.attempted != (sig, status) and (
+                        current.inode != sig[:2]
+                        or (current.accepted and sig[2] < current.accepted[2])
                     ):
                         current.source_generation = uuid4().hex
                         current.inode = sig[:2]
@@ -143,7 +179,10 @@ class RemoteWatcher:
                     continue
                 if self.stop.is_set():
                     break
-                current.revision += 1
+                version = (sig, status)
+                if current.attempted != version:
+                    current.revision += 1
+                    current.attempted = version
                 body = dict(
                     protocol_version=1,
                     view_id=vid,
@@ -160,8 +199,31 @@ class RemoteWatcher:
                         current.accepted = sig
                         self.sent_updates += not response.get("ignored", False)
             except TransportError as error:
-                if error.reason in ("watch_session_conflict", "watch_owner_conflict"):
+                if error.reason == "watch_session_conflict":
                     current.fenced = True
+                # Ownership conflicts may be orphaned leases: retry after the
+                # shared cooldown; an explicitly fenced old session stays stopped.
+                from .publishing.transport import (
+                    PERMANENT_COOLDOWN_S,
+                    FAILURE_COOLDOWN_S,
+                )
+
+                delay = (
+                    PERMANENT_COOLDOWN_S
+                    if error.category
+                    in (
+                        "invalid_credential",
+                        "unauthorised_publisher",
+                        "incompatible_protocol",
+                        "inadmissible_view",
+                        "invalid_request",
+                        "oversize_data",
+                        "redirect_refused",
+                    )
+                    else FAILURE_COOLDOWN_S
+                )
+                current.next_due = time.monotonic() + delay
+                current.refresh_at = current.next_due
                 # Shared bounded diagnostics/cooldown; never anonymous fallback.
                 continue
 
@@ -189,19 +251,27 @@ class RemoteWatcher:
                             view_id=current.descriptor.view_id,
                             session=current.session,
                         ),
-                        feature="watch-v1",
+                        feature=WATCH_FEATURE,
                         timeout_s=min(remaining, self.timeout),
                     )
                 except TransportError:
                     pass
+                finally:
+                    current.session = None
 
 
 def foreground(watcher):
     # Signals request cooperative stop, including while an HTTP exchange finishes.
     previous = {}
+
+    def stop_or_interrupt(*_):
+        if watcher.stop.is_set():
+            raise KeyboardInterrupt
+        watcher.stop.set()
+
     if threading.current_thread() is threading.main_thread():
         for sig in (signal.SIGINT, signal.SIGTERM):
-            previous[sig] = signal.signal(sig, lambda *_: watcher.stop.set())
+            previous[sig] = signal.signal(sig, stop_or_interrupt)
     try:
         watcher.run()
     finally:

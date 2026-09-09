@@ -474,6 +474,10 @@ def set_plot(
 ) -> None:
     vid = view_id or _ACTIVE_VIEW_ID
     _require_ordinary_publishable_view(vid)
+    # Content and hosted-source capabilities change under the same store lock.
+    # Covers direct/local publishing and rejection artifacts, too.
+    from .remote_watch import clear_content
+    clear_content(vid)
     st = _ensure_view(vid)
 
     st.kind = "plot"
@@ -533,6 +537,10 @@ def set_table(
 ) -> None:
     vid = view_id or _ACTIVE_VIEW_ID
     _require_ordinary_publishable_view(vid)
+    # Content and hosted-source capabilities change under the same store lock.
+    # Covers direct/local publishing and rejection artifacts, too.
+    from .remote_watch import clear_content
+    clear_content(vid)
     st = _ensure_view(vid)
     st.icon_key = _icon_for_view_kind("table")
 
@@ -585,6 +593,10 @@ def set_artifact(
 ) -> None:
     vid = view_id or _ACTIVE_VIEW_ID
     _require_ordinary_publishable_view(vid)
+    # Content and hosted-source capabilities change under the same store lock.
+    # Covers direct/local publishing and rejection artifacts, too.
+    from .remote_watch import clear_content
+    clear_content(vid)
     st = _ensure_view(vid)
 
     st.kind = "artifact"

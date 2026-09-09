@@ -1344,11 +1344,9 @@ def main(argv: list[str] | None = None) -> int:
             return _die(str(e))
 
         from .publisher_agent import destination_for_cli, RemoteWatcher, foreground
-        from .connection_config import resolve_publish_target
         try:
             target = destination_for_cli(args)
-            configured_remote = not args.destination and resolve_publish_target().kind == "remote"
-            if args.destination or configured_remote:
+            if target.base_url is not None:
                 spec = WatchConfig(path=args.path, label=args.label, section=args.section,
                     view_id=args.view_id, kind=args.kind, read_mode=read_mode,
                     max_bytes=max_bytes, encoding=args.encoding,

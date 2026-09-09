@@ -14,6 +14,9 @@ import os
 from pathlib import Path
 import stat
 from dataclasses import dataclass
+from typing import NamedTuple
+import configparser
+import tomllib
 
 from .file_kinds import infer_file_kind, coerce_file_to_publishable
 from .runtime import _coerce_csv_rows, default_watch_read_mode
@@ -27,6 +30,8 @@ MAX_PIXELS = 4_000_000
 MAX_PREPARED_BYTES = 1024 * 1024
 MAX_WATCH_REQUEST_BYTES = 384 * 1024
 MAX_WATCHES = 64
+SESSION_LEASE_S = 60.0
+WATCH_FEATURE = "watch-v2"
 
 
 @dataclass(frozen=True)
@@ -91,6 +96,7 @@ def capture(
             size_bytes=size,
             mtime_ns=before.st_mtime_ns,
             read_scope="full" if complete else mode,
+            read_mode=mode,
             complete=complete,
             encoding=encoding,
             kind=kind,
@@ -117,14 +123,22 @@ def _bounded_object(obj):
             )
 
 
-def prepare(raw: bytes, source: dict) -> tuple[dict, str | None]:
-    """Convert bounded bytes without opening a path. Returns payload and limitation."""
+class Preparation(NamedTuple):
+    payload: dict
+    limitation: str | None
+    invalid_structured: bool = False
+
+
+def prepare(raw: bytes, source: dict) -> Preparation:
+    """Convert bounded bytes without paths; distinguish syntax errors from limits."""
     if len(raw) > MAX_SOURCE_BYTES:
         raise ValueError("source byte limit")
     path = Path(source["basename"])
     fk = infer_file_kind(path) if source["kind"] == "auto" else source["kind"]
     complete = source["complete"]
     limitation = None
+    invalid_structured = False
+    mode = source.get("read_mode", source["read_scope"])
     text = None
     if fk == "image":
         if not complete or path.suffix.lower() == ".svg":
@@ -188,7 +202,7 @@ def prepare(raw: bytes, source: dict) -> tuple[dict, str | None]:
                         raise ValueError("partial or oversized CSV record")
                     if len(rows) == MAX_ROWS:
                         omitted = True
-                        if source["read_scope"] != "tail":
+                        if mode != "tail":
                             break
                     rows.append(row)
                 columns, values, _, _ = _coerce_csv_rows(
@@ -236,7 +250,17 @@ def prepare(raw: bytes, source: dict) -> tuple[dict, str | None]:
                         artifact_kind=coerced.artifact_kind,
                         artifact=coerced.obj,
                     )
-            except Exception:
+            except Exception as error:
+                # Syntax failures may be partial writes; resource limits are a
+                # valid preview outcome and must replace an older small object.
+                invalid_structured = (
+                    isinstance(error, (configparser.Error, tomllib.TOMLDecodeError))
+                    or getattr(error, "reason", None) == "invalid_json"
+                )
+                if fk == "yaml":
+                    import yaml
+
+                    invalid_structured = isinstance(error, yaml.YAMLError)
                 limitation = "Structured parsing unavailable or limited; showing bounded raw text."
         elif fk in ("html", "markdown"):
             if complete and len(text) <= MAX_TEXT_CHARS:
@@ -257,9 +281,7 @@ def prepare(raw: bytes, source: dict) -> tuple[dict, str | None]:
             if len(payload["artifact"]) > limit:
                 preview = payload["artifact"]
                 payload["artifact"] = (
-                    preview[-limit:]
-                    if source["read_scope"] == "tail"
-                    else preview[:limit]
+                    preview[-limit:] if mode == "tail" else preview[:limit]
                 )
                 limitation = limitation or "Text presentation is a bounded preview."
     if (
@@ -267,4 +289,4 @@ def prepare(raw: bytes, source: dict) -> tuple[dict, str | None]:
         > MAX_PREPARED_BYTES
     ):
         raise ValueError("decoded output limit")
-    return payload, limitation
+    return Preparation(payload, limitation, invalid_structured)

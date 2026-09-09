@@ -433,6 +433,7 @@ def capabilities(request: Request):
             "catalogue-bootstrap",
             "stream-v4",
             "watch-v1",
+            "watch-v2",
         ),
     ).to_dict()
     return {

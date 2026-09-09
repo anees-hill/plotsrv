@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import time
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -18,6 +19,7 @@ from .watch_capture import (
     MAX_SOURCE_BYTES,
     MAX_WATCH_REQUEST_BYTES,
     MAX_WATCHES,
+    SESSION_LEASE_S,
     prepare,
 )
 
@@ -67,20 +69,39 @@ def register(payload):
         old = entries.get(vid)
         if store.has_watched_file_meta(view_id=vid) or store.get_kind(vid) == "stream":
             raise IngestionError("inadmissible_view", 409, "view_kind_conflict")
-        if old and old.get("session"):
+        now = time.monotonic()
+        if (
+            old
+            and old.get("session")
+            and (old["client"] == client or old["expires"] > now)
+        ):
             if old["client"] != client:
                 raise IngestionError("inadmissible_view", 409, "watch_owner_conflict")
+            old["expires"] = now + SESSION_LEASE_S
             return dict(ok=True, session=old["session"], generation=state().generation)
+        reclaim = None
         if old is None and len(entries) >= MAX_WATCHES:
-            raise IngestionError("ingestion_busy", 429, "watch_capacity")
+            # Retain last-good sources until their bounded slot is needed again.
+            reclaimable = [
+                key
+                for key, value in entries.items()
+                if not value.get("session") or value["expires"] <= now
+            ]
+            if not reclaimable:
+                raise IngestionError("ingestion_busy", 429, "watch_capacity")
+            reclaim = min(reclaimable, key=lambda key: entries[key]["expires"])
         from .ingestion import register_catalogue
 
+        descriptor = state().descriptors.get(vid, descriptor)
         register_catalogue([descriptor], seal=False)
+        if reclaim is not None:
+            del entries[reclaim]
         entry = old or {}
         entry.update(
             hidden=False,
             client=client,
             session=uuid4().hex,
+            expires=now + SESSION_LEASE_S,
             revision=0,
             digest=None,
             descriptor=descriptor,
@@ -120,6 +141,7 @@ def update(request, payload):
             or entry["session"] != payload.get("session")
         ):
             raise IngestionError("inadmissible_view", 409, "watch_session_conflict")
+        entry["expires"] = time.monotonic() + SESSION_LEASE_S
         if revision <= entry["revision"]:
             return dict(
                 ok=True,
@@ -137,117 +159,165 @@ def update(request, payload):
                 reason="status_only",
                 generation=state().generation,
             )
-        source = payload.get("source")
-        _keys(
-            source,
-            (
-                "basename",
-                "source_type",
-                "size_bytes",
-                "mtime_ns",
-                "read_scope",
-                "complete",
-                "encoding",
-                "kind",
-                "generation",
-            ),
-        )
-        SourceMetadata(source.get("basename"), source.get("source_type"))
-        if source.get("source_type") != "watch" or source.get("kind") not in (
-            "auto",
-            "text",
-            "json",
-        ):
+        descriptor = entry["descriptor"]
+    source = payload.get("source")
+    _keys(
+        source,
+        (
+            "basename",
+            "source_type",
+            "size_bytes",
+            "mtime_ns",
+            "read_scope",
+            "read_mode",
+            "complete",
+            "encoding",
+            "kind",
+            "generation",
+        ),
+    )
+    SourceMetadata(source.get("basename"), source.get("source_type"))
+    if source.get("source_type") != "watch" or source.get("kind") not in (
+        "auto",
+        "text",
+        "json",
+    ):
+        raise invalid()
+    for key in ("size_bytes", "mtime_ns"):
+        if type(source.get(key)) is not int or not 0 <= source[key] < 2**63:
             raise invalid()
-        for key in ("size_bytes", "mtime_ns"):
-            if type(source.get(key)) is not int or not 0 <= source[key] < 2**63:
-                raise invalid()
-        bounded_text(source.get("generation"), "source generation", 64)
-        if source.get("encoding") not in ("utf-8", "utf-8-sig", "ascii", "latin-1"):
-            raise invalid()
-        if type(source.get("complete")) is not bool or source.get("read_scope") not in (
-            "full",
-            "head",
-            "tail",
-        ):
-            raise invalid()
-        encoded = payload.get("data_b64")
-        if (
-            not isinstance(encoded, str)
-            or len(encoded) > ((MAX_SOURCE_BYTES + 2) // 3) * 4
-        ):
-            raise invalid()
-        try:
-            raw = base64.b64decode(encoded, validate=True)
-        except ValueError:
-            raise invalid() from None
-        if len(raw) > MAX_SOURCE_BYTES or len(raw) > source["size_bytes"]:
-            raise invalid()
-        if source["complete"] != (source["read_scope"] == "full") or (
-            source["complete"] and len(raw) != source["size_bytes"]
-        ):
-            raise invalid()
-        try:
-            prepared, limitation = prepare(raw, source)
-        except Exception:
-            raise invalid("unsupported_watch_content") from None
-        if (
-            source["complete"]
-            and limitation
-            and limitation.startswith("Structured parsing")
-            and "raw" in entry
-        ):
-            entry.update(revision=revision, status="changing")
-            return dict(
-                ok=True,
-                ignored=True,
-                reason="status_only",
-                generation=state().generation,
-            )
-        digest = hashlib.sha256(
-            raw
-            + json.dumps(
-                {
-                    k: source[k]
-                    for k in ("basename", "kind", "encoding", "read_scope", "complete")
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
-        cost = len(raw) + len(json.dumps(prepared, ensure_ascii=False).encode())
-        used = sum(e.get("cost", 0) for e in records().values()) - entry.get("cost", 0)
-        if used + cost > MAX_HOSTED_BYTES:
-            raise IngestionError("ingestion_busy", 429, "watch_hosted_capacity")
-        unchanged = digest == entry.get("digest") and not payload.get("force", False)
-        if not unchanged:
-            from .app import publish
+    bounded_text(source.get("generation"), "source generation", 64)
+    if source.get("encoding") not in ("utf-8", "utf-8-sig", "ascii", "latin-1"):
+        raise invalid()
+    if type(source.get("complete")) is not bool or source.get("read_scope") not in (
+        "full",
+        "head",
+        "tail",
+    ):
+        raise invalid()
+    if source.get("read_mode", "head") not in ("head", "tail"):
+        raise invalid()
+    encoded = payload.get("data_b64")
+    if not isinstance(encoded, str) or len(encoded) > ((MAX_SOURCE_BYTES + 2) // 3) * 4:
+        raise invalid()
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except ValueError:
+        raise invalid() from None
+    if len(raw) > MAX_SOURCE_BYTES or len(raw) > source["size_bytes"]:
+        raise invalid()
+    if source["complete"] != (source["read_scope"] == "full") or (
+        source["complete"] and len(raw) != source["size_bytes"]
+    ):
+        raise invalid()
+    try:
+        prepared, limitation, invalid_structured = prepare(raw, source)
+    except Exception:
+        raise invalid("unsupported_watch_content") from None
+    digest = hashlib.sha256(
+        raw
+        + json.dumps(
+            {
+                k: source.get(k)
+                for k in (
+                    "basename",
+                    "kind",
+                    "encoding",
+                    "read_scope",
+                    "read_mode",
+                    "complete",
+                )
+            },
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    cost = len(raw) + len(json.dumps(prepared, ensure_ascii=False).encode())
 
-            descriptor = entry["descriptor"]
-            response = publish(
-                request,
-                dict(
-                    prepared,
-                    view_id=vid,
-                    label=descriptor.label,
-                    section=descriptor.section,
-                    publish_source="watch",
-                    force=True,
-                ),
-                _remote_watch=True,
+    def commit(action):
+        # Preparation is outside the global lock. Recheck ownership, admission,
+        # ordering and capacity immediately before the atomic content/meta write.
+        with store._STORE_LOCK:
+            require_admitted(vid)
+            entry = records().get(vid)
+            if (
+                not entry
+                or not entry.get("session")
+                or entry["session"] != payload.get("session")
+            ):
+                raise IngestionError("inadmissible_view", 409, "watch_session_conflict")
+            if revision <= entry["revision"]:
+                return dict(
+                    ok=True,
+                    ignored=True,
+                    reason="already_accepted",
+                    generation=state().generation,
+                )
+            if invalid_structured and "raw" in entry:
+                entry.update(revision=revision, status="changing")
+                return dict(
+                    ok=True,
+                    ignored=True,
+                    reason="status_only",
+                    generation=state().generation,
+                )
+            used = sum(e.get("cost", 0) for e in records().values()) - entry.get(
+                "cost", 0
             )
-            if response.get("ignored"):
-                return response
-        entry.update(
-            revision=revision,
-            hidden=False,
-            status="available",
-            source=dict(source),
-            raw=raw,
-            digest=digest,
-            cost=cost,
-            limitation=limitation,
-        )
-        return dict(ok=True, ignored=unchanged, generation=state().generation)
+            reclaim = []
+            if used + cost > MAX_HOSTED_BYTES:
+                now = time.monotonic()
+                candidates = sorted(
+                    (
+                        key
+                        for key, value in records().items()
+                        if key != vid
+                        and (not value.get("session") or value["expires"] <= now)
+                    ),
+                    key=lambda key: records()[key]["expires"],
+                )
+                for key in candidates:
+                    reclaim.append(key)
+                    used -= records()[key].get("cost", 0)
+                    if used + cost <= MAX_HOSTED_BYTES:
+                        break
+            if used + cost > MAX_HOSTED_BYTES:
+                raise IngestionError("ingestion_busy", 429, "watch_hosted_capacity")
+            unchanged = digest == entry.get("digest") and not payload.get(
+                "force", False
+            )
+            if not unchanged:
+                response = action()
+                if response.get("ignored"):
+                    return response
+            for key in reclaim:
+                del records()[key]
+            entry.update(
+                revision=revision,
+                hidden=False,
+                status="available",
+                source=dict(source),
+                raw=raw,
+                digest=digest,
+                cost=cost,
+                limitation=limitation,
+                expires=time.monotonic() + SESSION_LEASE_S,
+            )
+            return dict(ok=True, ignored=unchanged, generation=state().generation)
+
+    from .app import publish
+
+    return publish(
+        request,
+        dict(
+            prepared,
+            view_id=vid,
+            label=descriptor.label,
+            section=descriptor.section,
+            publish_source="watch",
+            force=True,
+        ),
+        _commit=commit,
+    )
 
 
 def public_meta(vid):
@@ -262,7 +332,11 @@ def public_meta(vid):
             source,
             facts_origin="publisher",
             materialization="remote",
-            status=entry.get("status", "waiting"),
+            status=(
+                "disconnected"
+                if entry.get("session") and entry["expires"] <= time.monotonic()
+                else entry.get("status", "waiting")
+            ),
             revision=entry.get("revision", 0),
             complete=complete,
             full_download=complete,
@@ -274,7 +348,11 @@ def public_meta(vid):
             message=(
                 "Complete source hosted."
                 if complete
-                else "Preview available; original file is not hosted here."
+                else (
+                    "Preview available; original file is not hosted here."
+                    if "raw" in entry
+                    else "No source preview available yet."
+                )
             ),
         )
 
@@ -293,7 +371,9 @@ def clear_content(vid):
 async def register_http(request: Request):
     payload = await read_payload(request, 8192)
     try:
-        return register(payload)
+        from starlette.concurrency import run_in_threadpool
+
+        return await run_in_threadpool(register, payload)
     except ValueError as error:
         if isinstance(error, IngestionError):
             raise
@@ -316,6 +396,12 @@ async def update_http(request: Request):
 @router.post("/watch/close")
 async def close_http(request: Request):
     payload = await read_payload(request, 8192)
+    from starlette.concurrency import run_in_threadpool
+
+    return await run_in_threadpool(close, payload)
+
+
+def close(payload):
     _keys(payload, ("protocol_version", "view_id", "session"))
     vid = _identity(payload)
     with store._STORE_LOCK:

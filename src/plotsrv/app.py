@@ -1205,7 +1205,7 @@ async def publish_http(request: Request) -> dict[str, Any]:
     return await run_in_threadpool(publish, request, payload)
 
 
-def publish(request: Request, payload: dict[str, Any], *, _remote_watch: bool = False) -> dict[str, Any]:
+def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[str, Any]:
     """
     Publish a plot or table into a specific view.
 
@@ -1227,6 +1227,9 @@ def publish(request: Request, payload: dict[str, Any], *, _remote_watch: bool = 
         "force": false                # optional bypass throttling
       }
     """
+    # Remote watch supplies a private commit callback: conversion/validation
+    # stays outside its lock; the callback atomically fences and stores content
+    # with source capabilities. Ordinary publication uses the same commit path.
     from .ingestion import state
     state().authenticate(request)
 
@@ -1333,31 +1336,31 @@ def publish(request: Request, payload: dict[str, Any], *, _remote_watch: bool = 
                 publish_source=publish_source,
             )
 
-        if not _remote_watch:
-            from .remote_watch import clear_content
-            clear_content(view_id)
-        store.set_plot(
-            png_bytes,
-            view_id=view_id,
-            publish_source=publish_source,
-        )
-        store.mark_success(
-            duration_s=None,
-            view_id=view_id,
-            publish_source=publish_source,
-        )
-        store.note_publish(view_id, now_s=now_s)
+        def commit():
+            store.set_plot(
+                png_bytes,
+                view_id=view_id,
+                publish_source=publish_source,
+            )
+            store.mark_success(
+                duration_s=None,
+                view_id=view_id,
+                publish_source=publish_source,
+            )
+            store.note_publish(view_id, now_s=now_s)
 
-        enqueue_snapshot(
-            view_id=view_id,
-            kind="plot",
-            obj=png_bytes,
-            section=section if isinstance(section, str) else None,
-            label=label if isinstance(label, str) else None,
-            source=publish_source,
-        )
+            enqueue_snapshot(
+                view_id=view_id,
+                kind="plot",
+                obj=png_bytes,
+                section=section if isinstance(section, str) else None,
+                label=label if isinstance(label, str) else None,
+                source=publish_source,
+            )
 
-        return {"ok": True, "ignored": False, "view_id": view_id}
+            return {"ok": True, "ignored": False, "view_id": view_id}
+
+        return _commit(commit) if _commit is not None else commit()
 
     elif kind == "artifact":
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
@@ -1407,34 +1410,34 @@ def publish(request: Request, payload: dict[str, Any], *, _remote_watch: bool = 
             )
             raise
 
-        if not _remote_watch:
-            from .remote_watch import clear_content
-            clear_content(view_id)
-        store.set_artifact(
-            obj=artifact_obj,
-            kind=artifact_kind,
-            section=section,
-            label=label,
-            view_id=view_id,
-            publish_source=publish_source,
-        )
-        store.mark_success(
-            duration_s=None,
-            view_id=view_id,
-            publish_source=publish_source,
-        )
-        store.note_publish(view_id, now_s=now_s)
+        def commit():
+            store.set_artifact(
+                obj=artifact_obj,
+                kind=artifact_kind,
+                section=section,
+                label=label,
+                view_id=view_id,
+                publish_source=publish_source,
+            )
+            store.mark_success(
+                duration_s=None,
+                view_id=view_id,
+                publish_source=publish_source,
+            )
+            store.note_publish(view_id, now_s=now_s)
 
-        enqueue_snapshot(
-            view_id=view_id,
-            kind=artifact_kind,
-            obj=artifact_obj,
-            section=section if isinstance(section, str) else None,
-            label=label if isinstance(label, str) else None,
-            source=publish_source,
-        )
+            enqueue_snapshot(
+                view_id=view_id,
+                kind=artifact_kind,
+                obj=artifact_obj,
+                section=section if isinstance(section, str) else None,
+                label=label if isinstance(label, str) else None,
+                source=publish_source,
+            )
 
-        return {"ok": True, "ignored": False, "view_id": view_id}
+            return {"ok": True, "ignored": False, "view_id": view_id}
+
+        return _commit(commit) if _commit is not None else commit()
 
     elif kind == "table":
         table = payload.get("table")
@@ -1525,38 +1528,38 @@ def publish(request: Request, payload: dict[str, Any], *, _remote_watch: bool = 
         # Rebuild from bounded data with escaping; never trust client inline HTML.
         html_simple = df_to_html_simple(df, config.get_max_table_rows_simple())
 
-        if not _remote_watch:
-            from .remote_watch import clear_content
-            clear_content(view_id)
-        store.set_table(
-            df,
-            html_simple,
-            view_id=view_id,
-            total_rows=total_rows,
-            returned_rows=returned_rows,
-            publish_source=publish_source,
-        )
-        store.mark_success(
-            duration_s=None,
-            view_id=view_id,
-            publish_source=publish_source,
-        )
-        store.note_publish(view_id, now_s=now_s)
+        def commit():
+            store.set_table(
+                df,
+                html_simple,
+                view_id=view_id,
+                total_rows=total_rows,
+                returned_rows=returned_rows,
+                publish_source=publish_source,
+            )
+            store.mark_success(
+                duration_s=None,
+                view_id=view_id,
+                publish_source=publish_source,
+            )
+            store.note_publish(view_id, now_s=now_s)
 
-        enqueue_snapshot(
-            view_id=view_id,
-            kind="table",
-            obj=df,
-            section=section if isinstance(section, str) else None,
-            label=label if isinstance(label, str) else None,
-            extra={
-                "total_rows": total_rows,
-                "returned_rows": returned_rows,
-            },
-            source=publish_source,
-        )
+            enqueue_snapshot(
+                view_id=view_id,
+                kind="table",
+                obj=df,
+                section=section if isinstance(section, str) else None,
+                label=label if isinstance(label, str) else None,
+                extra={
+                    "total_rows": total_rows,
+                    "returned_rows": returned_rows,
+                },
+                source=publish_source,
+            )
 
-        return {"ok": True, "ignored": False, "view_id": view_id}
+            return {"ok": True, "ignored": False, "view_id": view_id}
+
+        return _commit(commit) if _commit is not None else commit()
 
 
 @app.get("/", response_class=HTMLResponse)
