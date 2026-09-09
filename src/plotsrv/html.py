@@ -1195,6 +1195,9 @@ def render_index(
         </div>
 
         <div class="header-right ps-header__right">
+          <button id="expand-view" class="ps-expand-button" type="button" aria-label="Expand view" title="Expand view">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /></svg>
+          </button>
           <button
             id="settings-button"
             class="ps-settings-trigger"
@@ -1210,6 +1213,15 @@ def render_index(
         </div>
       </header>
 
+      <div id="expanded-handle" class="ps-expanded-handle" hidden>
+        <button id="expanded-reveal" type="button" aria-label="Show view controls" title="Show view controls" aria-controls="expanded-controls" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
+        <button id="expanded-exit" type="button" aria-label="Exit expanded view" title="Exit expanded view">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 8h5V3m8 0v5h5M8 21v-5H3m18 0h-5v5" /></svg>
+        </button>
+      </div>
+      <div id="expanded-controls" class="ps-expanded-controls" role="region" aria-label="View controls" hidden></div>
       <main class="page ps-page">
         <section id="view-content" class="plot-card ps-card" data-loading-source="{'disk' if file_backed else 'ordinary'}">
           <div id="content-loading" class="ps-content-loading" role="status" aria-live="polite" hidden>

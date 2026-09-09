@@ -76,6 +76,7 @@
   }
 
   function configureBottomBar() {
+    if (core.syncExpandedView) core.syncExpandedView();
     const complete = document.querySelector('[data-export-scope="complete"]');
     if (complete) {
       const sourceDownload =

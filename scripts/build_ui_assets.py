@@ -36,6 +36,7 @@ CSS_SOURCES = (
     "css/renderers/markdown.css",
     "css/renderers/traceback.css",
     "css/themes.css",
+    "css/expanded_view.css",
 )
 
 JS_SOURCES = (
@@ -63,6 +64,7 @@ JS_SOURCES = (
     "js/renderers/observation.js",
     "js/renderers/text.js",
     "js/renderers/code.js",
+    "js/core/expanded_view.js",
     "js/core/app.js",
 )
 

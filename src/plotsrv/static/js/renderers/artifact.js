@@ -249,6 +249,7 @@
         kindEl.textContent = data.kind ? "Kind: " + data.kind : "";
       }
       
+      if (core.restoreExpandedContentControls) core.restoreExpandedContentControls();
       if (typeof core.disposeEmbeddedTableExplorer === "function") {
         core.disposeEmbeddedTableExplorer();
       }

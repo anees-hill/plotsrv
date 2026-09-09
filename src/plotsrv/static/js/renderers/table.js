@@ -1534,6 +1534,7 @@
 
     if (core.checkPersonalViewSchema) core.checkPersonalViewSchema();
     bindTableToolbar();
+    if (core.syncExpandedView) core.syncExpandedView();
     // Tabulator builds asynchronously. Calling setGroupBy before tableBuilt
     // can leave its display pipeline empty even though getData() has rows.
     if (table.initialized === false && typeof table.on === "function") {
@@ -1627,6 +1628,7 @@
   }
 
   function disposeEmbeddedTableExplorer() {
+    if (core.restoreExpandedContentControls) core.restoreExpandedContentControls();
     if (!state.embeddedTableExplorer) return;
     destroyMountedTable();
     state.embeddedTableExplorer = false;

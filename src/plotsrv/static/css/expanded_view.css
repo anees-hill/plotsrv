@@ -1,0 +1,116 @@
+/* Layout only: the renderer and its data stay mounted. */
+.ps-expand-button, .ps-expanded-handle button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  padding: 8px;
+  border: 1px solid var(--ps-border, #d7d7d7);
+  border-radius: 9px;
+  color: var(--text);
+  background: var(--ps-floating-bg, #fff);
+  cursor: pointer;
+}
+.ps-expand-button svg, .ps-expanded-handle svg { width: 20px; height: 20px; }
+.ps-expanded-handle {
+  position: fixed;
+  z-index: 44;
+  top: max(6px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+  display: flex;
+  gap: 4px;
+}
+#expanded-handle[hidden], #expanded-controls[hidden], #site-header[hidden], .ps-bottom-dock[hidden] { display: none !important; }
+.ps-expanded-controls {
+  position: fixed;
+  z-index: 43;
+  top: max(6px, env(safe-area-inset-top));
+  left: max(8px, env(safe-area-inset-left));
+  right: 100px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--ps-border);
+  border-radius: 10px;
+  background: var(--ps-floating-bg);
+  box-shadow: 0 4px 18px #0002;
+}
+.ps-expanded-controls .header-right {
+  display: flex;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  width: auto;
+  order: 0;
+  margin: 0;
+  gap: 6px;
+}
+.ps-expanded-controls #settings-button, .ps-expanded-controls #expand-view { display: none; }
+.ps-expanded-controls .ps-viewselect { flex: 1 1 150px; min-width: 0; }
+.ps-expanded-controls .ps-viewselect__btn { max-width: 100%; }
+.ps-expanded-controls .ps-viewselect__menu {
+  position: fixed;
+  top: var(--ps-expanded-top, 64px);
+  left: 8px;
+  right: auto;
+  width: min(620px, calc(100vw - 16px));
+  max-height: calc(100dvh - var(--ps-expanded-top, 64px) - 12px);
+}
+.ps-expanded-controls #stream-history-picker { max-width: 250px; }
+.ps-expanded-controls .ps-snapshot-notice { top: calc(100% + 6px); bottom: auto; }
+body.ps-expanded .page,
+body.ps-expanded[data-kind] .page,
+body.ps-expanded.ps-has-html-artifact .page {
+  max-width: none;
+  margin: 0;
+  padding: var(--ps-expanded-top, 52px) 8px 12px;
+}
+body.ps-expanded[data-kind] #view-content {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  min-height: calc(100dvh - var(--ps-expanded-top, 52px) - 12px);
+}
+body.ps-expanded .ps-table-topbar,
+body.ps-expanded #table-filter-panel,
+body.ps-expanded #table-columns-panel,
+body.ps-expanded #table-plot-controls,
+body.ps-expanded .ps-stream-controls,
+body.ps-expanded .ps-artifact__meta,
+body.ps-expanded [data-plotsrv-toolbar],
+body.ps-expanded .ps-table-simple-view__notice,
+body.ps-expanded .ps-scroll-nav { display: none !important; }
+body.ps-expanded #table-plot-workspace { display: block; }
+body.ps-expanded .plot-frame { padding: 0; border: 0; background: transparent; min-height: 0; }
+body.ps-expanded .tabulator {
+  height: calc(100dvh - var(--ps-expanded-top, 52px) - 28px) !important;
+}
+body.ps-expanded .table-scroll { max-height: calc(100dvh - var(--ps-expanded-top, 52px) - 28px); }
+body.ps-expanded .plotsrv-html-iframe {
+  min-height: 0;
+  height: calc(100dvh - var(--ps-expanded-top, 52px) - 20px);
+}
+body.ps-expanded .plot-frame--artifact { min-height: 0; }
+body.ps-expanded #plot { max-height: calc(100dvh - var(--ps-expanded-top, 52px) - 16px); object-fit: contain; }
+@media (max-width: 640px) {
+  .ps-expanded-handle button { width: 44px; height: 44px; }
+  .ps-expanded-controls { top: 56px; right: 8px; gap: 6px; }
+  .ps-expanded-controls .header-right { width: 100%; }
+  .ps-expanded-controls .ps-header-status { max-width: 100%; }
+  .ps-expanded-controls .ps-viewselect { flex-basis: 100%; }
+}
+
+body.ps-expanded .plotsrv-pre {
+  min-height: 0;
+  max-height: calc(100dvh - var(--ps-expanded-top, 52px) - 24px);
+}
+@media (max-width: 900px) {
+  #site-header .header-right { grid-template-columns: auto auto minmax(0, 1fr); }
+  #site-header .header-right .ps-viewselect { grid-column: 1 / -1; justify-self: end; }
+}

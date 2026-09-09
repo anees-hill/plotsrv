@@ -522,3 +522,43 @@ Table limits control how much table data plotsrv accepts and displays.
 - [Watch files](../get-started/watch-files.md)
 - [Configuration basics](../get-started/configuration-basics.md)
 - [Storage and history](storage-and-history.md)
+
+## Expand a view
+
+Use **Expand view**, the corner icon beside Settings, to give the content nearly
+the whole browser viewport. This changes plotsrv's layout; it does not request
+browser fullscreen permission or reload the data.
+
+Two small buttons remain at the top right: **Show view controls** and **Exit
+expanded view**. Reveal the controls for the current view selector, freshness
+and check status, snapshots, and any supported Table / Plot + data choices.
+Streams keep their own Run selector and pause control. The controls stay open
+until you explicitly hide them; there is no hover requirement or inactivity
+timer. Open menus and dialogs prevent the header from being hidden.
+
+Escape closes an open menu or dialog first; another Escape exits the expanded
+layout. The exit button restores normal controls and keyboard focus. Embedded
+HTML keeps its own frame and document state; keyboard events inside a sandboxed
+report belong to that report, so use Tab to reach the persistent outer controls
+when needed.
+
+Filters, grouping, column settings, plot presentation, selected snapshots and
+stream sessions survive entering/exiting. Normal editing utilities and Export
+return on exit. Changing source or selecting a My view keeps the expanded
+layout, while retaining the existing navigation rules: a different source
+starts at its current data, and a saved My view applies its presentation to
+Latest. Snapshot IDs and stream sessions are never transferred to another
+source.
+
+The layout preference is scoped to the dashboard and URL path in this tab's
+`sessionStorage`. It survives source changes and reloads in that session; no
+server setting or shared preference is written. If browser storage is denied,
+expansion still works on the current page. Only the layout flag is stored, not
+data, snapshot IDs or presentation settings.
+
+Expansion uses the existing renderer and controls. It adds no polling, payload
+requests or publisher work. Resize handling coalesces into one animation frame;
+its size observer is active only while expanded. Future Compare integration
+can use `PLOTSRV.core.expandedView.prepareForCompare()` before opening its dock,
+and hold `PLOTSRV.state.compareActive` while open to keep the two layouts
+mutually exclusive without changing the selected data.
