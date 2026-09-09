@@ -983,3 +983,43 @@
 .ps-my-view-dialog label { display: block; margin: 12px 0; }
 .ps-my-view-dialog input { display: block; box-sizing: border-box; width: 100%; min-height: 36px; margin-top: 4px; }
 .ps-my-view-dialog__actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+/* Ordinary snapshot navigation; stream history retains its own controls. */
+.ps-snapshot-arrow {
+  flex: 0 0 auto;
+  min-width: 36px;
+  min-height: 36px;
+  border: 1px solid rgba(125, 135, 150, 0.2);
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ps-snapshot-arrow[hidden] { display: none; }
+.ps-snapshot-arrow:disabled { opacity: 0.35; cursor: default; }
+.ps-snapshot-arrow:focus-visible { outline: 2px solid var(--accent, #3979bb); outline-offset: 2px; }
+.ps-snapshot-notice:empty { display: none; }
+.ps-snapshot-notice {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--ps-floating-bg, #fff);
+  color: var(--text, #263449);
+  font-size: 0.75rem;
+  text-align: center;
+  box-shadow: 0 2px 12px #0002;
+}
+@media (pointer: coarse) {
+  .ps-snapshot-arrow { min-width: 44px; min-height: 44px; }
+}
+
+@media (max-width: 640px) {
+  .ps-snapshots__selector { min-width: 0; padding-inline: 0.15rem; }
+  .ps-snapshots__selector > span { display: none; }
+  .ps-snapshots__selector select { min-width: 64px; max-width: 30vw; }
+}

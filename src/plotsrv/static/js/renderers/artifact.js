@@ -174,8 +174,6 @@
     const root = document.getElementById("artifact-root");
     if (!root) return;
 
-    disposeArtifactScrollNav();
-
     const snapshotQuery =
       typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "";
     const viewId = config.activeViewId;
@@ -183,7 +181,9 @@
     if (artifactController) artifactController.abort();
     const controller = new AbortController();
     artifactController = controller;
-    const isCurrent = () => request === artifactRequest &&
+    const load = core.beginSnapshotLoad ? core.beginSnapshotLoad("artifact") : null;
+    const signal = load ? load.signal : controller.signal;
+    const isCurrent = () => (!load || load.current()) && request === artifactRequest &&
       viewId === config.activeViewId &&
       snapshotQuery === (typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "");
 
@@ -194,15 +194,15 @@
         snapshotQuery +
         "&_ts=" +
         Date.now();
-      let res = await fetch(url, {signal: controller.signal});
+      let res = await fetch(url, {signal: signal});
       for (let attempt = 0; res.status === 503 && attempt < 2; attempt += 1) {
         await new Promise(function (resolve) {
           window.setTimeout(resolve, 250 * (attempt + 1));
         });
-        if (!isCurrent()) return;
-        res = await fetch(url, {signal: controller.signal});
+        if (!isCurrent()) return false;
+        res = await fetch(url, {signal: signal});
       }
-      if (!isCurrent()) return;
+      if (!isCurrent()) return false;
 
       if (!res.ok) {
         if (
@@ -211,24 +211,17 @@
           core.isHistoryMode() &&
           typeof core.handleMissingSnapshot === "function"
         ) {
-          if (typeof core.disposeEmbeddedTableExplorer === "function") core.disposeEmbeddedTableExplorer();
-          root.innerHTML = '<p class="note">This historical snapshot is unavailable. Choose Latest explicitly to resume live data.</p>';
-          renderTruncationBadge(null);
           await core.handleMissingSnapshot("artifact");
-          return;
+          return false;
         }
 
-        if (typeof core.disposeEmbeddedTableExplorer === "function") {
-          core.disposeEmbeddedTableExplorer();
-        }
-        root.innerHTML =
-          '<div class="note">Failed to load artifact (' + res.status + ").</div>";
-        renderTruncationBadge(null);
-        return;
+        if (core.snapshotSelectionFailed) core.snapshotSelectionFailed("Failed to load selected artifact (" + res.status + ").");
+        return false;
       }
 
       const data = await res.json();
-      if (!isCurrent()) return;
+      if (!isCurrent() || signal.aborted) return false;
+      disposeArtifactScrollNav();
       root.dataset.plotsrvSourceDownloadUrl =
         data.meta && typeof data.meta.source_download_url === "string"
           ? data.meta.source_download_url
@@ -275,17 +268,15 @@
       }
 
       if (document.getElementById("table-grid") && typeof core.loadTable === "function") {
-        await core.loadTable();
+        return await core.loadTable();
       }
+      return true;
     } catch (e) {
-      if (!isCurrent() || controller.signal.aborted) return;
-      if (typeof core.disposeEmbeddedTableExplorer === "function") {
-        core.disposeEmbeddedTableExplorer();
-      }
-      root.innerHTML =
-        '<div class="note">Failed to load artifact (network error).</div>';
-      renderTruncationBadge(null);
+      if (!isCurrent()) return false;
+      if (core.snapshotSelectionFailed) core.snapshotSelectionFailed("Failed to load selected artifact (network error or timeout).");
+      return false;
     } finally {
+      if (load) load.finish();
       if (artifactController === controller) artifactController = null;
     }
   }

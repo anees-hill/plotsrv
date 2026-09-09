@@ -1635,7 +1635,8 @@
 
   async function loadTable() {
     const grid = document.getElementById("table-grid");
-    if (!grid) return;
+    const simple = document.getElementById("simple-table-root");
+    if (!grid && !simple) return false;
 
     if (!state.tableUiState) {
       loadTableUiState();
@@ -1648,51 +1649,117 @@
       "/table/data?view=" +
       encodeURIComponent(config.activeViewId) +
       snapshotQuery +
+      (simple ? "&limit=" + (config.maxTableRowsSimple || 200) : "") +
       "&_ts=" +
       Date.now();
 
-    let res = await fetch(url);
-    // A file-backed server admits only a bounded number of expensive CSV
-    // loads. A short retry keeps normal refreshes smooth without hiding a
-    // persistent failure behind an endless client loop.
-    for (let attempt = 0; res.status === 503 && attempt < 2; attempt += 1) {
-      await new Promise(function (resolve) {
-        window.setTimeout(resolve, 250 * (attempt + 1));
+    const load = core.beginSnapshotLoad ? core.beginSnapshotLoad("table") :
+      {current: () => true, finish: () => {}, signal: undefined};
+    try {
+      let res = await fetch(url, {signal: load.signal});
+      // A file-backed server admits only a bounded number of expensive CSV
+      // loads. A short retry keeps normal refreshes smooth without hiding a
+      // persistent failure behind an endless client loop.
+      for (let attempt = 0; res.status === 503 && attempt < 2; attempt += 1) {
+        await new Promise(function (resolve) {
+          window.setTimeout(resolve, 250 * (attempt + 1));
+        });
+        if (!load.current()) return false;
+        res = await fetch(url, {signal: load.signal});
+      }
+
+      if (!load.current()) return false;
+      if (!res.ok) {
+        if (
+          res.status === 404 &&
+          typeof core.isHistoryMode === "function" &&
+          core.isHistoryMode() &&
+          typeof core.handleMissingSnapshot === "function"
+        ) {
+          await core.handleMissingSnapshot("table");
+          return false;
+        }
+
+        console.error("Failed to load table data");
+        if (typeof core.setStatusMessage === "function") {
+          core.setStatusMessage("Failed to load table data (" + res.status + ").");
+        }
+        return false;
+      }
+
+      const data = await res.json();
+      if (!load.current() || (load.signal && load.signal.aborted)) return false;
+      if (simple) {
+        const table = document.createElement("table");
+        table.className = "dataframe";
+        const header = table.createTHead().insertRow();
+        const fields = data.columns || [];
+        fields.forEach(function (field) {
+          const th = document.createElement("th");
+          th.textContent = String(field);
+          header.append(th);
+        });
+        const body = table.createTBody();
+        (data.rows || []).forEach(function (row) {
+          const tr = body.insertRow();
+          fields.forEach(function (field) {
+            tr.insertCell().textContent = row[field] == null ? "" : String(row[field]);
+          });
+        });
+        simple.replaceChildren(table);
+        return true;
+      }
+      let columns = buildColumnDefs(data.columns || []);
+      const rows = data.rows || [];
+
+      if (state.tabulatorInstance) {
+        const sorters = currentSorters(state.tabulatorInstance);
+        columns = preserveColumnOrder(columns, state.tabulatorInstance);
+        state.tableAppliedGrouping = undefined;
+        await Promise.resolve(state.tabulatorInstance.setColumns(columns));
+        await Promise.resolve(state.tabulatorInstance.replaceData(rows));
+        if (sorters.length && typeof state.tabulatorInstance.setSort === "function") {
+          await Promise.resolve(state.tabulatorInstance.setSort(sorters));
+        }
+        configureTableExplorer({
+          table: state.tabulatorInstance,
+          payload: data,
+          rows: rows,
+          fields: data.columns || [],
+          columnDefs: columns,
+          plotCapabilities: { sources: ["table"] },
+        });
+        return true;
+      }
+
+      if (typeof Tabulator === "undefined") {
+        console.error("Tabulator is not available (did not load).");
+        if (typeof core.setStatusMessage === "function") {
+          core.setStatusMessage("Failed to start the rich table renderer.");
+        }
+        return false;
+      }
+
+      state.tabulatorInstance = new Tabulator("#table-grid", {
+        data: rows,
+        columns: columns,
+        height: "72vh",
+        layout: "fitDataStretch",
+        pagination: "local",
+        paginationSize: 100,
+        paginationSizeSelector: [20, 50, 100, 200],
+        movableColumns: true,
+        // Preserve literal dotted names for ordinary and embedded table data.
+        nestedFieldSeparator: false,
       });
-      res = await fetch(url);
-    }
 
-    if (!res.ok) {
-      if (
-        res.status === 404 &&
-        typeof core.isHistoryMode === "function" &&
-        core.isHistoryMode() &&
-        typeof core.handleMissingSnapshot === "function"
-      ) {
-        await core.handleMissingSnapshot("table");
-        return;
+      if (typeof state.tabulatorInstance.on === "function") {
+        state.tabulatorInstance.on("dataFiltered", function () {
+          refreshTableStatus();
+          refreshActiveTablePlot();
+        });
       }
 
-      console.error("Failed to load table data");
-      if (typeof core.setStatusMessage === "function") {
-        core.setStatusMessage("Failed to load table data (" + res.status + ").");
-      }
-      return;
-    }
-
-    const data = await res.json();
-    let columns = buildColumnDefs(data.columns || []);
-    const rows = data.rows || [];
-
-    if (state.tabulatorInstance) {
-      const sorters = currentSorters(state.tabulatorInstance);
-      columns = preserveColumnOrder(columns, state.tabulatorInstance);
-      state.tableAppliedGrouping = undefined;
-      await Promise.resolve(state.tabulatorInstance.setColumns(columns));
-      await Promise.resolve(state.tabulatorInstance.replaceData(rows));
-      if (sorters.length && typeof state.tabulatorInstance.setSort === "function") {
-        await Promise.resolve(state.tabulatorInstance.setSort(sorters));
-      }
       configureTableExplorer({
         table: state.tabulatorInstance,
         payload: data,
@@ -1701,45 +1768,13 @@
         columnDefs: columns,
         plotCapabilities: { sources: ["table"] },
       });
-      return;
+      return true;
+    } catch (error) {
+      if (load.current() && core.snapshotSelectionFailed) core.snapshotSelectionFailed("Failed to load selected table (network error or timeout).");
+      return false;
+    } finally {
+      load.finish();
     }
-
-    if (typeof Tabulator === "undefined") {
-      console.error("Tabulator is not available (did not load).");
-      if (typeof core.setStatusMessage === "function") {
-        core.setStatusMessage("Failed to start the rich table renderer.");
-      }
-      return;
-    }
-
-    state.tabulatorInstance = new Tabulator("#table-grid", {
-      data: rows,
-      columns: columns,
-      height: "72vh",
-      layout: "fitDataStretch",
-      pagination: "local",
-      paginationSize: 100,
-      paginationSizeSelector: [20, 50, 100, 200],
-      movableColumns: true,
-      // Preserve literal dotted names for ordinary and embedded table data.
-      nestedFieldSeparator: false,
-    });
-
-    if (typeof state.tabulatorInstance.on === "function") {
-      state.tabulatorInstance.on("dataFiltered", function () {
-        refreshTableStatus();
-        refreshActiveTablePlot();
-      });
-    }
-
-    configureTableExplorer({
-      table: state.tabulatorInstance,
-      payload: data,
-      rows: rows,
-      fields: data.columns || [],
-      columnDefs: columns,
-      plotCapabilities: { sources: ["table"] },
-    });
   }
 
   function exportCompletePublishedTable() {

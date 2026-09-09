@@ -51,6 +51,8 @@
   }
 
   function runExport(action) {
+    const navigation = state.snapshotNavigation;
+    if (navigation && (navigation.pending || navigation.error)) return;
     let result;
     if (action === "filtered" || action === "retained" || action === "complete") {
       if (typeof core.exportTable === "function") {
@@ -148,6 +150,7 @@
   }
 
   core.bindBottomBar = bindBottomBar;
+  core.closeExportMenu = closeExportMenu;
   core.configureBottomBar = configureBottomBar;
   core.syncDockClearance = syncDockClearance;
 })();

@@ -157,16 +157,19 @@ def render_index(
         """
 
     def _history_controls_html() -> str:
-        if not ui.show_history_controls:
+        if not ui.show_history_controls or kind == "stream":
             return ""
         return """
           <div id="snapshots-control" class="ps-snapshots" data-state="loading">
+            <button id="snapshot-older" class="ps-snapshot-arrow" type="button" aria-label="Older snapshot" disabled hidden>‹</button>
             <label id="snapshots-selector" class="ps-snapshots__selector" title="Checking snapshot availability.">
               <span>Snapshots</span>
               <select id="history-select" class="ps-select" aria-label="Snapshots" disabled>
                 <option value="">Loading snapshots…</option>
               </select>
             </label>
+            <button id="snapshot-newer" class="ps-snapshot-arrow" type="button" aria-label="Newer snapshot or Latest" disabled hidden>›</button>
+            <span id="snapshot-navigation-notice" class="ps-snapshot-notice" role="status" aria-live="polite"></span>
             <span id="snapshots-info" class="ps-snapshots__info" role="img"
                   tabindex="0" aria-label="Checking snapshot availability."
                   title="Checking snapshot availability.">i</span>
@@ -567,7 +570,7 @@ def render_index(
                   grouping, column controls, and plotting are available in rich table mode.
                 </p>
                 <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
-                  <div class="table-scroll ps-table-scroll ps-table--simple">
+                  <div id="simple-table-root" class="table-scroll ps-table-scroll ps-table--simple">
                     {table_html_simple}
                   </div>
                 </div>

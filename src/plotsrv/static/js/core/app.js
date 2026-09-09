@@ -43,7 +43,9 @@
     const image = document.getElementById("plot");
     if (!image || image.complete) return Promise.resolve();
     return new Promise(function (resolve) {
+      const timer = window.setTimeout(done, 10000);
       function done() {
+        window.clearTimeout(timer);
         image.removeEventListener("load", done);
         image.removeEventListener("error", done);
         resolve();
@@ -79,7 +81,9 @@
 
     if (document.getElementById("artifact-root")) {
       if (typeof core.loadArtifact === "function") {
-        return core.loadArtifact().then(refreshChromeAfterLoad);
+        return core.loadArtifact().then(function (applied) {
+          return refreshChromeAfterLoad().then(function () { return applied; });
+        });
       }
       return Promise.resolve();
     }
@@ -93,16 +97,20 @@
       return Promise.resolve();
     }
 
-    if (document.getElementById("table-grid")) {
+    if (document.getElementById("table-grid") || document.getElementById("simple-table-root")) {
       if (typeof core.loadTable === "function") {
-        return core.loadTable().then(refreshChromeAfterLoad);
+        return core.loadTable().then(function (applied) {
+          return refreshChromeAfterLoad().then(function () { return applied; });
+        });
       }
       return Promise.resolve();
     }
 
     if (document.getElementById("plot")) {
       if (typeof core.refreshPlot === "function") {
-        return core.refreshPlot().then(refreshChromeAfterLoad);
+        return core.refreshPlot().then(function (applied) {
+          return refreshChromeAfterLoad().then(function () { return applied; });
+        });
       }
       return Promise.resolve();
     }
@@ -120,7 +128,7 @@
     }
 
     if (document.hidden) {
-      return Promise.resolve();
+      return Promise.resolve(false);
     }
 
     const finishLoading = beginContentLoading();
@@ -197,9 +205,9 @@
         }
         return core.reloadCurrentView();
       })
-      .then(function () {
+      .then(function (applied) {
         if (typeof core.markInitialViewLoaded === "function") core.markInitialViewLoaded();
-        if (typeof core.markBrowserViewApplied === "function") {
+        if (applied !== false && !(core.isHistoryMode && core.isHistoryMode()) && typeof core.markBrowserViewApplied === "function") {
           core.markBrowserViewApplied();
         }
         if (typeof core.showPendingSnapshotNotice === "function") {

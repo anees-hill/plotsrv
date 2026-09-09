@@ -26,42 +26,27 @@
       "&_ts=" +
       Date.now();
 
-    const isHistory =
-      typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
-
-    if (!isHistory) {
-      if (typeof core.clearPlotObjectUrl === "function") {
-        core.clearPlotObjectUrl();
-      }
-      img.src = url;
-
-      if (typeof core.setStatusMessage === "function") {
-        core.setStatusMessage("");
-      }
-
-      if (typeof core.refreshStatus === "function") {
-        core.refreshStatus();
-      }
-      return;
-    }
-
+    const load = core.beginSnapshotLoad ? core.beginSnapshotLoad("plot") :
+      {current: () => true, finish: () => {}, signal: undefined};
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, {signal: load.signal});
+      if (!load.current()) return false;
       if (!res.ok) {
         if (
-          res.status === 404 &&
+          res.status === 404 && !!snapshotQuery &&
           typeof core.handleMissingSnapshot === "function"
         ) {
           await core.handleMissingSnapshot("plot");
-          return;
+          return false;
         }
         if (typeof core.setStatusMessage === "function") {
           core.setStatusMessage("Failed to load plot snapshot (" + res.status + ").");
         }
-        return;
+        return false;
       }
 
       const blob = await res.blob();
+      if (!load.current() || (load.signal && load.signal.aborted)) return false;
       if (typeof core.clearPlotObjectUrl === "function") {
         core.clearPlotObjectUrl();
       }
@@ -75,10 +60,15 @@
       if (typeof core.refreshStatus === "function") {
         core.refreshStatus();
       }
+      return true;
     } catch (e) {
+      if (!load.current()) return false;
       if (typeof core.setStatusMessage === "function") {
-        core.setStatusMessage("Failed to load plot snapshot (network error).");
+        core.setStatusMessage("Failed to load plot snapshot (network error or timeout).");
       }
+      return false;
+    } finally {
+      load.finish();
     }
   }
 

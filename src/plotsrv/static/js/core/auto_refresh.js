@@ -65,6 +65,7 @@
   function getAutomaticUpdateBlockers() {
     const blockers = [];
     if (document.hidden) blockers.push("hidden_tab");
+    if (state.snapshotNavigation && (state.snapshotNavigation.pending || state.snapshotNavigation.error)) blockers.push("snapshot_navigation");
     if (typeof core.isHistoryMode === "function" && core.isHistoryMode()) {
       blockers.push("snapshot");
     }
@@ -106,7 +107,7 @@
   function canApplyPendingUpdate(options) {
     const force = !!(options && options.force);
     const blockers = getAutomaticUpdateBlockers();
-    if (blockers.some(historicalBlocker)) return false;
+    if (blockers.includes("snapshot_navigation") || blockers.some(historicalBlocker)) return false;
     return force || blockers.length === 0;
   }
 
@@ -180,7 +181,9 @@
         // acknowledge that revision merely because cancellation was clean.
         if (applied === false || (config.kind === "stream" && state.streamPaused)) {
           showPendingUpdate();
-          retryImmediatelyWhenSettled = true;
+          // Ordinary fetch failure waits for another notice or explicit update.
+          // A failed snapshot selection must never become a hot Live retry loop.
+          retryImmediatelyWhenSettled = config.kind === "stream";
           return false;
         }
         finishAppliedUpdate(revision);
