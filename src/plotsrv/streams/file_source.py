@@ -554,7 +554,10 @@ class JsonlFollower:
             if not acknowledged:
                 if self._is_drained():
                     return True
-                if self.accounted_source_offset <= before:
+                if (
+                    self._in_flight_batch is not None
+                    or self.accounted_source_offset <= before
+                ):
                     return False
 
     def _is_drained(self) -> bool:

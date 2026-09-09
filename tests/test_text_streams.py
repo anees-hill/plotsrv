@@ -482,3 +482,20 @@ def test_late_fragment_cannot_become_a_spurious_http_request():
     assert (
         adapt_frame(frame, observed_at=NOW, adapter="uvicorn")["http"]["status"] == 200
     )
+
+
+def test_final_drain_does_not_retry_rejected_batch_after_skipped_jsonl(tmp_path):
+    source = tmp_path / "drain.jsonl"
+    source.write_bytes(b"")
+    calls = []
+    follower = JsonlFollower(
+        source, on_batch=lambda batch: calls.append(batch) or False
+    )
+    try:
+        source.write_bytes(b'bad-json\n{"valid":true}\n')
+        assert not follower.drain(timeout_s=2)
+        assert len(calls) == 1
+        assert follower.accounted_source_offset == len(b"bad-json\n")
+        assert follower.acknowledged_source_offset == 0
+    finally:
+        follower.close()
