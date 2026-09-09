@@ -215,5 +215,43 @@ Existing SSE carries coalesced check-status notices, at most four per second per
 active source, with one trailing notice after a burst. There is no idle polling or
 per-browser worker. A slow status fetch retains one pending refresh; check notices
 do not replace pending data updates or reload a filtered/historical presentation.
-The status-modal check display, attention marker and notification delivery are
-separate later slices.
+Each state includes its `last_event_cursor`, so other views' events do not create
+attention for this view. Notification delivery is a separate later slice.
+
+## Reading checks in the browser
+
+Open the header's existing status button to see Checks alongside freshness,
+producer continuity and the arrival timeline. Current state failures, unavailable
+checks and disabled checks are separate from recent transitions and stream event
+matches. A matching event is an occurrence, not a persistent failure. Recovery is
+labelled explicitly. Conditions say **Triggers when**; they describe the configured
+predicate, not an invented acceptable range. Evidence scope and server receipt time
+are visible; IDs, literal paths, raw reasons and counts are in Technical details.
+
+The small exclamation marker means this browser has unseen check activity. Reading
+the displayed activity clears attention without resolving an active failure.
+Initial live evidence establishes a baseline: an initial failing check is visible
+inside the modal but does not manufacture a transition or unseen marker.
+
+Check results stay fixed while you read. Live SSE notices update attention and the
+**Show updated checks and activity** button; they cannot silently acknowledge an
+event that arrived after the displayed response. Opening again or choosing that
+button fetches the bounded retained history. There is one in-flight history read,
+a 10-second request deadline, no automatic retry and no polling. Closing cancels
+the read and releases the rendered event history. Reconnection refreshes status
+even when a historical snapshot is selected; it does not switch the displayed data.
+Snapshot and stored-session mode explicitly label checks as referring to live data.
+
+Seen watermarks contain only logical view/check IDs, generation and cursor. They
+are stored locally under this origin, dashboard path and dashboard name, with at
+most 128 entries; they contain no evidence values or publisher credentials. Separate
+browser profiles remain independent. Tabs share best-effort local preferences.
+When storage is unavailable, seen state lasts only on the current page. Clearing or
+evicting browser preferences can make activity request attention again.
+
+History is not a durable audit log. A retention gap is disclosed even if no recent
+matches remain. If an unread event has already expired, opening an empty history
+cannot mark it read: attention remains until newer retained activity for that check
+is read or the server generation changes. A request error preserves attention and
+never implies an all-clear. Server restart starts a distinct event generation;
+browser acknowledgement is never sent to the server or another user's browser.

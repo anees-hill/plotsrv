@@ -468,6 +468,7 @@
     }
     const button = document.getElementById("header-status-button");
     if (button) button.setAttribute("aria-label", presentation.title);
+    if (typeof core.renderCheckAttention === "function") core.renderCheckAttention();
     if (typeof core.renderStatusModal === "function") core.renderStatusModal();
   }
 
@@ -492,6 +493,7 @@
 
   function setHeaderLatestStatus(statusPayload) {
     state.latestStatusPayload = statusPayload || null;
+    if (typeof core.receiveCheckStatus === "function") core.receiveCheckStatus(statusPayload && statusPayload.checks);
     state.headerStatus.latestData = {
       lastUpdated: statusPayload && statusPayload.last_updated
         ? statusPayload.last_updated
@@ -629,12 +631,15 @@
 
     const refreshPromise = (async function () {
       try {
+        const requestedView = config.activeViewId;
+        const requestedServerEpoch = state.browserUpdateGeneration;
         const res = await fetch(
-        "/status?view=" + encodeURIComponent(config.activeViewId) + "&_ts=" + Date.now()
+        "/status?view=" + encodeURIComponent(requestedView) + "&_ts=" + Date.now()
         );
         if (!res.ok) return;
 
         const s = await res.json();
+        if (requestedView !== config.activeViewId || requestedServerEpoch !== state.browserUpdateGeneration) return;
 
       const errWrap = document.getElementById("status-error-wrap");
       const err = document.getElementById("status-error");

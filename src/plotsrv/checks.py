@@ -113,6 +113,7 @@ class CheckEngine:
                 selection_path=list(r.selection_path),
                 loss_epoch=self._loss[r.id],
                 context=None,
+                last_event_cursor=0,
             )
             for r in self.rules
         }
@@ -263,6 +264,7 @@ class CheckEngine:
             self._gap([rule], time.monotonic_ns())
             return
         self._cursor = min(MAX_COUNTER, self._cursor + 1)
+        self._states[rule.id]["last_event_cursor"] = self._cursor
         event = dict(
             version=1,
             generation=self.generation,

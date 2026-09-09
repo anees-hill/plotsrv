@@ -1,0 +1,331 @@
+"""Functional browser-local check attention against real engine evidence and modal markup."""
+
+import json
+
+from plotsrv import html as html_mod
+from plotsrv.checks import CheckEngine
+from plotsrv.checks_config import parse_checks
+from tests.test_plot_controls_browser import page, STATIC
+
+
+def evidence():
+    rules = parse_checks(
+        {
+            "rules": [
+                dict(
+                    id="rows",
+                    name="Row count within expected range",
+                    source="test:layout",
+                    kind="state",
+                    path=["rows"],
+                    op="gt",
+                    value=10000,
+                    severity="critical",
+                )
+            ]
+        }
+    )
+    engine = CheckEngine(rules, generation="generation-one")
+    for revision, value in enumerate((9000, 12481)):
+        engine.submit(
+            "test:layout",
+            "state",
+            [
+                (
+                    {"rows": value},
+                    {
+                        "source_revision": revision,
+                        "received_at": "2026-09-09T03:10:13+00:00",
+                    },
+                )
+            ],
+        )
+        assert engine.flush(1)
+    result = engine.snapshot("test:layout")
+    engine.close()
+    assert result["states"][0]["state"] == "triggered"
+    return result
+
+
+def mount(page, data=None):
+    data = evidence() if data is None else data
+    markup = html_mod.render_index(
+        kind="table",
+        table_view_mode="rich",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+    )
+    page.evaluate("PLOTSRV.core.disposeEmbeddedTableExplorer()")
+    page.evaluate(
+        """markup => {
+      const doc = new DOMParser().parseFromString(markup, 'text/html');
+      document.body.innerHTML = doc.getElementById('header-status').outerHTML + doc.getElementById('status-modal-backdrop').outerHTML;
+    }""",
+        markup,
+    )
+    for name in (
+        "core/state",
+        "core/storage",
+        "core/status",
+        "core/status_modal",
+        "core/check_status",
+    ):
+        page.add_script_tag(path=str(STATIC / ("js/" + name + ".js")))
+    page.evaluate(
+        """data => {
+      PLOTSRV.config.activeViewId = 'test:layout'; PLOTSRV.config.kind = 'table';
+      PLOTSRV.config.showHeaderFreshness = true;
+      PLOTSRV.core.bindHeaderStatus(); PLOTSRV.core.bindStatusModal();
+      window.checkData = data; window.checkReads = 0;
+      window.fetch = async () => {checkReads++; return {ok:true, json:async () => checkData};};
+      PLOTSRV.core.setHeaderLatestStatus({checks:data, last_updated:'2026-09-09T03:10:13+00:00', last_data_arrival_at:'2026-09-09T03:10:13+00:00', data_activity:{events:[{received_at:'2026-09-09T03:10:13+00:00'}],limit:256}});
+    }""",
+        data,
+    )
+    return data
+
+
+def opened(page):
+    page.click("#header-status-button")
+    page.wait_for_function("!document.getElementById('status-checks-load').disabled")
+
+
+def test_read_keeps_failure_keyboard_focus_and_screenshots(page, tmp_path):
+    mount(page)
+    assert page.locator("#header-check-attention").is_visible()
+    page.screenshot(path="/tmp/plotsrv-13-header.png")
+    page.locator("#header-status-button").focus()
+    page.keyboard.press("Enter")
+    page.wait_for_function("!document.getElementById('status-checks-load').disabled")
+    assert page.locator("#header-check-attention").is_hidden()
+    assert "1 active failure" in page.locator("#status-checks-summary").inner_text()
+    assert (
+        "Critical · Active failure"
+        in page.locator("#status-checks-current").inner_text()
+    )
+    assert "Observed: 12481" in page.locator("#status-checks-current").inner_text()
+    assert page.locator("#status-modal-activity-dots").is_visible()
+    page.screenshot(path="/tmp/plotsrv-13-modal.png", full_page=True)
+    page.keyboard.press("Escape")
+    assert page.locator("#header-status-button").evaluate(
+        "e => e === document.activeElement"
+    )
+    assert page.evaluate("checkReads") == 1
+    assert "12481" not in page.evaluate("JSON.stringify(localStorage)")
+
+
+def test_event_during_read_is_not_seen_and_recovery_explicit(page):
+    data = mount(page)
+    page.evaluate("""() => {
+      window.fetch = () => { checkReads++; return new Promise(resolve => window.finishRead = () => resolve({ok:true,json:async()=>checkData})); };
+    }""")
+    page.click("#header-status-button")
+    newer = json.loads(json.dumps(data))
+    newer["cursor"] = 2
+    newer["states"][0].update(state="ok", last_event_cursor=2, observed_value=9000)
+    newer["events"] = [
+        dict(
+            data["events"][0],
+            cursor=2,
+            event_id="generation-one:2",
+            event_type="recovered",
+            state="ok",
+            observed_value=9000,
+        )
+    ]
+    page.evaluate("data => PLOTSRV.core.receiveCheckStatus(data)", newer)
+    page.evaluate("finishRead()")
+    page.wait_for_function("!document.getElementById('status-checks-load').disabled")
+    assert page.locator("#header-check-attention").is_visible()
+    assert page.get_by_role(
+        "button", name="Show updated checks and activity"
+    ).is_visible()
+    page.evaluate(
+        """data => { checkData=data; window.fetch=async()=>({ok:true,json:async()=>checkData}); }""",
+        newer,
+    )
+    page.click("#status-checks-load")
+    assert page.locator("#header-check-attention").is_hidden()
+    assert "Recovered" in page.locator("#status-checks-events").inner_text()
+    assert "0 active failures" in page.locator("#status-checks-summary").inner_text()
+
+
+def test_restart_profiles_private_storage_and_snapshot(page):
+    data = mount(page)
+    opened(page)
+    page.keyboard.press("Escape")
+    page.evaluate("""() => {
+      PLOTSRV.state.currentSnapshot = 'old';
+      checkData.generation='generation-two';
+      checkData.events.forEach(e => {e.generation='generation-two';e.event_id='generation-two:1';});
+      PLOTSRV.core.receiveCheckStatus(checkData);
+      Storage.prototype.setItem = () => {throw Error('private');};
+    }""")
+    assert page.locator("#header-check-attention").is_visible()
+    opened(page)
+    assert (
+        "not this historical snapshot"
+        in page.locator("#status-checks-context").inner_text()
+    )
+    assert (
+        "remembered only on this page"
+        in page.locator("#status-checks-personal").inner_text()
+    )
+    assert page.locator("#header-check-attention").is_hidden()
+    # A separate browser profile has no acknowledgement.
+    second = page.context.browser.new_context()
+    other = second.new_page()
+    other.route("**/*", lambda route: route.fulfill(body="<html></html>"))
+    other.goto("http://plotsrv.test/")
+    assert other.evaluate("localStorage.length") == 0
+    second.close()
+
+
+def test_error_gap_no_checks_and_event_only_source(page):
+    data = mount(page)
+    page.evaluate("window.fetch=async()=>({ok:false})")
+    opened(page)
+    assert "could not be loaded" in page.locator("#status-checks-summary").inner_text()
+    assert page.locator("#header-check-attention").is_visible()
+    page.evaluate("""() => {
+      checkData.history_gap=true;
+      checkData.states[0].kind='event'; checkData.states[0].state='ok';
+      checkData.events[0].kind='event'; checkData.events[0].event_type='match'; checkData.events[0].state='ok';
+      window.fetch=async()=>({ok:true,json:async()=>checkData});
+    }""")
+    page.click("#status-checks-load")
+    assert "Event match" in page.locator("#status-checks-events").inner_text()
+    assert (
+        "not a complete activity record"
+        in page.locator("#status-checks-events").inner_text()
+    )
+    assert "0 active failures" in page.locator("#status-checks-summary").inner_text()
+    page.evaluate("checkData.states=[];checkData.events=[]")
+    page.click("#status-checks-load")
+    assert "No checks configured" in page.locator("#status-checks-summary").inner_text()
+
+
+def test_mobile_and_hostile_text_remain_safe(page):
+    data = evidence()
+    data["states"][0]["name"] = "<img src=x onerror=alert(1)>"
+    mount(page, data)
+    page.set_viewport_size({"width": 390, "height": 844})
+    opened(page)
+    assert page.locator("#status-modal-checks img").count() == 0
+    assert page.evaluate("document.body.scrollWidth <= innerWidth")
+    assert page.locator("#status-modal").evaluate("e => e.scrollWidth <= e.clientWidth")
+    page.get_by_text("Technical details", exact=True).first.click()
+    assert "check_id" in page.locator("#status-checks-current pre").inner_text()
+
+
+def test_closed_read_restart_race_and_request_coalescing(page):
+    mount(page)
+    page.evaluate("""() => {
+      window.fetch=(_, options)=>{checkReads++;window.readSignal=options.signal;return new Promise(resolve=>window.finishRead=()=>resolve({ok:true,json:async()=>checkData}));};
+    }""")
+    page.click("#header-status-button")
+    page.evaluate(
+        """() => {for(let i=0;i<1000;i++) {PLOTSRV.core.receiveCheckStatus(checkData);document.getElementById('status-checks-load').onclick();}}"""
+    )
+    assert page.evaluate("checkReads") == 1
+    page.keyboard.press("Escape")
+    assert page.evaluate("readSignal.aborted")
+    page.evaluate("finishRead()")
+    assert page.locator("#header-check-attention").is_visible()
+    page.click("#header-status-button")
+    page.evaluate("""() => {
+      PLOTSRV.core.receiveCheckStatus({...checkData,generation:'restarted'});
+      finishRead();
+    }""")
+    page.wait_for_function("!document.getElementById('status-checks-load').disabled")
+    assert "could not be loaded" in page.locator("#status-checks-summary").inner_text()
+    assert (
+        page.evaluate(
+            "Object.keys(localStorage).filter(k=>k.startsWith('plotsrv:v1:check_seen:')).length"
+        )
+        == 0
+    )
+
+
+def test_unavailable_disabled_and_evicted_unread_activity(page):
+    data = evidence()
+    data.update(events=[], history_gap=True)
+    data["states"][0].update(state="unknown", reason="awaiting_live_data")
+    mount(page, data)
+    opened(page)
+    assert (
+        "Waiting for eligible live data"
+        in page.locator("#status-checks-current").inner_text()
+    )
+    # Never claim that lost events were actually presented/read.
+    assert page.locator("#header-check-attention").is_visible()
+    page.evaluate("checkData.states[0].state='disabled'")
+    page.click("#status-checks-load")
+    assert "Checks are disabled" in page.locator("#status-checks-summary").inner_text()
+    assert page.locator("#header-check-attention").is_visible()
+
+
+def test_seen_scope_and_new_severity_event(page):
+    mount(page)
+    opened(page)
+    page.keyboard.press("Escape")
+    page.evaluate("""() => {
+      checkData.cursor=2;checkData.states[0].last_event_cursor=2;
+      checkData.states[0].severity='warning';checkData.events[0].cursor=2;checkData.events[0].severity='warning';
+      PLOTSRV.core.receiveCheckStatus(checkData);
+    }""")
+    assert page.locator("#header-check-attention").is_visible()
+    opened(page)
+    assert "Warning · Triggered" in page.locator("#status-checks-events").inner_text()
+    page.keyboard.press("Escape")
+    page.evaluate(
+        "PLOTSRV.config.dashboardName='another dashboard';PLOTSRV.core.renderCheckAttention()"
+    )
+    assert page.locator("#header-check-attention").is_visible()
+    page.evaluate(
+        "PLOTSRV.config.dashboardName='default';PLOTSRV.core.renderCheckAttention()"
+    )
+    assert page.locator("#header-check-attention").is_hidden()
+
+
+def test_sse_reconnect_refreshes_checks_in_history_without_fetching_history(page):
+    mount(page)
+    page.add_script_tag(path=str(STATIC / "js/core/auto_refresh.js"))
+    page.evaluate("""() => {
+      PLOTSRV.state.currentSnapshot='pinned';
+      PLOTSRV.state.observedUpdateRevision=20;
+      window.statusReads=0;
+      PLOTSRV.core.refreshStatus=async()=>{statusReads++;PLOTSRV.core.receiveCheckStatus(checkData);};
+      PLOTSRV.core.receiveBrowserUpdate({revision:20,view_id:'test:layout',change_type:'reconnect'});
+    }""")
+    page.wait_for_function("statusReads === 1")
+    assert page.evaluate("checkReads") == 0
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") == "pinned"
+    assert page.locator("#header-check-attention").is_visible()
+
+
+def test_bounded_history_render_and_idle_cost(page):
+    data = evidence()
+    base = data["events"][0]
+    data["events"] = [
+        dict(base, cursor=i, event_id=f"generation-one:{i}") for i in range(1, 257)
+    ]
+    data["cursor"] = 256
+    data["states"][0]["last_event_cursor"] = 256
+    mount(page, data)
+    opened(page)
+    assert page.locator("#status-checks-events article").count() == 256
+    assert page.evaluate("checkReads") == 1
+    measurements = page.evaluate("""() => {
+      const start=performance.now();
+      for(let i=0;i<1000;i++) PLOTSRV.core.receiveCheckStatus(checkData);
+      return {noticeMs:performance.now()-start, seenBytes:JSON.stringify(localStorage).length, cards:document.querySelectorAll('.ps-check-card').length};
+    }""")
+    print("check UI bounded history:", measurements)
+    assert measurements["seenBytes"] < 1024
+    assert measurements["cards"] == 257
+    assert page.evaluate("checkReads") == 1
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(200)
+    assert page.evaluate("checkReads") == 1

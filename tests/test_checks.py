@@ -491,3 +491,32 @@ def test_failed_capture_fences_inflight_recovery_before_releasing_admission(
     finally:
         release.set()
         e.close()
+
+
+def test_status_keeps_per_check_event_watermark_after_history_eviction():
+    rules = parse_checks({"rules": [spec(), spec(id="other", source="other")]})
+    engine = CheckEngine(rules)
+    try:
+        assert (
+            engine.snapshot("metrics", include_events=False)["states"][0][
+                "last_event_cursor"
+            ]
+            == 0
+        )
+        submit(engine, {"duration": 0}, revision=1)
+        submit(engine, {"duration": 20}, revision=2)
+        result = engine.snapshot("metrics", include_events=False)
+        assert result["events"] == []
+        assert result["states"][0]["last_event_cursor"] == result["cursor"] == 1
+        # Other views' global cursors must not manufacture attention for this view.
+        with engine._condition:
+            engine._cursor = 9
+            engine._events.clear()
+            engine._event_bytes = 0
+        result = engine.snapshot("metrics", include_events=False)
+        assert result["cursor"] == 9
+        assert result["states"][0]["last_event_cursor"] == 1
+        assert result["history_gap"]
+        assert engine.snapshot("other")["states"][0]["last_event_cursor"] == 0
+    finally:
+        engine.close()

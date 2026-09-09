@@ -325,6 +325,7 @@
   function renderStatusModal() {
     const modal = document.getElementById("status-modal");
     if (!modal || !state.statusModalOpen) return;
+    if (typeof core.renderCheckContext === "function") core.renderCheckContext();
     const payload = state.latestStatusPayload || {};
     const snapshot = state.currentSnapshot;
     const historicalStream = state.streamHistoricalSessionId;
@@ -491,6 +492,7 @@
     if (document.body) document.body.classList.add("ps-status-modal-open");
     if (button) button.setAttribute("aria-expanded", "true");
     renderStatusModal();
+    if (typeof core.openCheckStatus === "function") core.openCheckStatus();
     const watched = state.latestStatusPayload && state.latestStatusPayload.watched_file;
     if ((config.kind === "stream" || (watched && watched.materialization === "remote")) &&
         typeof core.refreshStatus === "function") {
@@ -505,6 +507,7 @@
     if (!backdrop || backdrop.hidden) return;
     backdrop.hidden = true;
     state.statusModalOpen = false;
+    if (typeof core.closeCheckStatus === "function") core.closeCheckStatus();
     if (document.body) document.body.classList.remove("ps-status-modal-open");
     if (button) button.setAttribute("aria-expanded", "false");
     if (!options || options.restoreFocus !== false) {

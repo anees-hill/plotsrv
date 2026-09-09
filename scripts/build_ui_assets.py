@@ -49,6 +49,7 @@ JS_SOURCES = (
     "js/core/history.js",
     "js/core/status.js",
     "js/core/status_modal.js",
+    "js/core/check_status.js",
     "js/core/bottom_bar.js",
     "js/core/auto_refresh.js",
     "js/core/view_selector.js",

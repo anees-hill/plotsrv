@@ -103,7 +103,8 @@
 
 .ps-header-status__button {
   display: inline-grid;
-  grid-template-columns: auto auto minmax(0, auto) auto;
+  grid-template-columns: auto auto minmax(0, auto);
+  grid-auto-flow: column;
 }
 
 .ps-header-status__dot {
@@ -658,3 +659,40 @@ body.ps-status-modal-open {
   font-weight: 600;
   letter-spacing: 0.02em;
 }
+
+/* Check attention is independent of the freshness dot and header colour. */
+.ps-check-attention {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 1.25rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: var(--danger-text);
+  color: var(--ps-surface);
+  font-weight: 800;
+}
+.ps-check-attention[hidden] { display: none; }
+#status-modal-checks { display: block; }
+#status-checks-load { margin: 0.5rem 0; }
+.ps-check-card {
+  margin-top: 0.65rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow-wrap: anywhere;
+}
+.ps-check-card[data-active="true"] {
+  border-color: var(--danger-border);
+  background: var(--danger-bg);
+}
+.ps-check-card__heading { display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; justify-content: space-between; }
+.ps-check-card__pill { font-size: 0.8rem; font-weight: 600; }
+.ps-check-card[data-active="true"] .ps-check-card__pill { color: var(--danger-text); }
+.ps-check-card p { margin: 0.35rem 0; }
+.ps-check-card details { margin-top: 0.45rem; font-size: 0.8rem; }
+.ps-check-card summary { cursor: pointer; }
+.ps-check-card pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; }
+.ps-check-gap { padding: 0.5rem; border-left: 3px solid var(--danger-border); }
+#status-checks-summary { font-weight: 600; color: var(--text); }

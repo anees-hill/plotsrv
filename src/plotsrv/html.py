@@ -855,8 +855,10 @@ def render_index(
               <span id="header-status-dot" class="ps-header-status__dot" aria-hidden="true"></span>
               <span id="header-status-label" class="ps-header-status__label">Latest</span>
               <span id="header-status-context" class="ps-header-status__context">Checking status…</span>
+              <span id="header-check-attention" class="ps-check-attention" aria-label="Unseen check activity" hidden>!</span>
               <span class="ps-header-status__chevron" aria-hidden="true">⌄</span>
             </button>
+            <span id="header-check-announcement" class="ps-visually-hidden" role="status" aria-live="polite"></span>
           </div>
         """
         status_modal_html = f"""
@@ -899,6 +901,16 @@ def render_index(
                     <strong id="status-modal-freshness">Checking</strong>
                     <span id="status-modal-freshness-detail">Checking freshness policy.</span>
                   </div>
+                </section>
+
+                <section id="status-modal-checks" class="ps-status-modal__policy" aria-labelledby="status-checks-title">
+                  <h3 id="status-checks-title">Checks</h3>
+                  <p id="status-checks-summary" role="status" aria-live="polite">Checking availability.</p>
+                  <p id="status-checks-context" class="ps-status-modal__caveat"></p>
+                  <p id="status-checks-personal" class="ps-status-modal__caveat">Reading check activity clears attention only in this browser. Seen does not mean resolved.</p>
+                  <button id="status-checks-load" class="ps-btn" type="button">Refresh checks</button>
+                  <div id="status-checks-current"></div>
+                  <div id="status-checks-events"></div>
                 </section>
 
                 <section id="status-modal-policy" class="ps-status-modal__policy" aria-labelledby="status-modal-policy-title">

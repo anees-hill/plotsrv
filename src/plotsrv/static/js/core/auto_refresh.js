@@ -234,6 +234,8 @@
       state.pendingBrowserUpdate = null;
       clearStreamUpdateRetry();
     }
+    if (payload.change_type === "reconnect" &&
+        (!payload.view_id || payload.view_id === config.activeViewId)) refreshCheckStatus();
     if (revision <= state.observedUpdateRevision) return;
     state.observedUpdateRevision = revision;
 
