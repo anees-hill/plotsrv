@@ -1,8 +1,9 @@
-"""Internal observation contracts; not a public observe=True API or wire format."""
+"""Bounded observation options and internal detached-work contracts."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
+import hashlib
 import json
 import math
 from typing import Any
@@ -82,7 +83,7 @@ class ObservationBudget:
 
 
 @dataclass(frozen=True, slots=True)
-class CaptureOptions:
+class ObservationOptions:
     # Strings select bounded-inspected dictionary/pandas names; integers are
     # positional table columns.
     fields: tuple[str | int, ...] = ()
@@ -114,6 +115,44 @@ class CaptureOptions:
             raise ValueError("field selection must use either names or positions")
 
 
+# Keep the reviewed internal spelling as an alias.
+CaptureOptions = ObservationOptions
+
+
+@dataclass(frozen=True, slots=True)
+class ObservationRoute:
+    target: object
+    label: str
+    section: str | None = None
+    update_limit_s: int | None = None
+    force: bool = False
+    target_key: str = field(init=False)
+
+    def __post_init__(self):
+        from ..contracts import bounded_text
+        from ..publishing.models import PublishTarget
+
+        if type(self.target) is not PublishTarget:
+            raise ValueError("invalid observation target")
+        for name in ("label", "section"):
+            value = getattr(self, name)
+            if value is not None:
+                if type(value) is not str:
+                    raise ValueError("invalid observation metadata")
+                bounded_text(value, name, 512, empty=name == "section")
+        if self.update_limit_s is not None and (
+            type(self.update_limit_s) is not int
+            or not 0 <= self.update_limit_s <= 86400
+        ):
+            raise ValueError("invalid observation update limit")
+        if type(self.force) is not bool:
+            raise ValueError("invalid observation force option")
+
+        object.__setattr__(
+            self, "target_key", hashlib.sha256(self.target.key.encode()).hexdigest()
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class CaptureEnvelope:
     """Independent immutable evidence for a local summary worker only.
@@ -134,3 +173,4 @@ class ObservationWork:
     token: int
     view_id: str
     envelope: CaptureEnvelope
+    route: ObservationRoute | None = None
