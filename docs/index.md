@@ -69,6 +69,8 @@ Beyond simply rendering outputs, it can:
 - **[Freshness](guides/freshness.md)** — monitor when outputs become stale
 - **[Configuration](get-started/configuration-basics.md)** — control plotsrv behaviour
 
+For existing access/application logs, see [HTTP log streams](guides/http-log-streams.md).
+
 ## Is it reliable?
 
 plotsrv is developed with automated testing as a core part of the project.

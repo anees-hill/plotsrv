@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 import threading
 import time
+from typing import Literal
 from uuid import uuid4
 
 from .. import config
@@ -183,6 +184,7 @@ atexit.register(_stream_exit_cleanup_manager.cleanup)
 def stream_view(
     *,
     source: str | Path,
+    format: Literal["jsonl", "uvicorn", "text", "auto"] = "jsonl",
     label: str | None = None,
     section: str | None = None,
     host: str | None = None,
@@ -192,7 +194,11 @@ def stream_view(
     client_id: str | None = None,
     session_id: str | None = None,
 ) -> StreamHandle:
-    """Observe newly appended JSON objects from a JSONL or NDJSON source.
+    """Observe appended JSONL (default), or explicitly adapted mixed-text logs.
+
+    ``format="uvicorn"`` enables bounded HTTP access/traceback/text framing;
+    ``"text"`` frames without HTTP parsing. ``"auto"`` keeps .jsonl/.ndjson
+    strict and uses conservative Uvicorn recognition for other suffixes.
 
     Existing sources begin at their registration EOF.  A missing source is
     accepted and begins at byte zero once it appears.  The ongoing observation
@@ -205,11 +211,33 @@ def stream_view(
     ID; pass both again only when intentionally retrying the same session.
     """
     from ..connection_config import resolve_publish_target
-    target = resolve_publish_target(destination=destination, host=host, port=port, launch_server=False)
-    source_path = resolve_jsonl_source(source)
+
+    target = resolve_publish_target(
+        destination=destination, host=host, port=port, launch_server=False
+    )
+    if format not in ("jsonl", "uvicorn", "text", "auto"):
+        raise ValueError("format must be jsonl, uvicorn, text or auto")
+    follower_type = JsonlFollower
+    follower_options = {}
+    if format == "auto":
+        format = (
+            "jsonl"
+            if Path(source).suffix.lower() in (".jsonl", ".ndjson")
+            else "uvicorn"
+        )
+    if format == "jsonl":
+        source_path = resolve_jsonl_source(source)
+    else:
+        from .text_source import TextFollower, resolve_text_source
+
+        source_path = resolve_text_source(source)
+        follower_type = TextFollower
+        follower_options = {"adapter": format}
     if host is not None and (not isinstance(host, str) or not host.strip()):
         raise ValueError("host must be a non-empty string")
-    if port is not None and (isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536):
+    if port is not None and (
+        isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536
+    ):
         raise ValueError("port must be an integer from 1 through 65535")
 
     stream_label = (label or source_path.stem).strip() or source_path.stem
@@ -227,16 +255,25 @@ def stream_view(
         session_id=stream_session_id,
     )
     client = StreamClient(
-        **({"destination": target} if target.base_url is not None else {"host": target.host, "port": target.port}),
+        **(
+            {"destination": target}
+            if target.base_url is not None
+            else {"host": target.host, "port": target.port}
+        ),
         registration=registration,
-        request_timeout_s=(target.stream_request_timeout_s if target.base_url is not None else config.get_stream_request_timeout_s()),
+        request_timeout_s=(
+            target.stream_request_timeout_s
+            if target.base_url is not None
+            else config.get_stream_request_timeout_s()
+        ),
         retry_initial_delay_s=config.get_stream_retry_initial_delay_s(),
         retry_max_delay_s=config.get_stream_retry_max_delay_s(),
         heartbeat_interval_s=config.get_stream_heartbeat_interval_s(),
     )
     publish_source_status = getattr(client, "publish_source_status", None)
-    follower = JsonlFollower(
+    follower = follower_type(
         source_path,
+        **follower_options,
         on_batch=client.append_batch,
         on_source_status=(
             publish_source_status if callable(publish_source_status) else None

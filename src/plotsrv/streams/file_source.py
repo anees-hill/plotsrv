@@ -310,6 +310,8 @@ class JsonlFollower:
     missing source instead retains offset zero until it is created.
     """
 
+    _resolve_source = staticmethod(resolve_jsonl_source)
+
     def __init__(
         self,
         source: str | Path,
@@ -321,10 +323,10 @@ class JsonlFollower:
         on_error: ErrorCallback | None = None,
         poll_interval_s: float = 0.1,
     ) -> None:
-        if poll_interval_s <= 0:
-            raise ValueError("poll_interval_s must be greater than zero")
+        if not math.isfinite(poll_interval_s) or poll_interval_s <= 0:
+            raise ValueError("poll_interval_s must be finite and greater than zero")
 
-        self.source = resolve_jsonl_source(source)
+        self.source = self._resolve_source(source)
         if on_record is not None and on_batch is not None:
             raise ValueError("use either on_record or on_batch, not both")
 
@@ -547,9 +549,13 @@ class JsonlFollower:
                 return True
             if time.monotonic() >= deadline:
                 return False
+            before = self.accounted_source_offset
             acknowledged = self._deliver_candidate_batch(on_batch=callback)
             if not acknowledged:
-                return self._is_drained()
+                if self._is_drained():
+                    return True
+                if self.accounted_source_offset <= before:
+                    return False
 
     def _is_drained(self) -> bool:
         with self._source_offset_lock:
@@ -1188,7 +1194,17 @@ class JsonlFollower:
         line_limit = min(MAX_JSONL_RECORD_BYTES, MAX_JSONL_PARTIAL_LINE_BYTES)
         source_file = active_source.file
         source_file.seek(source_offset)
-        while len(records) < MAX_BATCH_RECORDS:
+        # Invalid/blank lines and oversized suffixes consume the same read
+        # budget as valid records. Never scan an arbitrarily large append in
+        # one turn just because it cannot produce a deliverable record.
+        self._cycle_bytes_remaining = max(MAX_BATCH_BYTES, line_limit + 1)
+        lines_processed = 0
+        while (
+            len(records) < MAX_BATCH_RECORDS
+            and lines_processed < MAX_BATCH_RECORDS
+            and self._cycle_bytes_remaining > 0
+        ):
+            lines_processed += 1
             line_offset = source_end_offset
             if self._oversized_partial_line_start == line_offset:
                 line_end_offset = self._finish_oversized_partial_line(
@@ -1203,7 +1219,10 @@ class JsonlFollower:
                     accounted_source_offset = source_end_offset
                 continue
 
-            raw_line = source_file.readline(line_limit + 1)
+            raw_line = source_file.readline(
+                min(line_limit + 1, self._cycle_bytes_remaining)
+            )
+            self._cycle_bytes_remaining -= len(raw_line)
             if not raw_line:
                 break
             if len(raw_line) > line_limit:
@@ -1294,8 +1313,9 @@ class JsonlFollower:
 
         assert scan_offset is not None
         source_file.seek(scan_offset)
-        while True:
-            chunk = source_file.read(READ_CHUNK_BYTES)
+        while self._cycle_bytes_remaining > 0:
+            chunk = source_file.read(min(READ_CHUNK_BYTES, self._cycle_bytes_remaining))
+            self._cycle_bytes_remaining -= len(chunk)
             if not chunk:
                 self._oversized_partial_scan_offset = scan_offset
                 return None
@@ -1307,6 +1327,8 @@ class JsonlFollower:
                 self._oversized_partial_scan_offset = None
                 return line_end_offset
             scan_offset += len(chunk)
+        self._oversized_partial_scan_offset = scan_offset
+        return None
 
     def _advance_accounted_source_offset(self, source_offset: int) -> None:
         """Commit a non-deliverable completed source line exactly once."""
