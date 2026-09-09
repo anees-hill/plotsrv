@@ -54,6 +54,7 @@ def receive_observation(payload: dict) -> dict:
                 "reason": "throttled",
                 "view_id": view_id,
             }
+        previous_revision = store.get_render_revision(view_id=view_id)
         register_catalogue([descriptor], seal=False)
         store.set_artifact(
             obj=summary,
@@ -70,6 +71,19 @@ def receive_observation(payload: dict) -> dict:
             duration_s=None, view_id=view_id, publish_source="observation"
         )
         store.note_publish(view_id, now_s=now)
+        try:
+            from .history import append
+
+            append(
+                view_id,
+                summary,
+                revision=store.get_render_revision(view_id=view_id),
+                previous_revision=previous_revision,
+                received_at=now,
+            )
+        except Exception:
+            # Recent presentation evidence is best effort and never delays a retry.
+            pass
     # Persistence is the existing optional bounded snapshot path, with only
     # compact exported summaries. No second history store is introduced here.
     enqueue_snapshot(

@@ -7,7 +7,7 @@
     rawColumns = [],
     opening = false;
   core.tableFieldLabel = function (field) {
-    const labels = (state.httpProfile && state.httpProfile.labels) || {};
+    const labels = (state.observationProfile && state.observationProfile.labels) || (state.httpProfile && state.httpProfile.labels) || {};
     return Object.prototype.hasOwnProperty.call(labels, field)
       ? labels[field]
       : field;

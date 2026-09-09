@@ -210,8 +210,19 @@ def _render_artifact_response(
     kind_hint: str,
     meta: dict[str, Any] | None = None,
     snapshot_id: str | None = None,
+    observation_context=None,
 ) -> dict[str, Any]:
-    rr = render_any(obj, view_id=view_id, kind_hint=kind_hint)
+    if kind_hint == "json" and type(obj) is dict and obj.get("type") == "plotsrv_observation":
+        from .observations.rendering import render_observation
+        entries, pruned = observation_context or ([], False)
+        from .ingestion import state as ingestion_state
+        descriptor = ingestion_state().descriptors.get(view_id)
+        rr = render_observation(obj, view_id=view_id, entries=entries, pruned=pruned,
+                                snapshot=snapshot_id is not None,
+                                description=descriptor.description if descriptor else None,
+                                storage_message=_snapshot_capability(view_id)["message"] if snapshot_id is None else None)
+    else:
+        rr = render_any(obj, view_id=view_id, kind_hint=kind_hint)
 
     out_meta: dict[str, Any] = {}
     out_meta.update(rr.meta or {})
@@ -248,18 +259,25 @@ def _render_current_artifact_response(
     obj: Any,
     kind_hint: str,
     meta: dict[str, Any] | None = None,
+    revision: int | None = None,
 ) -> dict[str, Any]:
     """Render an in-memory current artifact, reusing its current revision."""
-    revision = store.get_render_revision(view_id=view_id)
+    if revision is None:
+        revision = store.get_render_revision(view_id=view_id)
     cached = get_cached_rendered_artifact(view_id=view_id, revision=revision)
     if cached is not None:
         return cached
 
+    observation_context = None
+    if kind_hint == "json" and type(obj) is dict and obj.get("type") == "plotsrv_observation":
+        from .observations.history import read
+        observation_context = read(view_id, revision=revision)
     rendered = _render_artifact_response(
         view_id=view_id,
         obj=obj,
         kind_hint=kind_hint,
         meta=meta,
+        observation_context=observation_context,
     )
     return cache_rendered_artifact(
         view_id=view_id,
@@ -1662,7 +1680,9 @@ def get_artifact(
             status_code=404, detail="No artifact has been published yet."
         )
 
-    art = store.get_artifact(view_id=vid)
+    with store._STORE_LOCK:
+        art = store.get_artifact(view_id=vid)
+        revision = store.get_render_revision(view_id=vid)
 
     watched_meta: dict[str, Any] | None = None
     if store.has_watched_file_meta(view_id=vid):
@@ -1673,6 +1693,7 @@ def get_artifact(
         obj=art.obj,
         kind_hint=art.kind,
         meta=watched_meta,
+        revision=revision,
     )
     from .remote_watch import public_meta
     remote = public_meta(vid)

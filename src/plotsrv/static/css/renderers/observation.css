@@ -1,0 +1,21 @@
+.ps-observation { max-width: 100%; }
+.ps-observation h2, .ps-observation h3 { margin: 0 0 .65rem; font-size: 1.05rem; }
+.ps-observation-overview, .ps-observation-section { margin: 0 0 1rem; padding: 1rem; border: 1px solid var(--ps-border, #ddd); border-radius: .6rem; }
+.ps-observation-metadata { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; margin: 1rem 0; }
+.ps-observation-metadata dt { font-size: .8rem; opacity: .7; }
+.ps-observation-metadata dd { margin: .2rem 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.ps-observation-scroll { overflow-x: auto; }
+.ps-observation-facts { width: 100%; border-collapse: collapse; text-align: left; font-size: .85rem; }
+.ps-observation-facts th, .ps-observation-facts td { padding: .55rem; vertical-align: top; border-bottom: 1px solid var(--ps-border, #ddd); overflow-wrap: anywhere; }
+.ps-observation summary { cursor: pointer; font-weight: 600; }
+.ps-observation summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+.ps-observation .ps-table-topbar, .ps-observation .ps-table-topbar__right { flex-wrap: wrap; }
+.ps-observation-suggestions { display: inline-flex; margin: .2rem .4rem; max-width: 100%; }
+.ps-observation-suggestions select { max-width: min(22rem, 100%); }
+.ps-observation-scope { margin: .75rem 0; }
+.ps-observation .plotsrv-pre { max-height: 24rem; overflow: auto; }
+@media (max-width: 600px) {
+  .ps-observation-overview, .ps-observation-section { padding: .7rem; }
+  .ps-observation-metadata { gap: .75rem; }
+  .ps-observation-metadata > div { flex: 1 1 45%; }
+}

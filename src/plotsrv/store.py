@@ -996,6 +996,8 @@ def reset() -> None:
     from .ingestion import reset_ingestion
     reset_ingestion()
     browser_update_hub.clear()
+    from .observations.history import clear as clear_observation_history
+    clear_observation_history()
 
     # Stream rows are deliberately kept in their own bounded registry rather
     # than the snapshot store, but reset() promises test/process-local state

@@ -15,6 +15,7 @@
     requested = false;
   function schema() {
     return {
+      capabilities: state.observationProfile ? ["observation-v1"] : [],
       fields: Object.assign({}, state.tableFieldTypes),
       summary: Object.assign({}, state.tablePlotSummaryFieldTypes),
       sources: (state.tablePlotCapabilities || { sources: ["table"] }).sources,
@@ -56,6 +57,7 @@
             ] || "unknown",
         })),
         plotSource: p.plot.source,
+        ...((current.capabilities || []).includes("observation-v1") ? {capability: "observation-v1"} : {}),
       },
     });
   }
@@ -354,6 +356,19 @@
       );
     }
     try {
+      if (!baseline && state.observationProfile && !new URL(window.location.href).searchParams.has("my_view")) {
+        baseline = state.observationProfile.recipes[0];
+        selectedSpec = baseline;
+        requested = true;
+        lastSchema = schema();
+        apply(baseline).then(function () {
+          if (core.setTableFiltersOpen) core.setTableFiltersOpen(false);
+          baseline = capture(baseline.name, baseline.caption);
+          selectedSpec = baseline;
+          core.presentationChanged();
+        }).catch(error => notice(error.message));
+        return;
+      }
       if (!baseline) baseline = capture();
     } catch (error) {
       notice(error.message);

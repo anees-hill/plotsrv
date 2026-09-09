@@ -159,7 +159,8 @@
       } else text(value, 256, true);
     }
     if (!p.plot.type || !p.plot.source) fail("Missing plot specification.");
-    keys(spec.requirements, ["fields", "plotFields", "plotSource"]);
+    keys(spec.requirements, ["fields", "plotFields", "plotSource", "capability"]);
+    if (spec.requirements.capability !== undefined && spec.requirements.capability !== "observation-v1") fail("Unsupported source capability.");
     for (const requirements of [
       spec.requirements.fields,
       spec.requirements.plotFields,
@@ -191,6 +192,7 @@
     const p = spec.presentation,
       notes = [],
       unsafe = [];
+    if (spec.requirements.capability && !(schema.capabilities || []).includes(spec.requirements.capability)) unsafe.push("This source no longer provides observation evidence. The presentation is paused.");
     const expected = new Map(
       spec.requirements.fields.map((f) => [f.name, f.type]),
     );

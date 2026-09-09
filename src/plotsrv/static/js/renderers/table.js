@@ -1620,6 +1620,7 @@
       fields: fields,
       columnDefs: columns,
       plotCapabilities: settings.plotCapabilities || { sources: ["table"] },
+      fieldTypes: settings.fieldTypes,
     });
     state.embeddedTableExplorer = true;
     return true;
@@ -1629,6 +1630,7 @@
     if (!state.embeddedTableExplorer) return;
     destroyMountedTable();
     state.embeddedTableExplorer = false;
+    state.observationProfile = null;
   }
 
   async function loadTable() {
@@ -1780,6 +1782,8 @@
     if (state.tabulatorInstance && exportFilteredRichTable()) return true;
     return exportCompletePublishedTable();
   }
+
+  core.setTableFiltersOpen = function (open) { setFiltersOpen(open); syncFilterPanelUi(); };
 
   core.extractTablePresentation = function () {
     const ui = getTableUiState();

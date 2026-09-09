@@ -185,13 +185,12 @@
         });
         if (!exists) {
           const missingSnapshot = state.currentSnapshot;
-          state.currentSnapshot = null;
-          writeSnapshotToUrl(null);
+          sel.append(new Option("Unavailable snapshot · " + missingSnapshot, missingSnapshot));
           state.pendingSnapshotNotice =
             '<span class="badge">SNAPSHOT DELETED</span> ' +
             "Selected snapshot " +
             core.escapeHtml(missingSnapshot) +
-            " is no longer available. Showing latest data.";
+            " is no longer available. Choose Latest explicitly to return to live data.";
         }
       }
 
@@ -208,8 +207,6 @@
   }
 
   async function handleMissingSnapshot(kindLabel) {
-    state.currentSnapshot = null;
-    writeSnapshotToUrl(null);
     syncHistoryUi();
 
     if (typeof core.setStatusMessage === "function") {
@@ -217,7 +214,7 @@
         '<span class="badge">SNAPSHOT DELETED</span> ' +
           "Selected " +
           core.escapeHtml(kindLabel) +
-          " snapshot is no longer available."
+          " snapshot is no longer available. Choose Latest explicitly to return to live data."
       );
     }
 

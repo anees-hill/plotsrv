@@ -79,7 +79,9 @@
 
     const ui = state.tableUiState || {};
     if (String(ui.searchQuery || "").trim()) blockers.push("table_search");
-    if (Array.isArray(ui.filters) && ui.filters.some(completeFilter)) {
+    if (Array.isArray(ui.filters) && ui.filters.some(filter => completeFilter(filter) && !(
+      state.observationProfile && filter.field === "surface" && filter.op === "eq" && filter.value === "Fields"
+    ))) {
       blockers.push("table_filters");
     }
     if (ui.groupBy) blockers.push("table_grouping");

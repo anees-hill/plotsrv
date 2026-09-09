@@ -167,6 +167,9 @@
       "</span>";
   }
 
+  let artifactRequest = 0;
+  let artifactController = null;
+
   async function loadArtifact() {
     const root = document.getElementById("artifact-root");
     if (!root) return;
@@ -175,21 +178,31 @@
 
     const snapshotQuery =
       typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "";
+    const viewId = config.activeViewId;
+    const request = ++artifactRequest;
+    if (artifactController) artifactController.abort();
+    const controller = new AbortController();
+    artifactController = controller;
+    const isCurrent = () => request === artifactRequest &&
+      viewId === config.activeViewId &&
+      snapshotQuery === (typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "");
 
     try {
       const url =
         "/artifact?view=" +
-        encodeURIComponent(config.activeViewId) +
+        encodeURIComponent(viewId) +
         snapshotQuery +
         "&_ts=" +
         Date.now();
-      let res = await fetch(url);
+      let res = await fetch(url, {signal: controller.signal});
       for (let attempt = 0; res.status === 503 && attempt < 2; attempt += 1) {
         await new Promise(function (resolve) {
           window.setTimeout(resolve, 250 * (attempt + 1));
         });
-        res = await fetch(url);
+        if (!isCurrent()) return;
+        res = await fetch(url, {signal: controller.signal});
       }
+      if (!isCurrent()) return;
 
       if (!res.ok) {
         if (
@@ -198,6 +211,9 @@
           core.isHistoryMode() &&
           typeof core.handleMissingSnapshot === "function"
         ) {
+          if (typeof core.disposeEmbeddedTableExplorer === "function") core.disposeEmbeddedTableExplorer();
+          root.innerHTML = '<p class="note">This historical snapshot is unavailable. Choose Latest explicitly to resume live data.</p>';
+          renderTruncationBadge(null);
           await core.handleMissingSnapshot("artifact");
           return;
         }
@@ -212,6 +228,7 @@
       }
 
       const data = await res.json();
+      if (!isCurrent()) return;
       root.dataset.plotsrvSourceDownloadUrl =
         data.meta && typeof data.meta.source_download_url === "string"
           ? data.meta.source_download_url
@@ -261,12 +278,15 @@
         await core.loadTable();
       }
     } catch (e) {
+      if (!isCurrent() || controller.signal.aborted) return;
       if (typeof core.disposeEmbeddedTableExplorer === "function") {
         core.disposeEmbeddedTableExplorer();
       }
       root.innerHTML =
         '<div class="note">Failed to load artifact (network error).</div>';
       renderTruncationBadge(null);
+    } finally {
+      if (artifactController === controller) artifactController = null;
     }
   }
 
