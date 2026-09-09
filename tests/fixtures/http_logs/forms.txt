@@ -1,0 +1,5 @@
+[32mINFO[0m:     127.0.0.1:12345 - "GET /colour HTTP/1.1" 201
+2026-09-09T12:00:00Z INFO:     127.0.0.1:12345 - "GET /timed HTTP/1.1" 200 duration=12.5ms
+[2026-09-09 12:00:00,125] INFO:     [::1]:12345 - "GET /naive HTTP/1.1" 204 0.5s
+INFO:     127.0.0.1:12345 - "GET /bad path HTTP/1.1" 200
+INFO:     127.0.0.1:12345 - "GET /bad"quote HTTP/1.1" 200

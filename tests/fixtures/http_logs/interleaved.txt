@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/tmp/first.py", line 1, in one
+Traceback (most recent call last):
+  File "/tmp/second.py", line 2, in two
+INFO:     127.0.0.1:12345 - "GET /other HTTP/1.1" 200
+ValueError: first
+RuntimeError: second

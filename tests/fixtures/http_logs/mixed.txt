@@ -1,0 +1,9 @@
+INFO:     Started server process [123]
+INFO:     Waiting for application startup.
+INFO:     127.0.0.1:12345 - "GET /health HTTP/1.1" 200
+INFO:     127.0.0.1:12346 - "GET /missing?token=private HTTP/1.1" 404
+INFO:     127.0.0.1:12347 - "POST /work HTTP/1.1" 500
+
+application output: hello
+INFO:     Shutting down
+{"incomplete":
