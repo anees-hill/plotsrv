@@ -155,3 +155,46 @@ descendants. If the ceiling is crossed, the runner terminates the complete
 benchmark process tree, leaves samples and logs behind, and marks `run.json`
 as `watchdog_terminated`. It is a safety guard for a development machine, not a
 substitute for plotsrv's own runtime limits.
+
+## Detached capture measurements
+
+The [internal observation capture foundation](../guides/observation-capture.md)
+has reproducible admission/capture microbenchmarks:
+
+```bash
+python -m pytest -q -s tests/benchmarks/test_bench_observation_capture.py \
+  --benchmark-columns=min,median,max
+```
+
+One Linux/Python 3.13 development-machine run on 2026-09-09, with default budgets,
+100 measured rounds and five warmup rounds, produced:
+
+| Input | Median synchronous submit | Maximum in these trials | Traced peak | Traced retained | After drain |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Rejected, closed mailbox | 1.69 µs | 2.11 µs | 464 B | 240 B | 32 B |
+| Three scalar metrics | 49.55 µs | 321.07 µs | 7,349 B | 4,981 B | 356 B |
+| NumPy broadcast array, 10 billion logical elements | 284.53 µs | 754.59 µs | 23,467 B | 18,595 B | 1,751 B |
+| pandas frame, 100,000 rows × 8 float columns | 1.064 ms | 1.479 ms | 85,410 B | 28,181 B | 536 B |
+| Dictionary with one 16 MB string | 55.23 µs | 103.47 µs | 6,679 B | 3,947 B | 356 B |
+
+Inputs, library imports and engine initialization are outside measurement.
+Admission cadence is reset outside the timed boundary so accepted calls are
+measured; normal operation instead limits default capture to four calls per
+second across the process and one per second per view. The broadcast array tests
+logical shape/strides, not physical allocation of 10 billion elements; separate
+retention tests use physically allocated array parents and noncontiguous views.
+
+Memory is measured separately with tracemalloc, includes temporary Python
+allocations, and excludes the existing source. It is not RSS, native allocator
+usage, a hard latency bound, or whole-pipeline overhead. Tracing can cause earlier
+soft-deadline exits, particularly for a frame; a partial sample remains labelled.
+Single-envelope sizes in this run were 820 B, 2,375 B, 8,632 B and 890 B respectively
+for the four accepted inputs. Post-drain measurements retain bounded engine/cadence
+bookkeeping and allocator effects.
+
+A separate full-mailbox trial using repeated oversized Unicode strings retained
+99,008 B with a traced peak of 115,957 B. After all eight leases were acknowledged
+and work references released, 1,888 B remained traced, including the cadence
+entries. The ninth submission was rejected before capture. These numbers are
+illustrative; rerun with representative workloads and ownership/storage layouts.
+The capture engine creates no idle threads, timers or network work.

@@ -84,12 +84,15 @@ def capture_array(c, source, document, np):
     if source.ndim > c.b.max_dimensions:
         c.reason("dimension_budget")
         return
-    shape, strides = source.shape, source.strides
+    shape, strides, dtype = source.shape, source.strides, source.dtype
     document["metadata"] = {
         "shape": list(shape),
         "dtype_kind": source.dtype.kind,
         "itemsize": source.dtype.itemsize,
     }
+    if c.options.fields:
+        c.reason("unsupported_field_selection")
+        return
     if not _safe_array(source, np):
         c.reason("unsafe_array_owner")
         return
@@ -104,7 +107,11 @@ def capture_array(c, source, document, np):
     try:
         _sample(c, source.size, read, document)
     finally:
-        if source.shape != shape or source.strides != strides:
+        if (
+            source.shape != shape
+            or source.strides != strides
+            or source.dtype is not dtype
+        ):
             c.reason("concurrent_mutation")
             document["base_sample"] = []
             document["exploratory"] = []
@@ -218,6 +225,7 @@ def capture_pandas(c, source, document, np, pd):
     ):
         c.reason("unsupported_pandas_block")
         return
+    storage_ids = tuple(id(block.values) for block in blocks)
     selected = list(range(min(width, c.b.max_fields)))
     if c.options.fields and all(type(x) is int for x in c.options.fields):
         selected = [x for x in c.options.fields[: c.b.max_fields] if x < width]
@@ -233,6 +241,7 @@ def capture_pandas(c, source, document, np, pd):
                     type(x) is str
                     and label.get("type") == "string"
                     and not label.get("truncated")
+                    and not label.get("encoding_replaced")
                     and label["value"] == x
                     for x in c.options.fields
                 ):
@@ -264,6 +273,10 @@ def capture_pandas(c, source, document, np, pd):
             or manager.axes[0] is not columns
             or manager.axes[1] is not rows
             or manager.blocks is not blocks
+            or any(
+                id(block.values) != identity
+                for block, identity in zip(blocks, storage_ids)
+            )
         ):
             c.reason("concurrent_mutation")
             document["base_sample"] = []

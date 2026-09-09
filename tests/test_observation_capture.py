@@ -399,8 +399,8 @@ def test_dict_size_change_is_reported(monkeypatch):
 
     monkeypatch.setattr(Capture, "value", read)
     result = capture(source)
-    assert result["reasons"] == ["unsafe_or_changed_source"]
-    assert result["base_sample"] == []
+    assert result["reasons"] == ["concurrent_mutation"]
+    assert result["base_sample"][0]["items"] == []
 
 
 def test_polars_lazy_and_missing_native_getter_fail_closed(monkeypatch):
@@ -417,3 +417,43 @@ def test_polars_lazy_and_missing_native_getter_fail_closed(monkeypatch):
     result = capture(source)
     assert result["reasons"] == ["unsafe_or_changed_source"]
     assert result["base_sample"] == []
+
+
+def test_sampling_labels_and_unicode_replacement_are_truthful():
+    result = capture({"x": [1, 2]})
+    assert result["sampling"] == "bounded_insertion_order_fields"
+    assert (
+        result["base_sample"][0]["items"][0]["value"]["sampling"]
+        == "deterministic_distributed_positions"
+    )
+    result = capture("\ud800")
+    assert result["base_sample"][0]["encoding_replaced"]
+    assert "invalid_unicode_replaced" in result["reasons"]
+    with pytest.raises(ValueError):
+        CaptureOptions(fields=("x", 0))
+
+
+def test_dtype_or_block_storage_replacement_is_detected(monkeypatch):
+    array = np.arange(4, dtype=np.int64)
+    frame = pd.DataFrame({"x": [1, 2]})
+    real = adapters._array_value
+
+    def read(c, source, index, np, **kwargs):
+        result = real(c, source, index, np, **kwargs)
+        array.dtype = np.float64
+        frame._mgr.blocks[0].values = frame._mgr.blocks[0].values.copy()
+        return result
+
+    monkeypatch.setattr(adapters, "_array_value", read)
+    assert "concurrent_mutation" in capture(array)["reasons"]
+    assert "concurrent_mutation" in capture(frame)["reasons"]
+
+
+@pytest.mark.parametrize(
+    "factory", [lambda: np.array([1, 2]), lambda: [{"secret": 1}], lambda: 1]
+)
+def test_unsupported_field_selection_never_captures_unselected_values(factory):
+    result = capture(factory(), options=CaptureOptions(fields=("safe",)))
+    assert result["reasons"] == ["unsupported_field_selection"]
+    assert result["base_sample"] == []
+    assert result["coverage"]["elements_read"] == 0

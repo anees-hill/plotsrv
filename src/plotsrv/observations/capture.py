@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from itertools import islice
 import math
 import sys
 import time
@@ -67,7 +66,9 @@ class Capture:
         cap = self.b.max_value_bytes
         count = min(len(value), cap)
         self.charge(size=count * 32 + 256)
-        encoded = value[:count].encode("utf-8", errors="replace")[:cap]
+        prefix = value[:count]
+        replaced = any(0xD800 <= ord(char) <= 0xDFFF for char in prefix)
+        encoded = prefix.encode("utf-8", errors="replace")[:cap]
         text = encoded.decode("utf-8", errors="ignore")
         size = len(text.encode("utf-8"))
         self.value_bytes += size
@@ -78,10 +79,17 @@ class Capture:
             ):
                 return self.omitted("category_budget")
             self.categories.add(text)
+        if replaced:
+            self.reason("invalid_unicode_replaced")
         truncated = len(text) != len(value)
         if truncated:
             self.reason("value_truncated")
-        return {"type": "string", "value": text, "truncated": truncated}
+        return {
+            "type": "string",
+            "value": text,
+            "truncated": truncated,
+            "encoding_replaced": replaced,
+        }
 
     def value(self, value: object, depth: int = 0, *, category: bool = True) -> dict:
         self.charge(nodes=1, size=768)
@@ -153,14 +161,21 @@ class Capture:
         result = {
             "type": "mapping" if kind is dict else "sequence",
             "length": initial,
+            "sampling": (
+                "bounded_insertion_order_fields"
+                if kind is dict
+                else "deterministic_distributed_positions"
+            ),
             "items": [],
         }
         try:
             if kind is dict:
                 if initial > self.b.max_fields:
                     self.reason("field_budget")
-                for key, item in islice(value.items(), self.b.max_fields):
+                entries = iter(value.items())
+                for _ in range(min(initial, self.b.max_fields)):
                     self.charge(reads=1)
+                    key, item = next(entries)
                     if type(key) is not str and type(key) is not int:
                         self.reason("unsupported_key")
                         continue
@@ -203,8 +218,10 @@ class Capture:
         for key in self.options.path:
             if type(source) is dict:
                 found = False
-                for candidate, value in islice(source.items(), self.b.max_fields):
+                entries = iter(source.items())
+                for _ in range(min(len(source), self.b.max_fields)):
                     self.charge(reads=1)
+                    candidate, value = next(entries)
                     if type(candidate) is type(key) and candidate == key:
                         source, found = value, True
                         break
@@ -270,6 +287,13 @@ def capture_detached(
             capture_polars(c, source, document, pl)
         else:
             kind = type(source)
+            if options.fields and kind is not dict:
+                c.reason("unsupported_field_selection")
+                raise _Limit
+            if kind is dict:
+                document["sampling"] = "bounded_insertion_order_fields"
+            elif kind is not list and kind is not tuple:
+                document["sampling"] = "single_value_or_unsupported"
             if kind is dict or kind is list or kind is tuple:
                 document["metadata"] = {"length": len(source)}
             document["source_type"] = next(

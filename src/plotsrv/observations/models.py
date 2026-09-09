@@ -110,6 +110,11 @@ class CaptureOptions:
                     "selections require bounded strings or non-negative positions"
                 )
 
+        if self.fields and any(
+            type(value) is not type(self.fields[0]) for value in self.fields
+        ):
+            raise ValueError("field selection must use either names or positions")
+
 
 @dataclass(frozen=True, slots=True)
 class CaptureEnvelope:
