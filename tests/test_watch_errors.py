@@ -116,7 +116,7 @@ def test_publish_prepared_watch_payload_falls_back_when_primary_returns_false(
         read_mode="head",
     )
 
-    assert ok is True
+    assert ok is False
     assert len(calls) == 2
 
     assert calls[0]["artifact"] == "x" * 100
@@ -197,6 +197,6 @@ def test_watch_publish_error_artifact_kind_is_non_truncated(
         read_mode="head",
     )
 
-    assert ok is True
+    assert ok is False
     assert calls[1]["artifact_kind"] == "watch_error"
     assert "This watched view could not be updated." in str(calls[1]["artifact"])

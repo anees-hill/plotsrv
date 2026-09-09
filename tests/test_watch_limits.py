@@ -534,3 +534,20 @@ def test_file_backed_artifact_preview_uses_render_truncation(
     assert out.artifact.startswith("x" * 20)
     assert "truncated 80 characters" in out.artifact
     assert "limits.truncate_after.text" in out.artifact
+
+
+def test_local_watch_table_uses_strict_json_safe_cells(monkeypatch):
+    import json
+    import pandas as pd
+    from plotsrv import runtime
+
+    captured = []
+    monkeypatch.setattr(runtime, "post_publish_payload", lambda **kwargs: captured.append(kwargs["payload"]) or True)
+    frame = pd.DataFrame({"value": [1.0, float("nan"), float("inf")],
+                          "at": [pd.Timestamp("2026-09-09"), pd.NaT, pd.NaT]})
+    assert runtime.publish_watch_payload(host="127.0.0.1", port=1, label="csv", section="test", kind="table", table_df=frame)
+    rows = captured[0]["table"]["rows"]
+    assert rows == [{"value": 1.0, "at": "2026-09-09T00:00:00"},
+                    {"value": None, "at": None}, {"value": None, "at": None}]
+    json.dumps(captured[0], allow_nan=False)
+    assert pd.isna(frame.iloc[1]["value"])

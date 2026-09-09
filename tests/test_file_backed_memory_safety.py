@@ -194,7 +194,8 @@ def test_file_backed_watch_thread_records_metadata_without_reading_file(
         "plotsrv.runtime.publish_prepared_watch_payload",
         fake_publish_prepared_watch_payload,
     )
-    monkeypatch.setattr("plotsrv.runtime.time.sleep", fake_sleep)
+    monkeypatch.setattr("plotsrv.runtime.threading.Event.wait", lambda self, seconds: fake_sleep(seconds))
+    monkeypatch.setattr("plotsrv.runtime._local_watch_ready", lambda *args: None)
 
     class ImmediateThread:
         def __init__(self, *, target: Any, name: str, daemon: bool) -> None:
@@ -273,7 +274,8 @@ def test_memory_backed_watch_thread_still_reads_and_publishes(
         "plotsrv.runtime.publish_prepared_watch_payload",
         fake_publish_prepared_watch_payload,
     )
-    monkeypatch.setattr("plotsrv.runtime.time.sleep", fake_sleep)
+    monkeypatch.setattr("plotsrv.runtime.threading.Event.wait", lambda self, seconds: fake_sleep(seconds))
+    monkeypatch.setattr("plotsrv.runtime._local_watch_ready", lambda *args: None)
 
     class ImmediateThread:
         def __init__(self, *, target: Any, name: str, daemon: bool) -> None:

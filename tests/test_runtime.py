@@ -1010,7 +1010,8 @@ def test_start_watch_threads_file_backed_does_not_read_or_publish(
         fake_note_file_backed_watch_change,
     )
     monkeypatch.setattr("plotsrv.runtime.threading.Thread", FakeThread)
-    monkeypatch.setattr("plotsrv.runtime.time.sleep", fake_sleep)
+    monkeypatch.setattr("plotsrv.runtime.threading.Event.wait", lambda self, seconds: fake_sleep(seconds))
+    monkeypatch.setattr("plotsrv.runtime._local_watch_ready", lambda *args: None)
 
     with pytest.raises(KeyboardInterrupt):
         start_watch_threads(
@@ -1078,7 +1079,8 @@ def test_start_watch_threads_memory_backed_still_reads_and_publishes(
         fake_note_file_backed_watch_change,
     )
     monkeypatch.setattr("plotsrv.runtime.threading.Thread", FakeThread)
-    monkeypatch.setattr("plotsrv.runtime.time.sleep", fake_sleep)
+    monkeypatch.setattr("plotsrv.runtime.threading.Event.wait", lambda self, seconds: fake_sleep(seconds))
+    monkeypatch.setattr("plotsrv.runtime._local_watch_ready", lambda *args: None)
 
     with pytest.raises(KeyboardInterrupt):
         start_watch_threads(

@@ -893,6 +893,10 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
     """
     global _SERVER, _SERVER_THREAD, _SERVER_RUNNING, _SERVER_STARTING
 
+    from .runtime import stop_watch_threads
+
+    stop_watch_threads()
+
     # Best-effort live views are intentionally separate from durable records.
     # Give accepted pending work a short opportunity to finish, then discard any
     # remaining references before the server/storage workers stop.

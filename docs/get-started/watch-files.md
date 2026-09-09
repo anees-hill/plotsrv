@@ -295,6 +295,20 @@ storage-settings:
   watch_enabled: false
 ```
 
+## Local delivery and idle resource use
+
+Local watches retry temporary publication failures automatically, including startup
+congestion and server unavailability. Retries use capped backoff (up to 30 seconds)
+and publish the latest file contents, without queuing previous versions. A successful
+error notice does not count as delivery of the source content.
+
+Only one local watch prepares and uploads at a time. Connection negotiation and
+cooldown checks happen before reading or parsing. After successful delivery, an
+unchanged memory-backed watch only checks file metadata once per second: it does
+not reread, parse or republish the file. File-backed watches retain lazy previews.
+Stopping the server interrupts local polling and retry waits; an already-running
+OS read or HTTP operation can finish within its existing limits.
+
 ## Next step
 
 Continue to [Configuration basics](configuration-basics.md).

@@ -5,6 +5,8 @@ import csv
 import io
 import json
 import logging
+import random
+import weakref
 import threading
 import time
 from collections import deque
@@ -1467,9 +1469,17 @@ def publish_watch_payload(
         if not isinstance(table_df, pd.DataFrame):
             raise TypeError("watch table publish expected pandas DataFrame")
 
+        from .publisher import _json_safe
+
+        rows = table_df.to_dict(orient="records")
+        # Match ordinary publishers (missing/non-finite cells become null),
+        # without cloning a second collection of row dictionaries.
+        for row in rows:
+            for field, value in row.items():
+                row[field] = None if value is pd.NaT or value is pd.NA else _json_safe(value)
         payload["table"] = {
             "columns": list(table_df.columns),
-            "rows": table_df.to_dict(orient="records"),
+            "rows": rows,
             "total_rows": len(table_df),
             "returned_rows": len(table_df),
         }
@@ -1567,6 +1577,7 @@ def publish_prepared_watch_payload(
     force: bool = False,
     path: str | Path | None = None,
     read_mode: WatchReadMode | None = None,
+    report_errors: bool = True,
 ) -> bool:
     try:
         ok = publish_watch_payload(
@@ -1590,6 +1601,9 @@ def publish_prepared_watch_payload(
     if ok:
         return True
 
+    if not report_errors:
+        return False
+
     logger.warning(
         "Unable to publish watched view (section=%r, label=%r, path=%s): %s",
         section,
@@ -1608,7 +1622,7 @@ def publish_prepared_watch_payload(
     )
 
     try:
-        return publish_watch_payload(
+        publish_watch_payload(
             host=host,
             port=port,
             label=label,
@@ -1620,7 +1634,38 @@ def publish_prepared_watch_payload(
             force=True,
         )
     except Exception:
-        return False
+        pass
+    # A delivered diagnostic is not an acknowledgement of the source content.
+    return False
+
+
+# Only one local watch prepares/uploads at a time. Contenders retain no payload
+# and never wait on this lock. Direct application publishers use their own path.
+_LOCAL_WATCH_SLOT = threading.Lock()
+_LOCAL_WATCH_STOPS: weakref.WeakSet[threading.Event] = weakref.WeakSet()
+_LOCAL_WATCH_STOPS_LOCK = threading.Lock()
+
+
+def stop_watch_threads() -> None:
+    """Wake local watchers from polling/backoff without waiting on OS I/O."""
+    with _LOCAL_WATCH_STOPS_LOCK:
+        for event in list(_LOCAL_WATCH_STOPS):
+            event.set()
+        _LOCAL_WATCH_STOPS.clear()
+
+
+def _local_watch_ready(host: str, port: int) -> None:
+    from .connection_config import resolve_publish_target
+    from .publishing.transport import handshake
+
+    target = resolve_publish_target(host=host, port=port, launch_server=False)
+    # Cached cooldown/handshake failure happens before file reads or parsing.
+    handshake(target, feature="publish")
+
+
+def _watch_signature(path: Path) -> tuple[int, int, int, int, int]:
+    st = path.stat()
+    return (st.st_dev, st.st_ino, st.st_mtime_ns, st.st_ctime_ns, st.st_size)
 
 
 def start_watch_threads(
@@ -1638,136 +1683,135 @@ def start_watch_threads(
     else:
         registered_views = [_watch_view_from_config(spec) for spec in configs]
 
+    stop = threading.Event()
+    with _LOCAL_WATCH_STOPS_LOCK:
+        _LOCAL_WATCH_STOPS.add(stop)
+
     for spec, registered in zip(configs, registered_views, strict=True):
-        p = registered.path
-        section = registered.section
-        label = registered.label
-        view_id = registered.view_id
-        read_mode = registered.read_mode
-        resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=view_id)
+        resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=registered.view_id)
 
         def _worker(
-            pth: Path = p,
-            view_label: str = label,
-            view_section: str = section,
             watch_config: WatchConfig = spec,
-            watch_read_mode: WatchReadMode = read_mode,
-            watch_max_bytes: int | None = resolved_max_bytes,
             registered_view: RegisteredWatchView = registered,
+            watch_max_bytes: int | None = resolved_max_bytes,
         ) -> None:
-            last_sig: tuple[int, int] | None = None
-            last_stat_error: str | None = None
-            last_read_error: str | None = None
+            pth = registered_view.path
+            last_sig = None
+            failures = 0
+            next_log = 0.0
+            last_file_error = None
 
-            while True:
-                stat_error: BaseException | None = None
-                try:
-                    st = pth.stat()
-                    sig = (
-                        int(getattr(st, "st_mtime_ns", int(st.st_mtime * 1e9))),
-                        int(st.st_size),
-                    )
-                except Exception as e:
-                    sig = None
-                    stat_error = e
-
-                if sig is not None and sig == last_sig:
-                    time.sleep(1.0)
-                    continue
-
-                last_sig = sig
-
-                if registered_view.materialization == "file":
-                    error = (
-                        None if stat_error is None else watched_file_user_error(stat_error)
-                    )
-                    stat_error_text = (
-                        None
-                        if stat_error is None
-                        else f"{type(stat_error).__name__}: {stat_error}"
-                    )
-                    if stat_error_text is not None and stat_error_text != last_stat_error:
-                        logger.warning(
-                            "Unable to stat file-backed watched view "
-                            "(view_id=%s, path=%s): %s",
-                            registered_view.view_id,
-                            pth,
-                            stat_error,
-                        )
-                    last_stat_error = stat_error_text
-
-                    note_file_backed_watch_change(
-                        registered=registered_view,
-                        spec=watch_config,
-                        error=error,
-                    )
-
-                    time.sleep(1.0)
-                    continue
-
-                last_stat_error = None
-
+            def attempt(sig) -> bool:
+                # This frame releases raw bytes/parsed data after each attempt;
+                # neither a sleeping worker nor a retry retains source payloads.
+                _local_watch_ready(host, port)
+                if stop.is_set():
+                    return False
                 try:
                     raw = read_watch_file_bytes(
                         pth,
-                        read_mode=watch_read_mode,
+                        read_mode=registered_view.read_mode,
                         max_bytes=watch_max_bytes,
-                    watch_config=watch_config,
-                )
-                except Exception as e:
-                    read_error_text = f"{type(e).__name__}: {e}"
-                    if read_error_text != last_read_error:
-                        logger.warning(
-                            "Unable to read watched view (view_id=%s, path=%s): %s",
-                            registered_view.view_id,
-                            pth,
-                            e,
-                        )
-                    last_read_error = read_error_text
-
-                    publish_watch_payload(
-                        host=host,
-                        port=port,
-                        label=view_label,
-                        section=view_section,
-                        kind="artifact",
-                        artifact=build_watch_read_error_artifact(e),
-                        artifact_kind="watch_error",
-                        update_limit_s=watch_config.update_limit_s,
-                        force=watch_config.force,
+                        watch_config=watch_config,
                     )
-                    time.sleep(1.0)
-                    continue
-
-                last_read_error = None
-
+                except Exception as error:
+                    if not stop.is_set():
+                        publish_watch_payload(
+                            host=host,
+                            port=port,
+                            label=registered_view.label,
+                            section=registered_view.section,
+                            kind="artifact",
+                            artifact=build_watch_read_error_artifact(error),
+                            artifact_kind="watch_error",
+                            update_limit_s=watch_config.update_limit_s,
+                            force=watch_config.force,
+                        )
+                    return False
+                if stop.is_set() or sig != _watch_signature(pth):
+                    return False
                 payload = build_watch_publish_payload(
                     path=pth,
                     raw=raw,
                     watch_config=watch_config,
-                    read_mode=watch_read_mode,
+                    read_mode=registered_view.read_mode,
                     max_bytes=watch_max_bytes,
                     max_rows=config.get_table_truncate_rows(),
                     max_columns=config.get_table_truncate_columns(),
                 )
-
-                publish_prepared_watch_payload(
+                del raw
+                if stop.is_set() or sig != _watch_signature(pth):
+                    return False
+                return publish_prepared_watch_payload(
                     host=host,
                     port=port,
-                    label=view_label,
-                    section=view_section,
+                    label=registered_view.label,
+                    section=registered_view.section,
                     payload=payload,
                     update_limit_s=watch_config.update_limit_s,
                     force=watch_config.force,
                     path=pth,
-                    read_mode=watch_read_mode,
+                    read_mode=registered_view.read_mode,
+                    report_errors=False,
                 )
 
-                time.sleep(1.0)
+            while not stop.is_set():
+                delay = 1.0
+                try:
+                    stat_error = None
+                    try:
+                        sig = _watch_signature(pth)
+                    except Exception as error:
+                        sig = None
+                        stat_error = error
+                    if sig is not None and sig == last_sig:
+                        stop.wait(delay)
+                        continue
+                    if registered_view.materialization == "file":
+                        error_text = (
+                            None if stat_error is None else type(stat_error).__name__
+                        )
+                        # File-backed previews keep their existing lazy-read path.
+                        if sig != last_sig or error_text != last_file_error:
+                            note_file_backed_watch_change(
+                                registered=registered_view,
+                                spec=watch_config,
+                                error=(
+                                    None
+                                    if stat_error is None
+                                    else watched_file_user_error(stat_error)
+                                ),
+                            )
+                        last_sig, last_file_error = sig, error_text
+                    elif _LOCAL_WATCH_SLOT.acquire(blocking=False):
+                        try:
+                            ok = attempt(sig)
+                        finally:
+                            _LOCAL_WATCH_SLOT.release()
+                        if ok:
+                            last_sig = sig
+                            failures = 0
+                        else:
+                            failures = min(failures + 1, 5)
+                    # Busy local slot: retry next poll without preparing anything.
+                except Exception:
+                    # File/parser/transport failures must not kill the watcher or
+                    # escape into the application that started it.
+                    failures = min(failures + 1, 5)
+                if failures:
+                    delay = min(30.0, 2**failures + random.uniform(0.0, 1.0))
+                    now = time.monotonic()
+                    if not stop.is_set() and now >= next_log:
+                        logger.warning(
+                            "Local watched view %s could not be delivered; retrying latest content",
+                            registered_view.view_id,
+                        )
+                        next_log = now + 30.0
+                stop.wait(delay)
 
         t = threading.Thread(
             target=_worker,
-            name=f"plotsrv-watch:{p.name}",
+            name=f"plotsrv-watch:{registered.path.name}",
             daemon=True,
         )
         t.start()
