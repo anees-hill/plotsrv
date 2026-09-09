@@ -79,13 +79,15 @@ plotsrv watch ./report.csv --config publisher.yml --head
 
 An explicit destination or configured publisher destination selects remote
 transport. It never falls back to launching a local server. Legacy local
-`--host`/`--port` use is preserved. An explicit destination conflicts with
+`--host`/`--port` use overrides a configured destination, including its credential. An explicit destination conflicts with
 explicit host/port. An explicit URL uses `--bearer-token-env` for its credential;
 otherwise use the full destination config. HTTPS verification, redirect refusal
 and failure cooldowns are shared with [direct remote publishers](remote-publishers.md).
 
 `--every` is both polling and debounce cadence (minimum 0.1 seconds). A version
-must remain stable for two admitted polls. `--update-limit-s` also limits capture
+normally remains stable for two admitted polls. Under continuous changes, capture
+is attempted every second admitted poll; the read itself must still pass the
+before/after mutation checks. `--update-limit-s` also limits capture
 cadence before reading. `--force` permits a changed source version with identical
 content to count as an update; it does not continuously resend unchanged files.
 For remote sources, materialisation always means bounded publisher capture;
@@ -103,7 +105,9 @@ with a parse limitation.
 
 JSON/INI/TOML/YAML parsing is limited to complete inputs up to 64 KiB with
 structural limits. Larger, partial or unsafe structured inputs remain text with
-a parse limitation. YAML aliases/anchors are not expanded. A temporarily invalid
+a parse limitation. INI interpolation is displayed literally, and repeated
+INI defaults are bounded before building the presentation. YAML aliases/anchors
+are not expanded. A temporarily invalid
 complete structured source preserves an existing good presentation until the
 source changes again. Continuous log/event semantics belong in `stream_view`;
 file watch represents latest state and can coalesce intermediate versions.
@@ -120,7 +124,7 @@ hosted here.” Table exports of received rows are labelled previews. Source
 exports are attachments with opaque content type and a sandbox policy. There
 are no callbacks or URLs for retrieving arbitrary files from the publisher.
 
-Basename, publisher-reported size/mtime, read scope, source generation and
+Basename, publisher-reported size/mtime, read scope, presentation read mode, source generation and
 revision accompany uploads. These are provenance facts, not server paths or
 server-authoritative times. Freshness uses server receipt time. Missing,
 unreadable, changing or stopped sources retain their last good content and an
@@ -152,11 +156,15 @@ cause no additional file reads. Files are opened read-only, regular-file checks
 reject special files, final symlinks are refused, and size/mtime/inode checks
 around capture reject detected replacements or concurrent changes.
 
-One active watch owner holds a receiver session per ID. Competing owners get a
+One active watch owner holds a 60-second renewable receiver session per ID. Competing owners get a
 conflict; delayed requests from closed/old sessions cannot overwrite it. Within
 a session, only increasing revisions are eligible, and identical captured
-content is deduplicated. Clean close releases ownership; after a crash, restart
-the receiver to clear an orphaned session. Use distinct IDs for independent
+content is deduplicated. A retry of one captured source version keeps its revision,
+including with `--force`. Idle agents renew every 20 seconds independently of
+capture cadence. Clean close releases ownership; after a crash or failed close,
+a new owner can take over after the lease expires. Old sessions remain fenced
+after takeover. Expired sources show disconnected status. Closed/expired hosted
+sources are retained until their slot or hosted-byte budget is needed for another ID. Use distinct IDs for independent
 producers. Ordinary direct publishing retains its existing latest-accepted
 behaviour; replacing a watch presentation clears its hosted-source capabilities.
 
@@ -166,9 +174,19 @@ capability cache (up to 30 seconds when otherwise idle); failed exchanges
 invalidate it. This is modest fencing and latest-state delivery, not durable
 synchronisation or an audit trail.
 
-Transport operations use at most a two-second socket timeout for watch work,
-with a two-second shared best-effort close budget. Filesystem operations, parser
-calls, DNS and slow trickle reads are not hard-interruptible wall-clock tasks.
-Cancellation and source-mutation detection are cooperative. Queue-byte accounting
+The updated agent requires the `watch-v2` capability (renewable ownership and
+separate presentation read mode). Older receivers fail negotiation before any
+file capture. The receiver still accepts legacy `watch-v1` uploads; their older
+agents lack idle renewal and can lose ownership after an expired lease. The
+base ingestion protocol remains version 1 and stream protocol remains version 4.
+
+Transport uses a total deadline of at most two seconds per watch request,
+including slow header/body/error responses, with a two-second shared best-effort
+close budget. There are no transport timer threads. HTTP 403/413/422 rejections
+also enter a 30-second cooldown before further capture or negotiation; transient
+failures use five seconds. The first Ctrl+C/SIGTERM requests cooperative stop; a
+second interrupts cleanup. OS filesystem and DNS calls are still not guaranteed
+to honour the HTTP deadline; bounded parsing and source-mutation detection are
+cooperative. Queue-byte accounting
 is not total Python/Pandas/Pillow process memory. No incoming publisher listener,
 background deployment service or source-file mutation is introduced.
