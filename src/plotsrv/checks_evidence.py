@@ -251,7 +251,14 @@ def select(rule, source, budget):
         value = lookup(match, paths[rule.metric], budget)
         inspected = lookup(match, ("values_inspected",), budget)
         omitted = lookup(match, ("not_inspected",), budget)
-        if type(inspected) is not int or inspected <= 0 or type(omitted) is not int:
+        if (
+            type(inspected) is not int
+            or not 0 <= inspected <= 4096
+            or type(omitted) is not int
+            or not 0 <= omitted <= 4096
+        ):
+            return Evidence(reason="no_inspected_values")
+        if inspected == 0 and rule.metric != "inspected":
             return Evidence(reason="no_inspected_values")
         unit = lookup(value, ("unit",), budget) if type(value) is dict else MISSING
         unit = None if unit is MISSING else scalar(unit)

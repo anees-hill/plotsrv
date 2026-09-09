@@ -7,7 +7,7 @@ rendered content through the existing HTTP endpoints.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import threading
 from typing import Any, Hashable
 from uuid import uuid4
@@ -34,6 +34,8 @@ class BrowserUpdateSubscription:
     view_id: str
     loop: asyncio.AbstractEventLoop
     queue: asyncio.Queue[BrowserUpdate]
+    pending: dict[str, BrowserUpdate] = field(default_factory=dict)
+    dispatch_scheduled: bool = False
 
 
 class BrowserUpdateCapacityError(RuntimeError):
@@ -163,6 +165,7 @@ class BrowserUpdateHub:
     def unsubscribe(self, subscription: BrowserUpdateSubscription) -> None:
         with self._lock:
             self._subscribers.discard(subscription)
+            subscription.pending.clear()
 
     def subscriber_count(self) -> int:
         with self._lock:
@@ -185,10 +188,35 @@ class BrowserUpdateHub:
             if subscription.loop.is_closed():
                 self.unsubscribe(subscription)
                 continue
-            try:
-                subscription.loop.call_soon_threadsafe(self._offer, subscription, event)
-            except RuntimeError:
-                self.unsubscribe(subscription)
+            with self._lock:
+                if subscription not in self._subscribers:
+                    continue
+                category = self._category(event)
+                previous = subscription.pending.get(category)
+                if previous is None or event.revision > previous.revision:
+                    subscription.pending[category] = event
+                if subscription.dispatch_scheduled:
+                    continue
+                subscription.dispatch_scheduled = True
+                try:
+                    subscription.loop.call_soon_threadsafe(self._dispatch, subscription)
+                except RuntimeError:
+                    subscription.dispatch_scheduled = False
+                    self.unsubscribe(subscription)
+
+    def _dispatch(self, subscription: BrowserUpdateSubscription) -> None:
+        with self._lock:
+            pending = sorted(subscription.pending.values(), key=lambda item: item.revision)
+            subscription.pending.clear()
+            subscription.dispatch_scheduled = False
+            if subscription not in self._subscribers:
+                return
+        for event in pending:
+            self._offer(subscription, event)
+
+    @staticmethod
+    def _category(event: BrowserUpdate) -> str:
+        return event.change_type if event.change_type in ('catalogue', 'stream_history', 'checks') else 'view'
 
     @staticmethod
     def _offer(
@@ -207,15 +235,7 @@ class BrowserUpdateHub:
         # collapse to one notification.
         newest: dict[str, BrowserUpdate] = {}
         for candidate in pending:
-            category = (
-                "catalogue"
-                if candidate.change_type == "catalogue"
-                else "stream_history"
-                if candidate.change_type == "stream_history"
-                else "checks"
-                if candidate.change_type == "checks"
-                else "view"
-            )
+            category = BrowserUpdateHub._category(candidate)
             previous = newest.get(category)
             if previous is None or candidate.revision > previous.revision:
                 newest[category] = candidate

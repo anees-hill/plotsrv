@@ -15,6 +15,9 @@ For configured targets, watches, selection and scan bounds, see
 [Configured sources](configured-sources.md).
 For foreground catalogue registration and remote watch lifecycle, see
 [Publisher agent](publisher-agent.md).
+For bounded server-side scalar and accepted-event rules under `checks-settings`,
+see [Server-side checks](checks.md). Checks are separate from freshness and snapshot
+storage, and are not configured through decorator arguments.
 
 Create a starter config with:
 

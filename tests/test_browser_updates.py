@@ -218,3 +218,24 @@ def test_browser_policy_keeps_history_filters_and_stream_cursor_contract() -> No
     assert 'url += "&after="' in stream
     assert "await appendTableData(table, merged.additions)" in stream
     assert "setInterval" not in stream
+
+
+def test_stalled_browser_loop_retains_one_dispatch_and_bounded_classes():
+    class StalledLoop:
+        def __init__(self): self.callbacks=[]
+        def is_closed(self): return False
+        def call_soon_threadsafe(self,callback,*args): self.callbacks.append((callback,args))
+    hub=BrowserUpdateHub()
+    loop=StalledLoop()
+    sub=hub.subscribe(view_id='metrics',since=0,loop=loop)
+    for i in range(10000):
+        hub.publish(view_id='metrics',change_type=('ordinary','checks','stream_history')[i%3])
+    hub.publish_catalogue()
+    assert len(loop.callbacks)==1
+    assert len(sub.pending)==4
+    callback,args=loop.callbacks.pop()
+    callback(*args)
+    assert sub.queue.qsize()==4
+    assert not sub.pending
+    assert not sub.dispatch_scheduled
+    hub.unsubscribe(sub)

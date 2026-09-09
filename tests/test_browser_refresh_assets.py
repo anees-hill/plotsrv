@@ -651,3 +651,34 @@ Promise.resolve().then(() => Promise.resolve()).then(async () => {
         capture_output=True,
         text=True,
     )
+
+
+@pytest.mark.skipif(shutil.which('node') is None, reason='Node.js is not installed')
+def test_check_status_notices_preserve_content_and_coalesce_slow_status_requests():
+    script=r'''
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+let release, requests=0;
+const state={initialViewLoadComplete:true, observedUpdateRevision:1, appliedUpdateRevision:1,
+  pendingBrowserUpdate:{revision:1,kind:'artifact'}, tableUiState:{filters:[{field:'x',op:'eq',value:'1'}]}};
+const original=JSON.stringify(state.pendingBrowserUpdate);
+const core={refreshStatus:()=>{requests++;return new Promise(resolve=>release=resolve);}};
+const ctx={Promise,Date,window:{PLOTSRV:{core,state,config:{kind:'artifact',activeViewId:'metrics'}},
+  setTimeout(){throw Error('unexpected polling timer');},clearTimeout(){}},
+  document:{hidden:false,activeElement:null,addEventListener(){}}};
+vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'),ctx);
+(async()=>{
+  core.receiveBrowserUpdate({revision:2,view_id:'metrics',change_type:'checks'});
+  await Promise.resolve();
+  assert.equal(requests,1);
+  for(let revision=3;revision<100;revision++) core.receiveBrowserUpdate({revision,view_id:'metrics',change_type:'checks'});
+  assert.equal(requests,1);
+  assert.equal(JSON.stringify(state.pendingBrowserUpdate),original);
+  release();
+  for(let i=0;i<10;i++) await Promise.resolve();
+  assert.equal(requests,2);
+  release();
+  for(let i=0;i<10;i++) await Promise.resolve();
+  assert.equal(requests,2);
+})().catch(e=>{console.error(e);process.exitCode=1;});
+'''
+    subprocess.run(['node','-e',script,str(_STATIC_JS/'core/auto_refresh.js')],check=True,capture_output=True,text=True)

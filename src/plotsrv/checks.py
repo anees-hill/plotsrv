@@ -20,6 +20,8 @@ MAX_EVENT_BYTES = 256 * 1024
 MAX_COUNTER = 2**53 - 1
 EVALUATIONS_PER_SECOND = 512
 BURST = 256
+CAPTURE_CPU_PER_SECOND = 0.020
+CAPTURE_CPU_BURST = 0.004
 _OPERATORS = dict(
     eq=operator.eq,
     ne=operator.ne,
@@ -83,9 +85,10 @@ class CheckEngine:
         self._closed = False
         self._thread = None
         self._tokens = float(BURST)
+        self._cpu_credit = CAPTURE_CPU_BURST
         self._refill = time.monotonic()
         self._latest = {}
-        self._loss = {r.id: 0 for r in self.rules}
+        self._loss = {r.id: object() for r in self.rules}
         self._lost = {r.id: 0 for r in self.rules}
         self._states = {
             r.id: dict(
@@ -108,7 +111,7 @@ class CheckEngine:
                 path=list(r.path),
                 metric=r.metric,
                 selection_path=list(r.selection_path),
-                loss_epoch=0,
+                loss_epoch=self._loss[r.id],
                 context=None,
             )
             for r in self.rules
@@ -135,12 +138,12 @@ class CheckEngine:
                         lambda: self._idle or self._closed, timeout=0.5
                     )
 
-    def _gap(self, rules, token, count=1):
-        # Sticky monotonic evidence gaps can be recorded even if admission cannot
-        # obtain the queue lock. Counters are bounded best-effort diagnostics;
-        # the per-rule token fences stale state regardless of counter precision.
+    def _gap(self, rules, _token, count=1):
+        # A fresh identity fences evidence even without the queue lock. Unlike
+        # read/max/write timestamp accounting it cannot roll back a newer gap
+        # when ingress, shutdown and worker failure race. Counts are best effort.
         for rule in rules:
-            self._loss[rule.id] = max(token, self._loss[rule.id])
+            self._loss[rule.id] = object()
             self._lost[rule.id] = min(MAX_COUNTER, self._lost[rule.id] + count)
             self._dirty.add(rule.source)
 
@@ -158,7 +161,12 @@ class CheckEngine:
             self._gap(rules, token, len(records))
             return
         try:
+            cpu_started = time.thread_time()
             now = time.monotonic()
+            self._cpu_credit = min(
+                CAPTURE_CPU_BURST,
+                self._cpu_credit + (now - self._refill) * CAPTURE_CPU_PER_SECOND,
+            )
             self._tokens = min(
                 BURST, self._tokens + (now - self._refill) * EVALUATIONS_PER_SECOND
             )
@@ -169,6 +177,7 @@ class CheckEngine:
                 token = time.monotonic_ns()
                 if (
                     self._closed
+                    or self._cpu_credit <= 0
                     or self._tokens < len(rules)
                     or time.thread_time() >= deadline
                     or budget.remaining < 0
@@ -213,7 +222,7 @@ class CheckEngine:
                             event_time = lookup(
                                 value, ("event", "source_timestamp"), budget
                             )
-                        context["source_time"] = scalar(event_time)
+                        context["source_time"] = wire_value(scalar(event_time))
                         context["source_time_origin"] = "publisher_supplied"
                     elif any(rule.input == "observation" for rule in rules):
                         context["captured_at_unix_s"] = scalar(
@@ -236,7 +245,17 @@ class CheckEngine:
                 self._pending_bytes += reserve
             self._idle = False
             self._condition.notify()
+        except Exception:
+            # Fence older work before releasing admission, including concurrent
+            # builtin-container mutation during detached scalar selection.
+            self._failed = min(MAX_COUNTER, self._failed + 1)
+            self._gap(rules, time.monotonic_ns(), len(records))
+            self._condition.notify()
         finally:
+            self._cpu_credit = max(
+                -CAPTURE_CPU_BURST,
+                self._cpu_credit - (time.thread_time() - cpu_started),
+            )
             self._condition.release()
 
     def _event(self, rule, event_type, state, job, evidence):
@@ -289,11 +308,14 @@ class CheckEngine:
             for index, (rule, evidence, result, reason) in enumerate(results):
                 old = self._states[rule.id]
                 # A later dropped state cannot be overwritten by older work.
-                if job.kind == "state" and self._loss[rule.id] > job.token:
+                if (
+                    job.kind == "state"
+                    and self._loss[rule.id] is not job.gap_epoch[index]
+                ):
                     continue
                 prior_state = (
                     old["state"]
-                    if old["loss_epoch"] == job.gap_epoch[index]
+                    if old["loss_epoch"] is job.gap_epoch[index]
                     else "unknown"
                 )
                 event_type = None
@@ -419,10 +441,10 @@ class CheckEngine:
                     continue
                 state = dict(self._states[rule.id])
                 state.pop("initialized")
-                last_token = state.pop("token")
-                state.pop("loss_epoch")
+                state.pop("token")
+                loss_epoch = state.pop("loss_epoch")
                 state["coverage_lost"] = self._lost[rule.id]
-                if rule.enabled and self._loss[rule.id] > last_token:
+                if rule.enabled and self._loss[rule.id] is not loss_epoch:
                     state.update(state="unknown", reason="coverage_gap")
                 states.append(state)
             # Copy only bounded immutable event bytes under the worker lock.
@@ -441,7 +463,11 @@ class CheckEngine:
             )
         result["states"] = json.loads(json.dumps(states, allow_nan=False))
         events = [json.loads(payload) for payload in payloads]
-        first = json.loads(first_payload)["cursor"] if first_payload else result["cursor"] + 1
+        first = (
+            json.loads(first_payload)["cursor"]
+            if first_payload
+            else result["cursor"] + 1
+        )
         reset = generation is not None and generation != self.generation
         result.update(
             events=[

@@ -365,3 +365,53 @@ median 3.035 µs for closed-engine rejection, 55.713 µs for a small metrics dic
 1.567 ms for a 100,000 × 8 DataFrame. Observed maxima ranged up to 10.323 ms for
 the frame. These are measured captures/rejections with setup outside timing,
 not public cold-start costs or hard cancellation deadlines.
+
+## Server-side checks (Prompt 12)
+
+Run `python -m pytest -q -s tests/benchmarks/test_bench_checks.py
+--benchmark-columns=min,median,max`. Inputs/configuration are prepared outside the
+measurement. The admission benchmark deliberately resets cadence, CPU credit and
+pending work between trials; it measures one check's hook cost, not a sustainable
+rate that bypasses the production budgets.
+
+Recorded on 2026-09-09, Python 3.13, 100 rounds per operation:
+
+| Admission case | Median | Maximum |
+| --- | ---: | ---: |
+| No enabled checks | 0.581 µs | 0.661 µs |
+| One supplied numeric scalar | 15.605 µs | 36.420 µs |
+| Million-key dictionary rejected before iteration | 11.682 µs | 37.332 µs |
+| One supplied observation metric | 96.231 µs | 189.405 µs |
+| Observed mean in a captured 100,000 × 8 frame summary | 411.910 µs | 568.408 µs |
+| Already overloaded 100-record event batch | 5.180 µs | 29.776 µs |
+
+These are hook measurements, not total publisher/HTTP latency, and concurrent
+regression activity affects results (scalar medians varied around 15–29 µs across
+runs). The frame source was summarized before timing; the measured hook selects
+from detached evidence only. Selection has a shared soft CPU allowance of
+20 ms/s (4 ms burst), in addition to per-hook work/CPU and rate/queue limits. No
+budget promises preemption or a wall-clock deadline. Comparison, bounded event
+encoding, SSE delivery and browser reads also consume resources separately.
+
+A structural queue stress trial prepared 100 records with large ignored fields,
+then attempted 100 batches while resetting admission credit in the benchmark.
+The queue plateaued at 32 jobs / 262,144 reserved bytes. It retained 28,976 traced
+bytes, peaked at 30,056 B and retained 22,627 B after drain/GC (including bounded
+latest state and event history). The original records were outside tracing;
+separate weak-reference tests prove ignored source objects are not retained.
+Reservations are conservative accounting, not heap/RSS measurements. This one-rule
+trial uses minimal receipt metadata, not the maximum configuration.
+
+The drained worker consumed about 0.071 ms process CPU during a 100 ms idle interval
+in that run. This short observation is not a universal idle-CPU guarantee; the
+worker's indefinite idle condition wait and absence of a worker when disabled are
+also tested. Only a pending trailing SSE notice uses a timed wait. Shutdown joins
+the worker finitely and restart is fenced until it exits.
+
+Failure tests cover queue/CPU/lock overload, coalescing and stale in-flight work,
+invalid/large numeric values, native and display-model JSON, scoped observation
+metrics, authenticated HTTP/local producers, stream deduplication/raw eviction,
+restored history and snapshot browsing. SSE tests stall an event loop across
+10,000 notices: at most one dispatch callback and four pending event classes remain
+per subscriber; slow status fetches retain one trailing refresh without changing
+the displayed data.

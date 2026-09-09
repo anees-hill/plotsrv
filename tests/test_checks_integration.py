@@ -212,6 +212,7 @@ def test_public_local_publish_uses_same_hook(monkeypatch):
 
     engine = setup(monkeypatch)
     monkeypatch.setattr(server, "start_server", lambda **kw: None)
+    monkeypatch.setattr(server, "_ensure_server_running", lambda *args, **kw: False)
     for duration in (1, 20):
         publish_view(
             {"duration": duration},

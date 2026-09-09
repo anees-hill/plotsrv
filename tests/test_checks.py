@@ -237,6 +237,16 @@ def test_events_are_ordered_occurrences_and_survive_source_release():
     assert [x["context"]["batch_position"] for x in data["events"]] == [0, 1, 2, 3]
     assert all(x["event_type"] == "match" for x in data["events"])
     assert data["events"][0]["context"]["source_time_origin"] == "publisher_supplied"
+    e.submit(
+        "metrics",
+        "event",
+        [({"duration": 20, "timestamp": 2**60 + 1}, {"source_revision": 5})],
+    )
+    assert e.flush(1)
+    assert e.snapshot()["events"][-1]["context"]["source_time"] == {
+        "type": "integer",
+        "value": str(2**60 + 1),
+    }
     e.close()
 
 
@@ -398,3 +408,86 @@ def test_observation_units_and_inspection_are_required():
     r = replace(r, unit=None)
     s["fields"][0]["values_inspected"] = 0
     assert select(r, s, Budget()).reason == "no_inspected_values"
+    count_rule = replace(r, metric="inspected")
+    assert select(count_rule, s, Budget()).value == 0
+
+
+def test_aggregate_cpu_budget_rejects_before_selection(monkeypatch):
+    e = CheckEngine([rule()], start=False)
+    try:
+        e._cpu_credit = -checks.CAPTURE_CPU_BURST
+        e._refill = time.monotonic()
+        monkeypatch.setattr(
+            checks,
+            "select",
+            lambda *args: pytest.fail("selection ran after CPU budget exhausted"),
+        )
+        e.submit("metrics", "state", [({"duration": 20}, {})])
+        assert not e._pending
+        assert e.snapshot()["states"][0]["reason"] == "coverage_gap"
+    finally:
+        e.close()
+
+
+def test_stuck_worker_cannot_be_replaced_before_exit(monkeypatch):
+    e = CheckEngine([rule()])
+    monkeypatch.setattr(checks, "_ENGINE", e)
+    entered = threading.Event()
+    release = threading.Event()
+
+    def block(job):
+        entered.set()
+        release.wait(3)
+
+    monkeypatch.setattr(e, "_process", block)
+    try:
+        e.submit("metrics", "state", [({"duration": 20}, {})])
+        assert entered.wait(1)
+        assert not e.close(timeout=0)
+        with pytest.raises(ValueError, match="still stopping"):
+            checks.configure([rule()], "next-generation")
+        assert checks.current() is e
+        release.set()
+        e._thread.join(1)
+        checks.configure([rule()], "next-generation")
+        assert checks.current() is not e
+        assert not e._thread.is_alive()
+    finally:
+        release.set()
+        e.close()
+        checks.reset()
+
+
+def test_failed_capture_fences_inflight_recovery_before_releasing_admission(
+    monkeypatch,
+):
+    e = CheckEngine([rule()])
+    entered = threading.Event()
+    release = threading.Event()
+    try:
+        submit(e, {"duration": 20})
+        original = e._process
+
+        def blocked(job):
+            entered.set()
+            release.wait(2)
+            original(job)
+
+        monkeypatch.setattr(e, "_process", blocked)
+        e.submit("metrics", "state", [({"duration": 0}, {"source_revision": 2})])
+        assert entered.wait(1)
+
+        def failed_capture(*args):
+            release.set()
+            raise RuntimeError("concurrent dictionary mutation")
+
+        monkeypatch.setattr(checks, "select", failed_capture)
+        e.submit("metrics", "state", [({"duration": 20}, {"source_revision": 3})])
+        assert e.flush(1)
+        data = e.snapshot()
+        assert data["states"][0]["state"] == "unknown"
+        assert data["failures"] == 1
+        assert not any(event["event_type"] == "recovered" for event in data["events"])
+    finally:
+        release.set()
+        e.close()
