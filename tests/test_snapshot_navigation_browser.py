@@ -201,7 +201,7 @@ def test_stale_metadata_and_source_switch_are_ignored(page):
     assert page.locator("#artifact-root").inner_text() == "Coherent initial content"
 
 
-def test_empty_unavailable_and_streams_hide_ordinary_navigation(page):
+def test_empty_and_unavailable_keep_disabled_selector_and_streams_do_not_fetch(page):
     mount(page)
     page.evaluate("async () => {count=0; await PLOTSRV.core.loadHistory();}")
     assert page.locator("#snapshots-control").get_attribute("data-state") == "empty"
@@ -212,9 +212,14 @@ def test_empty_unavailable_and_streams_hide_ordinary_navigation(page):
       await PLOTSRV.core.loadHistory();
     }""")
     assert page.locator("#snapshot-older").is_hidden()
-    assert page.locator("#snapshots-selector").is_hidden()
-    assert (
-        page.locator("#snapshots-info").get_attribute("title") == "Storage not admitted"
+    assert page.locator("#snapshots-selector").is_visible()
+    page.locator("#snapshots-selector").hover()
+    assert page.locator("#history-select").is_disabled()
+    assert "browse saved versions" in page.locator("#snapshots-selector").get_attribute(
+        "title"
+    )
+    assert "Storage not admitted" in page.locator("#snapshots-info").get_attribute(
+        "title"
     )
     page.evaluate(
         "PLOTSRV.config.kind='stream'; window.readCount=metaReads.length; PLOTSRV.core.loadHistory()"
@@ -266,6 +271,11 @@ def test_table_stale_response_does_not_replace_selected_rows(page):
 
 def test_real_bar_fits_desktop_and_mobile_without_idle_requests(page):
     mount(page)
+    select_box = page.locator("#history-select").bounding_box()
+    older_box = page.locator("#snapshot-older").bounding_box()
+    newer_box = page.locator("#snapshot-newer").bounding_box()
+    assert select_box["x"] + select_box["width"] <= older_box["x"]
+    assert older_box["x"] + older_box["width"] <= newer_box["x"]
     page.screenshot(path="/tmp/plotsrv-15-desktop.png")
     page.set_viewport_size({"width": 375, "height": 800})
     assert page.locator("#snapshot-older").is_visible()

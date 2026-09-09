@@ -380,7 +380,7 @@ For local project use, `.plotsrv/` is usually a good candidate for `.gitignore`.
 
 ## Quick snapshot navigation
 
-Use the arrows either side of **Snapshots** to move older or newer. From the
+Use the adjacent arrows to the right of **Snapshots** to move older or newer. From the
 newest stored snapshot, Newer returns to **Live (latest)**: the current server
 state. Live is a separate choice even when a stored version looks identical.
 Existing metadata cannot prove that a snapshot has the same content as Live;
@@ -393,7 +393,9 @@ selected snapshot stays available in the selector even outside that page.
 Only selecting a version loads its content. Browsing does not publish data,
 change source arrival timestamps, evaluate checks or send notifications.
 
-Unavailable storage hides the ordinary selector/arrows and explains why.
+When storage is unavailable, the ordinary selector stays visible but greyed out.
+Hover over it for an explanation of snapshots and why they are unavailable;
+the navigation arrows are hidden.
 Enabled but empty storage says **No snapshots yet**. Streams retain their
 separate session-history controls. If a selected version was removed, is
 unreadable or fails to load, its URL/selection stays in place. Previous content

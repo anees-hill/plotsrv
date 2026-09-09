@@ -161,13 +161,13 @@ def render_index(
             return ""
         return """
           <div id="snapshots-control" class="ps-snapshots" data-state="loading">
-            <button id="snapshot-older" class="ps-snapshot-arrow" type="button" aria-label="Older snapshot" disabled hidden>‹</button>
             <label id="snapshots-selector" class="ps-snapshots__selector" title="Checking snapshot availability.">
               <span>Snapshots</span>
               <select id="history-select" class="ps-select" aria-label="Snapshots" disabled>
                 <option value="">Loading snapshots…</option>
               </select>
             </label>
+            <button id="snapshot-older" class="ps-snapshot-arrow" type="button" aria-label="Older snapshot" disabled hidden>‹</button>
             <button id="snapshot-newer" class="ps-snapshot-arrow" type="button" aria-label="Newer snapshot or Latest" disabled hidden>›</button>
             <span id="snapshot-navigation-notice" class="ps-snapshot-notice" role="status" aria-live="polite"></span>
             <span id="snapshots-info" class="ps-snapshots__info" role="img"

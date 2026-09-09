@@ -169,7 +169,7 @@
 
     const usable = !failed && (!capability || capability.enabled === true);
     const hasSnapshots = usable && snapshots.length > 0;
-    const reason = failed
+    const availabilityReason = failed
       ? "Snapshot availability could not be loaded."
       : !usable
         ? String(
@@ -180,6 +180,10 @@
           ? "No snapshots have been saved for this view yet."
           : "";
 
+    const reason = availabilityReason
+      ? "Snapshots let you browse saved versions of this view. " + availabilityReason
+      : "";
+
     wrap.dataset.state = failed
       ? "error"
       : hasSnapshots
@@ -187,7 +191,7 @@
         : usable
           ? "empty"
           : "unavailable";
-    selector.hidden = !usable;
+    selector.hidden = false;
     selector.title = reason;
     sel.title = reason;
     sel.setAttribute("aria-label", reason ? "Snapshots. " + reason : "Snapshots");
