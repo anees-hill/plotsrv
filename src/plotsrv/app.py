@@ -1256,6 +1256,11 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
         ViewDescriptor(view_id, label or view_id, section)
     except ValueError:
         raise IngestionError("inadmissible_view", 422, "invalid_view_metadata") from None
+    if "observation" in payload:
+        if _commit is not None:
+            raise IngestionError("invalid_request", 422, "observation_not_watch_data")
+        from .observations.receiver import receive_observation
+        return receive_observation({**payload, "view_id": view_id})
     publish_source_raw = payload.get("publish_source")
     publish_source = (
         str(publish_source_raw).strip().lower()

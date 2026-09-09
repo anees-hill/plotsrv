@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import contextmanager
 from typing import Any
 from pathlib import Path
@@ -906,8 +907,11 @@ def stop_server(*, join: bool = False, timeout: float = 10.0) -> None:
         max(0.0, float(timeout)),
         config.get_publish_flush_timeout_s(),
     )
+    flush_deadline = time.monotonic() + flush_timeout
     flush_views(timeout=flush_timeout)
-    stop_publish_worker(join=join, timeout=flush_timeout)
+    from .observations.runtime import stop_observations
+    stop_observations(timeout=max(0.0, flush_deadline - time.monotonic()) if join else 0.0)
+    stop_publish_worker(join=join, timeout=max(0.0, flush_deadline - time.monotonic()))
 
     with _SERVER_LOCK:
         server = _SERVER

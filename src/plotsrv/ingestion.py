@@ -216,6 +216,18 @@ def require_admitted(view_id: str) -> None:
             raise IngestionError("oversize_data", 413, "catalogue_capacity")
 
 
+def clear_observation_capability(view_id: str) -> None:
+    """Called under the store lock when current content is replaced."""
+    from dataclasses import replace
+
+    current = state()
+    descriptor = current.descriptors.get(view_id)
+    if descriptor is not None and "observation-v1" in descriptor.capabilities:
+        current.descriptors[view_id] = replace(
+            descriptor, kind="unknown", capabilities=(), source=None
+        )
+
+
 def register_catalogue(views: list[ViewDescriptor], *, seal: bool) -> dict[str, Any]:
     """Validate everything before an atomic metadata transaction and seal.
 
@@ -434,6 +446,7 @@ def capabilities(request: Request):
             "stream-v4",
             "watch-v1",
             "watch-v2",
+            "observation-v1",
         ),
     ).to_dict()
     return {

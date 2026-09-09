@@ -37,6 +37,32 @@ def my_function():
     ...
 ```
 
+## Bounded observation of pipeline results
+
+```python
+@ps.view(observe=True, view_id="etl:orders", label="Orders")
+def transform_orders(frame):
+    return frame.assign(net=frame["gross"] - frame["discount"])
+
+ps.publish_view(metrics, observe=True, view_id="etl:metrics")
+```
+
+`observe=True` captures bounded detached evidence in the caller and prepares and
+publishes summaries asynchronously. The decorator returns the same result object,
+including for async functions, and preserves the original exception/cancellation.
+It does not profile whole inputs. `async_=False` with observation is a setup error;
+the ordinary global async default cannot make observation synchronous.
+
+Use `ps.ObservationOptions(fields=("rows", "seconds"), path=("import",))` in place
+of `True` to narrow capture. Examples are off by default, but supplied scalar
+metrics, field names and bounded category prefixes are still exported. Unsupported
+storage types produce omission reasons, including Polars at present.
+
+`ps.flush_views(timeout=0.5)` provides a bounded best-effort drain;
+`ps.get_observation_stats()` reports drops/failures and queue state. See
+[bounded observations](observation-capture.md) for setup costs, sample meaning,
+privacy, destination rules, supported storage and resource limits.
+
 ## Core publishing API
 
 ## `publish_view()`

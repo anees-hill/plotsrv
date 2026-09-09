@@ -478,6 +478,8 @@ def set_plot(
     # Covers direct/local publishing and rejection artifacts, too.
     from .remote_watch import clear_content
     clear_content(vid)
+    from .ingestion import clear_observation_capability
+    clear_observation_capability(vid)
     st = _ensure_view(vid)
 
     st.kind = "plot"
@@ -541,6 +543,8 @@ def set_table(
     # Covers direct/local publishing and rejection artifacts, too.
     from .remote_watch import clear_content
     clear_content(vid)
+    from .ingestion import clear_observation_capability
+    clear_observation_capability(vid)
     st = _ensure_view(vid)
     st.icon_key = _icon_for_view_kind("table")
 
@@ -597,6 +601,8 @@ def set_artifact(
     # Covers direct/local publishing and rejection artifacts, too.
     from .remote_watch import clear_content
     clear_content(vid)
+    from .ingestion import clear_observation_capability
+    clear_observation_capability(vid)
     st = _ensure_view(vid)
 
     st.kind = "artifact"

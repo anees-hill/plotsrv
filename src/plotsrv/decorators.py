@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 import os
+import inspect
 from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Literal, TypeVar, overload
 
+from .observations.models import ObservationOptions
 from .publisher import publish_view
 from .tracebacks import publish_traceback
 
@@ -26,6 +28,7 @@ class PlotsrvSpec:
     on_error: OnErrorMode = "raise"
     launch_server: bool = False
     async_: bool | None = None
+    observe: bool | ObservationOptions = False
 
     view_id: str | None = None
 
@@ -122,7 +125,7 @@ def _publish_port(spec: PlotsrvSpec) -> int | None:
 
 
 def _publish_launch_server(spec: PlotsrvSpec) -> bool | None:
-    if spec.async_ is True and not spec.launch_server and spec.host is None and spec.port is None:
+    if (spec.async_ is True or spec.observe is not False) and not spec.launch_server and spec.host is None and spec.port is None:
         return None
     return spec.launch_server
 
@@ -153,6 +156,8 @@ def _publish_result(obj: Any, *, spec: PlotsrvSpec, label: str) -> None:
         kwargs["view_id"] = spec.view_id
     if spec.async_ is not None:
         kwargs["async_"] = spec.async_
+    if spec.observe is not False:
+        kwargs["observe"] = spec.observe
     publish_view(obj, **kwargs)
 
 
@@ -205,6 +210,58 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
 
     If the decorator is metadata-only, the object is returned unchanged.
     """
+    if spec.observe is not False:
+        if isinstance(func, type):
+            raise ValueError(
+                "observe decorates functions; publish an instance explicitly instead"
+            )
+
+        from .observations.runtime import get_observation_worker
+
+        worker = get_observation_worker()
+        if worker is not None:
+            try:
+                worker.route(
+                    label=spec.label or func.__name__,
+                    section=spec.section,
+                    host=spec.host,
+                    port=spec.port,
+                    launch_server=_publish_launch_server(spec),
+                    view_id=spec.view_id,
+                    update_limit_s=spec.update_limit_s,
+                    force=False,
+                )
+                worker.start()
+            except Exception:
+                import time
+
+                worker.last_error = "invalid_observation_setup"
+                worker._setup_retry_at = time.monotonic() + 30
+
+        def observe_result(out):
+            try:
+                _publish_result(out, spec=spec, label=spec.label or func.__name__)
+            except Exception:
+                # DEBUG must not change observation's non-fatal runtime contract.
+                pass
+            return out
+
+        if inspect.iscoroutinefunction(func):
+
+            @wraps(func)
+            async def observed_async(*args, **kwargs):
+                out = await func(*args, **kwargs)
+                return observe_result(out)
+
+            return observed_async
+
+        @wraps(func)
+        def observed_sync(*args, **kwargs):
+            out = func(*args, **kwargs)
+            return observe_result(out)
+
+        return observed_sync
+
     if not _should_publish(spec):
         return func
 
@@ -251,6 +308,8 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
 
 
 @overload
+
+
 def view(
     *,
     label: str | None = None,
@@ -262,10 +321,13 @@ def view(
     on_error: OnErrorMode = "raise",
     launch_server: bool = False,
     async_: bool | None = None,
+    observe: bool | ObservationOptions = False,
 ) -> Callable[[F], F]: ...
 
 
 @overload
+
+
 def view(
     *,
     label: str | None = None,
@@ -277,6 +339,7 @@ def view(
     on_error: OnErrorMode = "raise",
     launch_server: bool = False,
     async_: bool | None = None,
+    observe: bool | ObservationOptions = False,
 ) -> Callable[[type[Any]], type[Any]]: ...
 
 
@@ -291,6 +354,7 @@ def view(
     on_error: OnErrorMode = "raise",
     launch_server: bool = False,
     async_: bool | None = None,
+    observe: bool | ObservationOptions = False,
 ) -> Callable[[Any], Any]:
     """
     Decorator: marks a function OR class as a plotsrv view producer.
@@ -319,6 +383,17 @@ def view(
     function is called.
     """
 
+    if observe is not False:
+        from .observations.runtime import observation_options, get_observation_worker
+
+        observe = observation_options(observe, async_)
+        if on_error != "raise":
+            raise ValueError(
+                "observation preserves original errors; use on_error='raise'"
+            )
+        # Validate budgets and allocate the consumer during setup, outside calls.
+        get_observation_worker()
+
     def decorator(obj: Any) -> Any:
         spec = PlotsrvSpec(
             kind="artifact",
@@ -331,6 +406,7 @@ def view(
             on_error=on_error,
             launch_server=launch_server,
             async_=async_,
+            observe=observe,
         )
 
         o2 = _attach_spec(obj, spec)

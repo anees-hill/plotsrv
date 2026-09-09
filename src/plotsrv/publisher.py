@@ -18,6 +18,7 @@ from .connection_config import normalise_publish_mode, resolve_publish_target
 from .backends import df_to_html_simple, fig_to_png_bytes
 from .file_kinds import coerce_file_to_publishable
 from .json_model import build_json_document
+from .observations.models import ObservationOptions
 from .publishing.models import PublishTarget, PublishTask
 from .publishing.worker import flush_publish_views, get_publish_worker
 
@@ -34,7 +35,9 @@ def _flush_async_views_at_process_exit() -> None:
     ``flush_views(timeout=...)`` explicitly.
     """
     try:
-        flush_publish_views(timeout=config.get_publish_flush_timeout_s())
+        flush_views(timeout=config.get_publish_flush_timeout_s())
+        from .observations.runtime import stop_observations
+        stop_observations()
     except Exception:
         # Interpreter shutdown can partially tear down optional dependencies.
         # Never turn a successful user script into a shutdown exception.
@@ -833,6 +836,7 @@ def publish_view(
     kind: str | None = None,
     artifact_kind: str | None = None,
     async_: bool | None = None,
+    observe: bool | ObservationOptions = False,
 ) -> None:
     """
     Publish an object as a plotsrv browser view.
@@ -858,11 +862,31 @@ def publish_view(
     JSON-like objects, markdown, HTML payloads, images, path-like files, and
     generic Python objects.
 
+    ``observe=True`` captures bounded detached evidence and always summarizes and
+    delivers in the background. ``ObservationOptions`` narrows fields/path and
+    explicitly enables examples. ``async_=False`` is incompatible with observation.
+    Runtime observation failures are non-fatal, including with PLOTSRV_DEBUG.
+
     ``async_=True`` retains the newest pending update per destination/view in a
     bounded worker and returns before rendering/serialisation/network delivery.
     ``async_=None`` uses ``publish-settings.live.async_enabled`` (off by
     default); ``async_=False`` preserves synchronous behaviour.
     """
+    if observe is not False:
+        from .observations.runtime import observation_options, submit_observation
+        options = observation_options(observe, async_)
+        if kind is not None or artifact_kind is not None:
+            raise ValueError("observation chooses its summary format; omit kind/artifact_kind")
+        try:
+            submit_observation(
+                obj, options, destination=destination, launch_server=launch_server,
+                mode=mode, host=host, port=port, label=label, section=section,
+                view_id=view_id, update_limit_s=update_limit_s, force=force,
+            )
+        except Exception:
+            pass
+        return
+
     debug = _debug_enabled()
 
     try:
@@ -875,6 +899,7 @@ def publish_view(
         )
     except Exception:
         from .publishing.transport import report_invalid_setup
+
         report_invalid_setup()
         if debug:
             raise
@@ -934,4 +959,13 @@ def flush_views(timeout: float | None = None) -> bool:
     durable records, which intentionally use a separate future API.
     """
     timeout_s = config.get_publish_flush_timeout_s() if timeout is None else timeout
-    return flush_publish_views(timeout=max(0.0, float(timeout_s)))
+    import math
+    import time
+    from .observations.runtime import flush_observations
+    timeout_s = float(timeout_s)
+    if not math.isfinite(timeout_s):
+        raise ValueError("flush_views requires a finite timeout")
+    deadline = time.monotonic() + max(0.0, timeout_s)
+    ordinary = flush_publish_views(timeout=max(0.0, timeout_s))
+    observed = flush_observations(max(0.0, deadline - time.monotonic()))
+    return ordinary and observed

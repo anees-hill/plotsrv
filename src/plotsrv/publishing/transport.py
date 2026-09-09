@@ -225,6 +225,8 @@ def _exchange(
                 )
             )
         )
+        if path == "/publish" and "observation" in payload:
+            maximum = 80 * 1024
         if len(body) > maximum:
             raise TransportError("oversize_data")
         headers["Content-Type"] = "application/json"

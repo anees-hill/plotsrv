@@ -7,6 +7,8 @@ if TYPE_CHECKING:
     from .capture import capture_exceptions
     from .config import set_table_view_mode
     from .decorators import PlotsrvSpec, get_plotsrv_spec, view
+    from .observations.models import ObservationOptions
+    from .observations.runtime import get_observation_stats
     from .publisher import flush_views, publish_view
     from .runtime import WatchConfig
     from .server import plot_session, refresh_view, start_server, stop_server
@@ -18,6 +20,8 @@ __all__ = [  # noqa: RUF022 - grouped by public API area
     "view",
     "publish_view",
     "flush_views",
+    "ObservationOptions",
+    "get_observation_stats",
     "stream_view",
     # Server/session API
     "start_server",
@@ -39,6 +43,8 @@ __all__ = [  # noqa: RUF022 - grouped by public API area
 ]
 
 _EXPORTS: dict[str, tuple[str, str]] = {
+    "ObservationOptions": (".observations.models", "ObservationOptions"),
+    "get_observation_stats": (".observations.runtime", "get_observation_stats"),
     "start_server": (".server", "start_server"),
     "stop_server": (".server", "stop_server"),
     "refresh_view": (".server", "refresh_view"),

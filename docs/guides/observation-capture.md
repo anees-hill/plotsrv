@@ -1,14 +1,61 @@
-# Internal observation capture
+# Bounded observations
 
-This is the tested capture foundation for automatic observations. It does **not**
-yet add `observe=True` to public publishing, generate summaries, send observations
-to a server, or add a browser profile. Ordinary publishing and file watching keep
-their existing behaviour.
+Use `observe=True` to publish a compact summary of a pipeline result while returning
+that same object unchanged:
 
-The internal `plotsrv.observations` modules reserve capacity, inspect a bounded
-part of a supported eager object, and retain only an immutable JSON byte envelope.
-They add no dependencies, background threads, timers, network requests or idle
-polling. Optional adapters use libraries already loaded by the application.
+```python
+import plotsrv as ps
+
+@ps.view(observe=True, view_id="etl:orders", label="Orders")
+def transform_orders(frame):
+    return frame.assign(net=frame["gross"] - frame["discount"])
+
+# Or observe an intermediate result explicitly:
+ps.publish_view(frame, observe=True, view_id="etl:intermediate")
+
+# Select a few fields, or one nested branch, before capture:
+ps.publish_view(
+    metrics,
+    observe=ps.ObservationOptions(path=("import",), fields=("rows", "seconds")),
+    view_id="etl:metrics",
+)
+
+# Optional at a script boundary, never inside the measured hot loop:
+finished = ps.flush_views(timeout=0.5)
+print(ps.get_observation_stats())
+```
+
+Observation is opt-in. Ordinary publishing keeps its existing defaults and accepts
+its existing reports/plots/tables. Observation always summarizes and delivers in
+one background consumer, even when ordinary async publishing is disabled.
+`observe=True, async_=False` is a setup error. Observed functions execute once;
+sync functions stay sync, async functions are awaited once, return identity and
+signature metadata remain intact, and original exceptions/cancellation propagate.
+Observation decorators require the default `on_error="raise"` and decorate
+functions, not classes. There is no tracing of locals or automatic error report.
+
+Only admission and bounded detached capture run in the caller. Summaries, server
+startup and HTTP run in the consumer. Decoration prepares routing and the worker
+outside function calls. The first inline `publish_view(..., observe=True)` also
+initializes configuration/adapters/routing and starts the worker; that cold setup
+cost is separate from warm capture measurements. Import/setup should happen
+outside a latency-sensitive pipeline. One process-wide engine owns the budgets.
+
+Without a configured remote destination, observation starts/uses the attached
+local server in the background; it does not restore persisted history on implicit
+startup. Start a local server explicitly first if restoration is wanted. A remote
+`destination="https://dashboard.example/team/"`, host/port or configured
+`publisher-settings.destination` uses the existing HTTP(S) transport, bearer
+credentials and catalogue admission. Decorators use host/port or the configured
+destination. There is no shared-filesystem assumption or automatic remote fallback.
+Remote servers must advertise `observation-v1`; older servers reject observation
+without receiving a raw-object replacement payload. The transport protocol stays
+at version 1; the summary and recipe have their own version 1.
+
+The server keeps the current bounded summary as a JSON artifact using the existing
+logical view ID, including catalogue-locked admission. This slice adds no dashboard
+profile or separate history service. JSON inspection is available now; observation
+presentations come in the next slice.
 
 ## Admission and ownership
 
@@ -26,17 +73,21 @@ codes, without exception text, source representations or logging callbacks.
 Application exceptions such as `KeyboardInterrupt` propagate after cleanup.
 
 Queue reservations cover synchronous capture, queued bytes **and in-flight work**.
-A future consumer calls `take()` and then `finish(work.token)` after processing,
+The internal manual consumer calls `take()` and then `finish(work.token)` after processing,
 releasing its work reference at the same time. A contended `finish` returns false;
 the consumer must acknowledge again before taking more work. Dequeuing alone does
 not make capacity available. There is no source object, native buffer, source-bound
 callback, traceback or closure in a queued envelope.
 
-An update for a view with outstanding work is skipped **before recapturing**.
-This mailbox preserves the accepted sample instead of repeatedly copying newer
-objects under congestion. It is not an event history or a latest-state guarantee.
-The public observation integration must disclose gaps and must consume this
-mailbox directly, without putting source objects into the existing publish queue.
+An internal submission without a route skips outstanding work before recapture.
+Public observation coalesces pending envelopes per destination/view, subject to
+both cadence budgets. It releases the old pending bytes before capturing their
+replacement within the same reservation. If replacement capture fails, the old
+sample is also lost. In-flight updates for the same destination/view are skipped
+before recapture; different destinations share the process budget. This is
+best-effort latest-wins among admitted pending updates, not an event history or a
+promise to deliver the final call. Ordered streams keep their separate machinery.
+No observation enters the ordinary source-retaining `PublishTask` queue.
 
 `close()` abandons pending work. An active capture discards its result on return;
 its reservation remains until then. In-flight leases remain charged until the
@@ -46,11 +97,45 @@ blocking drain. If close encounters a busy lock, its holder releases queued
 payloads on exit; cleanup needs no later submission or idle polling. After a fork,
 `get_capture_engine()` creates a fresh process-local engine and lock; direct
 inherited engines reject work with `forked_instance`.
-There is no autonomous worker or retry loop in this foundation.
+The public consumer waits on a condition with no idle timeout, polling or retry
+thread. `flush_views` shares one finite deadline between ordinary and observation
+queues; true means accepted work drained, **not that every delivery succeeded**.
+`get_observation_stats()` exposes bounded best-effort accepted, skipped, processed,
+failed, dropped and coalesced counters plus a fixed last-error code. Counters
+saturate rather than grow indefinitely. Calling diagnostics explicitly may take
+the bookkeeping lock; capture never waits for it.
+
+`stop_server` and process exit drain briefly then close observation admission.
+Pending envelopes are dropped; an in-flight consumer remains charged. A later
+call can restart only after the previous thread and leases are gone, and routing
+caches are cleared for that restart. Capture budgets belong to the initialized
+process engine; changing them requires a fresh publisher process.
+
+Remote delivery uses the shared negotiation cache and cooldowns, with a total
+request deadline capped at two seconds. Failures pause new captures for that
+target for 5 seconds (30 for auth/admission/protocol failures). There is no timer,
+automatic resend or retained retry backlog: subsequent calls after cooldown try
+again. Existing queued envelopes may be rejected by the shared transport cooldown.
+The shared cooldown is per target, so a rejected catalogue ID can briefly pause
+other observations to that target. Warnings contain fixed codes only and occur
+at most once per 30 seconds, from the consumer. Shared transport diagnostics
+have their own existing per-target rate limit. Routing/setup failures also have
+a fixed cooldown, without hot-path logging or repeated config reads.
+
+Warm routing caches are bounded to 16 connection configurations and at most
+`max_view_ids` routing entries. They hold only bounded metadata/targets, never
+sources. Routes stay fixed until restart or credential invalidation. Credential
+rotation fails closed; a fresh inline/configured destination can resolve again.
+An explicitly constructed `PublishTarget` must be reconstructed after rotation.
+
+Native calls, DNS, runtime scheduling or arbitrary installed logging handlers
+cannot be forcibly cancelled by Python time budgets. A stuck consumer cannot
+create replacement threads or release its in-flight reservation early. Shutdown
+returns after its finite wait; it cannot promise that native work has terminated.
 
 ## Default budgets
 
-Internal settings live under `publish-settings.observe`. They have no effect on
+Capture settings live under `publish-settings.observe`. They have no effect on
 ordinary publication. For example:
 
 ```yaml
@@ -200,10 +285,47 @@ ID, known source-type label, capture time, cheap metadata, samples, coverage,
 consistency and reasons. Its version is not a new transport protocol. Filesystem
 paths and Python object addresses do not become automatic source identities.
 
+## Reading summary evidence
+
+Every field has an explicit scope: `supplied_value` for a supplied scalar metric,
+`complete_small_inspection` for full positional coverage of a small container,
+`base_sample` for sampled positions, or `captured_structure` for structure only.
+Full positional coverage is not an atomic snapshot or a claim that omitted cells
+were inspected. `values_inspected`, `not_inspected`, missingness denominators,
+coverage and omission reasons remain visible. Nulls count as missing; unsupported
+values do not. A missing numeric section means no suitable finite values were
+captured, not zero. NaN and infinities are represented explicitly.
+
+Numeric ranges, means, nearest-rank quantiles and at most eight histogram bins
+use captured finite values only. Distinct counts mean **distinct values observed**,
+never full-data cardinality. Integer arithmetic stays exact: large integers use
+decimal strings with type tags, and non-integral integer means/bin edges use
+rational numerator/denominator tags. Float means are explicitly approximate;
+mixed large integers/floats omit calculations that would lose integer precision.
+Histogram bins describe observed counts, not predicted whole-data frequencies.
+String categories retain at most 16 typed prefixes/counts and explicitly flag
+truncation or capping; these are not exact categories when prefixes were shortened.
+Exploratory useful-value counts and optional examples are separate from base
+statistics and never enlarge their denominator.
+
+Each exported summary includes source type, cheap shape/schema, capture time,
+publisher session, consistency, recipe/version, sampling limits and omission
+reasons. Payloads are at most 64 KiB (or the configured lower output limit), and
+whole requests at most 80 KiB. Oversize summaries remove examples first and then
+bounded sections with an explicit reason; they never serialize the original
+object again. Working trees and serialization copies have additional bounded
+allocation; the byte budget is not a whole-process RSS cap.
+
+Examples are disabled by default, but scalar values, field/path names, category
+prefixes and aggregates are still exported and **may contain sensitive data**.
+Selection narrows what is captured; this is not redaction or secret detection.
+Enable `ObservationOptions(include_examples=True)` only when bounded sampled
+values may also leave the publisher. Binary examples obey the same explicit flag.
+
 ## Selection, examples and concurrent mutation
 
-Internal `CaptureOptions(fields=(...), path=(...), include_examples=False)` narrows
-capture. Choose either field names or positions in one selection. Integer table fields are positions; pandas also matches exact names
+Public `ObservationOptions(fields=(...), path=(...), include_examples=False)`
+narrows capture (`CaptureOptions` remains an internal alias). Choose either field names or positions in one selection. Integer table fields are positions; pandas also matches exact names
 among the bounded prefix of inspected columns. Dictionary field/path lookup
 inspects at most `max_fields` entries, without invoking custom key equality.
 A selected name/path outside that prefix is not evidence that it is absent;
@@ -214,13 +336,13 @@ ignored. Use a nested path before inspecting an
 unrelated large branch. Truncated strings are labelled and are not exact categories.
 
 An envelope contains bounded **private working values**, including strings, for
-the future local summary worker. `include_examples` defaults to false and is the
-permission to export raw examples in that later integration; it does not mean
+the local summary worker. `include_examples` defaults to false and is the
+permission to export raw examples; it does not mean
 numeric/category evidence is never copied inside the publisher. Binary contents
 are copied only when examples are enabled. These envelopes must not be passed
-directly to HTTP publishing, logs or diagnostics. Nothing sends them in this
-foundation. The summary/public API integration must enforce the examples flag at
-its export boundary. Field names, categories and summaries can contain secrets;
+directly to HTTP publishing, logs or diagnostics. The summary builder removes
+base samples and exploratory values from the exported document unless examples
+are explicitly enabled. Field names, categories and summaries can contain secrets;
 bounds are not anonymisation or secret detection.
 
 The capture leaves input values and schema unchanged and owns its resulting
