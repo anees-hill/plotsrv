@@ -257,3 +257,63 @@ called. This does not establish a native-memory bound for future Polars adapters
 
 These are development-machine observations, not universal latency or allocation
 guarantees. The capture engine creates no idle threads, timers or network work.
+
+## Public observation and summary measurements
+
+Prompt 10 adds the public API and one event-driven consumer to the capture
+foundation above. Reproduce its foreground, background and memory checks with:
+
+```bash
+python -m pytest -q -s tests/benchmarks/test_bench_observation_pipeline.py \
+  --benchmark-columns=min,median,max
+```
+
+On the same Linux/Python 3.13 development environment (2026-09-09), interleaved
+trials alternate capture-only and public `publish_view(..., observe=True)` calls
+on the same source, with ten warmups and 100 measured pairs. Admission/drain resets
+are outside timing, and the consumer is held out of foreground measurements.
+This isolates Prompt 10's API overhead from the capture cost already present in
+Prompt 09; it does not subtract capture from the actual pipeline overhead.
+
+| Input | Capture-only median | Public-call median | Median paired extra cost | Public maximum in these trials |
+| --- | ---: | ---: | ---: | ---: |
+| Three supplied scalar metrics | 57.68 µs | 73.17 µs | 15.24 µs | 1.313 ms |
+| pandas 100,000 rows × 8 numeric columns | 1.460 ms | 1.526 ms | 39.23 µs | 7.781 ms |
+| NumPy broadcast, 10 billion logical elements | 318.28 µs | 331.65 µs | 15.06 µs | 1.520 ms |
+| Dictionary containing one 16 MB string | 59.00 µs | 73.26 µs | 14.32 µs | 361.32 µs |
+
+The paired delta is the median of individual differences, not subtraction of the
+two medians. Separate microbenchmarks varied with scheduling/load: skipped public
+calls measured roughly 12–21 µs median. A first inline call after library imports,
+with empty default configuration and a stubbed delivery endpoint, measured
+544 µs median / 812 µs maximum across 30 trials. That includes engine/routing/thread
+setup but excludes imports and actual server/network work. Decoration prepares
+these components before the function runs. None of these are hard deadlines.
+
+A blocked-consumer trial submitted 1,000 changing view IDs with default budgets.
+It retained four charged reservations (262,144 reserved capture bytes), measured
+326,264 B traced peak, 324,494 B retained while blocked and 135,717 B after drain
+and GC. The remaining memory includes the bounded routing/cadence caches; input
+allocation and thread startup were outside tracing. Tracing shortened capture
+through the soft deadline: the largest delivered summary in that trial was
+4,531 B. A 100 ms idle interval consumed about 0.095 ms process CPU in that trial;
+a deterministic test separately verifies condition waits have **no polling
+timeout**. This is a short sanity check, not a promise about total server CPU.
+
+Maximum-budget summary trials disable the capture deadline **only in tests** to
+exercise structural limits, then trace summary preparation from an already
+detached envelope. Examples are explicitly enabled:
+
+| Captured evidence | Capture bytes | Exported summary | Summary traced peak | Retained summary/work allocations at return |
+| --- | ---: | ---: | ---: | ---: |
+| 16 columns of large integers | 92,985 B | 45,376 B | 1,371,509 B | 162,776 B |
+| Oversized Unicode strings | 35,281 B | 37,070 B | 205,770 B | 66,156 B |
+| Eight-level nested sequences | 56,928 B | 57,477 B | 1,018,676 B | 465,319 B |
+
+These larger-budget runs took roughly 5–85 ms **with tracing**, in the background
+summary stage. They are allocation probes, not untraced latency benchmarks. The
+encoded 64 KiB limit does not imply a 64 KiB Python heap: decoded trees, arithmetic,
+UTF-8 encoding and temporary JSON buffers also allocate. Only one consumer builds
+summaries, pending/in-flight captures remain reserved, and decoded evidence is
+released without depending on cyclic GC (verified with GC disabled). No original
+pipeline object crosses the capture boundary.

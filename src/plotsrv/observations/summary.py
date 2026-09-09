@@ -12,6 +12,8 @@ OBSERVATION_VERSION = 1
 MAX_OBSERVATION_BYTES = 64 * 1024
 MAX_SUMMARY_FIELDS = 32
 MAX_SUMMARY_CATEGORIES = 16
+# Eight source levels expand into typed item/value wrappers plus the envelope.
+MAX_OBSERVATION_DEPTH = 32
 
 
 def _number(value):
@@ -276,26 +278,33 @@ def build_summary(
             entry["examples"] = examples
         fields.append(entry)
 
-    def nested(value, path, depth=0):
-        if len(fields) >= MAX_SUMMARY_FIELDS or depth > 8:
-            if "summary_field_budget" not in result["reasons"]:
-                result["reasons"].append("summary_field_budget")
-            return
-        if value.get("type") == "mapping":
-            if not value["items"]:
-                field([value], path=path, scope="captured_structure")
-            for item in value["items"]:
-                nested(item["value"], [*path, item["key"]], depth + 1)
-        elif value.get("type") == "sequence":
-            samples = value["items"]
-            field(
-                [s["value"] for s in samples],
-                path=path,
-                scope=_scope(samples, value["length"]),
-                examples=samples,
-            )
-        else:
-            field([value], path=path, scope="supplied_value")
+    def nested(value, path):
+        # A recursive local closure would form a reference cycle retaining the
+        # decoded capture until cyclic GC. Keep release independent of GC policy.
+        pending = [(value, path, 0)]
+        while pending:
+            value, path, depth = pending.pop()
+            if len(fields) >= MAX_SUMMARY_FIELDS or depth > 8:
+                if "summary_field_budget" not in result["reasons"]:
+                    result["reasons"].append("summary_field_budget")
+                break
+            if value.get("type") == "mapping":
+                if not value["items"]:
+                    field([value], path=path, scope="captured_structure")
+                pending.extend(
+                    (item["value"], [*path, item["key"]], depth + 1)
+                    for item in reversed(value["items"])
+                )
+            elif value.get("type") == "sequence":
+                samples = value["items"]
+                field(
+                    [s["value"] for s in samples],
+                    path=path,
+                    scope=_scope(samples, value["length"]),
+                    examples=samples,
+                )
+            else:
+                field([value], path=path, scope="supplied_value")
 
     base = document["base_sample"]
     if document["source_type"] == "pandas.DataFrame":
@@ -443,7 +452,7 @@ def validate_summary(document: object, *, view_id: str) -> dict:
     while stack:
         value, depth = stack.pop()
         nodes += 1
-        if nodes > 16384 or depth > 24:
+        if nodes > 16384 or depth > MAX_OBSERVATION_DEPTH:
             raise ValueError("observation structure budget")
         if type(value) is dict:
             if len(value) > 128 or any(

@@ -145,3 +145,45 @@ def test_receiver_rejects_wrong_version_shape_and_private_evidence(change):
     result.update(change)
     with pytest.raises(ValueError):
         validate_summary(result, view_id="observed")
+
+
+def test_deep_explicit_examples_fit_the_wire_structure_budget():
+    source = 1
+    for _ in range(8):
+        source = [source] * 2
+    result = summary(
+        source,
+        budget=replace(BUDGET, max_depth=8),
+        options=ObservationOptions(include_examples=True),
+    )
+    assert result["fields"][0]["examples"]
+
+
+def test_summary_releases_decoded_evidence_without_cyclic_gc(monkeypatch):
+    import gc
+    import weakref
+    from plotsrv.observations.models import CaptureEnvelope
+
+    class WorkingDocument(dict):
+        pass
+
+    envelope = capture_detached({"metrics": {"x": [1, 2, 3]}}, budget=BUDGET)
+    original = CaptureEnvelope.document
+    references = []
+
+    def document(self):
+        value = WorkingDocument(original(self))
+        references.append(weakref.ref(value))
+        return value
+
+    monkeypatch.setattr(CaptureEnvelope, "document", document)
+    was_enabled = gc.isenabled()
+    gc.disable()
+    try:
+        for _ in range(100):
+            result = build_summary(envelope, budget=BUDGET)
+            del result
+        assert all(ref() is None for ref in references)
+    finally:
+        if was_enabled:
+            gc.enable()
