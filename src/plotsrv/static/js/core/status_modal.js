@@ -491,7 +491,9 @@
     if (document.body) document.body.classList.add("ps-status-modal-open");
     if (button) button.setAttribute("aria-expanded", "true");
     renderStatusModal();
-    if (config.kind === "stream" && typeof core.refreshStatus === "function") {
+    const watched = state.latestStatusPayload && state.latestStatusPayload.watched_file;
+    if ((config.kind === "stream" || (watched && watched.materialization === "remote")) &&
+        typeof core.refreshStatus === "function") {
       core.refreshStatus();
     }
     if (close) close.focus();

@@ -22,6 +22,7 @@ MAX_SOURCE_BYTES = 256 * 1024
 MAX_HEADER_BYTES = 16 * 1024
 MAX_ROWS = 200
 MAX_COLUMNS = 64
+MAX_TEXT_CHARS = 64 * 1024
 MAX_PIXELS = 4_000_000
 MAX_PREPARED_BYTES = 1024 * 1024
 MAX_WATCH_REQUEST_BYTES = 384 * 1024
@@ -238,12 +239,29 @@ def prepare(raw: bytes, source: dict) -> tuple[dict, str | None]:
             except Exception:
                 limitation = "Structured parsing unavailable or limited; showing bounded raw text."
         elif fk in ("html", "markdown"):
-            if complete:
+            if complete and len(text) <= MAX_TEXT_CHARS:
                 payload = dict(kind="artifact", artifact_kind=fk, artifact=text)
                 if fk == "html":
                     limitation = "Isolated HTML; relative assets are not uploaded."
             else:
-                limitation = "Incomplete markup; showing bounded raw text."
+                limitation = "Incomplete or oversized markup; showing bounded raw text."
+        if payload.get("artifact_kind") == "text":
+            from .runtime import get_watch_render_limit
+
+            configured = get_watch_render_limit("text")
+            limit = (
+                min(MAX_TEXT_CHARS, configured)
+                if configured is not None
+                else MAX_TEXT_CHARS
+            )
+            if len(payload["artifact"]) > limit:
+                preview = payload["artifact"]
+                payload["artifact"] = (
+                    preview[-limit:]
+                    if source["read_scope"] == "tail"
+                    else preview[:limit]
+                )
+                limitation = limitation or "Text presentation is a bounded preview."
     if (
         len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode())
         > MAX_PREPARED_BYTES

@@ -181,8 +181,9 @@ content cannot authorise writes. Bootstrap after startup creates waiting entries
 it does not automatically rerun startup restoration. Restart with an appropriate
 allowlist when admitted stored live state should be loaded at startup.
 
-Run one server process per instance. Shared-state clustering, the publisher-agent
-CLI and remote file-watch orchestration are outside this feature.
+Run one server process per instance. Shared-state clustering remains outside this
+feature. For optional catalogue registration and foreground remote file watches,
+see [Publisher agent](publisher-agent.md).
 
 Source defaults, static discovery and local `run` overrides are described in
 [Configured sources](configured-sources.md). `serve` continues to ignore these

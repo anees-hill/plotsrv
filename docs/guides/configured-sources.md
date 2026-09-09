@@ -168,4 +168,5 @@ inspection; that flag does not resolve duplicate IDs or remove structural limits
 
 Building or reviewing a manifest does not send it, register it remotely or seal a
 catalogue. The caller must deliberately submit the complete union when that is
-appropriate. This feature adds no TUI or publisher-agent command.
+appropriate. The [publisher agent](publisher-agent.md) uses this engine for
+explicit catalogue registration/sealing and configured remote watches.

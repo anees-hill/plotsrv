@@ -173,6 +173,11 @@ def test_versions_retries_rotation_status_and_conflicting_owner(client):
     assert store.get_artifact(view_id="watch:exact:é").obj == "new"
     assert store.get_data_activity(view_id="watch:exact:é")["event_count"] == count
     assert receiver.public_meta("watch:exact:é")["status"] == "missing"
+    status = client.get("/status", params={"view": "watch:exact:é"}).json()
+    assert status["data_source"] == {
+        "type": "remote_watch",
+        "label": "Remote watched file — missing",
+    }
     assert (
         client.post(
             "/watch/register",
@@ -500,3 +505,16 @@ def test_ordinary_publish_invalidates_hosted_source_capabilities(client):
         client.get("/watch/source", params={"view": "watch:exact:é"}).status_code == 404
     )
     assert receiver.public_meta("watch:exact:é") is None
+
+
+def test_large_text_preview_survives_default_receiver_limits_and_off_display_limits(
+    client, monkeypatch
+):
+    from plotsrv.watch_capture import MAX_TEXT_CHARS
+
+    monkeypatch.setattr(config, "get_render_text_max_chars", lambda: None)
+    session = register(client)
+    post(client, envelope(session, b"x" * MAX_SOURCE_BYTES, complete=False))
+    assert len(store.get_artifact(view_id="watch:exact:é").obj) <= MAX_TEXT_CHARS
+    assert not receiver.public_meta("watch:exact:é")["full_download"]
+    assert receiver.public_meta("watch:exact:é")["limitation"]

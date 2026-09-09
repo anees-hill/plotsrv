@@ -679,7 +679,14 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
         else None
     )
 
-    if kind == "stream":
+    watched_file = _watched_file_meta_dict(vid)
+    if watched_file and watched_file.get("materialization") == "remote":
+        s["stream_status"] = None
+        s["data_source"] = {
+            "type": "remote_watch",
+            "label": "Remote watched file — " + str(watched_file.get("status", "waiting")),
+        }
+    elif kind == "stream":
         try:
             s["stream_status"] = stream_registry.status(view_id=vid)
         except UnknownStreamError:

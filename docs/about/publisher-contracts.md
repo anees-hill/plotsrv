@@ -198,8 +198,10 @@ hard wall-clock cancellation of arbitrary parsing, rendering or slow trickles.
 
 Ordinary and stream publishers now share bounded transport and capability
 negotiation. Configured source selection and static discovery are covered by
-[Configured sources](../guides/configured-sources.md). Publisher-agent/watch
-transport lifecycle and description presentation remain subsequent work. Server wire
+[Configured sources](../guides/configured-sources.md). Optional foreground
+catalogue registration and remote watch transport are covered by
+[Publisher agent](../guides/publisher-agent.md). Full description presentation
+remains subsequent work. Server wire
 admission and authentication are now enforced by the ingestion boundary. No
 discovery, TUI imports or network activity occurs on ordinary package import or
 parser startup.

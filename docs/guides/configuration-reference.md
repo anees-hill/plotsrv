@@ -13,6 +13,8 @@ documented in [Publisher ingestion](publisher-ingestion.md). For `plotsrv serve`
 and directly publishing applications, see [Remote publishers](remote-publishers.md).
 For configured targets, watches, selection and scan bounds, see
 [Configured sources](configured-sources.md).
+For foreground catalogue registration and remote watch lifecycle, see
+[Publisher agent](publisher-agent.md).
 
 Create a starter config with:
 
