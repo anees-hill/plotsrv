@@ -1233,6 +1233,16 @@ def main(argv: list[str] | None = None) -> int:
         no_truncate=bool(getattr(args, "no_truncate", False)),
     )
 
+    if args.cmd == "publish":
+        from .publisher_agent import publish_command
+        from .publishing.transport import TransportError
+        try:
+            return publish_command(args)
+        except (ValueError, TransportError) as error:
+            return _die(str(error))
+        except KeyboardInterrupt:
+            return 130
+
     if args.cmd == "serve":
         from .standalone import serve
         try:
@@ -1332,6 +1342,21 @@ def main(argv: list[str] | None = None) -> int:
             )
         except ValueError as e:
             return _die(str(e))
+
+        from .publisher_agent import destination_for_cli, RemoteWatcher, foreground
+        from .connection_config import resolve_publish_target
+        try:
+            target = destination_for_cli(args)
+            configured_remote = not args.destination and resolve_publish_target().kind == "remote"
+            if args.destination or configured_remote:
+                spec = WatchConfig(path=args.path, label=args.label, section=args.section,
+                    view_id=args.view_id, kind=args.kind, read_mode=read_mode,
+                    max_bytes=max_bytes, encoding=args.encoding,
+                    update_limit_s=args.update_limit_s, force=args.force,
+                    materialization=args.materialization)
+                return foreground(RemoteWatcher([spec], target, every=args.every))
+        except ValueError as error:
+            return _die(str(error))
 
         return _run_watch_mode(
             args.path,

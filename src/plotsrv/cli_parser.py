@@ -305,10 +305,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Dedicated watch subcommand
+    publish_p = sub.add_parser("publish", help="Register a catalogue and publish configured watches to an existing server")
+    publish_p.add_argument("target", nargs="?", default=None, help="Optional static discovery target; otherwise configured target")
+    publish_p.add_argument("--config", default=None)
+    publish_p.add_argument("--name", default=None)
+    publish_p.add_argument("--destination", default=None, help="Existing server URL; never launches a server")
+    publish_p.add_argument("--bearer-token-env", default=None, help="Credential environment variable for explicit destination")
+    publish_p.add_argument("--no-discovery", action="store_true")
+    publish_p.add_argument("--no-watch", action="store_true")
+    publish_p.add_argument("--add-id", action="append", default=[], help="Reviewed dynamic ID; repeat for a complete multi-project union")
+    publish_p.add_argument("--reviewed", action="store_true", help="Acknowledge unresolved discovery issues after review")
+    publish_p.add_argument("--seal-catalogue", action="store_true", help="Explicitly initialise/seal the complete catalogue union")
+    publish_p.add_argument("--every", type=float, default=1.0, help="Watch poll/debounce interval (at least 0.1s)")
+    publish_p.add_argument("--quiet", action="store_true")
+
     watch_p = sub.add_parser(
         "watch", help="Watch a file and publish live updates as a view"
     )
     watch_p.add_argument("path", help="Path to a file to watch")
+    watch_p.add_argument("--config", default=None)
+    watch_p.add_argument("--name", default=None)
+    watch_p.add_argument("--destination", default=None, help="Publish to this existing server; file remains local to this process")
+    watch_p.add_argument("--bearer-token-env", default=None, help="Credential environment variable for explicit destination")
     watch_p.set_defaults(host_supplied=False, port_supplied=False)
     watch_p.add_argument("--host", action=_ExplicitValueAction, default="127.0.0.1")
     watch_p.add_argument("--port", action=_ExplicitValueAction, type=int, default=8000)

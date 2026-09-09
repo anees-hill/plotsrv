@@ -130,6 +130,7 @@ def _exchange(
             payload, ensure_ascii=False, allow_nan=False, separators=(",", ":")
         ).encode("utf-8")
         maximum = (
+            384 * 1024 if path.startswith("/watch/") else
             640 * 1024
             if path.startswith("/stream/")
             else (1024 * 1024 if path.startswith("/catalogue/") else 8 * 1024 * 1024)
@@ -171,6 +172,8 @@ def _exchange(
                 "publisher_key_required",
                 "remote_ingestion_requires_key",
                 "publisher_key_not_configured",
+                "watch_session_conflict",
+                "watch_owner_conflict",
             ):
                 reason = detail["reason"]
         except Exception:
