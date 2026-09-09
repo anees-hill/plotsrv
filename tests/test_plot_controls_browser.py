@@ -18,7 +18,8 @@ STATIC = Path(__file__).parents[1] / "src/plotsrv/static"
 def page():
     with playwright.sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, executable_path=pw.chromium.executable_path)
-        page = browser.new_page(viewport={"width": 1366, "height": 900})
+        context = browser.new_context(viewport={"width": 1366, "height": 900})
+        page = context.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.route("http://plotsrv.test/**", lambda route: route.fulfill(body="<html><body></body></html>", content_type="text/html"))

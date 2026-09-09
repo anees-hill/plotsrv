@@ -29,14 +29,14 @@ def test_view_selector_source_keeps_navigation_explicit_and_local_lists_safe() -
 
     assert "const MAX_RECENT_VIEWS = 4" in source
     assert (
-        'window.location.href = "/?view=" + encodeURIComponent(viewId)' in source
+        'window.location.href = window.location.pathname + "?view=" + encodeURIComponent(viewId)' in source
     )
     assert "requestAnimationFrame(render)" in source
     assert 'event.key === "Escape"' in source
     assert 'event.key === "ArrowDown"' in source
     assert "event.composedPath()" in source
     assert "event.stopPropagation()" in source
-    assert 'const modes = [["grouped", "Grouped"], ["az", "A–Z"]]' in source
+    assert 'const modes = [["grouped", "Grouped"], ["az", "A–Z"], ["my", "My views"]]' in source
     assert '"ps-viewselect__group ps-viewselect__group--featured"' in source
     assert 'appendGroup(fragment, "Pinned views"' in source
     assert 'event.target.closest("[data-pin-view]")' in source

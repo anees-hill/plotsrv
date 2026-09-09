@@ -64,6 +64,7 @@ Beyond simply rendering outputs, it can:
 ### Exploring features
 
 - **[Renderers](guides/renderers.md)** — tables, plots, JSON, HTML, markdown, images, tracebacks, and files
+- **[My views](guides/my-views.md)** — save table and plot presentations on this browser
 - **[Storage & History](guides/storage-and-history.md)** — snapshots and historical browsing
 - **[Freshness](guides/freshness.md)** — monitor when outputs become stale
 - **[Configuration](get-started/configuration-basics.md)** — control plotsrv behaviour
