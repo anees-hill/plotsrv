@@ -43,6 +43,7 @@ JS_SOURCES = (
     "js/core/storage.js",
     "js/core/view_spec.js",
     "js/core/my_views.js",
+    "js/core/http_suggestions.js",
     "js/core/settings.js",
     "js/core/history.js",
     "js/core/status.js",

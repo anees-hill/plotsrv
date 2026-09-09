@@ -930,7 +930,7 @@ class StreamRegistry:
                 {
                     "browser_sequence": row.browser_sequence,
                     "data": deepcopy(row.data),
-                    "http_projection": state.http_profile.projection(row.browser_sequence),
+                    **({"http_projection": projection} if (projection := state.http_profile.projection(row.browser_sequence)) is not None else {}),
                     "observed_at": row.observed_at.isoformat(),
                 }
                 for row in rows

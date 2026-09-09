@@ -153,7 +153,12 @@ class HttpProfile:
         if self.disabled:
             return
         if len(data) > MAX_FIELDS:
-            projection = None
+            # Uninspected keys must never impersonate a derived field, including
+            # in rows accepted before recognition starts. Fail only the profile.
+            self.disabled = True
+            self.error = "HTTP interpretation stopped: a record exceeds the 32-field inspection bound. Raw stream remains available."
+            self.rows.clear()
+            return
         elif any(key.startswith(PREFIX) for key in data):
             # A source key can never impersonate or overwrite a derived column.
             self.disabled = True
@@ -194,7 +199,8 @@ class HttpProfile:
             if endpoint(lookup(data, mapping.get("route"))):
                 self.endpoint_origin = "route"
             identity = json.dumps(
-                [mapping, self.time_origin, self.endpoint_origin], sort_keys=True
+                ["http-profile-v1", mapping, self.time_origin, self.endpoint_origin],
+                sort_keys=True,
             )
             self.identity = hashlib.sha256(identity.encode()).hexdigest()[:16]
         result["endpoint"] = (
@@ -343,7 +349,7 @@ def recipes(
                 "source": "table",
                 "aggregation": "count",
                 "categoryLimit": 10,
-                "palette": "accessible",
+                "palette": "http",
                 **(plot or {}),
             },
         }

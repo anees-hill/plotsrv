@@ -93,6 +93,7 @@ def render_table_plot_controls() -> str:
                 <option value="line">Line</option>
                 <option value="scatter">Scatter</option>
                 <option value="histogram">Histogram</option>
+                <option value="time-count">Counts over time</option>
               </select>
             </label>
             <label id="table-plot-category-control" class="ps-table-plot-control">

@@ -242,10 +242,15 @@
       form.appendChild(label);
       return input;
     }
-    const name = field("Name", active ? active.spec.name : "", 80, true);
+    const name = field(
+      "Name",
+      active ? active.spec.name : selectedSpec ? selectedSpec.name : "",
+      80,
+      true,
+    );
     const caption = field(
       "Caption",
-      active ? active.spec.caption : "",
+      active ? active.spec.caption : selectedSpec ? selectedSpec.caption : "",
       256,
       false,
     );

@@ -1,0 +1,227 @@
+"""Real stream -> shared ViewSpec/table/plot interactions with server projections."""
+
+import pytest
+from tests.test_plot_controls_browser import page, STATIC
+from tests.test_http_profile import describe, event
+
+
+def payload(records):
+    profile, descriptor = describe(records)
+    return {
+        "columns": list(dict.fromkeys(k for r in records for k in r)),
+        "http_profile": descriptor,
+        "session_id": "session",
+        "schema_revision": 1,
+        "records": [
+            {"browser_sequence": i, "data": r, "http_projection": profile.projection(i)}
+            for i, r in enumerate(records, 1)
+        ],
+        "raw_window": {
+            "first_browser_sequence": 1,
+            "last_browser_sequence": len(records),
+            "record_count": len(records),
+            "max_record_count": 512,
+        },
+    }
+
+
+def mount(page, records):
+    page.click("#table-mode-table-btn")
+    for name in (
+        "core/storage",
+        "core/view_spec",
+        "core/my_views",
+        "core/http_suggestions",
+        "renderers/stream",
+    ):
+        page.add_script_tag(path=str(STATIC / ("js/" + name + ".js")))
+    page.evaluate(
+        """data => {
+      PLOTSRV.state.tabulatorInstance.destroy();
+      document.querySelector('#table-grid').id = 'stream-grid';
+      PLOTSRV.state.tableFields = [];
+      PLOTSRV.config.kind = 'stream';
+      PLOTSRV.state.streamHistoryCatalogViewId = PLOTSRV.config.activeViewId;
+      window.responseData = data;
+      window.fetch = async url => ({ok:true,json:async () => JSON.parse(JSON.stringify(responseData))});
+      return PLOTSRV.core.loadStream();
+    }""",
+        payload(records),
+    )
+    page.wait_for_function("PLOTSRV.state.streamTabulatorInstance.initialized")
+
+
+def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
+    records = [
+        event(status=200, duration_ms=5),
+        event(status=404, duration_ms=10),
+        event(status=503, duration_ms=50),
+        {"message": "Traceback: synthetic error"},
+    ]
+    mount(page, records)
+    assert not page.evaluate(
+        "PLOTSRV.state.tabulatorInstance.getColumns().some(c => c.getField().startsWith('__plotsrv_http_') && c.isVisible())"
+    )
+    page.locator("#http-suggestions-select").focus()
+    page.keyboard.press("ArrowDown")
+    page.keyboard.press("Enter")
+    page.select_option("#http-suggestions-select", "1")
+    page.wait_for_function(
+        "PLOTSRV.state.tabulatorInstance.getData('active').length === 2"
+    )
+    assert page.locator("#table-mode-table-btn").get_attribute("aria-pressed") == "true"
+    page.click("#table-save-view-btn")
+    assert (
+        page.get_by_label("Caption", exact=True)
+        .input_value()
+        .startswith("Newest up to 512")
+    )
+    page.get_by_label("Name", exact=True).fill("My errors")
+    page.get_by_role("dialog").get_by_role(
+        "button", name="Save view", exact=True
+    ).click()
+    page.wait_for_function("PLOTSRV.core.viewSpec.read().items.length === 1")
+    saved = page.evaluate("PLOTSRV.core.viewSpec.read().items[0]")
+    assert saved["spec"]["sourceId"] == "test:layout"
+    assert "secret" not in str(saved)
+    page.click("#http-raw-view")
+    page.wait_for_function(
+        "PLOTSRV.state.tabulatorInstance.getData('active').length === 4"
+    )
+    assert page.get_by_text("Traceback: synthetic error", exact=True).is_visible()
+    page.evaluate(
+        "PLOTSRV.core.applyPersonalView(PLOTSRV.core.viewSpec.read().items[0])"
+    )
+    page.wait_for_function(
+        "PLOTSRV.state.tabulatorInstance.getData('active').length === 2"
+    )
+
+
+@pytest.mark.parametrize("recipe", [2, 3, 4, 5, 6, 7])
+def test_every_plot_recipe_uses_real_shared_renderer(page, recipe):
+    mount(
+        page,
+        [
+            event(
+                path=f"/item/{i}?private=yes",
+                status=[200, 404, 503][i % 3],
+                duration_ms=i + 0.5,
+            )
+            for i in range(40)
+        ],
+    )
+    page.select_option("#http-suggestions-select", str(recipe))
+    if recipe != 7:
+        page.wait_for_function(
+            "PLOTSRV.state.tablePlotLastResult && PLOTSRV.state.tablePlotLastResult.ok"
+        )
+        assert page.locator(".ps-table-plot__svg").count() == 1
+    if recipe == 2:
+        assert "Other" in page.locator("#table-plot-output").inner_text()
+        assert "4xx client error" in page.locator("#table-plot-output").inner_text()
+    if recipe == 3:
+        assert page.evaluate("PLOTSRV.state.tablePlotLastResult.plottedCount") == 40
+        assert (
+            "UTC buckets [start, end)"
+            in page.locator("#table-plot-output").inner_text()
+        )
+    assert "private" not in page.locator("#stream-grid").inner_text()
+
+
+def test_no_suggestion_mobile_and_schema_loss_pauses_without_switching(page):
+    page.set_viewport_size({"width": 390, "height": 844})
+    mount(page, [{"message": "unknown"}])
+    assert page.locator("#http-suggestions-select").is_disabled()
+    assert "No validated HTTP" in page.locator("#http-suggestions-scope").inner_text()
+    first = payload([event(duration_ms=5)])
+    first["reset_required"] = True
+    page.evaluate(
+        "data => {responseData=data; return PLOTSRV.core.loadStream();}", first
+    )
+    page.select_option("#http-suggestions-select", "5")
+    page.wait_for_function(
+        "PLOTSRV.state.tablePlotLastResult && PLOTSRV.state.tablePlotLastResult.ok"
+    )
+    changed = payload([{"message": "no request schema"}])
+    changed["reset_required"] = True
+    page.evaluate(
+        "data => {responseData=data; return PLOTSRV.core.loadStream();}", changed
+    )
+    assert page.evaluate("PLOTSRV.state.myViewBlocked")
+    assert page.locator(".ps-table-plot__svg").count() == 0
+    page.click("#http-raw-view")
+    assert not page.evaluate("PLOTSRV.state.myViewBlocked")
+    assert (
+        page.evaluate("PLOTSRV.state.tabulatorInstance.getData('active').length") == 1
+    )
+
+
+def test_incremental_projection_expiry_removes_old_eligibility(page):
+    mount(page, [event(), event(status=500)])
+    page.select_option("#http-suggestions-select", "0")
+    update = payload([event(), event(status=500), event(status=404)])
+    update["http_profile"]["first_sequence"] = 2
+    update["records"] = update["records"][-1:]
+    page.evaluate(
+        "data => {responseData=data; return PLOTSRV.core.loadStream();}", update
+    )
+    page.wait_for_function(
+        "PLOTSRV.state.tabulatorInstance.getData('active').length === 2"
+    )
+    page.click("#http-raw-view")
+    assert (
+        page.evaluate("PLOTSRV.state.tabulatorInstance.getData('active').length") == 3
+    )
+
+
+def test_buckets_boundaries_negative_time_large_span_and_invalid_values(page):
+    result = page.evaluate("""() => {
+      const rows = [-1,0,999,1000,39999].map(t=>({t:new Date(t).toISOString(),s:'2xx success'}));
+      rows.push({t:'bad',s:'2xx success'}, {t:null,s:'2xx success'});
+      return PLOTSRV.core.bucketTimeCounts(rows,{xField:'t',seriesField:'s'});
+    }""")
+    assert result["width"] == 2000
+    assert sum(p["y"] for p in result["points"]) == 5
+    assert sorted((p["x"], p["y"]) for p in result["points"]) == [
+        (-2000, 1),
+        (0, 3),
+        (38000, 1),
+    ]
+    assert result["missing"] == result["invalid"] == 1
+    result = page.evaluate(
+        """() => PLOTSRV.core.bucketTimeCounts([{t:'0001-01-01T00:00:00Z'},{t:'9999-12-31T00:00:00Z'}],{xField:'t'})"""
+    )
+    assert len(result["points"]) <= 40
+    assert sum(p["y"] for p in result["points"]) == 2
+
+
+def test_low_mark_limit_and_series_overflow_refuse_without_sampling(page):
+    result = page.evaluate("""() => {
+      const c=PLOTSRV.core;
+      c.TABLE_PLOT_LIMITS.maxPoints=1;
+      const rows=[{t:'2026-01-01T00:00:00Z'},{t:'2026-01-01T00:00:01Z'}];
+      const result=c.renderTablePlot({container:document.getElementById('table-plot-output'), type:'time-count', rows, xField:'t', xKind:'datetime'});
+      const overflow=c.bucketTimeCounts(Array.from({length:9},(_,i)=>({t:'2026-01-01T00:00:00Z',s:'series'+i})),{xField:'t',seriesField:'s'});
+      return {result,overflow};
+    }""")
+    assert result["result"]["reason"] == "point_limit"
+    assert result["overflow"]["overflow"]
+    assert "no counts were dropped" in page.locator("#table-plot-output").inner_text()
+
+
+def test_default_status_colours_labels_and_desktop_controls_fit(page):
+    mount(page, [event(status=200), event(status=503)])
+    page.select_option("#http-suggestions-select", "3")
+    page.wait_for_function(
+        "PLOTSRV.state.tablePlotLastResult && PLOTSRV.state.tablePlotLastResult.ok"
+    )
+    assert page.locator(".ps-table-plot__point").evaluate_all(
+        "els => els.map(e => e.getAttribute('fill'))"
+    ) == ["#15803d", "#b91c1c"]
+    assert (
+        "__plotsrv_http_"
+        not in page.locator("#stream-grid .tabulator-header").inner_text()
+    )
+    assert page.evaluate("document.body.scrollWidth <= innerWidth")
+    assert page.evaluate("PLOTSRV.core.tableFieldLabel('constructor')") == "constructor"
+    assert page.evaluate("PLOTSRV.core.tableFieldLabel('__proto__')") == "__proto__"

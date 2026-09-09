@@ -14,6 +14,7 @@
     maxSeries: 8,
   };
   const TABLE_PLOT_PALETTES = {
+    http: {name:"HTTP status", kind:"discrete", colours:["#2166ac","#15803d","#8c6d00","#c2410c","#b91c1c"], darkColours:["#60a5fa","#6ccf7f","#f5cf65","#fb923c","#f87171"]},
     plotsrv: {name: "plotsrv", kind: "discrete", colours: ["#d55970", "#7a3950", "#e58a5f", "#4e8291", "#8e6aae", "#d4a72c"], darkColours: ["#f07b91", "#d9a0b2", "#f2a47c", "#72b7c7", "#b49ad4", "#e1c15c"]},
     accessible: {name: "Accessible", kind: "discrete", colours: ["#0072b2", "#e69f00", "#009e73", "#cc79a7", "#d55e00", "#56b4e9", "#f0e442", "#000000"], darkColours: ["#56b4e9", "#f0b84f", "#4bc99c", "#e69ac8", "#ef8354", "#8bd3f2", "#f5e96b", "#e7edf2"]},
     ocean: {name: "Ocean", kind: "discrete", colours: ["#2166ac", "#0891b2", "#0f766e", "#60a5fa", "#5ab4ac", "#164e63"], darkColours: ["#60a5fa", "#22d3ee", "#2dd4bf", "#93c5fd", "#7dd3fc", "#5eead4"]},
@@ -53,7 +54,7 @@
         {year: "numeric", month: "short", day: "numeric"};
     return new Intl.DateTimeFormat(undefined, opts).format(new Date(value));
   }
-  function label(field) { return typeof field === "string" && field ? field : "selected field"; }
+  function label(field) { return typeof field === "string" && field ? (core.tableFieldLabel ? core.tableFieldLabel(field) : field) : "selected field"; }
   function missing(value) { return value == null || (typeof value === "string" && value.trim() === ""); }
   function numberValue(value) {
     if (missing(value)) return {kind: "missing"};
@@ -204,6 +205,10 @@
     }
     return palette.colours[index % palette.colours.length];
   }
+  function seriesColour(palette, group, index, count) {
+    const match = palette.name === "HTTP status" && /^([1-5])xx /.exec(group.label || "");
+    return match ? palette.colours[Number(match[1]) - 1] : paletteColour(palette, index, count);
+  }
   function seriesFor(rows, field) {
     if (!field) return [{key: "__all__", label: "All rows"}];
     const found = new Map();
@@ -229,7 +234,7 @@
       entry.tabIndex = 0;
       entry.title = item.label;
       const swatch = html("span", "ps-table-plot__legend-swatch");
-      swatch.style.backgroundColor = paletteColour(palette, index, series.length);
+      swatch.style.backgroundColor = seriesColour(palette, item, index, series.length);
       entry.insertBefore(swatch, entry.firstChild);
       root.appendChild(entry);
     });
@@ -334,7 +339,7 @@
         const x1 = x(start), x2 = x(end);
         const colourIndex = series.length > 1 ? seriesIndex : categoryIndex;
         const colourCount = series.length > 1 ? series.length : data.categories.length;
-        const mark = svg("rect", {x: Math.min(x1, x2), y: y, width: Math.max(1, Math.abs(x2 - x1)), height: height - 2, rx: 2, fill: paletteColour(palette, colourIndex, colourCount), class: "ps-table-plot__bar"});
+        const mark = svg("rect", {x: Math.min(x1, x2), y: y, width: Math.max(1, Math.abs(x2 - x1)), height: height - 2, rx: 2, fill: seriesColour(palette, group, colourIndex, colourCount), class: "ps-table-plot__bar"});
         tooltip(mark, figure, category.label + (series.length > 1 ? " · " + group.label : "") + ": " + formatNumber(value) + (settings.aggregation === "count" || !values ? "" : " · " + values.count + " " + plural(values.count, "row")), true);
         drawing.appendChild(mark);
       });
@@ -418,7 +423,7 @@
     const scales = axes(drawing, d, xDomain, yDomain, settings);
     data.groups.forEach(function (group, index) {
       const points = type === "line" ? group.points.slice().sort(function (a, b) { return a.x - b.x || a.index - b.index; }) : group.points;
-      const colour = paletteColour(palette, index, data.groups.length);
+      const colour = seriesColour(palette, group, index, data.groups.length);
       if (type === "line" && points.length > 1) drawing.appendChild(svg("polyline", {points: points.map(function (point) { return scales.x(point.x) + "," + scales.y(point.y); }).join(" "), fill: "none", stroke: colour, class: "ps-table-plot__line"}));
       if (type === "scatter" || settings.showPoints !== false) points.forEach(function (point) {
         const mark = svg("circle", {cx: scales.x(point.x), cy: scales.y(point.y), r: type === "line" ? 2.8 : 3.5, fill: type === "line" ? "var(--ps-surface, #fff)" : colour, stroke: colour, class: "ps-table-plot__point"});
@@ -465,6 +470,42 @@
     chartBody(figure, drawing, null);
   }
 
+  // Epoch-aligned half-open buckets; no rates, interpolation or summary rehydration.
+  function timeCountData(rows, settings) {
+    let minimum = Infinity, maximum = -Infinity, missingCount = 0, invalidCount = 0;
+    const groups = new Map();
+    for (const row of rows) {
+      const time = dateValue(row && row[settings.xField]);
+      const category = settings.seriesField ? categoryValue(row && row[settings.seriesField]) : {kind:"value", key:"__all__", label:"Retained records"};
+      if (time.kind === "missing" || category.kind === "missing") { missingCount++; continue; }
+      if (time.kind !== "value" || category.kind !== "value") { invalidCount++; continue; }
+      if (!groups.has(category.key)) {
+        if (groups.size === TABLE_PLOT_LIMITS.maxSeries) return {overflow:true};
+        groups.set(category.key, {key:category.key, label:category.label, points:[], counts:new Map()});
+      }
+      minimum = Math.min(minimum, time.value); maximum = Math.max(maximum, time.value);
+    }
+    if (!groups.size) return {groups:[], points:[], missing:missingCount, invalid:invalidCount};
+    let width = 1000;
+    while (Math.floor(maximum / width) - Math.floor(minimum / width) >= 40) width *= 2;
+    for (const row of rows) {
+      const time = dateValue(row && row[settings.xField]);
+      const category = settings.seriesField ? categoryValue(row && row[settings.seriesField]) : {kind:"value", key:"__all__"};
+      if (time.kind !== "value" || category.kind !== "value") continue;
+      const group = groups.get(category.key), start = Math.floor(time.value / width) * width;
+      group.counts.set(start, (group.counts.get(start) || 0) + 1);
+    }
+    let index = 0;
+    for (const group of groups.values()) {
+      // Do not draw continuous lines suggesting evidence between observed buckets.
+      group.points = [...group.counts].map(([x,y]) => ({x,y,index:index++}));
+      delete group.counts;
+    }
+    const list = [...groups.values()];
+    return {groups:list, points:list.flatMap(g => g.points), missing:missingCount, invalid:invalidCount, width};
+  }
+  core.bucketTimeCounts = timeCountData;
+
   function renderTablePlot(options) {
     const settings = options && typeof options === "object" ? options : {};
     if (!["count", "sum", "mean", "min", "max"].includes(settings.aggregation)) settings.aggregation = "count";
@@ -510,6 +551,19 @@
       const scope = scopeText(settings, rows.length, data.plotted);
       summary(figure, skipped(data.missing, data.invalid), scope);
       return {ok: true, type: type, rowCount: rows.length, plottedCount: data.plotted, categoryCount: data.categories.length, seriesCount: activeSeries.length, scope: scope};
+    }
+    if (type === "time-count") {
+      if (settings.xKind !== "datetime" || settings.scopeKind === "summary") return notice(container, "unavailable_time_counts", "Counts over time require retained event timestamps; compact summaries cannot stand in for events.", settings, rows.length);
+      const data = timeCountData(rows, settings);
+      if (data.overflow) return seriesLimitNotice(container, settings, rows.length);
+      if (!data.points.length) return notice(container, "no_valid_points", "No valid timestamps in the filtered evidence window. " + skipped(data.missing, data.invalid), settings, rows.length);
+      if (data.points.length > TABLE_PLOT_LIMITS.maxPoints) return notice(container, "point_limit", "This count plot exceeds the configured " + TABLE_PLOT_LIMITS.maxPoints + " mark limit. Narrow the time window or disable Series; no counts were dropped.", settings, rows.length);
+      const figure = frame(container, type, "Retained counts over time", settings);
+      const counted = Object.assign({}, settings, {xScale:"linear", yScale:"linear", zeroBaseline:true, showPoints:true, yField:"Retained count", yLabel:settings.yLabel || "Retained count"});
+      drawPoints(figure, "scatter", data, counted, palette);
+      const plotted = rows.length - data.missing - data.invalid;
+      summary(figure, "UTC buckets [start, end), " + data.width / 1000 + " seconds wide, at most 40 buckets. Points show bucket starts; missing buckets do not establish absence of real traffic. " + skipped(data.missing, data.invalid), scopeText(settings, rows.length, plotted));
+      return {ok:true, type, rowCount:rows.length, plottedCount:plotted, bucketWidthMs:data.width, markCount:data.points.length};
     }
     if (type === "histogram") {
       if (!settings.histogramField) return notice(container, "missing_numeric_field", "Choose a numeric field for the histogram.", settings, rows.length);

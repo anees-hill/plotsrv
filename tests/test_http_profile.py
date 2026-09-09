@@ -240,3 +240,13 @@ def test_catalogue_locked_recipes_keep_only_admitted_source(
         )
     finally:
         ingestion.reset_ingestion()
+
+
+def test_uninspected_wide_record_cannot_spoof_derived_request_field():
+    profile, data = describe([event()])
+    wide = {str(i): i for i in range(33)}
+    wide[data["fields"]["request"]] = 1
+    profile.add(2, wide, NOW)
+    assert profile.disabled
+    assert not profile.describe("x", [])["recipes"]
+    assert profile.projection(1) is None

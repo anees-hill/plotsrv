@@ -15,11 +15,11 @@
   const SUPPORTING_TABLE_PREFERENCE_PREFIX = "plotsrv:v1:plot_supporting_table:";
   const PLOT_CONTROLS_PREFERENCE_PREFIX = "plotsrv:v1:plot_controls:";
   const PLOT_CONTROLS_PIN_PREFERENCE_PREFIX = "plotsrv:v1:plot_controls_pin:";
-  const PLOT_TYPES = ["bar", "line", "scatter", "histogram"];
+  const PLOT_TYPES = ["bar", "line", "scatter", "histogram", "time-count"];
   const AGGREGATIONS = ["count", "sum", "mean", "min", "max"];
   const BAR_SORTS = ["value-desc", "value-asc", "category-asc", "category-desc"];
   const PALETTE_GROUPS = [
-    {kind: "discrete", label: "Discrete", keys: ["plotsrv", "accessible", "ocean", "forest", "sunset", "violet", "neutral"]},
+    {kind: "discrete", label: "Discrete", keys: ["plotsrv", "accessible", "http", "ocean", "forest", "sunset", "violet", "neutral"]},
     {kind: "continuous", label: "Continuous", keys: ["viridis", "plasma", "blues", "ember"]},
   ];
   const PALETTES = PALETTE_GROUPS.flatMap(function (group) { return group.keys; });
@@ -131,18 +131,21 @@
     const summary = document.getElementById("table-plot-controls-summary");
     if (!summary) return;
     const prefs = preferences();
+    const fieldLabel = field => core.tableFieldLabel ? core.tableFieldLabel(field) : field;
     const parts = [prefs.type.charAt(0).toUpperCase() + prefs.type.slice(1)];
     if (prefs.type === "bar") {
-      parts.push((prefs.aggregation === "count" ? "Count" : prefs.aggregation + " of " + prefs.valueField) + " by " + prefs.categoryField);
+      parts.push((prefs.aggregation === "count" ? "Count" : prefs.aggregation + " of " + fieldLabel(prefs.valueField)) + " by " + fieldLabel(prefs.categoryField));
       parts.push("Top " + prefs.categoryLimit);
       parts.push({"value-desc": "High → low", "value-asc": "Low → high", "category-asc": "A → Z", "category-desc": "Z → A"}[prefs.sort]);
       if (prefs.seriesField) parts.push(prefs.display);
     } else if (prefs.type === "histogram") {
-      parts.push(prefs.histogramField, prefs.bins === "auto" ? "Auto bins" : prefs.bins + " bins");
+      parts.push(fieldLabel(prefs.histogramField), prefs.bins === "auto" ? "Auto bins" : prefs.bins + " bins");
+    } else if (prefs.type === "time-count") {
+      parts.push("Retained count by " + fieldLabel(prefs.xField));
     } else {
-      parts.push(prefs.yField + " by " + prefs.xField);
+      parts.push(fieldLabel(prefs.yField) + " by " + fieldLabel(prefs.xField));
     }
-    if (prefs.seriesField && prefs.type !== "histogram") parts.push("Series: " + prefs.seriesField);
+    if (prefs.seriesField && prefs.type !== "histogram") parts.push("Series: " + fieldLabel(prefs.seriesField));
     parts.push(paletteDefinition(prefs.palette).name + " palette");
     if (prefs.source === "summary") parts.push("Summary windows");
     summary.textContent = parts.filter(Boolean).join(" · ");
@@ -462,7 +465,7 @@
     for (const value of values) {
       const option = document.createElement("option");
       option.value = value;
-      option.textContent = value;
+      option.textContent = core.tableFieldLabel ? core.tableFieldLabel(value) : value;
       select.appendChild(option);
     }
 
@@ -633,7 +636,7 @@
     const isHistogram = prefs.type === "histogram";
     const isPoints = prefs.type === "line" || prefs.type === "scatter";
     if (categoryControl) categoryControl.hidden = !isBar;
-    if (xControl) xControl.hidden = !isPoints;
+    if (xControl) xControl.hidden = !isPoints && prefs.type !== "time-count";
     if (yControl) yControl.hidden = !isPoints;
     if (aggregationControl) aggregationControl.hidden = !isBar;
     if (valueControl) valueControl.hidden = !isBar || prefs.aggregation === "count";

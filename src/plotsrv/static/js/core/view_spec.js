@@ -32,13 +32,14 @@
     return value;
   }
   const enums = {
-    type: ["bar", "line", "scatter", "histogram"],
+    type: ["bar", "line", "scatter", "histogram", "time-count"],
     source: ["table", "summary"],
     aggregation: ["count", "sum", "mean", "min", "max"],
     bins: ["auto", "5", "10", "20", "40"],
     palette: [
       "plotsrv",
       "accessible",
+      "http",
       "ocean",
       "forest",
       "sunset",
@@ -265,7 +266,9 @@
           ]
         : p.plot.type === "histogram"
           ? ["histogramField"]
-          : ["xField", "yField"];
+          : p.plot.type === "time-count"
+            ? ["xField"]
+            : ["xField", "yField"];
     if (p.plot.seriesField) needed.push("seriesField");
     const plotTypes =
       p.plot.source === "summary" ? schema.summary : schema.fields;
@@ -277,7 +280,9 @@
         return type !== "number";
       if (key === "xField")
         return (
-          !["number", "datetime"].includes(type) ||
+          (p.plot.type === "time-count"
+            ? type !== "datetime"
+            : !["number", "datetime"].includes(type)) ||
           (type === "datetime" && p.plot.xScale === "log")
         );
       return false;

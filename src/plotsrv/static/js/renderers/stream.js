@@ -248,10 +248,11 @@
       title: "",
       titleFormatter: function () {
         const element = document.createElement("span");
-        element.textContent = name;
+        element.textContent = core.tableFieldLabel ? core.tableFieldLabel(name) : name;
         return element;
       },
       field: name,
+      visible: !Object.prototype.hasOwnProperty.call((state.httpProfile && state.httpProfile.labels) || {}, name),
       formatter: textFormatter,
     };
   }
@@ -358,6 +359,9 @@
       }
     }
 
+    for (const key of Object.keys(stored)) {
+      if (core.expireHttpProjection && core.expireHttpProjection(stored[key], Number(key))) evictedRows = true;
+    }
     state.streamRowsBySequence = stored;
     return { additions: additions, evictedRows: evictedRows };
   }
@@ -408,6 +412,14 @@
         !retained.has(state.tableUiState.groupBy) &&
         typeof core.setTableGrouping === "function") {
       core.setTableGrouping(null);
+    }
+    // Tabulator keeps Column references in its sorters. Clear expired sort
+    // references before deleting their DOM; filters retain their repair guard.
+    if (typeof table.getSorters === "function" && typeof table.setSort === "function") {
+      const sorters = table.getSorters();
+      const surviving = sorters.filter(sort => retained.has(sort.field));
+      if (surviving.length !== sorters.length)
+        table.setSort(surviving.map(sort => ({field:sort.field, dir:sort.dir})));
     }
     // Remove expired fields before adding new ones. Surviving Column objects
     // retain their order, widths and visibility; stale DOM/cells are released.
@@ -512,6 +524,8 @@
       },
       rows: rows,
       fields: fields,
+      fieldTypes: (state.httpProfile && state.httpProfile.types) || {},
+      defaultHidden: Object.values((state.httpProfile && state.httpProfile.fields) || {}),
       columnDefs: buildColumns(fields),
       plotCapabilities: {
         sources: ["table", "summary"],
@@ -519,7 +533,7 @@
         tableLabel: "Filtered retained rows",
         summaryLabel: "Derived summary windows",
         tableScopeDescription:
-          "Stream source: the retained recent raw observation window currently loaded in this table.",
+          "Stream source: the retained recent raw observation window currently loaded in this table. " + ((state.httpProfile && state.httpProfile.scope) || ""),
         summaryScopeDescription:
           "Stream source: currently loaded derived summary windows with their displayed aggregate bounds.",
       },
@@ -2270,6 +2284,7 @@
         typeof data.session_id === "string" && data.session_id) {
       state.streamHistoricalSessionId = data.session_id;
     }
+    if (core.prepareHttpSuggestions) core.prepareHttpSuggestions(data);
     const records = normaliseRecords(data.records);
     const columns = Array.isArray(data.columns) ? data.columns : [];
     const serverSessionId = typeof data.session_id === "string" ? data.session_id : null;

@@ -822,3 +822,12 @@
     gap: 0.1rem;
   }
 }
+
+.ps-http-suggestions { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.ps-http-suggestions select { max-width: 16rem; }
+.ps-http-scope { color: var(--ps-muted); font-size: .8rem; margin: .4rem 0; flex-basis: 100%; }
+
+.ps-http-topbar { flex-wrap: wrap; align-items: flex-start; }
+.ps-http-topbar .ps-table-topbar__left { flex: 1 0 100%; }
+.ps-http-topbar .ps-table-topbar__right { flex: 1 1 100%; min-width: 0; }
+.ps-http-topbar .ps-table-toolbar { display: flex; width: 100%; }

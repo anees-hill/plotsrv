@@ -54,7 +54,7 @@
         title: "",
         titleFormatter: function () {
           const element = document.createElement("span");
-          element.textContent = name;
+          element.textContent = core.tableFieldLabel ? core.tableFieldLabel(name) : name;
           return element;
         },
         field: col,
@@ -106,7 +106,7 @@
       filtersOpen: false,
       filters: [],
       columnsOpen: false,
-      hiddenColumns: [],
+      hiddenColumns: (state.tableDefaultHidden || []).slice(),
       groupBy: null,
     };
   }
@@ -227,6 +227,8 @@
       groupBy: groupBy,
     };
   }
+
+  const fieldLabel = field => core.tableFieldLabel ? core.tableFieldLabel(field) : field;
 
   function escapeHtml(s) {
     if (typeof core.escapeHtml === "function") {
@@ -500,7 +502,7 @@
     for (const field of fields) {
       const option = document.createElement("option");
       option.value = field;
-      option.textContent = field;
+      option.textContent = fieldLabel(field);
       select.appendChild(option);
     }
 
@@ -613,7 +615,7 @@
                 '"' +
                 sel +
                 ">" +
-                escapeHtml(f) +
+                escapeHtml(fieldLabel(f)) +
                 "</option>"
               );
             })
@@ -694,7 +696,7 @@
           checked +
           " />" +
           "<span>" +
-          escapeHtml(field) +
+          escapeHtml(fieldLabel(field)) +
           "</span>" +
           "</label>"
         );
@@ -718,20 +720,20 @@
     const opLabel = labelMap[op] || op;
 
     if (op === "in" || op === "not_in") {
-      return field + " " + opLabel + " " + String(value).split(/\r?\n/).map(function (entry) {
+      return fieldLabel(field) + " " + opLabel + " " + String(value).split(/\r?\n/).map(function (entry) {
         return entry.trim();
       }).filter(Boolean).map(function (entry) { return JSON.stringify(entry); }).join(", ");
     }
 
     if (operatorNeedsTwoValues(op)) {
-      return field + " " + opLabel + " " + value + " and " + valueTo;
+      return fieldLabel(field) + " " + opLabel + " " + value + " and " + valueTo;
     }
 
     if (operatorNeedsValue(op)) {
-      return field + " " + opLabel + " " + value;
+      return fieldLabel(field) + " " + opLabel + " " + value;
     }
 
-    return field + " " + opLabel;
+    return fieldLabel(field) + " " + opLabel;
   }
 
   function renderActiveFilters() {
@@ -1485,10 +1487,17 @@
 
     const fields = Array.isArray(settings.fields) ? settings.fields.slice() : [];
     const rows = Array.isArray(settings.rows) ? settings.rows : [];
+    state.tableDefaultHidden = Array.isArray(settings.defaultHidden) ? settings.defaultHidden : [];
 
     if (!state.tableUiState) {
       loadTableUiState();
     }
+
+    const previousFields = new Set(state.tableFields || []);
+    const newlyHidden = state.tableDefaultHidden.filter(field => !previousFields.has(field));
+    state.tableUiState.hiddenColumns = [...new Set([
+      ...getHiddenColumns().filter(field => fields.includes(field)), ...newlyHidden
+    ])];
 
     // The stream renderer uses the same small controller as a rich static
     // table.  There is only one table surface per page, so this alias lets
@@ -1503,6 +1512,10 @@
     state.tableRows = rows;
     state.tableFields = fields;
     state.tableFieldTypes = inferFieldTypes(fields, rows);
+    for (const field of fields) {
+      const type = (settings.fieldTypes || {})[field];
+      if (["number", "datetime", "text"].includes(type)) state.tableFieldTypes[field] = type;
+    }
     state.tableColumnDefs = Array.isArray(settings.columnDefs)
       ? settings.columnDefs
       : [];
