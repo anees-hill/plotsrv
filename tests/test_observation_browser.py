@@ -225,6 +225,7 @@ def test_missing_snapshot_and_late_live_response_cannot_resume_live(page):
 
 def test_missing_artifact_keeps_historical_selection(page):
     mount(page, document(snapshot=True))
+    previous = page.locator("#artifact-root").inner_text()
     page.add_script_tag(path=str(STATIC / "js/core/history.js"))
     page.add_script_tag(path=str(STATIC / "js/renderers/artifact.js"))
     page.evaluate("""async () => {
@@ -234,7 +235,5 @@ def test_missing_artifact_keeps_historical_selection(page):
       await PLOTSRV.core.loadArtifact();
     }""")
     assert page.evaluate("PLOTSRV.state.currentSnapshot") == "deleted"
-    assert (
-        "historical snapshot is unavailable"
-        in page.locator("#artifact-root").inner_text()
-    )
+    assert page.locator("#artifact-root").inner_text() == previous
+    assert "unavailable or unreadable" in page.evaluate("PLOTSRV.state.snapshotNavigation.error")

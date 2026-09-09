@@ -62,10 +62,16 @@ def test_every_renderer_uses_the_persistent_bottom_dock(
 
     assert 'class="ps-bottom-dock"' in rendered
     assert 'aria-label="View actions and status"' in rendered
-    assert 'id="snapshots-control"' in rendered
-    assert ">Snapshots<" in rendered
-    assert 'id="history-select" class="ps-select" aria-label="Snapshots" disabled' in rendered
-    assert 'id="snapshots-info"' in rendered
+    if kind == "stream":
+        assert 'id="snapshots-control"' not in rendered
+    else:
+        assert 'id="snapshots-control"' in rendered
+        assert ">Snapshots<" in rendered
+        assert (
+            'id="history-select" class="ps-select" aria-label="Snapshots" disabled'
+            in rendered
+        )
+        assert 'id="snapshots-info"' in rendered
     assert 'id="snapshots-unavailable"' not in rendered
     assert "Last updated:" not in rendered
     assert 'id="status-error-wrap"' in rendered
@@ -149,7 +155,7 @@ def test_history_client_uses_explicit_capability_and_preserves_snapshot_urls() -
     assert "No snapshots yet" in source
     assert "Snapshot availability could not be loaded." in source
     assert 'document.getElementById("snapshots-info")' in source
-    assert 'selector.title = reason' in source
+    assert "selector.title = reason" in source
     assert 'sel.setAttribute("aria-label", reason' in source
     assert "sel.disabled = !hasSnapshots" in source
     assert 'url.searchParams.set("snapshot", snapshotId)' in source

@@ -377,3 +377,62 @@ For local project use, `.plotsrv/` is usually a good candidate for `.gitignore`.
 - [CLI reference](cli.md)
 - [Freshness](freshness.md)
 - [Configuration basics](../get-started/configuration-basics.md)
+
+## Quick snapshot navigation
+
+Use the arrows either side of **Snapshots** to move older or newer. From the
+newest stored snapshot, Newer returns to **Live (latest)**: the current server
+state. Live is a separate choice even when a stored version looks identical.
+Existing metadata cannot prove that a snapshot has the same content as Live;
+creation timestamps never establish equivalence. Ordering uses creation time
+in UTC, then snapshot ID to break ties. Labels include precise UTC timestamps.
+
+The selector keeps one page of 50 metadata entries, with **Older snapshots…**
+and **Newest snapshots…** choices to change pages without loading bodies. The
+selected snapshot stays available in the selector even outside that page.
+Only selecting a version loads its content. Browsing does not publish data,
+change source arrival timestamps, evaluate checks or send notifications.
+
+Unavailable storage hides the ordinary selector/arrows and explains why.
+Enabled but empty storage says **No snapshots yet**. Streams retain their
+separate session-history controls. If a selected version was removed, is
+unreadable or fails to load, its URL/selection stays in place. Previous content
+is retained where possible, with an explicit notice; exports are disabled
+until a coherent selection loads. Choose another version or Latest to recover.
+Normal table/plot settings remain in place.
+
+### Metadata API for navigation clients
+
+`GET /history/navigation?view=<logical-id>&limit=50` returns `snapshots`,
+`count`, `next_cursor`, `capability` and `result`. Pass `before=<next_cursor>`
+for the next older page (limit 1–100). Pass `selected=<snapshot-id>` to obtain
+its metadata and its immediate `older`/`newer` neighbours independently of the
+page. A null `newer` with `can_return_latest: true` means the next choice is
+Latest; `selection_state: unavailable` identifies missing selected metadata.
+Bodies can still disappear between metadata lookup and selection.
+
+Optional ISO `start` (inclusive) and `end` (exclusive) boundaries provide
+metadata pages/counts for a date range; naive boundaries mean UTC. Pagination
+is a keyset traversal of current retention, not a frozen transaction: new
+snapshots or concurrent retention may change subsequent pages. No payload is
+opened to order, count or filter metadata. The existing `/history` response
+shape remains available for older callers, but new clients should use this
+bounded endpoint. Both use the existing history read permission.
+
+There is no new index, worker, background polling or idle cache. On each
+metadata request the server retains at most one page plus selection/neighbours,
+with two concurrent readers and no waiting queue. Each scan allows 10,000
+directory entries, 8 MiB of metadata, 32 KiB per metadata file (checked before
+JSON parsing) and a cooperative 500 ms deadline between filesystem operations.
+Exceeding a budget, busy readers or malformed metadata produces an explicit
+503 rather than incomplete ordering. A slow filesystem operation itself
+cannot be cancelled by that deadline. Use modest retention; history beyond
+these scan budgets cannot be navigated with this endpoint. Browser requests
+have a 10-second abort deadline and rapid version choices coalesce; no automatic
+retry loop is added. These limits apply to navigation metadata, not existing
+snapshot-body rendering or the legacy `/history` endpoint.
+
+For other browser surfaces, `PLOTSRV.core.snapshotNavigation` exposes shared
+`state`, `select(idOrNull)`, `move("older"|"newer")` and
+`loadMetadata(beforeCursor)` functions. They work without toolbar markup and
+share selection errors, latest-wins loading and pending-update protection.
