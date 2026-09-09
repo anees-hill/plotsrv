@@ -1971,4 +1971,13 @@ def get_server_connection_config():
 
 def get_check_rules():
     from .checks_config import parse_checks
-    return parse_checks(settings.get_section("checks-settings", strict=True))
+    destinations = get_webhook_config().destinations
+    return parse_checks(
+        settings.get_section("checks-settings", strict=True),
+        destinations=tuple(d.name for d in destinations),
+    )
+
+
+def get_webhook_config():
+    from .webhook_config import parse_webhooks
+    return parse_webhooks(settings.get_section("webhook-settings", strict=True))

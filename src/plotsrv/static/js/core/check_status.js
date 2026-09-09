@@ -148,7 +148,7 @@
     details.append(node("pre", JSON.stringify({check_id: rule.id, view_id: rule.source, kind: rule.kind,
       path: rule.path, input: rule.input, metric: rule.metric, selection_path: rule.selection_path,
       event_id: item.event_id, reason: event ? undefined : item.reason,
-      inspected: item.inspected, not_inspected: item.not_inspected, coverage_lost: item.coverage_lost,
+      inspected: item.inspected, not_inspected: item.not_inspected, coverage_lost: item.coverage_lost, notifications: item.notifications,
       context: item.context}, null, 2)));
     box.append(details);
     return box;

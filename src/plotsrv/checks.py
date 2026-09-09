@@ -70,7 +70,7 @@ class Job:
 
 
 class CheckEngine:
-    def __init__(self, rules=(), *, generation=None, start=True):
+    def __init__(self, rules=(), *, generation=None, start=True, webhooks=None):
         self.rules = tuple(rules)
         self.generation = generation or uuid4().hex
         self.by_source = {}
@@ -124,8 +124,22 @@ class CheckEngine:
         self._cursor = 0
         self._coalesced = 0
         self._failed = 0
+        self.notifications = None
+        if webhooks is None and any(r.enabled and r.notify for r in self.rules):
+            raise ValueError("notification destinations are not configured")
+        if webhooks is not None and any(r.enabled and r.notify for r in self.rules):
+            from .webhooks import WebhookDispatcher
+
+            self.notifications = WebhookDispatcher(
+                webhooks, self.rules, on_change=self._notification_changed
+            )
         if start and self.by_source:
-            self.start()
+            try:
+                self.start()
+            except Exception:
+                if self.notifications is not None:
+                    self.notifications.close(0)
+                raise
 
     def start(self):
         with self._condition:
@@ -259,7 +273,13 @@ class CheckEngine:
             )
             self._condition.release()
 
-    def _event(self, rule, event_type, state, job, evidence):
+    def _notification_changed(self, source):
+        with self._condition:
+            if not self._closed:
+                self._dirty.add(source)
+                self._condition.notify_all()
+
+    def _event(self, rule, event_type, state, job, evidence, previous_state):
         if self._cursor >= MAX_COUNTER:
             self._gap([rule], time.monotonic_ns())
             return
@@ -275,6 +295,8 @@ class CheckEngine:
             kind=rule.kind,
             event_type=event_type,
             state=state,
+            previous_state=previous_state,
+            coverage_lost=self._lost[rule.id],
             severity=rule.severity,
             context=job.context,
             observed_value=wire_value(evidence.value),
@@ -295,8 +317,10 @@ class CheckEngine:
         if len(payload) <= MAX_EVENT_BYTES:
             self._events.append(payload)
             self._event_bytes += len(payload)
+        return event
 
     def _process(self, job):
+        notifications = []
         results = [
             (rule, evidence, *evaluate(rule, evidence))
             for rule, evidence in job.evidence
@@ -335,7 +359,15 @@ class CheckEngine:
                     else:
                         event_type = "unavailable"
                 if event_type:
-                    self._event(rule, event_type, result, job, evidence)
+                    event = self._event(
+                        rule, event_type, result, job, evidence, prior_state
+                    )
+                    if (
+                        event is not None
+                        and self.notifications is not None
+                        and rule.notify
+                    ):
+                        notifications.append((rule, event))
                 old.update(
                     state=result,
                     reason=reason,
@@ -349,6 +381,10 @@ class CheckEngine:
                     loss_epoch=job.gap_epoch[index],
                     context=job.context,
                 )
+
+        # Detached event preparation is outside the checks/ingestion admission lock.
+        for rule, event in notifications:
+            self.notifications.submit(rule, event)
 
     def _run(self):
         while True:
@@ -420,6 +456,7 @@ class CheckEngine:
             return True
 
     def close(self, timeout=0.5):
+        deadline = time.monotonic() + max(0, timeout)
         with self._condition:
             self._closed = True
             for job in self._pending.values():
@@ -430,8 +467,13 @@ class CheckEngine:
             self._condition.notify_all()
             thread = self._thread
         if thread and thread is not threading.current_thread():
-            thread.join(max(0, timeout))
-        return not thread or not thread.is_alive()
+            thread.join(max(0, deadline - time.monotonic()))
+        delivery_closed = (
+            self.notifications.close(max(0, deadline - time.monotonic()))
+            if self.notifications is not None
+            else True
+        )
+        return (not thread or not thread.is_alive()) and delivery_closed
 
     def snapshot(self, source=None, *, after=0, generation=None, include_events=True):
         with self._condition:
@@ -463,6 +505,9 @@ class CheckEngine:
                 failures=self._failed,
                 closed=self._closed,
             )
+        if self.notifications is not None:
+            for state in states:
+                state["notifications"] = self.notifications.snapshot(state["id"])
         result["states"] = json.loads(json.dumps(states, allow_nan=False))
         events = [json.loads(payload) for payload in payloads]
         first = (
@@ -487,11 +532,11 @@ class CheckEngine:
 _ENGINE = None
 
 
-def configure(rules, generation):
+def configure(rules, generation, *, webhooks=None):
     global _ENGINE
     if _ENGINE is not None and not _ENGINE.close():
-        raise ValueError("previous check worker is still stopping")
-    _ENGINE = CheckEngine(rules, generation=generation)
+        raise ValueError("previous check or webhook worker is still stopping")
+    _ENGINE = CheckEngine(rules, generation=generation, webhooks=webhooks)
 
 
 def shutdown(timeout=0.5):

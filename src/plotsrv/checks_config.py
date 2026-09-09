@@ -88,7 +88,7 @@ class Rule:
     notify: tuple = ()
 
 
-def parse_checks(section):
+def parse_checks(section, *, destinations=()):
     if type(section) is not dict or section.keys() - {"enabled", "rules"}:
         raise ValueError("invalid checks-settings fields")
     enabled = section.get("enabled", True)
@@ -153,10 +153,18 @@ def parse_checks(section):
             raise ValueError("observation selectors require observation input")
         if data.get("unit") is not None:
             data["unit"] = text(data["unit"], 32)
-        # Reserved for the later notification configuration; never accept an
-        # unresolved destination and pretend it is wired to delivery.
-        if data.get("notify", []) not in ([], ()):
-            raise ValueError("notification destination references are not configured")
-        data["notify"] = ()
+        references = data.get("notify", [])
+        if (
+            type(references) not in (list, tuple)
+            or len(references) > 2
+            or any(
+                type(name) is not str or name not in destinations for name in references
+            )
+            or len(set(references)) != len(references)
+        ):
+            raise ValueError(
+                "notification destination references are not configured or exceed limits"
+            )
+        data["notify"] = tuple(references)
         rules.append(Rule(**data))
     return tuple(rules)

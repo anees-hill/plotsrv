@@ -396,3 +396,29 @@ def test_keyboard_refresh_retains_focus_and_escape_during_request(page):
     assert page.locator("#header-status-button").evaluate(
         "e=>e===document.activeElement"
     )
+
+
+def test_notification_diagnostics_do_not_create_unseen_check_activity(page):
+    data = mount(page)
+    opened(page)
+    assert page.locator("#header-check-attention").is_hidden()
+    updated = json.loads(json.dumps(data))
+    updated["states"][0]["notifications"] = [
+        dict(
+            destination="ops",
+            state="paused",
+            last_status=401,
+            last_failure="http_permanent",
+            suppressed=3,
+            dropped=1,
+        )
+    ]
+    page.evaluate(
+        "data => {checkData=data;PLOTSRV.core.receiveCheckStatus(data);}", updated
+    )
+    assert page.locator("#header-check-attention").is_hidden()
+    page.click("#status-checks-load")
+    page.locator("#status-checks-current summary").click()
+    assert "http_permanent" in page.locator("#status-checks-current pre").inner_text()
+    assert page.locator("#status-checks-events article").count() == 1
+    assert page.locator("#header-check-attention").is_hidden()

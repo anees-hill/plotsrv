@@ -91,9 +91,9 @@ class IngestionState:
         self._active = 0
         self._tokens = float(MAX_INGESTION_REQUESTS_PER_SECOND)
         self._last_refill = time.monotonic()
-        from .config import get_check_rules
+        from .config import get_check_rules, get_webhook_config
         from .checks import configure
-        configure(get_check_rules(), self.generation)
+        configure(get_check_rules(), self.generation, webhooks=get_webhook_config())
         if cfg.allow_remote_without_key and self._key_digest is None:
             logging.getLogger(__name__).warning(
                 "Publisher ingestion permits remote requests without a key; use only on a trusted private endpoint."
@@ -184,9 +184,9 @@ def reset_ingestion() -> None:
 def setup_ingestion(bind_host: str | None = None) -> None:
     current = state()
     from .checks import current as current_checks, configure
-    from .config import get_check_rules
+    from .config import get_check_rules, get_webhook_config
     if current_checks() is not None and current_checks()._closed:
-        configure(get_check_rules(), uuid4().hex)
+        configure(get_check_rules(), uuid4().hex, webhooks=get_webhook_config())
     fresh = get_server_connection_config()
     if fresh != current.config:
         raise ValueError("ingestion configuration changed; restart the process")
