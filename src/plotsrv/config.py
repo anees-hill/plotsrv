@@ -1147,6 +1147,14 @@ def _stream_retention_settings() -> dict[str, Any]:
     return _deep_merge_dicts(default, dict(raw)) if isinstance(raw, Mapping) else default
 
 
+def get_stream_http_profile(view_id: str):
+    """Server-owned JSON field mappings, read once when a session registers."""
+    profiles = _stream_settings().get("http_profiles", {})
+    if not isinstance(profiles, dict) or len(profiles) > 256:
+        return False
+    return profiles.get(view_id)
+
+
 def get_stream_raw_max_records() -> int:
     """Maximum source records retained in a stream's recent raw window."""
     default = int(_DEFAULTS["stream-settings"]["retention"]["max_raw_records"])

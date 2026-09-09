@@ -36,6 +36,7 @@ from .models import (
     validate_stream_batch,
     validate_stream_record,
 )
+from .http_profile import HttpProfile
 from .summaries import SummaryLimits, SummaryWindow
 
 
@@ -319,6 +320,7 @@ class StreamViewState:
     stream_instance_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     records: deque[StreamRecord] = field(default_factory=deque)
     raw_record_bytes: int = 0
+    http_profile: HttpProfile = field(default_factory=HttpProfile)
     schema: StreamSchema = field(default_factory=StreamSchema)
     # The resolution is part of the key so a live configuration change cannot
     # accidentally coalesce windows that have different fixed boundaries.
@@ -519,7 +521,9 @@ class StreamRegistry:
             except store.ViewOwnershipError as error:
                 raise StreamConflictError(str(error)) from error
 
+            from ..config import get_stream_http_profile
             state = StreamViewState(
+                http_profile=HttpProfile(get_stream_http_profile(registration.view_id)),
                 registration=registration,
                 last_heartbeat_monotonic=now_monotonic,
             )
@@ -600,6 +604,7 @@ class StreamRegistry:
                     observed_at=observed_at,
                     encoded_bytes=stream_record_size(data),
                 )
+                state.http_profile.add(row.browser_sequence, row.data, row.observed_at)
                 state.records.append(row)
                 accepted_raw_records.append(row)
                 state.raw_record_bytes += row.encoded_bytes
@@ -915,6 +920,7 @@ class StreamRegistry:
             "historical_updated_at": state.historical_updated_at,
             **self._status_dict(state),
             "columns": list(state.schema.columns),
+            "http_profile": state.http_profile.describe(view_id, list(state.schema.columns), historical=state.historical),
             "schema_revision": state.schema.revision,
             "summary_revision": state.summary_revision,
             "cumulative": state.cumulative.as_browser_dict(),
@@ -924,6 +930,7 @@ class StreamRegistry:
                 {
                     "browser_sequence": row.browser_sequence,
                     "data": deepcopy(row.data),
+                    "http_projection": state.http_profile.projection(row.browser_sequence),
                     "observed_at": row.observed_at.isoformat(),
                 }
                 for row in rows
@@ -1662,6 +1669,7 @@ class StreamRegistry:
         while state.records and self._raw_bounds_exceeded(state, observed_now):
             evicted = state.records.popleft()
             state.raw_record_bytes -= evicted.encoded_bytes
+            state.http_profile.evict(evicted.browser_sequence)
             self._add_to_fine_window(state, evicted)
         self._refresh_schema(state)
 
