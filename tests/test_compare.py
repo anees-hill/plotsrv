@@ -428,3 +428,28 @@ def test_two_near_limit_captures_leave_publication_independent(client, monkeypat
             "wire_bytes": [len(r.body) for r in responses],
         },
     )
+
+
+def test_capture_type_admission_never_executes_custom_metaclass_hooks(client):
+    from datetime import datetime, tzinfo
+
+    class Meta(type):
+        def __getattribute__(self, name):
+            pytest.fail("Read application class metadata")
+
+        def __eq__(self, other):
+            pytest.fail("Compared application class")
+
+        def __hash__(self):
+            pytest.fail("Hashed application class")
+
+    class Unknown(metaclass=Meta):
+        pass
+
+    class UnknownTimezone(tzinfo, metaclass=Meta):
+        def utcoffset(self, dt):
+            pytest.fail("Called application timezone")
+
+    for value in (Unknown(), datetime(2026, 1, 1, tzinfo=UnknownTimezone())):
+        publish({"value": value}, "json")
+        assert client.get("/compare/latest?view=ops:log").status_code == 413

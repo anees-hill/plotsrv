@@ -26,6 +26,20 @@ MAX_ROWS = 1000
 MAX_COLUMNS = 64
 MAX_SECONDS = 0.25  # Cooperative; does not cancel a running renderer.
 _READERS = threading.BoundedSemaphore(2)
+_NUMPY_SCALARS = (
+    np.int8,
+    np.int16,
+    np.int32,
+    np.int64,
+    np.uint8,
+    np.uint16,
+    np.uint32,
+    np.uint64,
+    np.float16,
+    np.float32,
+    np.float64,
+    np.bool_,
+)
 
 
 def unavailable(detail="Latest changed during capture. Choose Latest again.", code=409):
@@ -49,7 +63,7 @@ class Budget:
                     "Latest contains text too large for bounded inspection.", 413
                 )
             self.bytes += 4 * len(value)
-        elif cls in (dict, list, tuple):
+        elif cls is dict or cls is list or cls is tuple:
             if len(value) > MAX_NODES - self.nodes:
                 unavailable("Latest exceeds the bounded inspection budget.", 413)
             if cls is dict:
@@ -72,20 +86,19 @@ class Budget:
                 )
         elif value is pd.NA or value is pd.NaT:
             return None
-        elif cls in (pd.Timestamp, datetime, date):
+        elif cls is pd.Timestamp or cls is datetime or cls is date:
             # Even an exact datetime can carry arbitrary Python tzinfo callbacks.
             if (
                 cls is not date
                 and value.tzinfo is not None
-                and type(value.tzinfo) not in (timezone, ZoneInfo)
+                and type(value.tzinfo) is not timezone
+                and type(value.tzinfo) is not ZoneInfo
             ):
                 unavailable(
                     "Latest contains a timezone unsupported by bounded inspection.", 413
                 )
             return self.copy(value.isoformat(), depth)
-        elif cls.__module__ == "numpy" and isinstance(
-            value, (np.integer, np.floating, np.bool_)
-        ):
+        elif any(cls is allowed for allowed in _NUMPY_SCALARS):
             return self.copy(value.item(), depth)
         else:
             # Never call arbitrary repr/str, lazy materialisation or extension hooks.
