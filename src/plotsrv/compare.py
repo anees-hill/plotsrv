@@ -190,7 +190,7 @@ def _capture(view_id):
             and detached.get("type") == "plotsrv_observation"
         )
         if (
-            artifact_kind == "json"
+            type(detached) in (dict, list, tuple)
             and not observation
             and budget.nodes > MAX_JSON_RENDER_NODES
         ):

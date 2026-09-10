@@ -364,8 +364,10 @@ def test_observation_capture_preserves_revision_context_and_refuses_congestion(
     assert captured.json()["artifact"] == live
 
 
-def test_broad_json_refused_before_expensive_renderer(client, monkeypatch):
-    publish({str(i): list(range(100)) for i in range(100)}, "json")
+@pytest.mark.parametrize("kind", ["json", "text", "python"])
+def test_broad_json_refused_before_expensive_renderer(client, monkeypatch, kind):
+    # An incompatible hint falls back to JSON in the shared renderer registry.
+    publish({str(i): list(range(100)) for i in range(100)}, kind)
     monkeypatch.setattr(
         app_mod,
         "_render_artifact_response",

@@ -531,7 +531,9 @@ converted to null. Datetime timezones must be absent, an exact standard-library
 are never invoked. Generic JSON has a stricter 256-node preparation limit before
 rich HTML rendering, including keys and container nodes, because its markup can
 be much larger than its input. Validated observation summaries use their existing
-bounded renderer instead. Recent observation context shares the capture budget;
+bounded renderer instead. The stricter cap also covers structured artifacts with
+a different kind hint, since renderer selection can fall back to JSON.
+Recent observation context shares the capture budget;
 busy history or excessive context requires an explicit retry or smaller input.
 Published objects should not be mutated in place after publication; the revision
 check detects store publications, not unannounced writes to a caller-owned object.
