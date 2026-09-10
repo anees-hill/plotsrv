@@ -1,0 +1,64 @@
+/* One utility bar, three presentations. No renderer pane or payload duplication. */
+#compare-dock[hidden], #compare-calendar[hidden], #compare-list[hidden], #compare-timeline[hidden], #compare-enter[hidden], #bottom-restore[hidden] { display: none !important; }
+.ps-bar-icon { width: 32px; padding-inline: 4px; flex: 0 0 auto; }
+.ps-bar-icon svg { width: 16px; height: 16px; }
+#bottom-restore { position: fixed; z-index: 40; left: 50%; transform: translateX(-50%); bottom: max(3px, env(safe-area-inset-bottom)); width: 48px; height: 28px; border: 1px solid var(--ps-border); border-radius: 14px; background: var(--ps-floating-bg); color: var(--text); cursor: pointer; }
+body.ps-bar-pinned .ps-bottom-dock { bottom: 0; max-width: 100%; width: 100%; }
+body.ps-bar-pinned .ps-bottom-bar { width: 100%; border-radius: 8px 8px 0 0; box-sizing: border-box; padding-bottom: max(5px, env(safe-area-inset-bottom)); }
+body.ps-bar-pinned .ps-bottom-bar__controls { justify-content: center; }
+body.ps-compare .ps-bottom-dock { width: min(1400px, calc(100vw - 24px)); }
+body.ps-compare .ps-bottom-bar { width: 100%; box-sizing: border-box; }
+body.ps-compare #snapshots-control, body.ps-compare #compare-enter,
+body.ps-compare .ps-bottom-bar__disk, body.ps-compare .ps-bottom-bar__terminate { display: none !important; }
+body.ps-compare .ps-bottom-bar__controls { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: start; }
+#compare-dock { min-width: 0; position: relative; }
+.ps-compare-toolbar { display: flex; align-items: center; gap: 3px; flex-wrap: wrap; }
+.ps-compare-toolbar .btn, .ps-compare-summary .btn { padding: 4px 8px; min-height: 30px; }
+#compare-selected { font-size: 12px; flex: 1 1 140px; max-width: 370px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#compare-day { font: inherit; font-size: 12px; max-width: 132px; color: var(--text); background: var(--ps-floating-bg); border: 1px solid var(--ps-border); border-radius: 5px; padding: 4px; }
+#compare-results { padding: 4px 2px 0; }
+#compare-list { max-height: 118px; overflow: auto; display: grid; gap: 1px; }
+#compare-list button { text-align: left; padding: 3px 6px; font-size: 12px; background: transparent; border: 1px solid transparent; color: var(--text); border-radius: 4px; cursor: pointer; overflow-wrap: anywhere; }
+#compare-list button[aria-pressed="true"], .ps-compare-toolbar button[aria-pressed="true"], #compare-calendar-days button[aria-pressed="true"] { background: var(--ps-hover-bg, #dde5ee); border-color: var(--ps-border); font-weight: 700; }
+#compare-points { height: 36px; position: relative; margin: 0 14px; border-bottom: 1px solid var(--ps-border); }
+#compare-points button { position: absolute; bottom: -6px; transform: translateX(-50%); width: 12px; height: 12px; border: 2px solid var(--ps-floating-bg); border-radius: 50%; background: #71869d; padding: 0; cursor: pointer; }
+#compare-points button[aria-pressed="true"] { background: #0677da; outline: 2px solid #0677da; z-index: 1; }
+.ps-timeline-axis { display: flex; justify-content: space-between; font-size: 10px; padding: 8px 4px 0; opacity: .8; }
+#compare-timeline-empty { font-size: 12px; }
+.ps-compare-summary { display: flex; gap: 8px; align-items: center; margin-top: 4px; font-size: 11px; }
+.ps-compare-summary .btn { font-size: 11px; padding: 1px 5px; min-height: 24px; }
+#compare-message { font-size: 11px; line-height: 1.3; max-height: 42px; overflow: auto; padding-top: 2px; }
+#compare-calendar { position: absolute; bottom: calc(100% + 8px); left: 0; width: 260px; padding: 8px; background: var(--ps-floating-bg); border: 1px solid var(--ps-border); border-radius: 8px; box-shadow: 0 4px 16px #0002; }
+#compare-calendar > div:first-child { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+#compare-calendar-days, .ps-calendar-week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; text-align: center; }
+.ps-calendar-week { font-size: 10px; padding-block: 6px; opacity: .75; }
+#compare-calendar-days button { min-height: 29px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--text); position: relative; cursor: pointer; }
+#compare-calendar-days .has-snapshots::after { content: ""; width: 3px; height: 3px; border-radius: 50%; background: currentColor; position: absolute; bottom: 1px; left: 50%; }
+body:not(.ps-expanded) .page { padding-bottom: calc(var(--ps-bottom-dock-clearance, 52px) + 16px); }
+body.ps-bar-collapsed:not(.ps-expanded) .page { padding-bottom: 30px; }
+body.ps-compare:not(.ps-expanded) .tabulator { max-height: max(100px, calc(100dvh - var(--ps-bottom-dock-clearance, 180px) - 210px)); }
+@media (max-width: 640px) {
+  body.ps-compare .ps-bottom-dock { width: calc(100vw - 12px); max-width: calc(100vw - 12px); bottom: 5px; }
+  body.ps-compare.ps-bar-pinned .ps-bottom-dock { width: 100%; max-width: 100%; bottom: 0; }
+  body.ps-compare .ps-bottom-bar__controls { grid-template-columns: 1fr auto auto; }
+  #compare-dock { grid-column: 1 / -1; grid-row: 2; }
+  #compare-selected { order: -1; flex-basis: 100%; max-width: 100%; }
+  .ps-compare-toolbar .btn, .ps-bar-icon { min-width: 36px; min-height: 40px; }
+  #compare-list { max-height: 94px; }
+  #compare-list button { min-height: 36px; }
+  #compare-calendar { left: 0; width: min(280px, calc(100vw - 42px)); }
+  #compare-calendar-days button { min-height: 36px; }
+  #bottom-restore { height: 34px; }
+  #compare-message { max-height: 30px; }
+  .ps-bottom-bar__controls { flex-wrap: wrap; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) { .ps-bottom-dock, #bottom-restore { transition: none; } }
+/* Reuse the normal bar's restrained button treatment in every presentation. */
+.ps-bottom-bar .btn { font: inherit; font-size: 12px; border: 1px solid var(--ps-border); border-radius: 6px; background: var(--ps-floating-bg); color: var(--text); cursor: pointer; }
+.ps-bottom-bar .btn:hover:not(:disabled) { background: var(--ps-surface-hover); }
+.ps-bottom-bar .btn:focus-visible, #bottom-restore:focus-visible, #compare-calendar-days button:focus-visible { outline: 2px solid var(--ps-focus, #2677c4); outline-offset: 1px; }
+.ps-bottom-bar .btn:disabled { opacity: .4; cursor: default; }
+.ps-bottom-bar .btn[aria-pressed="true"] { background: var(--ps-surface-hover); font-weight: 700; }
+body.ps-compare:not(.ps-expanded) .tabulator { height: var(--ps-table-available, 55vh) !important; min-height: 0; max-height: none; }
+
+#compare-calendar { max-height: max(100px, min(300px, calc(100dvh - var(--ps-bottom-dock-clearance, 200px) - 16px))); overflow: auto; }

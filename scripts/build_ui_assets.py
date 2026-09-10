@@ -37,6 +37,7 @@ CSS_SOURCES = (
     "css/renderers/traceback.css",
     "css/themes.css",
     "css/expanded_view.css",
+    "css/compare.css",
 )
 
 JS_SOURCES = (
@@ -65,6 +66,7 @@ JS_SOURCES = (
     "js/renderers/text.js",
     "js/renderers/code.js",
     "js/core/expanded_view.js",
+    "js/core/compare.js",
     "js/core/app.js",
 )
 

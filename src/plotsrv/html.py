@@ -551,11 +551,41 @@ def render_index(
               <div class="ps-bottom-bar__controls">
                 {_export_control_html(view_kind)}
                 {_history_controls_html()}
+                <button id="compare-enter" class="btn" type="button" hidden>Compare</button>
+                <div id="compare-dock" hidden>
+                  <div class="ps-compare-toolbar">
+                    <button id="compare-older" class="btn" type="button" aria-label="Previous snapshot">‹</button>
+                    <button id="compare-newer" class="btn" type="button" aria-label="Next snapshot">›</button>
+                    <span id="compare-selected" tabindex="0"></span>
+                    <button id="compare-latest" class="btn" type="button">Latest</button>
+                    <button id="compare-day-prev" class="btn" type="button" aria-label="Previous UTC day">‹</button>
+                    <input id="compare-day" type="date" aria-label="Displayed UTC date" />
+                    <button id="compare-day-next" class="btn" type="button" aria-label="Next UTC day">›</button>
+                    <button id="compare-calendar-toggle" class="btn" type="button" aria-label="Calendar" aria-expanded="false" aria-controls="compare-calendar">▦</button>
+                    <button id="compare-timeline-tab" class="btn" type="button" aria-pressed="true">Timeline</button>
+                    <button id="compare-list-tab" class="btn" type="button" aria-pressed="false">List</button>
+                    <button id="compare-exit" class="btn" type="button" aria-label="Exit Compare">×</button>
+                  </div>
+                  <div id="compare-calendar" hidden role="region" aria-label="Stored snapshot calendar">
+                    <div><button id="compare-month-prev" class="btn" type="button" aria-label="Previous month">‹</button><span id="compare-month-label"></span><button id="compare-month-next" class="btn" type="button" aria-label="Next month">›</button></div>
+                    <div class="ps-calendar-week" aria-hidden="true"><span>M</span><span>T</span><span>W</span><span>T</span><span>F</span><span>S</span><span>S</span></div>
+                    <div id="compare-calendar-days"></div>
+                  </div>
+                  <div id="compare-results">
+                    <div id="compare-timeline"><div id="compare-points"></div><div class="ps-timeline-axis"><span>00:00</span><span>06:00</span><span>12:00 UTC</span><span>18:00</span><span>24:00</span></div><span id="compare-timeline-empty"></span></div>
+                    <div id="compare-list" hidden></div>
+                  </div>
+                  <div class="ps-compare-summary"><span id="compare-count"></span><button id="compare-first" class="btn" type="button">First page</button><button id="compare-more" class="btn" type="button" hidden>Older on this day</button></div>
+                  <div id="compare-message" role="status"></div>
+                </div>
+                <button id="bottom-pin" class="btn ps-bar-icon" type="button" aria-label="Pin bar to bottom" title="Pin bar to bottom" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 3h8l-1 8 4 4H5l4-4-1-8ZM12 15v7"/></svg></button>
+                <button id="bottom-collapse" class="btn ps-bar-icon" type="button" aria-label="Collapse bar" title="Collapse bar">⌄</button>
                 {bottom_file_indicator_html}
                 {_terminate_button_html()}
               </div>
             </div>
           </div>
+          <button id="bottom-restore" type="button" aria-label="Restore bottom bar" title="Restore bottom bar" hidden>⌃</button>
         """
 
     content_html = ""

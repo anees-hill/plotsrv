@@ -73,6 +73,7 @@
     const exportButton = document.getElementById("export-button");
     if (exportButton) exportButton.disabled = navigation.pending || !!navigation.error;
     if (navigation.pending && core.closeExportMenu) core.closeExportMenu();
+    if (core.syncCompare) core.syncCompare();
   }
 
   function selectionFailed(message) {
@@ -125,6 +126,7 @@
     syncNavigation();
     const sel = document.getElementById("history-select");
     const isHistory = isHistoryMode();
+    const pinned = core.inspectionCapture && core.inspectionCapture();
 
     if (sel) {
       sel.value = state.currentSnapshot || "";
@@ -134,19 +136,19 @@
     const unavailableReturn = document.getElementById("snapshots-return-latest");
     if (unavailableReturn) {
       unavailableReturn.hidden =
-        !navigation.error && (!isHistory || !snapshotWrap || snapshotWrap.dataset.state === "enabled");
+        !pinned && !navigation.error && (!isHistory || !snapshotWrap || snapshotWrap.dataset.state === "enabled");
     }
 
     if (typeof core.setHeaderViewState === "function") {
       const meta = currentHistoryMeta();
       core.setHeaderViewState(
-        isHistory ? "snapshot" : "latest",
+        isHistory ? "snapshot" : pinned ? "captured" : "latest",
         isHistory
           ? {
               id: state.currentSnapshot,
               createdAt: meta && meta.created_at ? meta.created_at : null,
             }
-          : null
+          : pinned ? {id: "Latest captured r" + pinned.revision, createdAt: pinned.created_at} : null
       );
     }
 
@@ -359,6 +361,9 @@
             selectionFailed("Source changed before the selected version loaded.");
             break;
           }
+          if (core.prepareComparedSelection) await core.prepareComparedSelection();
+          if (revision !== navigation.revision) continue;
+          if (!state.compareActive && !state.currentSnapshot) state.compareCapture = null;
           loadHistory();
           const applied = core.reloadCurrentView ? await core.reloadCurrentView() : true;
           if (revision !== navigation.revision) continue;
@@ -368,9 +373,10 @@
           }
           if (applied === false && !navigation.error) selectionFailed("Selected version could not be loaded.");
           if (!navigation.error) {
+            if (core.completeComparedSelection) core.completeComparedSelection();
             navigation.displayed = state.currentSnapshot;
             announce("");
-            if (!state.currentSnapshot && core.markBrowserViewApplied) core.markBrowserViewApplied();
+            if (!state.currentSnapshot && !state.compareCapture && core.markBrowserViewApplied) core.markBrowserViewApplied();
           }
         } catch (error) {
           if (revision !== navigation.revision) continue;
@@ -378,13 +384,15 @@
             selectionFailed("Source changed before the selected version loaded.");
             break;
           }
-          selectionFailed("Selected version could not be loaded.");
+          selectionFailed(error.message || "Selected version could not be loaded.");
         }
         navigation.pending = false;
       }
     })().finally(function () {
       navigation.pending = false;
       selectionPromise = null;
+      state.compareCandidate = null;
+      if (!historyController) navigation.loading = false;
       syncHistoryUi();
       if (!state.currentSnapshot && core.restoreAutoRefreshState) core.restoreAutoRefreshState();
     });

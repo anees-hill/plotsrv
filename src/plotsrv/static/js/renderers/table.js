@@ -1658,7 +1658,7 @@
     const load = core.beginSnapshotLoad ? core.beginSnapshotLoad("table") :
       {current: () => true, finish: () => {}, signal: undefined};
     try {
-      let res = await fetch(url, {signal: load.signal});
+      let res = await (core.fetchView || fetch)(url, {signal: load.signal});
       // A file-backed server admits only a bounded number of expensive CSV
       // loads. A short retry keeps normal refreshes smooth without hiding a
       // persistent failure behind an endless client loop.
@@ -1667,7 +1667,7 @@
           window.setTimeout(resolve, 250 * (attempt + 1));
         });
         if (!load.current()) return false;
-        res = await fetch(url, {signal: load.signal});
+        res = await (core.fetchView || fetch)(url, {signal: load.signal});
       }
 
       if (!load.current()) return false;
@@ -1780,6 +1780,11 @@
   }
 
   function exportCompletePublishedTable() {
+    const pinned = core.inspectionCapture && core.inspectionCapture();
+    if (pinned && pinned.table) {
+      downloadTextFile("plotsrv-captured-preview.csv", buildCsvFromRows(pinned.table.rows, pinned.table.columns), "text/csv;charset=utf-8");
+      return true;
+    }
     const isHistory =
       typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
     const sourceDownload =

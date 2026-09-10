@@ -157,6 +157,7 @@
       }
       scheduleGeometry();
     }
+    if (core.bottomBar) core.bottomBar.present();
     persist();
     window.scrollTo(scroll[0], scroll[1]);
     return layout.active;
@@ -165,7 +166,10 @@
   function bind() {
     if (bound || !document.getElementById("expand-view")) return;
     bound = true;
-    document.getElementById("expand-view").addEventListener("click", () => setExpanded(true));
+    document.getElementById("expand-view").addEventListener("click", function () {
+      if (state.compareActive && core.compare) {core.compare.exit(); this.focus();}
+      setExpanded(true);
+    });
     document.getElementById("expanded-exit").addEventListener("click", () => setExpanded(false));
     document.getElementById("expanded-reveal").addEventListener("click", () => reveal(!layout.revealed, {keepFocus: true}));
     document.addEventListener("keydown", function (event) {

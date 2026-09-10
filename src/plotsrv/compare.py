@@ -114,9 +114,13 @@ def _capture(view_id):
     finally:
         store._STORE_LOCK.release()
 
+    del st, watched
+    if created is not None and (type(created) is not str or len(created) > 64):
+        unavailable("Latest receipt metadata is unavailable.")
     budget = Budget()
     result = {
         "version": 1,
+        "server_instance_id": store.browser_update_hub.instance_id,
         "view_id": view_id,
         "revision": revision,
         "kind": kind,
@@ -129,6 +133,7 @@ def _capture(view_id):
         if type(obj) is not bytes or len(obj) > MAX_INPUT_BYTES:
             unavailable("Plot exceeds the Latest inspection byte budget.", 413)
         result["plot"] = base64.b64encode(obj).decode("ascii")
+        del artifact, obj
     elif kind == "table" or artifact.kind == "table":
         df = artifact.obj
         if type(df) is not pd.DataFrame or len(df.columns) > MAX_COLUMNS:
@@ -153,6 +158,7 @@ def _capture(view_id):
             meta={"inspection": True},
         )
         result["scope"] = f"Published table preview: {count} of {len(df)} hosted rows"
+        del artifact, df
         result["artifact"] = {
             "kind": "table",
             "html": '<div class="plot-frame"><div id="table-grid"></div></div>',
@@ -161,8 +167,10 @@ def _capture(view_id):
         from .app import _render_artifact_response
 
         detached = budget.copy(artifact.obj)
+        artifact_kind = artifact.kind
+        del artifact
         result["artifact"] = _render_artifact_response(
-            view_id=view_id, obj=detached, kind_hint=artifact.kind
+            view_id=view_id, obj=detached, kind_hint=artifact_kind
         )
         # Source download links describe mutable live data, not this captured representation.
         result["artifact"].get("meta", {}).pop("source_download_url", None)

@@ -193,6 +193,7 @@
       core.bindUpdateNotifications();
     }
 
+    if (core.bindCompare) core.bindCompare();
     const finishInitialLoading = beginContentLoading();
     const loadHistoryPromise =
       typeof core.loadHistory === "function"
