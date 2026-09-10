@@ -806,6 +806,46 @@ def get_history_navigation(
     }
 
 
+@app.get("/history/month")
+def get_history_month(request: Request, month: str, view: str | None = None):
+    from datetime import datetime, timezone
+    from .storage.navigation import navigation_page, NavigationUnavailable
+    if config.get_history_local_only():
+        require_local_request(request)
+    vid = view or store.get_active_view_id()
+    capability = _snapshot_capability(vid)
+    if not capability["enabled"]:
+        return {"capability": capability, "days": {}}
+    try:
+        if len(month) != 7:
+            raise ValueError()
+        start = datetime.strptime(month, "%Y-%m").replace(tzinfo=timezone.utc)
+        end = start.replace(year=start.year + 1, month=1) if start.month == 12 else start.replace(month=start.month + 1)
+        page = navigation_page(root_dir=_storage_root(), view_id=vid, limit=1,
+                               start=start.isoformat(), end=end.isoformat(), days=True)
+    except ValueError as exc:
+        raise HTTPException(400, "Invalid UTC calendar month") from exc
+    except (NavigationUnavailable, OSError) as exc:
+        raise HTTPException(503, "Calendar metadata is unavailable or exceeds its read budget.") from exc
+    return {"capability": capability, "timezone": "UTC", "month": month, "days": page["days"]}
+
+
+@app.get("/compare/latest")
+def get_compare_latest(request: Request, view: str | None = None):
+    from .compare import capture_latest
+    if config.get_history_local_only() or config.get_status_local_only():
+        require_local_request(request)
+    vid = view or store.get_active_view_id()
+    if not _snapshot_capability(vid)["enabled"]:
+        raise HTTPException(409, "Snapshot comparison is unavailable for this view.")
+    try:
+        return capture_latest(vid)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(409, "Latest could not be captured coherently. Choose Latest again.") from exc
+
+
 @app.get("/history")
 def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
     if config.get_history_local_only():

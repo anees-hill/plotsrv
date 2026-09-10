@@ -81,6 +81,7 @@ def navigation_page(
     limit: int = 50,
     start: str | None = None,
     end: str | None = None,
+    days: bool = False,
 ) -> dict:
     if not 1 <= limit <= 100 or (selected and not valid_snapshot_id(selected)):
         raise ValueError("Invalid snapshot selection or page size")
@@ -89,17 +90,30 @@ def navigation_page(
     end = timestamp(end) if end else None
     if start and end and start >= end:
         raise ValueError("History start must precede end")
+    if days and (
+        not start
+        or not end
+        or (datetime.fromisoformat(end) - datetime.fromisoformat(start)).days > 31
+    ):
+        raise ValueError("Availability requires one bounded month")
     if not _READERS.acquire(blocking=False):
         raise NavigationUnavailable("Snapshot metadata readers are busy. Try again.")
     try:
         return _scan(
-            Path(root_dir).expanduser(), view_id, selected, cursor, limit, start, end
+            Path(root_dir).expanduser(),
+            view_id,
+            selected,
+            cursor,
+            limit,
+            start,
+            end,
+            days,
         )
     finally:
         _READERS.release()
 
 
-def _scan(root, view_id, selected, cursor, limit, start, end):
+def _scan(root, view_id, selected, cursor, limit, start, end, days=False):
     directory = _view_dir(root, view_id)
     deadline = time.monotonic() + MAX_SCAN_SECONDS
     read_bytes = 0
@@ -148,6 +162,7 @@ def _scan(root, view_id, selected, cursor, limit, start, end):
     heap = []
     older = newer = newest = None
     count = eligible = 0
+    available_days = {}
     try:
         entries = os.scandir(directory)
     except FileNotFoundError:
@@ -191,6 +206,9 @@ def _scan(root, view_id, selected, cursor, limit, start, end):
                 if (start and key[0] < start) or (end and key[0] >= end):
                     continue
                 count += 1
+                if days:
+                    day = key[0][:10]
+                    available_days[day] = available_days.get(day, 0) + 1
                 if cursor and key >= cursor:
                     continue
                 eligible += 1
@@ -202,6 +220,7 @@ def _scan(root, view_id, selected, cursor, limit, start, end):
     for key, row in page:
         row["is_latest"] = newest is not None and key == newest[0]
     return dict(
+        days=available_days,
         snapshots=[row for _, row in page],
         count=count,
         next_cursor=encode_cursor(page[-1][0]) if eligible > limit and page else None,
