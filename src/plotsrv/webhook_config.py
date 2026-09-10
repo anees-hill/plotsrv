@@ -50,7 +50,7 @@ class WebhookConfig:
     dashboard_url: str | None = None
 
 
-def parse_webhooks(section):
+def parse_webhooks(section, *, resolve_secrets=True):
     if type(section) is not dict or section.keys() - {
         "destinations",
         "event_cooldown_s",
@@ -117,7 +117,8 @@ def parse_webhooks(section):
                 r"[A-Za-z_][A-Za-z0-9_]{0,127}", env
             ):
                 raise ValueError("invalid webhook header environment reference")
-            secret = os.environ.get(env)
+            # Configuration review validates references without reading their values.
+            secret = os.environ.get(env) if resolve_secrets else "unresolved-reference"
             if (
                 not secret
                 or len(secret) > 4096

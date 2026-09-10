@@ -279,16 +279,28 @@ def _view_id_for_discovered(v: DiscoveredView) -> str:
     return v.descriptor().view_id
 
 
-def discover_view_ids(target: str | Path, *, selection=None) -> list[str]:
+def discover_view_ids(
+    target: str | Path, *, selection=None, exact_selection=None, additional_ids=()
+) -> list[str]:
     from .source_setup import select_views, build_manifest
     from .connection_config import get_publisher_sources
     from .discovery_progress import TerminalProgress
     if selection is None:
-        selection = get_publisher_sources().selection
+        sources = get_publisher_sources()
+        selection = sources.selection
+        exact_selection = sources.exact_selection
+        additional_ids = sources.additional_ids
     progress = TerminalProgress()
-    views = select_views(discover_views(target, on_progress=progress, on_issue=progress.issue), selection=selection)
-    build_manifest(views)
-    return sorted(_view_id_for_discovered(v) for v in views)
+    discovered = (
+        []
+        if exact_selection == ()
+        else discover_views(target, on_progress=progress, on_issue=progress.issue)
+    )
+    views = select_views(
+        discovered, selection=selection, exact_selection=exact_selection
+    )
+    build_manifest(views, added_ids=additional_ids)
+    return sorted([*(_view_id_for_discovered(v) for v in views), *additional_ids])
 
 
 def _ensure_mapping(parent: dict[str, Any], key: str) -> dict[str, Any]:
@@ -323,7 +335,14 @@ def _populate_view_section(
     discovery = publisher.get("discovery", {})
     selection = discovery.get("selection", ()) if isinstance(discovery, dict) else ()
     selection = _ids(selection, "selection")
-    view_ids = discover_view_ids(target, selection=selection)
+    options = {"selection": selection}
+    if isinstance(discovery, dict) and discovery.get("exact_selection") is not None:
+        options["exact_selection"] = _ids(
+            discovery["exact_selection"], "exact_selection"
+        )
+    if isinstance(discovery, dict) and discovery.get("additional_ids"):
+        options["additional_ids"] = _ids(discovery["additional_ids"], "additional_ids")
+    view_ids = discover_view_ids(target, **options)
     section = ensure_section(data)
     views = _ensure_mapping(section, "views")
 

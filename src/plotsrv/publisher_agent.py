@@ -318,7 +318,11 @@ def publish_command(args):
             print(message, file=sys.stderr)
     target = destination_for_cli(args)
     discovered = []
-    if not args.no_discovery and setup.target is not None:
+    if (
+        not args.no_discovery
+        and setup.target is not None
+        and setup.exact_selection != ()
+    ):
         from .discovery import scan_sources
         from .discovery_progress import TerminalProgress
 
@@ -332,8 +336,9 @@ def publish_command(args):
     manifest = build_manifest(
         discovered,
         watches=setup.watches,
-        added_ids=args.add_id,
+        added_ids=tuple(dict.fromkeys((*setup.additional_ids, *args.add_id))),
         selection=setup.selection,
+        exact_selection=setup.exact_selection,
         reviewed=args.reviewed,
     )
     specs = [WatchConfig(**vars(spec)) for spec in setup.watches]

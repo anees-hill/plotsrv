@@ -29,6 +29,8 @@ class SourceSetup:
     messages: tuple[str, ...]
     target_base: Path
     unscoped: bool
+    exact_selection: tuple[str, ...] | None = None
+    additional_ids: tuple[str, ...] = ()
 
     def scan_root(self, default_target: str | None = None) -> Path:
         target = self.target if self.target is not None else default_target
@@ -54,7 +56,7 @@ def resolve_source_setup(
         )
     if watches is not None and cfg.watch:
         messages.append("Using the explicit watch set instead of configured watches.")
-    if selection is not None and cfg.selection:
+    if selection is not None and (cfg.selection or cfg.exact_selection is not None):
         messages.append(
             "Using the explicit selection instead of configured discovery selection."
         )
@@ -70,17 +72,25 @@ def resolve_source_setup(
             else (config_dir or settings.get_runtime_config_dir() or Path.cwd())
         ),
         target is None and cfg.discovery_target is None,
+        cfg.exact_selection if selection is None else None,
+        cfg.additional_ids,
     )
 
 
 def select_views(
-    views: Sequence[DiscoveredView], *, selection=(), excluded=()
+    views: Sequence[DiscoveredView], *, selection=(), excluded=(), exact_selection=None
 ) -> list[DiscoveredView]:
     includes, excludes = set(selection), set(excluded)
+    exact_ids = set(exact_selection) if exact_selection is not None else None
     result = []
     for view in views:
         identities = {view.descriptor().view_id, view.label, view.section or "default"}
-        if (not includes or includes & identities) and not excludes & identities:
+        included = (
+            (not includes or includes & identities)
+            if exact_ids is None
+            else view.descriptor().view_id in exact_ids
+        )
+        if included and not excludes & identities:
             result.append(view)
     return result
 
@@ -111,6 +121,7 @@ def build_manifest(
     selection=(),
     excluded=(),
     reviewed: bool = False,
+    exact_selection=None,
 ) -> dict:
     """Build from metadata/config; no network, source-data reads or implicit sealing.
 
@@ -144,7 +155,9 @@ def build_manifest(
             raise ValueError("Catalogue manifest exceeds the 1 MiB ingestion bound")
         descriptors.append(descriptor)
 
-    for view in select_views(views, selection=selection, excluded=excluded):
+    for view in select_views(
+        views, selection=selection, excluded=excluded, exact_selection=exact_selection
+    ):
         append(view.descriptor())
     for watch in watches:
         append(watch_descriptor(watch))

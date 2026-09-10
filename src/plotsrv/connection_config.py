@@ -102,6 +102,8 @@ class PublisherSources:
     selection: tuple[str, ...] = ()
     watch: tuple[WatchSpec, ...] = ()
     include_pruned: bool = False
+    exact_selection: tuple[str, ...] | None = None
+    additional_ids: tuple[str, ...] = ()
 
 
 def _ids(value: object, name: str) -> tuple[str, ...]:
@@ -127,7 +129,9 @@ def get_publisher_sources(
         {"destination", "discovery", "watch"},
     )
     discovery = _mapping(
-        cfg.get("discovery", {}), "discovery", {"target", "selection", "include_pruned"}
+        cfg.get("discovery", {}),
+        "discovery",
+        {"target", "selection", "include_pruned", "exact_selection", "additional_ids"},
     )
     include_pruned = discovery.get("include_pruned", False)
     if type(include_pruned) is not bool:
@@ -179,6 +183,12 @@ def get_publisher_sources(
         _ids(discovery.get("selection", []), "selection"),
         tuple(watch),
         include_pruned,
+        (
+            _ids(discovery["exact_selection"], "exact_selection")
+            if discovery.get("exact_selection") is not None
+            else None
+        ),
+        _ids(discovery.get("additional_ids", []), "additional_ids"),
     )
 
 
@@ -208,9 +218,13 @@ class ServerConnectionConfig:
                 raise ValueError("allowed_ids requires catalogue-locked admission")
 
 
-def get_server_connection_config() -> ServerConnectionConfig:
+def get_server_connection_config(*, section=None) -> ServerConnectionConfig:
     cfg = _mapping(
-        settings.get_section("server-settings", strict=True),
+        (
+            settings.get_section("server-settings", strict=True)
+            if section is None
+            else section
+        ),
         "server",
         {"bind", "ingestion", "admission"},
     )

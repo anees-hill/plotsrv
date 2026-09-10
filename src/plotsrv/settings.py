@@ -86,7 +86,12 @@ def _load_yaml_file(path: Path) -> dict[str, Any]:
         raise RuntimeError("pyyaml is not available but is required for YAML config.")
 
     with path.open("r", encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+        return parse_yaml_config(f)
+
+
+def parse_yaml_config(source) -> dict[str, Any]:
+    """Production YAML loader shared by file loading and in-memory review."""
+    data = yaml.safe_load(source)
 
     if data is None:
         return {}
