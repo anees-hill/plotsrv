@@ -591,3 +591,44 @@ def test_new_source_revision_is_announced_and_recapture_acknowledges_only_that_s
     assert page.evaluate("PLOTSRV.state.expandedView.active")
     assert not page.evaluate("PLOTSRV.state.compareActive")
     assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 2
+
+
+@pytest.mark.parametrize("action", ["exit", "pagehide", "bfcache"])
+def test_inflight_latest_exit_and_page_lifecycle_keep_coherent_body(page, action):
+    mount(page)
+    enter(page)
+    page.evaluate("""() => {
+      const real=window.fetch;
+      window.delayedCapture={...PLOTSRV.state.compareCapture, revision:2,
+        table:{...PLOTSRV.state.compareCapture.table,rows:[{group:'A',value:2}]}};
+      window.fetch=(url,options)=>String(url).includes('/compare/latest?')
+        ? new Promise(resolve=>{window.finishCapture=resolve; window.captureSignal=options.signal;}) : real(url,options);
+      PLOTSRV.core.snapshotNavigation.select(null);
+    }""")
+    if action == "exit":
+        page.click("#compare-exit")
+    else:
+        page.evaluate(
+            "persisted=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted}))",
+            action == "bfcache",
+        )
+        assert page.evaluate("captureSignal.aborted")
+    page.evaluate(
+        "() => {finishCapture(new Response(JSON.stringify(delayedCapture),{status:200}));}"
+    )
+    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
+    assert page.evaluate("PLOTSRV.state.compareCandidate") is None
+    if action == "exit":
+        assert not page.evaluate("PLOTSRV.state.compareActive")
+        assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 2
+        assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 2
+        assert not page.evaluate("PLOTSRV.core.canApplyPendingUpdate({force:true})")
+    else:
+        assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
+        if action == "bfcache":
+            assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 1
+            page.evaluate(
+                "window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))"
+            )
+        else:
+            assert page.evaluate("PLOTSRV.state.compareCapture") is None

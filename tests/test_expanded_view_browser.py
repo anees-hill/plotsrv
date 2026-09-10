@@ -510,3 +510,22 @@ def test_table_scroll_position_and_checks_attention_survive_layout(page):
     page.wait_for_timeout(100)
     assert page.evaluate("holder.scrollTop===scrollPosition")
     assert page.locator("#header-check-attention").is_visible()
+
+
+@pytest.mark.parametrize("width,height", [(375, 667), (600, 400), (1366, 600)])
+def test_revealed_controls_leave_table_footer_inside_viewport(page, width, height):
+    mount(page)
+    page.set_viewport_size({"width": width, "height": height})
+    expand(page)
+    reveal(page)
+    page.wait_for_function("""() => {
+      const table=document.querySelector('.tabulator'), footer=table.querySelector('.tabulator-footer');
+      return footer && table.getBoundingClientRect().bottom <= innerHeight &&
+        footer.getBoundingClientRect().bottom <= innerHeight;
+    }""")
+    assert (
+        page.evaluate(
+            "getComputedStyle(document.querySelector('.tabulator')).minHeight"
+        )
+        == "0px"
+    )

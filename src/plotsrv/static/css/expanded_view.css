@@ -89,6 +89,7 @@ body.ps-expanded .ps-scroll-nav { display: none !important; }
 body.ps-expanded #table-plot-workspace { display: block; }
 body.ps-expanded .plot-frame { padding: 0; border: 0; background: transparent; min-height: 0; }
 body.ps-expanded .tabulator {
+  min-height: 0;
   height: calc(100dvh - var(--ps-expanded-top, 52px) - 28px) !important;
 }
 body.ps-expanded .table-scroll { max-height: calc(100dvh - var(--ps-expanded-top, 52px) - 28px); }
