@@ -54,6 +54,11 @@ benchmark = [
 [project.scripts]
 plotsrv = "plotsrv.cli_entry:main"
 
+[project.optional-dependencies]
+config = [
+    "textual>=8.2.8,<9",
+]
+
 [tool.coverage.run]
 source = ["plotsrv"]
 branch = true

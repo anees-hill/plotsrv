@@ -147,7 +147,19 @@ def _deep_merge_dicts(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str
 
 
 def get_section(section_key: str, *, strict: bool = False) -> dict[str, Any]:
-    cfg = load_config()
+    return effective_section(
+        load_config(), section_key, name=get_runtime_name(), strict=strict
+    )
+
+
+def effective_section(
+    cfg: dict[str, Any],
+    section_key: str,
+    *,
+    name: str | None = None,
+    strict: bool = False,
+) -> dict[str, Any]:
+    """Resolve an in-memory draft with exactly the runtime inheritance rules."""
     sec = cfg.get(section_key)
     if strict and sec is not None:
         if not isinstance(sec, dict):
@@ -157,7 +169,6 @@ def get_section(section_key: str, *, strict: bool = False) -> dict[str, Any]:
                 raise ValueError("configuration defaults/instances must be mappings")
     global_cfg, instances = _split_global_and_instances(sec)
 
-    name = get_runtime_name()
     if strict and name in instances and not isinstance(instances[name], dict):
         raise ValueError("selected configuration instance must be a mapping")
     if name and name in instances and isinstance(instances[name], dict):

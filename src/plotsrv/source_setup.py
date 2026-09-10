@@ -9,7 +9,7 @@ from typing import Sequence
 
 from . import settings
 from .cli_parser import WatchSpec
-from .connection_config import get_publisher_sources
+from .connection_config import PublisherSources, get_publisher_sources
 from .contracts import (
     MAX_CATALOGUE_VIEWS,
     ViewDescriptor,
@@ -43,8 +43,10 @@ def resolve_source_setup(
     watches: Sequence[WatchSpec] | None = None,
     selection: Sequence[str] | None = None,
     include_pruned: bool | None = None,
+    sources: PublisherSources | None = None,
+    config_dir: Path | None = None,
 ) -> SourceSetup:
-    cfg = get_publisher_sources()
+    cfg = sources if sources is not None else get_publisher_sources()
     messages = []
     if target is not None and cfg.discovery_target is not None:
         messages.append(
@@ -65,7 +67,7 @@ def resolve_source_setup(
         (
             Path.cwd()
             if target is not None
-            else (settings.get_runtime_config_dir() or Path.cwd())
+            else (config_dir or settings.get_runtime_config_dir() or Path.cwd())
         ),
         target is None and cfg.discovery_target is None,
     )

@@ -113,10 +113,16 @@ def _ids(value: object, name: str) -> tuple[str, ...]:
     return values
 
 
-def get_publisher_sources() -> PublisherSources:
+def get_publisher_sources(
+    *, section=None, base: Path | None = None
+) -> PublisherSources:
     """Config paths resolve beside config on the publisher; never open sources."""
     cfg = _mapping(
-        settings.get_section("publisher-settings", strict=True),
+        (
+            settings.get_section("publisher-settings", strict=True)
+            if section is None
+            else section
+        ),
         "publisher",
         {"destination", "discovery", "watch"},
     )
@@ -127,7 +133,9 @@ def get_publisher_sources() -> PublisherSources:
     if type(include_pruned) is not bool:
         raise ValueError("discovery include_pruned must be a boolean")
     target = discovery.get("target")
-    base = settings.get_runtime_config_dir() or Path.cwd()
+    base = (
+        base if base is not None else (settings.get_runtime_config_dir() or Path.cwd())
+    )
     if target is not None:
         bounded_text(target, "discovery target", 4096)
         # Preserve module/package[:callable] expressions. Explicit filesystem

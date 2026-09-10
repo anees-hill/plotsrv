@@ -58,3 +58,40 @@ def resolve_source_target(target: str | Path, *, base: Path | None = None) -> Pa
     raise ValueError(
         "Discovery target could not be resolved statically; choose an existing source path"
     )
+
+
+def find_project_root(start: Path) -> Path | None:
+    """
+    Walk upwards looking for something that indicates a Python project.
+    """
+    cur = start.resolve()
+    for _ in range(30):
+        if (cur / "pyproject.toml").is_file():
+            return cur
+        if (cur / "setup.cfg").is_file() or (cur / "setup.py").is_file():
+            return cur
+        if (cur / ".git").exists():
+            return cur
+        # Scope detection must not recursively scan before bounded discovery
+        # (or before its cancellation/progress reporting) has begun.
+        if (cur / "src").is_dir():
+            return cur
+
+        parent = cur.parent
+        if parent == cur:
+            break
+        cur = parent
+    return None
+
+
+def default_source_target() -> str:
+    """
+    If user runs `plotsrv run` with no target, use a safe project root.
+    """
+    root = find_project_root(Path.cwd())
+    if root is None:
+        raise ValueError(
+            "No target provided and no Python project detected in current directory or parents. "
+            "Run from a project directory (pyproject.toml/setup.cfg/.git), or pass an explicit target/path."
+        )
+    return str(root)
