@@ -438,3 +438,101 @@ For other browser surfaces, `PLOTSRV.core.snapshotNavigation` exposes shared
 `state`, `select(idOrNull)`, `move("older"|"newer")` and
 `loadMetadata(beforeCursor)` functions. They work without toolbar markup and
 share selection errors, latest-wins loading and pending-update protection.
+
+## Compare stored versions
+
+**Compare** beside the snapshot arrows opens a compact Timeline/List dock for
+one source. It displays one version at a time using the same renderer and
+snapshot navigator as the normal bar. Streams keep their separate Run history.
+The button becomes available when snapshot storage is admitted and versions
+exist; source-backed file views retain their existing separate capability.
+
+Previous selects the immediately older stored version. Next moves toward newer
+versions and eventually **Latest**, the current server state. Exact timestamps
+and stable snapshot IDs distinguish versions, including timestamp ties. Leaving
+Compare retains the selected historical version. Changing source exits Compare.
+Filters, grouping, plot presentation, Export scope and My view context remain
+with the existing renderer where compatible with the selected data.
+
+Use the date field, previous/next day, or calendar to browse stored metadata.
+The calendar marks dates with snapshots using dots. Its arrow keys move between
+days; List and previous/next snapshot controls provide precise keyboard access.
+Changing the displayed day does not change the viewed version. Empty dates,
+unavailable metadata and a selection outside the displayed day are explicit.
+The calendar can be tucked away to keep the dock low.
+
+All Compare dates and exact timestamps use **UTC (+00:00)**, independent of the
+browser timezone. Day boundaries are UTC midnight to the next calendar midnight.
+UTC has no daylight-saving transition: Europe/London's 23-hour/25-hour local days
+are deliberately not the displayed day. Repeated local times with different
+offsets become distinct UTC times. The existing live status modal can still show
+local source times; it is separate from the Compare date axis.
+
+Timeline plots the current metadata page within that fixed UTC day. List shows
+the exact timestamp, snapshot ID and kind for every item on the page. **Older on
+this day** replaces the current page; **First page** reloads its newest metadata.
+Pages contain at most 100 items, with the total count and displayed count shown.
+Dense coincident points remain distinct in List. These are stored snapshots,
+not a claim that every published update was saved. Metadata browsing never loads
+payloads; a body is read only when selected. Retention can remove one between
+those reads. A failed selection leaves the previous content where possible,
+keeps the requested selection, disables Export, and asks for an explicit choice.
+
+### Floating, pinned and collapsed bars
+
+The normal bar, Timeline and List share the same pin and collapse controls.
+**Pin bar to bottom** docks it to the viewport edge; **Unpin bar** returns the
+centred floating treatment. **Collapse bar** releases its reserved layout space
+and leaves a small bottom-centre restore handle. Restore keeps the current
+presentation, date, selection and pin state. Pin/collapse preferences use one
+small dashboard/path-scoped `sessionStorage` entry; denied storage still permits
+page-local operation. Compare selection itself is not persisted as a server
+session. Expanded view and Compare are mutually exclusive; handoff preserves
+the underlying selection and presentation.
+
+### Captured Latest and resource limits
+
+Inside Compare, **Latest** explicitly captures one coherent published
+representation. Later publications may show **New data available**, but cannot
+replace it, even through a forced browser update. Choose Latest again to capture
+current data. Exiting Compare keeps that captured representation protected;
+**Return to latest** in the normal bar releases it. Reloading the page starts
+normal navigation again. The header says **Latest captured** rather than claiming
+that this is a stored snapshot. Live source status and checks remain separately
+labelled and are never evaluated or advanced by Compare reads.
+
+The browser holds the bounded representation. There is no server pin cache,
+background capture, new persistent snapshot, timer-driven refresh or publication
+hook. Captured HTML fixes the served source; its own scripts and external assets
+retain their existing sandbox behavior. One candidate and the previous rendered representation may coexist while
+loading; superseded choices coalesce. Export uses the captured plot/artifact or
+table preview, not a later live source download. A table's captured Export option
+is labelled **Captured table preview**; filtered Export retains its existing scope.
+
+`GET /compare/latest?view=<id>` returns a version-1 envelope containing the source,
+render revision, capture's source timestamp/status, scope and rendered data. It
+uses existing history/status read permissions and snapshot admission. Two
+nonwaiting readers prepare data outside the publication lock, then verify the
+revision before returning it. A concurrent publication produces 409 and requires
+an explicit retry. There is no automatic capture retry loop.
+
+Limits are deliberately conservative: at most 1,000 table rows, 64 columns,
+20,000 inspected nodes, depth 16, 128 Ki characters per string, 1 MiB estimated
+input text/plot bytes and 4 MiB response bytes. Wider/nested tables can hit the
+node limit sooner. Table counts and the preview scope disclose omitted rows.
+Unsupported values, extension dtypes or oversized text/plots are refused before
+unbounded conversion; arbitrary repr/materialisation hooks are not invoked.
+Published objects should not be mutated in place after publication; the revision
+check detects store publications, not unannounced writes to a caller-owned object.
+The 250 ms preparation deadline is cooperative, not cancellation of a renderer.
+An active capture can temporarily retain its published source reference while
+preparing the detached bounded result; there is no retained background source.
+
+`GET /history/month?view=<id>&month=YYYY-MM` returns UTC date/count availability
+for one month. Day pages reuse `/history/navigation` with UTC `start`/`end` and
+its existing ordering, permissions and scan limits: two readers, 10,000 directory
+entries, 8 MiB metadata, 32 KiB per file and a cooperative 500 ms filesystem
+budget. Month/day requests scan metadata on demand; no idle index or unbounded
+history cache is added. The browser retains one month and one page, with one
+active metadata job and one replaceable intent. Large/corrupt histories can be
+refused explicitly instead of showing incomplete ordering as complete.
