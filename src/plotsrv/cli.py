@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Any, Literal
 
 from . import config, store
+from .source_targets import (
+    find_project_root as _find_project_root,
+    default_source_target as _default_run_target,
+)
 from .discovery import DiscoveredView, discover_views
 from .file_kinds import infer_file_kind
 from .storage.backend import (
@@ -270,28 +274,6 @@ def _get_restore_streams_hook():
     return _restore_streams
 
 
-def _find_project_root(start: Path) -> Path | None:
-    """
-    Walk upwards looking for something that indicates a Python project.
-    """
-    cur = start.resolve()
-    for _ in range(30):
-        if (cur / "pyproject.toml").is_file():
-            return cur
-        if (cur / "setup.cfg").is_file() or (cur / "setup.py").is_file():
-            return cur
-        if (cur / ".git").exists():
-            return cur
-        if (cur / "src").is_dir() and any((cur / "src").rglob("*.py")):
-            return cur
-
-        parent = cur.parent
-        if parent == cur:
-            break
-        cur = parent
-    return None
-
-
 def _client_host_for_bind_host(host: str) -> str:
     """
     Return the host plotsrv should use for internal client requests.
@@ -323,19 +305,6 @@ def _wait_for_server(host: str, port: int, *, timeout_s: float = 5.0) -> bool:
         except Exception:
             time.sleep(0.1)
     return False
-
-
-def _default_run_target() -> str:
-    """
-    If user runs `plotsrv run` with no target, use a safe project root.
-    """
-    root = _find_project_root(Path.cwd())
-    if root is None:
-        raise ValueError(
-            "No target provided and no Python project detected in current directory or parents. "
-            "Run from a project directory (pyproject.toml/setup.cfg/.git), or pass an explicit target/path."
-        )
-    return str(root)
 
 
 def _coerce_watch_specs(
@@ -1236,6 +1205,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(effective_argv)
 
+    if args.cmd == "config" and args.config_cmd == "init":
+        from .config_wizard import launch
+
+        return launch(args)
+
     apply_runtime_options(
         config=getattr(args, "config", None),
         name=getattr(args, "name", None),
@@ -1472,7 +1446,6 @@ def main(argv: list[str] | None = None) -> int:
         return _die(str(error))
     except KeyboardInterrupt:
         return 130
-
 
     start_server(
         host=args.host,

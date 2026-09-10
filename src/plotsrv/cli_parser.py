@@ -450,9 +450,28 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip confirmation prompt.",
     )
     config_p = sub.add_parser(
-        "config", help="Create configs or populate settings from discovered views"
+        "config",
+        help="Open the configuration wizard, create configs or populate view settings",
     )
     config_sub = config_p.add_subparsers(dest="config_cmd", required=True)
+
+    config_init_p = config_sub.add_parser(
+        "init", help="Keyboard configuration wizard (unsaved draft preview)"
+    )
+    config_init_p.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Optional package or path to focus discovery",
+    )
+    config_init_p.add_argument(
+        "--config",
+        default=None,
+        help="Existing config or draft path; otherwise detected plotsrv.yml/plotsrv.yaml",
+    )
+    config_init_p.add_argument(
+        "--name", default=None, help="Configuration instance to edit"
+    )
 
     config_create_p = config_sub.add_parser(
         "create",

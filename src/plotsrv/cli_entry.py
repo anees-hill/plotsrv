@@ -44,7 +44,7 @@ def _print_root_help() -> None:
         "  run     Discover and serve project views; optionally execute targets\n"
         "  watch   Watch a file and publish live updates as a view\n"
         "  store   Inspect or clear persisted views and snapshots\n"
-        "  config  Create configs or populate settings from discovered views\n"
+        "  config  Open the configuration wizard, create configs or populate settings\n"
         "\nRun 'plotsrv COMMAND --help' for command-specific options."
     )
 
@@ -59,6 +59,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args == ["--version"]:
         print(f"plotsrv {version('plotsrv')}")
         return 0
+
+    if args[:2] == ["config", "init"]:
+        # The optional configuration UI needs neither server nor renderer imports.
+        from .cli_parser import build_parser
+        from .config_wizard import launch
+
+        return launch(build_parser().parse_args(args))
 
     from .cli import main as full_main
 
