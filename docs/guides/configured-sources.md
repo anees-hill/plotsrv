@@ -1,8 +1,8 @@
 # Configured sources and discovery progress
 
 `plotsrv run` can use repeatable discovery and watch sources from its selected
-configuration file. The sources belong to the machine running `run` or a future
-publisher tool; `plotsrv serve` never scans or starts these watches.
+configuration file. The sources belong to the machine running `run` or `publish`;
+`plotsrv serve` never scans or starts these watches.
 
 ```yaml
 publisher-settings:
@@ -54,6 +54,26 @@ afterwards and wins. Discovery selection does not filter the watch set. Explicit
 view IDs survive registration and `config populate`, even when labels differ.
 Config population retains its existing merge/replace behaviour and respects the
 configuration's discovery selection.
+
+The keyboard configuration wizard writes `discovery.exact_selection` when saving
+its chosen IDs. When present, this list matches only logical IDs; an empty list
+skips discovery entirely. It takes precedence over legacy `selection`, whose
+empty list continues to mean all views. An explicit CLI `--include` replaces
+either configured selection. Optional `discovery.additional_ids` supplies reviewed
+manual/dynamic IDs for local registration, publishing and config population.
+These are logical identities, not filesystem paths. For example:
+
+```yaml
+publisher-settings:
+  discovery:
+    target: ./src
+    exact_selection: ["etl:orders"]
+    additional_ids: ["etl:runtime-only"]
+```
+
+Saving or loading these settings never seals a remote catalogue. A publisher
+still needs explicit `--seal-catalogue` after reviewing the complete union when
+initialising a locked receiver.
 
 Selection controls discovery, registration and config population. It does not
 stop application functions from executing, or prevent an active producer from

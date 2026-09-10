@@ -30,13 +30,13 @@ def launch(args) -> int:
 
     try:
         draft = Draft.load(config=args.config, name=args.name, target=args.target)
-        ConfigWizard(draft).run()
+        result = ConfigWizard(draft).run()
     except (ValueError, OSError):
         # YAML/IO exceptions may contain source lines, including credentials.
         print(
-            "Cannot open this configuration draft. Check the path and YAML mapping; aliases, duplicate keys and oversized/deep YAML are unsupported. No files changed.",
+            "Cannot open this configuration. Check the path and YAML mapping; aliases, duplicate keys and oversized/deep YAML are unsupported. Repair it manually or choose a new file with --config. No files changed.",
             file=sys.stderr,
         )
         return 2
-    print("Configuration draft closed without saving. No files changed.")
+    print(result or "Configuration draft closed without saving. No files changed.")
     return 0

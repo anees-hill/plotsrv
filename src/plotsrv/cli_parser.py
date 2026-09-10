@@ -456,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_sub = config_p.add_subparsers(dest="config_cmd", required=True)
 
     config_init_p = config_sub.add_parser(
-        "init", help="Keyboard configuration wizard (unsaved draft preview)"
+        "init", help="Keyboard configuration wizard with reviewed, backed-up saving"
     )
     config_init_p.add_argument(
         "target",

@@ -214,7 +214,7 @@ plotsrv run . \
 
 `auto` lets plotsrv choose based on the configured file-size threshold.
 
-## Configuration draft wizard
+## Configuration wizard
 
 Install the optional terminal interface explicitly, then open it:
 
@@ -224,20 +224,27 @@ plotsrv config init
 plotsrv config init ./src --config plotsrv.yml --name etl
 ```
 
-This first stage offers **Everything on this machine**, **Send data to another
-plotsrv server**, or **Host a plotsrv server**. It currently ends at an **unsaved
-draft preview**. Settings pages and saving are not available yet; closing the
-wizard changes no configuration or assets. Use `config create/populate` below
-when you need to write configuration now.
+Choose **Everything on this machine**, **Send data to another plotsrv server**,
+or **Host a plotsrv server**. Local setup proceeds through sources, storage and
+freshness, then offers Review and save or Advanced. Publisher setup offers a
+destination, key environment reference, watches, manual logical IDs and bounded
+publication/observation settings. Server setup covers bind, ingestion/admission,
+storage and freshness without requiring application source code.
 
-The host-only route skips source discovery. The other routes accept an optional
-package/path, otherwise use configured discovery or normal project detection.
-The source page accepts an HTTP(S) destination, a bearer-key **environment
-variable name**, and local watched files with stable logical IDs. It never tests
-the remote endpoint, reads the key value, registers views or seals a catalogue.
-Paths belong to the machine running this tool; config-relative paths resolve
-beside the selected config. An explicit command target starts relative to the
-working directory. Watched file contents are not read by the wizard.
+Storage and freshness start with on/off choices. Turning either off retains
+values you may re-enable. Storage exposes snapshot size/retention, watched-file
+storage, latest restore and queue settings. Freshness uses server receipt time:
+an unset warning threshold uses the expected interval; an unset overdue
+threshold uses twice the warning. Disabling disk storage does not disable
+in-memory stream summaries. Per-view editors use the same logical IDs, including
+configured/manual IDs when there is no local catalogue. Reset removes the local
+override and reveals inherited policy.
+
+Advanced covers Watch, Publish, Limits and server Security/Admission. Checks and
+webhooks offer modest controls and existing-schema guidance; they do not have a
+second rule language. Existing rules and destinations are validated and retained.
+For appearance, use `ui-settings`; the separate `plotsrv config ui` interface is
+not yet available in this build.
 
 | Keys | Action |
 | --- | --- |
@@ -246,36 +253,71 @@ working directory. Watched file contents are not read by the wizard.
 | Space | Toggle a discovered view |
 | a / c | Select all / clear all in the view list |
 | r, then e | Set a range anchor, move, select through its end |
-| Enter | Choose a role, continue from the view list, or activate a button |
-| Esc | Dismiss or go back; the first page asks before abandoning |
+| Enter | Choose, continue, or activate the focused button |
+| Esc | Dismiss or go back |
 | Left / Backspace | Go back outside text editors |
 | Ctrl+C / Ctrl+Q | Confirm abandonment |
 | ? / F1 | Help; use F1 while editing text |
 
-The help region explains the focused field, units, defaults and inheritance.
-An asterisk marks a departure from the built-in default. Text-entry keys retain
-their usual meaning; `q` is not a navigation shortcut. Panels scroll in small
-terminals. Discovery uses the existing bounded AST scanner without executing
-the application. One worker and a replaceable progress slot keep updates
-bounded; cancellation is cooperative, not a guarantee of interrupting a
-filesystem or parser operation mid-call. No scan timer remains after completion.
+Contextual help includes meaning, units, defaults and inheritance; an asterisk
+marks a departure from the displayed default. Input editing retains its normal
+keys, and small terminals use scrolling panels. No mouse is required.
 
-New setups select all discovered views, grouped by section. Existing configs
-start from their effective selection and retain the original bytes, unrelated
-settings and instance inheritance. Duplicates and unresolved declarations are
-shown for review; partial discovery is not presented as a complete catalogue.
-Clearing every view is an in-memory choice: the preview explicitly distinguishes
-it from runtime `selection: []`, which means all views. Skipping discovery skips
-this preview scan; it does not disable discovery in existing configuration.
+Discovery reads bounded AST source without importing the project. An optional
+package/path focuses it; otherwise the configured target or normal project root
+is used. New setups select all discovered views; existing setups start with the
+effective selection. Explicit IDs are preserved, and duplicate/unresolved or
+incomplete discovery is disclosed. The wizard saves `discovery.exact_selection`
+so clearing every view means no discovery and never accidentally means all.
+`discovery.additional_ids` records reviewed dynamic/manual publisher IDs.
+Legacy `selection` keeps its existing label/section/ID matching and empty-means-all
+behaviour when exact selection is absent. An explicit CLI `--include` overrides
+the configured selection. Watches and direct API publication are independent of
+AST selection.
 
-Config selection follows the existing resolver (`--config`, the configured
-environment selector, then `plotsrv.yml` before `plotsrv.yaml`); with no existing
-file the draft path is `./plotsrv.yml`. Use `--config` with custom filenames.
-The draft reader refuses malformed YAML, duplicate/non-string keys, aliases,
-nesting beyond 32 levels, more than 20,000 parser events, or files over 1 MiB.
-It does not silently reset unsupported files. Noninteractive invocations exit
-with guidance to `config create/populate`. The optional interface is lazy-loaded
-and never installs dependencies or accesses the network on invocation.
+The wizard never reads watched-file contents, tests a destination, reads secret
+values, registers views, seals a catalogue or changes a running service. Key and
+webhook-header settings use environment-variable names. Those values must exist
+on the machine starting the corresponding service; startup still validates them
+and fails closed when required values are absent. Locked servers may use a
+complete configured ID list, or await an explicit publisher bootstrap. An empty
+configured list seals a catalogue admitting no IDs. Review the complete union
+before using the generated `--seal-catalogue --reviewed` guidance.
+
+Config selection follows the existing resolver: explicit `--config`, environment
+selection, then `plotsrv.yml` before `plotsrv.yaml`. New drafts default to
+`./plotsrv.yml`. Choose an unused custom filename or edit an existing one with
+`--config`. The final screen supplies the applicable run/serve/publish command,
+including `--config` and the selected instance. CLI bind flags override saved
+server bind values for combined `run` as well as standalone `serve`.
+
+Before saving, inspect managed YAML values and their diff; unrelated content,
+comments and webhook endpoints are hidden from the review display. They are
+retained in the actual file. Confirmation writes a unique restrictive backup
+when replacing a file, then atomically replaces the target. New files use
+no-clobber creation. Nothing writes until confirmation. File identity, timestamps
+and content are checked against the review. If another editor changes the file,
+reload it for review with your draft edits retained; do not confirm until you have
+reviewed the new diff. Permission/write errors retain the previous target and
+your draft. Closing before saving or cancelling the confirmation leaves files unchanged.
+
+Edits preserve unrelated YAML bytes, comments, quoting and other instances.
+Appending a watch preserves existing list rows/comments. Ambiguous layouts,
+commented structures requiring destructive replacement, aliases, duplicate or
+non-string keys, unsupported tags, nesting beyond 32 levels, more than 20,000
+parser events, and files exceeding 1 MiB are refused with repair/new-file guidance.
+An existing config must remain in its original directory when saving under a new
+name, so unrelated relative paths cannot silently change meaning. New configs
+may use another existing directory; explicitly entered source/storage paths keep
+their original base. Directories are not created automatically. The draft allows
+at most 2,048 field edits in one session.
+
+Discovery has one cooperative worker and one replaceable progress slot; there is
+no idle scan polling after completion. A filesystem/parser call cannot be
+interrupted mid-call. Saving is synchronous, bounded local work in this optional
+configuration process. The optional interface is never loaded by publishers or
+servers and never installs dependencies on invocation. Noninteractive invocation
+exits with guidance to the unchanged `config create/populate` commands.
 
 ## Create config
 

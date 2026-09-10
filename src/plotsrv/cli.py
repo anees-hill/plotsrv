@@ -445,7 +445,12 @@ def _passive_register_views(
     *,
     excludes: set[str],
     includes: set[str],
-    watch_specs=(), quiet: bool = False, include_pruned: bool = False, unscoped: bool = False,
+    watch_specs=(),
+    quiet: bool = False,
+    include_pruned: bool = False,
+    unscoped: bool = False,
+    exact_selection=None,
+    additional_ids=(),
 ) -> None:
     """
     AST discovery + view registration only. Does NOT start server. Does NOT loop.
@@ -457,12 +462,29 @@ def _passive_register_views(
     from .discovery_progress import TerminalProgress
     from .source_setup import build_manifest
     progress = TerminalProgress(quiet=quiet, unscoped=unscoped)
-    discovered_all = discover_views(scan_root, on_progress=progress, on_issue=progress.issue, include_pruned=include_pruned)
+    discovered_all = (
+        []
+        if exact_selection == ()
+        else discover_views(
+            scan_root,
+            on_progress=progress,
+            on_issue=progress.issue,
+            include_pruned=include_pruned,
+        )
+    )
     discovered = [
         dv
         for dv in discovered_all
-        if _is_included(dv, includes) and not _is_excluded(dv, excludes)
+        if (
+            _is_included(dv, includes)
+            if exact_selection is None
+            else _view_id_for(dv) in exact_selection
+        )
+        and not _is_excluded(dv, excludes)
     ]
+    discovered.extend(
+        DiscoveredView("unknown", vid, None, vid) for vid in additional_ids
+    )
 
     # Validate the union before any registration; discovery does not send or seal.
     build_manifest(discovered, watches=watch_specs)
@@ -890,7 +912,10 @@ def _run_passive_server_forever(
     watch_encoding: str = "utf-8",
     watch_update_limit_s: int | None = None,
     watch_force: bool = False,
-    include_pruned: bool = False, unscoped: bool = False,
+    include_pruned: bool = False,
+    unscoped: bool = False,
+    exact_selection=None,
+    additional_ids=(),
 ) -> int:
     """
     Passive mode:
@@ -919,14 +944,21 @@ def _run_passive_server_forever(
 
     # Register all known views before the server can render the initial UI.
     try:
-        _passive_register_views(scan_root, excludes=excludes, includes=includes,
-                                watch_specs=watch_specs or (), quiet=quiet,
-                                include_pruned=include_pruned, unscoped=unscoped)
+        _passive_register_views(
+            scan_root,
+            excludes=excludes,
+            includes=includes,
+            watch_specs=watch_specs or (),
+            quiet=quiet,
+            include_pruned=include_pruned,
+            unscoped=unscoped,
+            exact_selection=exact_selection,
+            additional_ids=additional_ids,
+        )
     except ValueError as error:
         return _die(str(error))
     except KeyboardInterrupt:
         return 130
-
 
     restore_latest()
     restore_streams()
@@ -1217,6 +1249,16 @@ def main(argv: list[str] | None = None) -> int:
         no_truncate=bool(getattr(args, "no_truncate", False)),
     )
 
+    if args.cmd == "run":
+        try:
+            connection = config.get_server_connection_config()
+            if not args.host_supplied:
+                args.host = connection.bind_host
+            if not args.port_supplied:
+                args.port = connection.bind_port
+        except ValueError as error:
+            return _die(str(error))
+
     if args.cmd == "publish":
         from .publisher_agent import publish_command
         from .publishing.transport import TransportError
@@ -1405,10 +1447,22 @@ def main(argv: list[str] | None = None) -> int:
             from dataclasses import replace
             watch_specs = [replace(spec, materialization=args.watch_materialization) for spec in watch_specs]
         includes = set(sources.selection)
-        target = sources.target if sources.target is not None else _default_run_target()
+        target = (
+            str(Path.cwd())
+            if sources.exact_selection == ()
+            and getattr(args, "mode", "passive") == "passive"
+            else sources.target if sources.target is not None else _default_run_target()
+        )
         # Preserve explicit callable execution target; only its scan scope is static.
-        scan_root = (str(sources.scan_root(target)) if sources.target_base != Path.cwd()
-                     else _resolve_scan_root_for_passive(target))
+        scan_root = (
+            str(Path.cwd())
+            if sources.exact_selection == ()
+            else (
+                str(sources.scan_root(target))
+                if sources.target_base != Path.cwd()
+                else _resolve_scan_root_for_passive(target)
+            )
+        )
     except ValueError as error:
         return _die(str(error))
 
@@ -1429,7 +1483,10 @@ def main(argv: list[str] | None = None) -> int:
             watch_encoding=watch_encoding,
             watch_update_limit_s=watch_update_limit_s,
             watch_force=watch_force,
-            include_pruned=sources.include_pruned, unscoped=sources.unscoped,
+            include_pruned=sources.include_pruned,
+            unscoped=sources.unscoped,
+            exact_selection=sources.exact_selection,
+            additional_ids=sources.additional_ids,
         )
 
     # mode == "callable"
@@ -1439,9 +1496,17 @@ def main(argv: list[str] | None = None) -> int:
     client_host = _client_host_for_bind_host(args.host)
 
     try:
-        _passive_register_views(scan_root, excludes=excludes, includes=includes,
-                                watch_specs=watch_specs, quiet=args.quiet,
-                                include_pruned=sources.include_pruned, unscoped=sources.unscoped)
+        _passive_register_views(
+            scan_root,
+            excludes=excludes,
+            includes=includes,
+            watch_specs=watch_specs,
+            quiet=args.quiet,
+            include_pruned=sources.include_pruned,
+            unscoped=sources.unscoped,
+            exact_selection=sources.exact_selection,
+            additional_ids=sources.additional_ids,
+        )
     except ValueError as error:
         return _die(str(error))
     except KeyboardInterrupt:
