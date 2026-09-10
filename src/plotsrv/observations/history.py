@@ -120,13 +120,17 @@ def append(view_id, summary, *, revision, previous_revision, received_at):
         _LOCK.release()
 
 
-def read(view_id, *, revision):
+def read(view_id, *, revision, blocking=True):
     # Copy references to immutable bytes under the lock; decode outside it.
-    with _LOCK:
+    if not _LOCK.acquire(blocking=blocking):
+        raise RuntimeError("Observation history is busy")
+    try:
         source = _SOURCES.get(view_id)
         if source is None or source["revision"] != revision:
             return [], False
         entries, pruned = tuple(source["entries"]), source["pruned"]
+    finally:
+        _LOCK.release()
     return [json.loads(value) for value in entries], pruned
 
 

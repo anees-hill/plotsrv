@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import base64
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 import json
 import math
 import threading
 import time
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
@@ -20,6 +21,7 @@ MAX_BYTES = 4 * 1024 * 1024
 MAX_INPUT_BYTES = 1024 * 1024
 MAX_STRING = 128 * 1024
 MAX_NODES = 20_000
+MAX_JSON_RENDER_NODES = 256  # Rich JSON expands each input node into substantial HTML.
 MAX_ROWS = 1000
 MAX_COLUMNS = 64
 MAX_SECONDS = 0.25  # Cooperative; does not cancel a running renderer.
@@ -65,10 +67,21 @@ class Budget:
                 unavailable("Latest contains an unsupported integer.", 413)
         elif cls is float:
             if not math.isfinite(value):
-                return None
+                unavailable(
+                    "Latest contains non-finite numbers unsupported by inspection.", 413
+                )
         elif value is pd.NA or value is pd.NaT:
             return None
         elif cls in (pd.Timestamp, datetime, date):
+            # Even an exact datetime can carry arbitrary Python tzinfo callbacks.
+            if (
+                cls is not date
+                and value.tzinfo is not None
+                and type(value.tzinfo) not in (timezone, ZoneInfo)
+            ):
+                unavailable(
+                    "Latest contains a timezone unsupported by bounded inspection.", 413
+                )
             return self.copy(value.isoformat(), depth)
         elif cls.__module__ == "numpy" and isinstance(
             value, (np.integer, np.floating, np.bool_)
@@ -101,7 +114,6 @@ def _capture(view_id):
         st = store.get_view_state(view_id)
         revision, kind, artifact = st.render_revision, st.kind, st.artifact
         watched = st.watched_file
-        created = st.status.get("last_updated")
         total_rows = st.table_total_rows
         if kind == "stream":
             unavailable("Streams use their own session history.", 400)
@@ -111,13 +123,16 @@ def _capture(view_id):
             )
         if artifact is None:
             unavailable("No Latest revision is available.", 404)
+        created = artifact.created_at
     finally:
         store._STORE_LOCK.release()
 
     del st, watched
-    if created is not None and (type(created) is not str or len(created) > 64):
-        unavailable("Latest receipt metadata is unavailable.")
     budget = Budget()
+    created_token = created
+    created = budget.copy(created)
+    if type(created) is not str or len(created) > 64:
+        unavailable("Latest receipt metadata is unavailable.")
     result = {
         "version": 1,
         "server_instance_id": store.browser_update_hub.instance_id,
@@ -164,13 +179,36 @@ def _capture(view_id):
             "html": '<div class="plot-frame"><div id="table-grid"></div></div>',
         }
     else:
-        from .app import _render_artifact_response
+        from .app import _render_artifact_response, _current_observation_context
 
         detached = budget.copy(artifact.obj)
         artifact_kind = artifact.kind
         del artifact
+        observation = (
+            artifact_kind == "json"
+            and type(detached) is dict
+            and detached.get("type") == "plotsrv_observation"
+        )
+        if (
+            artifact_kind == "json"
+            and not observation
+            and budget.nodes > MAX_JSON_RENDER_NODES
+        ):
+            unavailable("JSON exceeds the bounded inspection rendering budget.", 413)
+        context = _current_observation_context(
+            view_id=view_id,
+            obj=detached,
+            kind_hint=artifact_kind,
+            revision=revision,
+            blocking=False,
+        )
+        if context is not None:
+            context = budget.copy(context)
         result["artifact"] = _render_artifact_response(
-            view_id=view_id, obj=detached, kind_hint=artifact_kind
+            view_id=view_id,
+            obj=detached,
+            kind_hint=artifact_kind,
+            observation_context=context,
         )
         # Source download links describe mutable live data, not this captured representation.
         result["artifact"].get("meta", {}).pop("source_download_url", None)
@@ -190,7 +228,12 @@ def _capture(view_id):
     if not store._STORE_LOCK.acquire(blocking=False):
         unavailable()
     try:
-        if store.get_render_revision(view_id=view_id) != revision:
+        current = store.get_view_state(view_id)
+        if (
+            current.render_revision != revision
+            or current.artifact is None
+            or current.artifact.created_at is not created_token
+        ):
             unavailable()
     finally:
         store._STORE_LOCK.release()

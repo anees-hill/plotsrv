@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from functools import wraps
 import threading
@@ -760,6 +760,15 @@ def mark_restored(
 
     if last_updated:
         st.status["last_updated"] = last_updated
+        # The immutable artifact owns its content timestamp, independently of
+        # later success/error status updates. Restore that provenance as well.
+        original = (
+            _parse_iso_utc(last_updated)
+            if type(last_updated) is str and len(last_updated) <= 64
+            else None
+        )
+        if original is not None and st.artifact is not None:
+            st.artifact = replace(st.artifact, created_at=original)
 
     st.status["last_error"] = None
     st.status["restored_from_storage"] = True

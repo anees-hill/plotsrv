@@ -212,7 +212,11 @@ def _render_artifact_response(
     snapshot_id: str | None = None,
     observation_context=None,
 ) -> dict[str, Any]:
-    if kind_hint == "json" and type(obj) is dict and obj.get("type") == "plotsrv_observation":
+    if (
+        kind_hint == "json"
+        and type(obj) is dict
+        and obj.get("type") == "plotsrv_observation"
+    ):
         from .observations.rendering import render_observation
         entries, pruned = observation_context or ([], False)
         from .ingestion import state as ingestion_state
@@ -253,6 +257,19 @@ def _render_artifact_response(
     return out
 
 
+def _current_observation_context(*, view_id, obj, kind_hint, revision, blocking=True):
+    """Share the bounded revision-aware evidence used by live and captured views."""
+    if (
+        kind_hint == "json"
+        and type(obj) is dict
+        and obj.get("type") == "plotsrv_observation"
+    ):
+        from .observations.history import read
+
+        return read(view_id, revision=revision, blocking=blocking)
+    return None
+
+
 def _render_current_artifact_response(
     *,
     view_id: str,
@@ -268,10 +285,9 @@ def _render_current_artifact_response(
     if cached is not None:
         return cached
 
-    observation_context = None
-    if kind_hint == "json" and type(obj) is dict and obj.get("type") == "plotsrv_observation":
-        from .observations.history import read
-        observation_context = read(view_id, revision=revision)
+    observation_context = _current_observation_context(
+        view_id=view_id, obj=obj, kind_hint=kind_hint, revision=revision
+    )
     rendered = _render_artifact_response(
         view_id=view_id,
         obj=obj,

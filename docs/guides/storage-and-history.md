@@ -510,7 +510,10 @@ table preview, not a later live source download. A table's captured Export optio
 is labelled **Captured table preview**; filtered Export retains its existing scope.
 
 `GET /compare/latest?view=<id>` returns a version-1 envelope containing the source,
-render revision, capture's source timestamp/status, scope and rendered data. It
+render revision, the artifact's content timestamp/status, scope and rendered data.
+Later success/error status updates do not relabel that content timestamp; restored
+artifacts retain their original timestamp. Observation captures include the same
+bounded, revision-aware recent evidence used by the live renderer. It
 uses existing history/status read permissions and snapshot admission. Two
 nonwaiting readers prepare data outside the publication lock, then verify the
 revision before returning it. A concurrent publication produces 409 and requires
@@ -522,6 +525,14 @@ input text/plot bytes and 4 MiB response bytes. Wider/nested tables can hit the
 node limit sooner. Table counts and the preview scope disclose omitted rows.
 Unsupported values, extension dtypes or oversized text/plots are refused before
 unbounded conversion; arbitrary repr/materialisation hooks are not invoked.
+Non-finite numbers (including NaN and infinities) are refused rather than silently
+converted to null. Datetime timezones must be absent, an exact standard-library
+`datetime.timezone`, or an exact `zoneinfo.ZoneInfo`; custom timezone callbacks
+are never invoked. Generic JSON has a stricter 256-node preparation limit before
+rich HTML rendering, including keys and container nodes, because its markup can
+be much larger than its input. Validated observation summaries use their existing
+bounded renderer instead. Recent observation context shares the capture budget;
+busy history or excessive context requires an explicit retry or smaller input.
 Published objects should not be mutated in place after publication; the revision
 check detects store publications, not unannounced writes to a caller-owned object.
 The 250 ms preparation deadline is cooperative, not cancellation of a renderer.
