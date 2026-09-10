@@ -558,7 +558,7 @@ data, snapshot IDs or presentation settings.
 
 Expansion uses the existing renderer and controls. It adds no polling, payload
 requests or publisher work. Resize handling coalesces into one animation frame;
-its size observer is active only while expanded. Future Compare integration
-can use `PLOTSRV.core.expandedView.prepareForCompare()` before opening its dock,
-and hold `PLOTSRV.state.compareActive` while open to keep the two layouts
-mutually exclusive without changing the selected data.
+its size observer is active only while expanded. Expanded view and
+[Compare](storage-and-history.md#compare-stored-versions) remain mutually
+exclusive: opening Compare exits expansion, and Expand view exits Compare
+while preserving the inspected version.
