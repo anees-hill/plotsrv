@@ -19,6 +19,7 @@ class TextPayload:
 
 class TextRenderer:
     kind = "text"
+    supports_source_info = True
 
     def can_render(self, obj: Any) -> bool:
         return isinstance(obj, (str, bytes, bytearray, TextPayload))
@@ -26,9 +27,10 @@ class TextRenderer:
     def _get_max_chars(self, *, view_id: str) -> int | None:
         return config.get_truncation_max_chars("text", view_id=view_id)
 
-    def render(self, obj: Any, *, view_id: str) -> RenderResult:
+    def render(self, obj: Any, *, view_id: str, source_info=None) -> RenderResult:
         text, anchor = _to_text_and_anchor(obj)
 
+        anchor = (source_info or {}).get("anchor", anchor)
         max_chars = self._get_max_chars(view_id=view_id)
         if max_chars is None:
             out = text
@@ -42,6 +44,25 @@ class TextRenderer:
                 anchor=anchor,
             )
 
+        from .syntax import highlight, presentation
+
+        language, style = presentation(view_id, source_info)
+        coloured = (
+            highlight(
+                out,
+                language,
+                partial_tail=anchor == "tail"
+                and ((source_info or {}).get("partial", False) or truncation.truncated),
+            )
+            if language
+            else None
+        )
+        markup = (
+            coloured.html
+            if coloured and coloured.html is not None
+            else _escape_html(out)
+        )
+        code_ready = coloured is not None and coloured.html is not None
         toolbar = """
         <div class="ps-text-shell">
           <div class="artifact-toolbar ps-text-toolbar" data-plotsrv-toolbar="text">
@@ -64,6 +85,7 @@ class TextRenderer:
                   <span class="ps-text-style-menu__heading">Highlighting</span>
                   <button type="button" role="menuitemradio" data-plotsrv-text-style="auto" aria-checked="false"><span>Auto</span><small>Detect a useful style</small></button>
                   <button type="button" role="menuitemradio" data-plotsrv-text-style="plain" aria-checked="false"><span>None / Plain</span><small>Show unstyled text</small></button>
+                  <button type="button" role="menuitemradio" data-plotsrv-text-style="code" aria-checked="false"><span>Source code</span><small>Filename / configured language</small></button>
                   <button type="button" role="menuitemradio" data-plotsrv-text-style="http" aria-checked="false"><span>HTTP / access log</span><small>Methods, paths and statuses</small></button>
                   <button type="button" role="menuitemradio" data-plotsrv-text-style="application" aria-checked="false"><span>Application log</span><small>Levels and logger names</small></button>
                   <button type="button" role="menuitemradio" data-plotsrv-text-style="timestamp" aria-checked="false"><span>Timestamp + severity</span><small>Times and log levels</small></button>
@@ -87,9 +109,15 @@ class TextRenderer:
         pre = (
             f'<pre class="plotsrv-pre ps-text-pre" '
             f'data-plotsrv-pre="1" '
-            f'data-plotsrv-text-anchor="{anchor}">{_escape_html(out)}</pre>'
+            f'data-plotsrv-text-anchor="{anchor}" data-plotsrv-syntax="{int(code_ready)}" '
+            f'data-plotsrv-style-default="{_escape_attr(style)}">{markup}</pre>'
         )
-        html = f"{toolbar}\n{pre}\n</div>"
+        note = (
+            f'<div class="note">{_escape_html(coloured.reason)}</div>'
+            if coloured and coloured.reason
+            else ""
+        )
+        html = f"{toolbar}\n{note}\n{pre}\n</div>"
 
         return RenderResult(
             kind=self.kind,

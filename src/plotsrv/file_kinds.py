@@ -18,12 +18,20 @@ FileKind = Literal[
     "image",
     "html",
     "unknown",
+    "python",
 ]
 
 PublishKind = Literal["artifact", "table"]
 
 ArtifactKind = Literal[
-    "text", "json", "markdown", "image", "html", "watch_error", "publish_error"
+    "text",
+    "json",
+    "python",
+    "markdown",
+    "image",
+    "html",
+    "watch_error",
+    "publish_error",
 ]
 
 
@@ -42,6 +50,8 @@ class FileCoerceResult:
 def infer_file_kind(path: Path) -> FileKind:
     suf = path.suffix.lower()
 
+    if suf in (".py", ".pyi"):
+        return "python"
     if suf == ".json":
         return "json"
     if suf in (".ini", ".cfg"):
@@ -310,29 +320,9 @@ def coerce_file_to_publishable(
     txt = raw.decode(encoding, errors="replace")
     return FileCoerceResult(
         publish_kind="artifact",
-        artifact_kind="text",
+        artifact_kind="python" if fk == "python" else "text",
         obj=txt,
         file_kind=fk,
-    )
-
-    if fk == "image":
-        import base64
-
-        mime = _infer_image_mime(path)
-        data_b64 = base64.b64encode(raw).decode("ascii")
-        payload = {"mime": mime, "data_b64": data_b64, "filename": path.name}
-        return FileCoerceResult(
-            publish_kind="artifact",
-            artifact_kind="image",
-            obj=payload,
-            file_kind=fk,
-            mime=mime,
-        )
-
-    txt = raw.decode(encoding, errors="replace")
-    return FileCoerceResult(
-        publish_kind="artifact",
-        artifact_kind="text",
-        obj=txt,
-        file_kind=fk,
+        source_format=fk,
+        source_filename=path.name,
     )

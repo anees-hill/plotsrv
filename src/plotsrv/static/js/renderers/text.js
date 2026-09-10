@@ -11,12 +11,13 @@
   const MAX_CLASSIFY_CHARS = 16000;
   const MAX_CLASSIFY_LINES = 80;
   const STYLE_PRESETS = [
-    "auto", "plain", "http", "application", "timestamp", "syslog",
+    "auto", "plain", "code", "http", "application", "timestamp", "syslog",
     "container", "test", "traceback", "keyvalue",
   ];
   const STYLE_LABELS = {
     auto: "Auto",
     plain: "Plain",
+    code: "Source code",
     http: "HTTP",
     application: "Application",
     timestamp: "Timestamp",
@@ -329,6 +330,11 @@
       if (effective === "plain") {
         pre.textContent = text;
         pre.classList.remove("plotsrv-pre--coloured");
+      } else if (effective === "code") {
+        pre.innerHTML = state.highlightedHtml
+          ? (state.reverseEnabled ? reverseLines(state.highlightedHtml) : state.highlightedHtml)
+          : core.escapeHtml(text);
+        pre.classList.add("plotsrv-pre--coloured");
       } else {
         pre.innerHTML = highlightText(text, effective);
         pre.classList.add("plotsrv-pre--coloured");
@@ -374,10 +380,17 @@
       wrapEnabled: !!prefs.wrap_enabled,
       reverseEnabled: !!prefs.reverse_enabled,
       stylePreset: stylePreset,
-      detectedStyle: classifyTextStyle(originalText),
+      highlightedHtml: pre.getAttribute("data-plotsrv-syntax") === "1" ? pre.innerHTML : null,
+      detectedStyle: pre.getAttribute("data-plotsrv-syntax") === "1" ? "code" : classifyTextStyle(originalText),
       appliedText: null,
       appliedStyle: null,
     };
+    try {
+      if (!localStorage.getItem("plotsrv:v2:text_prefs:" + (config.activeViewId || "default"))) {
+        const initial = pre.getAttribute("data-plotsrv-style-default");
+        if (initial) state.stylePreset = normalizeStylePreset(initial);
+      }
+    } catch (_) {}
     root._plotsrvTextState = state;
     applyTextState(root, state);
 

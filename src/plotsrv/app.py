@@ -251,7 +251,12 @@ def _render_artifact_response(
             ),
         )
     else:
-        rr = render_any(obj, view_id=view_id, kind_hint=kind_hint)
+        rr = render_any(
+            obj,
+            view_id=view_id,
+            kind_hint=kind_hint,
+            source_info=(meta or {}).get("source_info"),
+        )
 
     out_meta: dict[str, Any] = {}
     out_meta.update(rr.meta or {})
@@ -613,6 +618,7 @@ def _render_file_backed_artifact_response(*, view_id: str) -> dict[str, Any]:
             "watch": True,
             **_public_watched_file_meta(meta),
             "preview_bytes": len(preview.raw),
+            "source_info": preview.source_info,
             **_watched_file_source_meta(view_id=view_id),
         },
     )
@@ -1405,8 +1411,11 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
 
     try:
         description = received_description(payload)
+        from .source_info import validate as validate_source_info
+
+        source_info = validate_source_info(payload.get("source_info"))
     except (ValueError, TypeError):
-        raise HTTPException(422, "Invalid source description") from None
+        raise HTTPException(422, "Invalid source metadata") from None
     kind = str(payload.get("kind") or "").strip().lower()
     if kind not in ("plot", "table", "artifact"):
         raise HTTPException(
@@ -1598,6 +1607,7 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
                 label=label,
                 view_id=view_id,
                 publish_source=publish_source,
+                source_info=source_info,
             )
             store.mark_success(
                 duration_s=None,
@@ -1613,6 +1623,7 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
                 section=section if isinstance(section, str) else None,
                 label=label if isinstance(label, str) else None,
                 source=publish_source,
+                **({"extra": {"source_info": source_info}} if source_info else {}),
             )
 
             return {"ok": True, "ignored": False, "view_id": view_id}
@@ -1823,6 +1834,7 @@ def get_artifact(
             meta={
                 "snapshot": True,
                 "snapshot_meta": _snapshot_summary_dict(loaded.meta),
+                "source_info": (loaded.meta.extra or {}).get("source_info"),
             },
         )
 
@@ -1849,7 +1861,10 @@ def get_artifact(
         view_id=vid,
         obj=art.obj,
         kind_hint=art.kind,
-        meta=watched_meta,
+        meta={
+            **(watched_meta or {}),
+            **({"source_info": art.source_info} if art.source_info else {}),
+        },
         revision=revision,
     )
     from .remote_watch import public_meta

@@ -13,91 +13,6 @@
   const renderers = window.PLOTSRV.renderers;
   const config = window.PLOTSRV.config;
 
-  const KEYWORDS = new Set([
-    "and",
-    "as",
-    "assert",
-    "async",
-    "await",
-    "break",
-    "case",
-    "class",
-    "continue",
-    "def",
-    "del",
-    "elif",
-    "else",
-    "except",
-    "finally",
-    "for",
-    "from",
-    "global",
-    "if",
-    "import",
-    "in",
-    "is",
-    "lambda",
-    "match",
-    "nonlocal",
-    "not",
-    "or",
-    "pass",
-    "raise",
-    "return",
-    "try",
-    "while",
-    "with",
-    "yield",
-  ]);
-
-  const CONSTANTS = new Set(["True", "False", "None", "Ellipsis", "NotImplemented"]);
-
-  const BUILTINS = new Set([
-    "abs",
-    "all",
-    "any",
-    "bool",
-    "bytes",
-    "callable",
-    "dict",
-    "dir",
-    "enumerate",
-    "filter",
-    "float",
-    "format",
-    "frozenset",
-    "getattr",
-    "hasattr",
-    "int",
-    "isinstance",
-    "issubclass",
-    "iter",
-    "len",
-    "list",
-    "map",
-    "max",
-    "min",
-    "next",
-    "object",
-    "open",
-    "print",
-    "property",
-    "range",
-    "repr",
-    "reversed",
-    "round",
-    "set",
-    "setattr",
-    "slice",
-    "sorted",
-    "str",
-    "sum",
-    "super",
-    "tuple",
-    "type",
-    "zip",
-  ]);
-
   function prefsKey() {
     const viewId = String(config.activeViewId || "default").trim() || "default";
     return "plotsrv:v2:code_prefs:" + viewId;
@@ -181,128 +96,6 @@
     return lines.length ? lines : [""];
   }
 
-  function isIdentStart(ch) {
-    return /[A-Za-z_]/.test(ch);
-  }
-
-  function isIdentPart(ch) {
-    return /[A-Za-z0-9_]/.test(ch);
-  }
-
-  function consumeString(line, start) {
-    const quote = line[start];
-    const isTriple =
-      line[start + 1] === quote &&
-      line[start + 2] === quote;
-
-    let i = start + (isTriple ? 3 : 1);
-
-    while (i < line.length) {
-      if (line[i] === "\\") {
-        i += 2;
-        continue;
-      }
-
-      if (isTriple) {
-        if (
-          line[i] === quote &&
-          line[i + 1] === quote &&
-          line[i + 2] === quote
-        ) {
-          return i + 3;
-        }
-        i += 1;
-        continue;
-      }
-
-      if (line[i] === quote) {
-        return i + 1;
-      }
-
-      i += 1;
-    }
-
-    return line.length;
-  }
-
-  function consumeNumber(line, start) {
-    const m = line.slice(start).match(/^(0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|\d[\d_]*(\.\d[\d_]*)?([eE][+-]?\d[\d_]*)?j?)/);
-    return m ? start + m[0].length : start + 1;
-  }
-
-  function highlightPythonLine(line) {
-    let out = "";
-    let i = 0;
-
-    while (i < line.length) {
-      const ch = line[i];
-
-      if (ch === "#") {
-        out += '<span class="ps-code-token ps-code-token--comment">' +
-          escapeHtml(line.slice(i)) +
-          "</span>";
-        break;
-      }
-
-      if (ch === "'" || ch === '"') {
-        const end = consumeString(line, i);
-        out += '<span class="ps-code-token ps-code-token--string">' +
-          escapeHtml(line.slice(i, end)) +
-          "</span>";
-        i = end;
-        continue;
-      }
-
-      if (ch === "@" && isIdentStart(line[i + 1] || "")) {
-        let j = i + 1;
-        while (j < line.length && isIdentPart(line[j])) j += 1;
-
-        out += '<span class="ps-code-token ps-code-token--decorator">' +
-          escapeHtml(line.slice(i, j)) +
-          "</span>";
-        i = j;
-        continue;
-      }
-
-      if (/[0-9]/.test(ch)) {
-        const end = consumeNumber(line, i);
-        out += '<span class="ps-code-token ps-code-token--number">' +
-          escapeHtml(line.slice(i, end)) +
-          "</span>";
-        i = end;
-        continue;
-      }
-
-      if (isIdentStart(ch)) {
-        let j = i + 1;
-        while (j < line.length && isIdentPart(line[j])) j += 1;
-
-        const word = line.slice(i, j);
-        let klass = "";
-
-        if (KEYWORDS.has(word)) klass = "ps-code-token--keyword";
-        else if (CONSTANTS.has(word)) klass = "ps-code-token--constant";
-        else if (BUILTINS.has(word)) klass = "ps-code-token--builtin";
-
-        if (klass) {
-          out += '<span class="ps-code-token ' + klass + '">' +
-            escapeHtml(word) +
-            "</span>";
-        } else {
-          out += escapeHtml(word);
-        }
-
-        i = j;
-        continue;
-      }
-
-      out += escapeHtml(ch);
-      i += 1;
-    }
-
-    return out;
-  }
-
   function renderCode(root, state) {
     const pre = root.querySelector("[data-plotsrv-code-pre='1']");
     const code = root.querySelector("[data-plotsrv-code-content='1']");
@@ -310,11 +103,12 @@
 
     const lines = splitLines(state.originalText);
     const parts = [];
+    const colouredLines = state.highlightedHtml ? splitLines(state.highlightedHtml) : null;
 
     for (let i = 0; i < lines.length; i += 1) {
       const rawLine = lines[i];
-      const lineHtml = state.highlightEnabled
-        ? highlightPythonLine(rawLine)
+      const lineHtml = state.highlightEnabled && colouredLines
+        ? colouredLines[i] || ""
         : escapeHtml(rawLine);
 
       parts.push(
@@ -328,7 +122,10 @@
       );
     }
 
-    code.innerHTML = parts.join("");
+    if (state.appliedHighlight !== state.highlightEnabled) {
+      code.innerHTML = parts.join("");
+      state.appliedHighlight = state.highlightEnabled;
+    }
     pre.classList.toggle("ps-code-pre--wrap", !!state.wrapEnabled);
     pre.classList.toggle(
       "ps-code-pre--no-lines",
@@ -370,9 +167,14 @@
     toolbar.setAttribute("data-plotsrv-bound", "1");
 
     const prefs = loadCodePrefs();
+    try { if (!localStorage.getItem(prefsKey())) prefs.highlight_enabled = code.getAttribute("data-plotsrv-code-default") !== "0"; } catch (_) {}
 
+    let originalText = code.textContent || "";
+    try { if (code.hasAttribute("data-plotsrv-code-raw")) originalText = JSON.parse(code.getAttribute("data-plotsrv-code-raw")); } catch (_) {}
     const state = {
-      originalText: code.textContent || "",
+      originalText,
+      highlightedHtml: code.getAttribute("data-plotsrv-code-highlighted") === "1" ? code.innerHTML : null,
+      appliedHighlight: null,
       wrapEnabled: !!prefs.wrap_enabled,
       highlightEnabled: !!prefs.highlight_enabled,
       lineNumbersEnabled: !!prefs.line_numbers_enabled,

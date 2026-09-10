@@ -39,3 +39,4 @@ class Artifact:
     view_id: str | None = None
 
     truncation: Truncation | None = None
+    source_info: dict[str, Any] | None = None

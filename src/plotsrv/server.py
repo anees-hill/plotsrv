@@ -292,6 +292,7 @@ def _restore_latest_loaded_view(loaded: Any) -> None:
 
     store.set_artifact(
         obj=loaded.obj,
+        source_info=(meta.extra or {}).get("source_info"),
         kind=kind,  # type: ignore[arg-type]
         label=meta.label,
         section=meta.section,

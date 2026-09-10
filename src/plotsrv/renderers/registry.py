@@ -91,7 +91,9 @@ def choose_renderer(obj: Any, *, kind_hint: str | None = None) -> Renderer | Non
     return None
 
 
-def render_any(obj: Any, *, view_id: str, kind_hint: str | None = None) -> RenderResult:
+def render_any(
+    obj: Any, *, view_id: str, kind_hint: str | None = None, source_info=None
+) -> RenderResult:
     r = choose_renderer(obj, kind_hint=kind_hint)
     if r is None:
         # fallback: repr
@@ -103,6 +105,8 @@ def render_any(obj: Any, *, view_id: str, kind_hint: str | None = None) -> Rende
             truncation=Truncation(truncated=False),
             meta={"fallback": True},
         )
+    if source_info and getattr(r, "supports_source_info", False):
+        return r.render(obj, view_id=view_id, source_info=source_info)
     return r.render(obj, view_id=view_id)
 
 

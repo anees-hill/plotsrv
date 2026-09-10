@@ -86,6 +86,7 @@ class WatchPublishPayload:
     artifact: Any = None
     artifact_kind: str | None = None
     table_df: Any = None
+    source_info: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +94,7 @@ class FileBackedArtifactPreview:
     artifact: Any
     artifact_kind: str
     raw: bytes
+    source_info: dict | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -613,7 +615,9 @@ def build_watched_file_meta(
     return store.WatchedFileMeta(
         view_id=registered.view_id,
         path=str(registered.path),
-        file_kind=infer_file_kind(registered.path),
+        file_kind=(
+            spec.kind if spec.kind != "auto" else infer_file_kind(registered.path)
+        ),
         read_mode=registered.read_mode,
         encoding=spec.encoding,
         materialization=materialization,
@@ -709,8 +713,8 @@ def watch_config_from_meta(meta: store.WatchedFileMeta) -> WatchConfig:
     """
     kind: WatchKind = "auto"
 
-    if meta.file_kind == "json":
-        kind = "json"
+    if meta.file_kind in ("json", "text"):
+        kind = meta.file_kind
 
     return WatchConfig(
         path=meta.path,
@@ -774,6 +778,7 @@ def read_file_backed_artifact_preview(
         artifact=payload.artifact,
         artifact_kind=payload.artifact_kind or "text",
         raw=raw,
+        source_info=payload.source_info,
     )
 
 
@@ -1111,8 +1116,12 @@ def register_watch_views(
 
 def default_watch_read_mode(path: Path) -> WatchReadMode:
     fk = infer_file_kind(path)
+    from .source_info import LANGUAGES
 
+    if path.suffix.lower().lstrip(".") in LANGUAGES:
+        return "head"
     if fk in {
+        "python",
         "csv",
         "json",
         "yaml",
@@ -1315,7 +1324,7 @@ def truncate_watch_text_like_artifact(
     if ak in {"watch_error", "publish_error"}:
         return artifact
 
-    if ak not in {"text", "markdown", "html"}:
+    if ak not in {"text", "python", "markdown", "html"}:
         return artifact
 
     if not isinstance(artifact, str):
@@ -1345,6 +1354,7 @@ def build_watch_publish_payload(
     max_bytes: int | None,
     max_rows: int | None = None,
     max_columns: int | None = None,
+    source_size_bytes: int | None = None,
 ) -> WatchPublishPayload:
     """
     Convert watched-file bytes into a prepared publish payload.
@@ -1353,6 +1363,18 @@ def build_watch_publish_payload(
     and background watch threads prepare watched files in the same way.
     """
     p = Path(path).expanduser().resolve()
+    from .source_info import for_file
+
+    info = for_file(
+        p.name,
+        anchor=read_mode,
+        partial=(
+            len(raw) < source_size_bytes
+            if source_size_bytes is not None
+            else read_mode == "tail"
+            or (max_bytes is not None and len(raw) >= max_bytes)
+        ),
+    )
     rows_limit = config.get_table_truncate_rows() if max_rows is None else max_rows
     columns_limit = (
         config.get_table_truncate_columns() if max_columns is None else max_columns
@@ -1370,6 +1392,7 @@ def build_watch_publish_payload(
             kind="artifact",
             artifact=artifact,
             artifact_kind="text",
+            source_info=info,
         )
 
     if watch_config.kind == "json":
@@ -1424,6 +1447,7 @@ def build_watch_publish_payload(
             kind="artifact",
             artifact=obj_to_publish,
             artifact_kind=artifact_kind,
+            source_info=info,
         )
 
     except Exception as e:
@@ -1449,6 +1473,7 @@ def publish_watch_payload(
     table_df: Any = None,
     update_limit_s: int | None = None,
     force: bool = False,
+    source_info: dict | None = None,
 ) -> bool:
     payload: dict[str, Any] = {
         "kind": kind,
@@ -1462,6 +1487,8 @@ def publish_watch_payload(
     if kind == "artifact":
         payload["artifact"] = artifact
         payload["artifact_kind"] = artifact_kind or "text"
+        if source_info is not None:
+            payload["source_info"] = source_info
 
     elif kind == "table":
         import pandas as pd
@@ -1589,6 +1616,7 @@ def publish_prepared_watch_payload(
             artifact=payload.artifact,
             artifact_kind=payload.artifact_kind,
             table_df=payload.table_df,
+            **({"source_info": payload.source_info} if payload.source_info else {}),
             update_limit_s=update_limit_s,
             force=force,
         )
@@ -1736,6 +1764,7 @@ def start_watch_threads(
                     watch_config=watch_config,
                     read_mode=registered_view.read_mode,
                     max_bytes=watch_max_bytes,
+                    source_size_bytes=sig[-1],
                     max_rows=config.get_table_truncate_rows(),
                     max_columns=config.get_table_truncate_columns(),
                 )

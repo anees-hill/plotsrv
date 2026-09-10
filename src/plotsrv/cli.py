@@ -166,6 +166,7 @@ def _publish_watch_payload(
     table_df: Any = None,
     update_limit_s: int | None = None,
     force: bool = False,
+    source_info: dict | None = None,
 ) -> None:
     payload: dict[str, Any] = {
         "kind": kind,
@@ -179,6 +180,8 @@ def _publish_watch_payload(
     if kind == "artifact":
         payload["artifact"] = artifact
         payload["artifact_kind"] = artifact_kind or "text"
+        if source_info is not None:
+            payload["source_info"] = source_info
 
     elif kind == "table":
         import pandas as pd
@@ -1164,6 +1167,7 @@ def _run_watch_mode(
             payload = build_watch_publish_payload(
                 path=p,
                 raw=raw,
+                source_size_bytes=sig[-1] if sig else None,
                 watch_config=watch_config,
                 read_mode=mode,
                 max_bytes=max_bytes,
@@ -1181,6 +1185,11 @@ def _run_watch_mode(
                     artifact=payload.artifact,
                     artifact_kind=payload.artifact_kind,
                     table_df=payload.table_df,
+                    **(
+                        {"source_info": payload.source_info}
+                        if payload.source_info
+                        else {}
+                    ),
                     update_limit_s=update_limit_s,
                     force=force,
                 )

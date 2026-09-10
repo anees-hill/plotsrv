@@ -196,6 +196,7 @@ def _capture(view_id):
 
         detached = budget.copy(artifact.obj)
         artifact_kind = artifact.kind
+        source_hints = budget.copy(artifact.source_info)
         del artifact
         observation = (
             artifact_kind == "json"
@@ -222,6 +223,7 @@ def _capture(view_id):
             obj=detached,
             kind_hint=artifact_kind,
             observation_context=context,
+            meta={"source_info": source_hints} if source_hints else None,
         )
         # Source download links describe mutable live data, not this captured representation.
         result["artifact"].get("meta", {}).pop("source_download_url", None)

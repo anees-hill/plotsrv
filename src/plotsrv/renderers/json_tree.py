@@ -102,6 +102,15 @@ class JsonTreeRenderer:
         if not isinstance(text_value, str):
             text_value = _pretty_json_fallback(obj)
 
+        from .syntax import Highlight, highlight, presentation
+
+        info = {"format": source_format}
+        language, style = presentation(view_id, info, default_language="json")
+        coloured = highlight(text_value, language) if style != "plain" else Highlight()
+        text_markup = (
+            coloured.html if coloured.html is not None else _escape_html(text_value)
+        )
+
         truncation = Truncation(
             truncated=bool(meta.get("truncated") or False),
             reason=(
@@ -191,7 +200,7 @@ class JsonTreeRenderer:
           </div>
 
           <div class="ps-json-panel ps-json-panel--text" data-json-panel="text" hidden>
-            <pre class="plotsrv-pre plotsrv-pre--wrap ps-json-textview" data-json-text-view="1">{_escape_html(text_value)}</pre>
+            <pre class="plotsrv-pre plotsrv-pre--wrap ps-json-textview" data-json-text-view="1" data-plotsrv-syntax="{int(coloured.html is not None)}">{text_markup}</pre>
           </div>
 
           {table_panel_html}

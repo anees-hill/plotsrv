@@ -269,7 +269,9 @@ def prepare(raw: bytes, source: dict) -> Preparation:
                     limitation = "Isolated HTML; relative assets are not uploaded."
             else:
                 limitation = "Incomplete or oversized markup; showing bounded raw text."
-        if payload.get("artifact_kind") == "text":
+        if fk == "python":
+            payload["artifact_kind"] = "python"
+        if payload.get("artifact_kind") in ("text", "python"):
             from .runtime import get_watch_render_limit
 
             configured = get_watch_render_limit("text")
@@ -284,6 +286,14 @@ def prepare(raw: bytes, source: dict) -> Preparation:
                     preview[-limit:] if mode == "tail" else preview[:limit]
                 )
                 limitation = limitation or "Text presentation is a bounded preview."
+    if payload["kind"] == "artifact":
+        from .source_info import for_file
+
+        payload["source_info"] = for_file(
+            path.name,
+            anchor=mode if mode in ("head", "tail") else "head",
+            partial=not complete or bool(limitation),
+        )
     if (
         len(json.dumps(payload, ensure_ascii=False, allow_nan=False).encode())
         > MAX_PREPARED_BYTES

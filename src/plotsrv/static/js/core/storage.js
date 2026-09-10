@@ -158,7 +158,7 @@
       if (!parsed || typeof parsed !== "object") return fallback;
   
       const allowedStyles = [
-        "auto", "plain", "http", "application", "timestamp", "syslog",
+        "auto", "plain", "code", "http", "application", "timestamp", "syslog",
         "container", "test", "traceback", "keyvalue",
       ];
       const savedStyle =
@@ -188,7 +188,7 @@
   
   core.saveTextPrefs = function (viewId, prefs) {
     const allowedStyles = [
-      "auto", "plain", "http", "application", "timestamp", "syslog",
+      "auto", "plain", "code", "http", "application", "timestamp", "syslog",
       "container", "test", "traceback", "keyvalue",
     ];
     const requestedStyle = prefs && prefs.style_preset;

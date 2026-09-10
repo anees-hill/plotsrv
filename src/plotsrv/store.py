@@ -606,7 +606,11 @@ def set_artifact(
     truncation: Truncation | None = None,
     publish_source: str | None = None,
     record_arrival: bool = True,
+    source_info: dict[str, Any] | None = None,
 ) -> None:
+    from .source_info import validate
+
+    source_info = validate(source_info)
     vid = view_id or _ACTIVE_VIEW_ID
     _require_ordinary_publishable_view(vid)
     # Content and hosted-source capabilities change under the same store lock.
@@ -627,6 +631,7 @@ def set_artifact(
         section=section,
         view_id=vid,
         truncation=truncation,
+        source_info=source_info,
     )
 
     st.status["last_updated"] = _now_iso()

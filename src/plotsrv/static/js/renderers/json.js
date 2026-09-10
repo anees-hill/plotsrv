@@ -178,7 +178,7 @@
     const textPre = jsonRoot.querySelector("[data-json-text-view='1']");
     if (!textPre) return;
 
-    textPre.textContent = getPreferredTextValue(jsonRoot);
+    if (textPre.getAttribute("data-plotsrv-syntax") !== "1") textPre.textContent = getPreferredTextValue(jsonRoot);
   }
 
   function getDetailsNodesForMode(root, mode) {

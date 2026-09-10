@@ -25,6 +25,7 @@ dependencies = [
     "matplotlib>=3.8,<4",
     "plotnine>=0.14",
     "pyyaml>=6.0",
+    "pygments>=2.19,<3",
     "requests>=2.31,<3",
     "uvicorn>=0.30,<1",
 ]
