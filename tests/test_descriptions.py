@@ -81,6 +81,35 @@ def test_no_callable_or_inherited_documentation_hooks():
     assert descriptions.function_description(dynamic, view_id="a") is None
 
 
+def test_unavailable_description_policy_cannot_break_decoration_or_publication(
+    monkeypatch,
+):
+    from plotsrv.publishing.models import PublishTarget
+
+    def unavailable(*a, **kw):
+        raise OSError("Description config unavailable")
+
+    monkeypatch.setattr(descriptions, "source_description", unavailable)
+
+    @decorators.view(view_id="a")
+    def pipeline():
+        """Private if the extraction policy cannot be loaded."""
+        return 42
+
+    assert pipeline() == 42
+    assert decorators.get_plotsrv_spec(pipeline).description is None
+    monkeypatch.setattr(
+        publisher, "resolve_publish_target", lambda **kw: PublishTarget("remote")
+    )
+    monkeypatch.setattr(publisher, "_resolve_async_publish", lambda *a: False)
+    monkeypatch.setattr(
+        publisher,
+        "_post_publish_payload",
+        lambda **kw: pytest.fail("Published without metadata policy"),
+    )
+    publisher.publish_view(42, view_id="a", async_=False)
+
+
 def test_ast_runtime_fallback_agree_without_imports(tmp_path):
     from plotsrv.discovery import discover_views
 

@@ -57,7 +57,12 @@ def function_description(func, *, view_id):
     # Exact Python functions only: no inherited docs, inspect.getdoc, unwrapping,
     # arbitrary attributes, or retained callable references.
     doc = func.__doc__ if type(func) is FunctionType else None
-    return source_description(view_id, docstring=doc)
+    try:
+        return source_description(view_id, docstring=doc)
+    except Exception:
+        # Optional metadata must not prevent application import/decoration.
+        # Fail closed if an extraction policy cannot be read.
+        return None
 
 
 def received_description(payload):

@@ -93,6 +93,10 @@ ps.publish_view(
 
 plotsrv chooses an appropriate renderer where possible.
 
+Use `description="Short purpose and scope"` to attach bounded plain-text source
+metadata. Decorated functions can use their first docstring paragraph instead;
+see [View descriptions](view-descriptions.md) for config precedence and privacy opt-outs.
+
 ## Attached server
 
 For quick interactive use, pass `launch_server=True`:

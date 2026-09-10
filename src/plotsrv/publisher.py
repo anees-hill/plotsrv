@@ -739,9 +739,14 @@ def _publish_view_now(
 ) -> bool:
     from .descriptions import source_description
 
-    description = source_description(
-        _coalesce_view_id(view_id=view_id, section=section, label=label), description
-    )
+    try:
+        description = source_description(
+            _coalesce_view_id(view_id=view_id, section=section, label=label), description
+        )
+    except Exception:
+        if debug:
+            raise
+        return False
     remote_host, remote_port = host or "127.0.0.1", port if port is not None else 8000
     remote_target = target if not launch else None
     if not launch:
