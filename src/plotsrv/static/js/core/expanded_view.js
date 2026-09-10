@@ -49,6 +49,9 @@
   function restoreContentControls() {
     for (let i = transfers.length - 1; i >= 0; i--) {
       if (!transfers[i].content) continue;
+      if (layout.active && transfers[i].node.contains(document.activeElement)) {
+        document.getElementById("expanded-reveal").focus({preventScroll: true});
+      }
       restoreTransfer(transfers[i]);
       transfers.splice(i, 1);
     }

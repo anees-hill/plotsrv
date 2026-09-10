@@ -97,6 +97,7 @@ body.ps-expanded .plotsrv-html-iframe {
   height: calc(100dvh - var(--ps-expanded-top, 52px) - 20px);
 }
 body.ps-expanded .plot-frame--artifact { min-height: 0; }
+body.ps-expanded #artifact-root img,
 body.ps-expanded #plot { max-height: calc(100dvh - var(--ps-expanded-top, 52px) - 16px); object-fit: contain; }
 @media (max-width: 640px) {
   .ps-expanded-handle button { width: 44px; height: 44px; }

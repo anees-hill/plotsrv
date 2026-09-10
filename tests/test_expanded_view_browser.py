@@ -1,6 +1,7 @@
 """Expanded layout against real page markup, bundle, renderers and controls."""
 
 import base64
+import io
 import json
 from urllib.parse import parse_qs, urlparse
 
@@ -11,9 +12,11 @@ from plotsrv import html as html_mod
 from plotsrv.renderers import register_default_renderers
 from plotsrv.renderers.registry import render_any
 from plotsrv.store import ViewMeta
+from plotsrv.table_explorer_markup import render_table_explorer
 from tests.test_plot_controls_browser import page, STATIC
 
 VIEWS = [
+    ViewMeta("plots:figure", "plot", "Figure", "Plots", "plot"),
     ViewMeta("tables:main", "table", "Main table", "Tables", "table"),
     ViewMeta("tables:other", "table", "Other table", "Tables", "table"),
     ViewMeta("streams:events", "stream", "Events", "Streams", "stream"),
@@ -25,16 +28,22 @@ for kind in ("text", "json", "html", "image"):
 def mount(page, view="tables:main"):
     page.set_default_timeout(7000)
     register_default_renderers()
+    png = io.BytesIO()
+    Image.new("RGB", (640, 1200), "teal").save(png, format="PNG")
     artifacts = {
         "text": "\n".join("Line " + str(i) for i in range(300)),
         "json": {"rows": [{"group": "A", "value": i} for i in range(30)]},
         "html": '<h1>Report</h1><input aria-label="Report note" value="Keep this">',
-        "image": Image.new("RGB", (640, 360), "teal"),
+        "image": {
+            "mime": "image/png",
+            "data_b64": base64.b64encode(png.getvalue()).decode("ascii"),
+        },
     }
     rendered = {
         kind: render_any(obj, view_id="artifacts:" + kind, kind_hint=kind)
         for kind, obj in artifacts.items()
     }
+    assert all(result.kind == kind for kind, result in rendered.items())
     reads = []
     data = {
         "columns": ["group", "value"],
@@ -68,6 +77,9 @@ def mount(page, view="tables:main"):
                 views=VIEWS,
             )
             route.fulfill(body=markup, content_type="text/html")
+            return
+        if path == "/plot":
+            route.fulfill(body=png.getvalue(), content_type="image/png")
             return
         payload = {}
         if path == "/history/navigation":
@@ -166,6 +178,7 @@ def test_table_layout_preserves_controller_filters_plot_and_scroll_without_reque
     reveal(page)
     assert page.locator("#history-select").is_visible()
     assert page.locator("#table-mode-plot-btn").is_visible()
+    page.screenshot(path="/tmp/plotsrv-16-table-desktop.png")
     assert page.evaluate(
         "document.querySelector('.ps-table-mode-switch') === originalMode"
     )
@@ -180,6 +193,10 @@ def test_table_layout_preserves_controller_filters_plot_and_scroll_without_reque
     assert page.evaluate(
         "document.querySelector('.ps-table-plot__svg') === originalSvg"
     )
+    page.set_viewport_size({"width": 375, "height": 800})
+    reveal(page)
+    page.screenshot(path="/tmp/plotsrv-16-table-plot-mobile.png")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.click("#expanded-exit")
     assert page.locator("#expand-view").evaluate("e => e === document.activeElement")
     assert page.locator("#table-search-input").input_value() == "A"
@@ -263,6 +280,11 @@ def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(page, kind
     before = list(reads)
     expand(page)
     assert page.locator("#artifact-root").is_visible()
+    if kind == "image":
+        page.wait_for_function(
+            "document.querySelector('#artifact-root img').naturalHeight===1200"
+        )
+        assert page.locator("#artifact-root img").bounding_box()["height"] < 850
     page.screenshot(path="/tmp/plotsrv-16-" + kind + ".png")
     reveal(page)
     assert (
@@ -301,8 +323,12 @@ def test_stream_controls_stay_separate_and_controller_continues(page):
     reveal(page)
     assert page.locator("#snapshots-control").count() == 0
     assert page.locator("#stream-history-session-select").is_visible()
+    page.screenshot(path="/tmp/plotsrv-16-stream-table-desktop.png")
     page.click("#table-mode-plot-btn")
     page.wait_for_selector(".ps-table-plot__svg")
+    page.set_viewport_size({"width": 375, "height": 800})
+    page.screenshot(path="/tmp/plotsrv-16-stream-plot-mobile.png")
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.click("#expanded-reveal")
     page.click("#expanded-exit")
     assert page.evaluate(
@@ -400,4 +426,87 @@ def test_repeated_layout_changes_and_idle_work_stay_bounded(page):
     page.wait_for_timeout(250)
     assert page.evaluate("redraws") == 0
     assert reads == before
+    expand(page)
+    page.wait_for_timeout(100)
+    settled_redraws = page.evaluate("redraws")
+    page.wait_for_timeout(250)
+    assert page.evaluate("redraws") == settled_redraws
+    assert reads == before
     print("Expanded layout measurements:", result)
+
+
+def test_renderer_replacement_reuses_new_controls_and_restores_focus(page):
+    mount(page, "artifacts:text")
+    expand(page)
+    reveal(page)
+    content = render_table_explorer(
+        grid_html='<div id="table-grid"></div>', search_placeholder="Search"
+    )
+    page.route(
+        "**/artifact?**",
+        lambda route: route.fulfill(
+            body=json.dumps({"kind": "table", "html": content}),
+            content_type="application/json",
+        ),
+    )
+    page.evaluate("PLOTSRV.core.reloadCurrentView()")
+    page.wait_for_function("PLOTSRV.state.tabulatorInstance.initialized")
+    assert page.locator("#expanded-controls #table-mode-plot-btn").is_visible()
+    assert page.locator(".ps-table-mode-switch").count() == 1
+    page.focus("#table-mode-plot-btn")
+    page.route(
+        "**/artifact?**",
+        lambda route: route.fulfill(
+            body=json.dumps({"kind": "text", "html": "<p>Replacement text</p>"}),
+            content_type="application/json",
+        ),
+    )
+    page.evaluate("PLOTSRV.core.reloadCurrentView()")
+    assert page.locator(".ps-table-mode-switch").count() == 0
+    assert page.locator("#expanded-reveal").evaluate("e=>e===document.activeElement")
+    page.click("#expanded-exit")
+    assert page.locator(".ps-table-mode-switch").count() == 0
+    assert page.locator("#artifact-root").inner_text() == "Replacement text"
+
+
+def test_plot_image_and_scroll_do_not_reload_or_request_native_fullscreen(page):
+    reads = mount(page, "plots:figure")
+    page.evaluate("""() => {
+      window.oldPlot=document.getElementById('plot'); window.oldSrc=oldPlot.src;
+      HTMLElement.prototype.requestFullscreen=()=>{throw Error('Native fullscreen called');};
+    }""")
+    before = list(reads)
+    expand(page)
+    page.set_viewport_size({"width": 600, "height": 500})
+    assert page.evaluate(
+        "document.getElementById('plot')===oldPlot && oldPlot.src===oldSrc"
+    )
+    page.click("#expanded-exit")
+    assert reads == before
+
+
+def test_table_scroll_position_and_checks_attention_survive_layout(page):
+    from tests.test_check_status_browser import evidence
+
+    mount(page)
+    checks = evidence()
+    for rule in checks["states"]:
+        rule["source"] = "tables:main"
+    page.evaluate(
+        """data => {
+      PLOTSRV.core.setHeaderLatestStatus({checks:data,last_updated:'2026-09-09T12:00:00Z'});
+      window.holder=document.querySelector('.tabulator-tableholder'); holder.scrollTop=400;
+      window.scrollPosition=holder.scrollTop;
+    }""",
+        checks,
+    )
+    assert page.locator("#header-check-attention").is_visible()
+    expand(page)
+    reveal(page)
+    assert page.locator("#header-check-attention").is_visible()
+    page.wait_for_timeout(100)
+    assert page.evaluate("holder.scrollTop===scrollPosition")
+    page.click("#expanded-exit")
+    page.wait_for_timeout(100)
+    assert page.evaluate("holder.scrollTop===scrollPosition")
+    assert page.locator("#header-check-attention").is_visible()
