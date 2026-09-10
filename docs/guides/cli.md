@@ -214,6 +214,69 @@ plotsrv run . \
 
 `auto` lets plotsrv choose based on the configured file-size threshold.
 
+## Configuration draft wizard
+
+Install the optional terminal interface explicitly, then open it:
+
+```bash
+pip install 'plotsrv[config]'
+plotsrv config init
+plotsrv config init ./src --config plotsrv.yml --name etl
+```
+
+This first stage offers **Everything on this machine**, **Send data to another
+plotsrv server**, or **Host a plotsrv server**. It currently ends at an **unsaved
+draft preview**. Settings pages and saving are not available yet; closing the
+wizard changes no configuration or assets. Use `config create/populate` below
+when you need to write configuration now.
+
+The host-only route skips source discovery. The other routes accept an optional
+package/path, otherwise use configured discovery or normal project detection.
+The source page accepts an HTTP(S) destination, a bearer-key **environment
+variable name**, and local watched files with stable logical IDs. It never tests
+the remote endpoint, reads the key value, registers views or seals a catalogue.
+Paths belong to the machine running this tool; config-relative paths resolve
+beside the selected config. An explicit command target starts relative to the
+working directory. Watched file contents are not read by the wizard.
+
+| Keys | Action |
+| --- | --- |
+| Tab / Shift+Tab | Move through fields and actions |
+| Arrows / j / k | Move within lists |
+| Space | Toggle a discovered view |
+| a / c | Select all / clear all in the view list |
+| r, then e | Set a range anchor, move, select through its end |
+| Enter | Choose a role, continue from the view list, or activate a button |
+| Esc | Dismiss or go back; the first page asks before abandoning |
+| Left / Backspace | Go back outside text editors |
+| Ctrl+C / Ctrl+Q | Confirm abandonment |
+| ? / F1 | Help; use F1 while editing text |
+
+The help region explains the focused field, units, defaults and inheritance.
+An asterisk marks a departure from the built-in default. Text-entry keys retain
+their usual meaning; `q` is not a navigation shortcut. Panels scroll in small
+terminals. Discovery uses the existing bounded AST scanner without executing
+the application. One worker and a replaceable progress slot keep updates
+bounded; cancellation is cooperative, not a guarantee of interrupting a
+filesystem or parser operation mid-call. No scan timer remains after completion.
+
+New setups select all discovered views, grouped by section. Existing configs
+start from their effective selection and retain the original bytes, unrelated
+settings and instance inheritance. Duplicates and unresolved declarations are
+shown for review; partial discovery is not presented as a complete catalogue.
+Clearing every view is an in-memory choice: the preview explicitly distinguishes
+it from runtime `selection: []`, which means all views. Skipping discovery skips
+this preview scan; it does not disable discovery in existing configuration.
+
+Config selection follows the existing resolver (`--config`, the configured
+environment selector, then `plotsrv.yml` before `plotsrv.yaml`); with no existing
+file the draft path is `./plotsrv.yml`. Use `--config` with custom filenames.
+The draft reader refuses malformed YAML, duplicate/non-string keys, aliases,
+nesting beyond 32 levels, more than 20,000 parser events, or files over 1 MiB.
+It does not silently reset unsupported files. Noninteractive invocations exit
+with guidance to `config create/populate`. The optional interface is lazy-loaded
+and never installs dependencies or accesses the network on invocation.
+
 ## Create config
 
 Simply create a `plotsrv.yml` file in the project root, or create a starter config:
