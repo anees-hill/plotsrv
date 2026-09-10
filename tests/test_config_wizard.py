@@ -186,9 +186,9 @@ def test_server_keyboard_path_never_parses_sources_or_scans(tmp_path, monkeypatc
         app = app_class(draft)
         async with app.run_test() as pilot:
             await pilot.press("j", "j", "enter")
-            assert app.stage == "preview"
+            assert app.stage == "server"
             assert app.job is None
-            assert "No application source discovery" in draft.preview()
+            assert not app.screen.query("#target")
             await pilot.press("escape")
             assert app.stage == "role"
             await pilot.press("ctrl+q")
@@ -235,7 +235,7 @@ def test_keyboard_discovery_selection_ranges_help_and_resize(project):
             await pilot.resize_terminal(44, 16)
             assert app.screen.query_one("#legend").region.height > 0
             await pilot.press("enter")
-            assert app.stage == "preview"
+            assert app.stage == "storage"
             assert not draft.path.exists()
             await pilot.press("escape", "escape")
             assert app.stage == "sources"
@@ -283,9 +283,9 @@ def test_text_keys_destination_validation_and_watch(project):
             assert draft.sources().watches[0].path == str(project / "missing-file.log")
             app.screen.query_one("#skip").focus()
             await pilot.press("enter")
-            assert app.stage == "preview" and app.job is None
-            assert "logs:stable" in draft.preview()
-            assert "MISSING_KEY" in draft.preview()
+            assert app.stage == "publisher" and app.job is None
+            assert draft.watches()[0].view_id == "logs:stable"
+            assert draft.value(FIELDS["bearer"]) == "MISSING_KEY"
             await pilot.press("ctrl+c", "tab", "enter")
         assert not draft.path.exists()
 
@@ -305,11 +305,12 @@ def test_existing_selection_duplicates_unresolved_and_no_rewrite(project):
     result = scan_sources(setup.scan_root())
     draft.accept_scan(result, (setup.target, setup.target_base, setup.include_pruned))
     assert draft.selected_ids == {"exact:B"}
-    preview = draft.preview()
+    preview = "\n".join(draft.diagnostics())
     assert "Duplicate logical ID" in preview and "unresolved" in preview
     assert "SUPER_SECRET" not in preview
     draft.selected_ids = set()
-    assert "means ALL" in draft.preview()
+    with pytest.raises(ValueError, match="duplicate"):
+        draft.save_edits()
     assert path.read_bytes() == raw
 
 
@@ -518,7 +519,7 @@ def test_entire_navigation_can_use_only_tab_and_enter(project):
                 app.screen.query_one("#legend", Static).content
             )
             await pilot.press("end", "e", "enter")
-            assert app.stage == "preview"
+            assert app.stage == "storage"
             await pilot.press("ctrl+q", "tab", "enter")
         assert not app.draft.path.exists()
 
