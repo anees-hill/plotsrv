@@ -78,7 +78,9 @@ def test_builtin_types_detachment_cycles_and_selection():
     before = result.payload
     nested[1]["n"] = 999
     assert result.payload == before
-    assert "999" not in before.decode()
+    # Check the detached value, not unrelated metadata such as the timestamp.
+    captured_nested = json.loads(before)["base_sample"][0]["items"][0]["value"]
+    assert captured_nested["items"][1]["value"]["items"][0]["value"]["value"] == 2
     assert "secret" not in before.decode()
     nested.append(nested)
     assert "cycle" in capture(nested)["reasons"]
