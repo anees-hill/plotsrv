@@ -505,3 +505,8 @@ artifact-render-settings:
 ```
 
 New documentation and generated configs use the newer layout.
+
+
+`code-settings` controls source-language and initial styling overrides. See
+[Watched source code and raw config text](renderers.md#watched-source-code-and-raw-config-text)
+for supported suffixes, browser precedence and fixed highlighting limits.
