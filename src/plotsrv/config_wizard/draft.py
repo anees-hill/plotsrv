@@ -46,11 +46,37 @@ class FieldSpec:
     minimum: float | None = None
     maximum: float | None = None
     per_view: bool = False
+    choices: tuple[str, ...] = ()
 
     def parse(self, text: str):
         if len(text) > 4096:
             raise ValueError("Value is too long (maximum 4096 characters).")
         text = text.strip()
+        if self.choices:
+            if text not in self.choices:
+                raise ValueError("Choose one of: " + ", ".join(self.choices))
+            return text
+        if self.kind in ("duration", "keep"):
+            if self.kind == "duration" and text.lower() in ("false", "0"):
+                return None
+            if text.lower() in ("", "off", "none", "null"):
+                return "off" if self.kind == "keep" else None
+            if self.kind == "keep":
+                try:
+                    value = int(text)
+                    if value >= 1:
+                        return value
+                except ValueError:
+                    pass
+                raise ValueError("Enter a positive snapshot count or off (unlimited).")
+            from ..config import _parse_duration_seconds
+
+            value = _parse_duration_seconds(text)
+            if value is None:
+                raise ValueError(
+                    "Enter a positive interval such as 30s, 5m, 1h, or off."
+                )
+            return text
         if self.kind == "env":
             if text and not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", text):
                 raise ValueError(
@@ -82,7 +108,7 @@ class FieldSpec:
         return text or self.default
 
     def help(self, origin: str) -> str:
-        return f"{self.meaning}\nUnits: {self.units}. Default: {self.default if self.default is not None else 'unset'}.\n{origin} Explicit command/API choices override configuration. * marks a value different from the built-in default."
+        return f"{self.meaning}\nUnits: {self.units}. Default: {self.default if self.default is not None else 'unset'}.\n{origin} Explicit command/API choices override configuration. * marks a value different from the displayed default."
 
 
 FIELDS = {
@@ -181,6 +207,7 @@ def _load_bounded(raw: bytes) -> dict:
 class Draft:
     path: Path
     original: bytes | None = field(default=None, repr=False)
+    original_stamp: tuple | None = field(default=None, repr=False)
     config: dict = field(default_factory=dict, repr=False)
     name: str | None = None
     cli_target: str | None = None
@@ -191,6 +218,7 @@ class Draft:
     watch_rows: list[dict] | None = None
     scan_key: tuple | None = None
     discovery_skipped: bool = False
+    manual_ids: list[str] | None = None
 
     @classmethod
     def load(cls, *, config=None, name=None, target=None):
@@ -199,41 +227,53 @@ class Draft:
             if config
             else (settings.get_runtime_config_path() or Path.cwd() / "plotsrv.yml")
         )
-        raw = None
-        if path.exists():
-            # Refuse special files; bounded read even when a regular file grows.
-            import stat
+        from .saving import read_snapshot
 
-            flags = os.O_RDONLY | os.O_NONBLOCK
-            fd = os.open(path, flags)
-            with os.fdopen(fd, "rb") as stream:
-                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                    raise ValueError("Configuration must be a regular file")
-                raw = stream.read(MAX_CONFIG_BYTES + 1)
-            if len(raw) > MAX_CONFIG_BYTES:
-                raise ValueError("Configuration exceeds 1 MiB")
+        snapshot = read_snapshot(path)
+        raw = snapshot.raw
         return cls(
             path=path,
             original=raw,
+            original_stamp=snapshot.stamp,
             config=_load_bounded(raw) if raw else {},
             name=name or settings.get_runtime_name(),
             cli_target=target,
         )
 
     def section(self, key):
-        return settings.effective_section(self.config, key, name=self.name, strict=True)
+        import copy
+        from .saving import assign, scoped_path
+
+        document = {key: copy.deepcopy(self.config.get(key, {}))}
+        for path, value in self.edits.items():
+            if path[0] == key:
+                assign(document, scoped_path(self.config, path, self.name), value)
+        return settings.effective_section(document, key, name=self.name, strict=True)
 
     def value(self, spec: FieldSpec):
-        if spec.path in self.edits:
-            return self.edits[spec.path]
         current = self.section(spec.path[0])
         for key in spec.path[1:]:
+            if current is None and spec.path[:2] == (
+                "publisher-settings",
+                "destination",
+            ):
+                return spec.default
             if not isinstance(current, dict):
                 raise ValueError("Configuration field parent must be a mapping")
             if key not in current:
+                if key == "overdue_after" and "error_after" in current:
+                    return spec.parse(str(current["error_after"]))
                 return spec.default
             current = current[key]
         # Validate before showing potentially sensitive malformed legacy values.
+        if (current is None or type(current) is bool) and spec.kind == "keep":
+            return spec.default
+        if (
+            spec.kind in ("env", "url")
+            and current is not None
+            and type(current) is not str
+        ):
+            raise ValueError("Credential references and URLs must be strings.")
         return spec.parse("" if current is None else str(current))
 
     def origin(self, spec):
@@ -242,7 +282,30 @@ class Draft:
         return f"Effective config/default for instance {self.name or '(global)'}; instance values inherit global settings."
 
     def set_value(self, spec, text):
-        self.edits[spec.path] = spec.parse(text)
+        self.update_edits({spec.path: spec.parse(text)})
+
+    def update_edits(self, edits):
+        if len(self.edits.keys() | edits.keys()) > 2048:
+            raise ValueError(
+                "Draft edit limit reached. Save a smaller set of changes, then reopen to continue."
+            )
+        self.edits.update(edits)
+
+    def reset_overrides(self, specs, view_id):
+        from .saving import DELETE, scoped_path
+
+        prefix = (specs[0].path[0], "views", view_id)
+        row = self.config
+        for part in scoped_path(self.config, prefix, self.name):
+            row = row.get(part, {}) if isinstance(row, dict) else {}
+        managed = {spec.path[-1] for spec in specs}
+        for path in list(self.edits):
+            if path[:3] == prefix and (len(path) == 3 or path[-1] in managed):
+                del self.edits[path]
+        if isinstance(row, dict) and row.keys() - managed:
+            self.update_edits({spec.path: DELETE for spec in specs})
+        else:
+            self.update_edits({prefix: DELETE})
 
     def set_override(self, spec, view_id, text):
         if not spec.per_view:
@@ -297,7 +360,11 @@ class Draft:
         if self.selected_ids is None:
             self.selected_ids = {
                 v.descriptor().view_id
-                for v in select_views(result.views, selection=self.sources().selection)
+                for v in select_views(
+                    result.views,
+                    selection=self.sources().selection,
+                    exact_selection=self.sources().exact_selection,
+                )
             }
         else:
             self.selected_ids.intersection_update(ids)
@@ -324,59 +391,157 @@ class Draft:
             lines.append(f"{self.result.issue_count} issues total; diagnostics capped.")
         return lines
 
-    def preview(self):
-        lines = [
-            "UNSAVED DRAFT — settings pages and saving are not available yet.",
-            f"Config: {self.path}",
-            f"Instance: {self.name or '(global)'}",
-            f"Role: {self.role} (wizard flow only; no new YAML role key)",
-        ]
+    def configured_ids(self):
+        if self.manual_ids is not None:
+            return self.manual_ids
         if self.role == "server":
-            bind = self.section("server-settings").get("bind", {})
-            if not isinstance(bind, dict):
-                raise ValueError("Server bind must be a mapping")
-            host = bind.get("host", model_default(ServerConnectionConfig, "bind_host"))
-            port = bind.get("port", model_default(ServerConnectionConfig, "bind_port"))
-            connection = PublishTarget(kind="local", host=host, port=port)
-            lines += [
-                f"Bind: {connection.host}:{connection.port}",
-                "No application source discovery. Admission, manual catalogue IDs and server settings follow in the settings stage.",
-            ]
-        else:
-            for key in ("destination", "bearer", "target"):
-                spec = FIELDS[key]
-                value = self.value(spec)
-                lines.append(
-                    f"{'.'.join(spec.path)}: {value if value is not None else '(unset/default)'}"
-                )
-            if self.cli_target:
-                lines.append(f"Explicit command target: {self.cli_target}")
-            if self.discovery_skipped:
-                lines.append(
-                    "Discovery skipped for this preview. This does not disable discovery in the existing runtime configuration."
-                )
-            selection = self.sources().selection
-            if selection:
-                lines.append(
-                    f"Original configured selection: {selection}. Undiscovered entries are retained in the original config; this is not a replacement manifest."
-                )
-            lines += [
-                f"Selected discovery IDs: {len(self.selected_ids or ())}",
-                *(f"  {vid}" for vid in sorted(self.selected_ids or ())),
-            ]
-            if self.selected_ids == set():
-                lines.append(
-                    "No discovery IDs selected. This is a draft-only exclusion: YAML selection: [] means ALL in the current runtime, so it is not emitted as an empty selection."
-                )
-            lines += [
-                f"Watch ID: {w.view_id} (file stays on this machine)"
-                for w in self.watches()
-            ]
-            lines += self.diagnostics()
-            lines.append(
-                "Dynamic servers accept new IDs. A locked server requires a complete, reviewed catalogue union and explicit bootstrap; this wizard never registers or seals it."
+            return list(
+                self.section("server-settings").get("admission", {}).get("allowed_ids")
+                or []
             )
-        lines.append(
-            "Unrelated config and secrets are omitted from this preview. Original bytes remain untouched. Use Back to revise or Close draft to abandon."
+        return list(self.sources().additional_ids)
+
+    def add_id(self, value):
+        bounded_text(value, "logical ID", 512)
+        ids = list(self.configured_ids())
+        if value in ids:
+            raise ValueError("That logical ID is already present.")
+        if self.role != "server" and (
+            value in (self.selected_ids or ())
+            or value in {w.view_id for w in self.watches()}
+        ):
+            raise ValueError(
+                "That ID already belongs to a selected source/watch; additional IDs are for unresolved declarations."
+            )
+        if len(ids) >= MAX_CATALOGUE_VIEWS:
+            raise ValueError("Catalogue ID limit reached.")
+        ids.append(value)
+        self.manual_ids = ids
+
+    def known_ids(self):
+        ids = set(self.configured_ids()) | set(self.selected_ids or ())
+        if self.role != "server":
+            ids.update(w.view_id for w in self.watches())
+        for section in ("storage-settings", "freshness-settings"):
+            ids.update(self.section(section).get("views", {}))
+        if len(ids) > MAX_CATALOGUE_VIEWS:
+            raise ValueError("Combined view ID limit reached.")
+        return sorted(ids)
+
+    def save_edits(self):
+        from .saving import scoped_path, DELETE
+
+        edits = dict(self.edits)
+        # Switching roles must not apply abandoned edits for the other machine.
+        publisher_sections = {
+            "publisher-settings",
+            "publish-settings",
+            "stream-settings",
+            "watch-settings",
+            "limits",
+        }
+        server_sections = {
+            "server-settings",
+            "storage-settings",
+            "freshness-settings",
+            "security-settings",
+            "checks-settings",
+            "webhook-settings",
+        }
+        allowed = (
+            publisher_sections
+            if self.role == "publisher"
+            else (
+                server_sections | {"watch-settings", "limits"}
+                if self.role == "server"
+                else publisher_sections | server_sections
+            )
         )
-        return "\n".join(lines)
+        edits = {path: value for path, value in edits.items() if path[0] in allowed}
+        if self.role != "server":
+            self.known_ids()  # Validate the aggregate bound, including manual IDs.
+            if self.watch_rows is not None:
+                edits[("publisher-settings", "watch")] = self.watch_rows
+            if self.manual_ids is not None:
+                edits[("publisher-settings", "discovery", "additional_ids")] = (
+                    self.manual_ids
+                )
+            if self.discovery_skipped:
+                edits[("publisher-settings", "discovery", "exact_selection")] = []
+            elif self.result is not None:
+                if not self.result.complete:
+                    raise ValueError(
+                        "Discovery is incomplete. Narrow the scope and rescan, or explicitly continue without discovery."
+                    )
+                if any(
+                    line.startswith("Duplicate logical ID")
+                    for line in self.diagnostics()
+                ):
+                    raise ValueError(
+                        "Resolve duplicate logical IDs before saving this discovered catalogue."
+                    )
+                edits[("publisher-settings", "discovery", "exact_selection")] = sorted(
+                    self.selected_ids or ()
+                )
+            if self.cli_target is not None and not self.discovery_skipped:
+                from ..source_targets import resolve_source_target
+
+                # Store the reviewed scope on this machine, not a path reinterpreted
+                # relative to a different config folder on the next launch.
+                suffix = self.cli_target.partition(":")[2]
+                edits[("publisher-settings", "discovery", "target")] = str(
+                    resolve_source_target(self.cli_target)
+                ) + (":" + suffix if suffix else "")
+            elif self.result is not None and self.sources().target is None:
+                from ..source_targets import default_source_target
+
+                edits[("publisher-settings", "discovery", "target")] = (
+                    default_source_target()
+                )
+            if not self.value(FIELDS["destination"]):
+                for path in list(edits):
+                    if path[:2] == ("publisher-settings", "destination"):
+                        del edits[path]
+                if self.section("publisher-settings").get("destination") is not None:
+                    edits[("publisher-settings", "destination")] = None
+        if self.role != "publisher":
+            if self.value(FIELDS["admission"]) == "catalogue-locked":
+                if self.manual_ids is not None:
+                    edits[("server-settings", "admission", "allowed_ids")] = (
+                        self.manual_ids
+                    )
+            elif (
+                self.section("server-settings").get("admission", {}).get("allowed_ids")
+                is not None
+            ):
+                edits[("server-settings", "admission", "allowed_ids")] = DELETE
+        return {
+            scoped_path(self.config, path, self.name): value
+            for path, value in edits.items()
+        }
+
+    def commands(self, path):
+        import shlex
+
+        args = ["--config", str(path)]
+        if self.name:
+            args += ["--name", self.name]
+        command = (
+            "serve"
+            if self.role == "server"
+            else "publish" if self.role == "publisher" else "run"
+        )
+        suffix = " ".join(shlex.quote(a) for a in args)
+        line = f"plotsrv {command} {suffix}"
+        if (
+            self.role == "publisher"
+            and self.result is not None
+            and self.result.issue_count
+        ):
+            line += " --reviewed"
+        if self.role != "publisher":
+            if self.value(FIELDS["admission"]) == "catalogue-locked":
+                line += "\nLocked admission: configured IDs seal at startup. With no manifest, review the complete union on a publisher, then explicitly run plotsrv publish --seal-catalogue --reviewed --config <publisher-config>."
+        else:
+            line += "\nFor a locked receiver, review the complete multi-project ID union before explicitly adding --seal-catalogue --reviewed. Saving does not send that command."
+        return line

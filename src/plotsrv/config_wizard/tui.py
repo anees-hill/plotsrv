@@ -144,7 +144,7 @@ class Help(ModalScreen):
         with VerticalScroll(id="dialog"):
             yield Static("Keyboard help", classes="heading")
             yield Static(
-                "Tab / Shift+Tab: move between fields and actions.\nArrows or j/k: move in lists. Space: toggle a view.\nEnter: choose a role or continue from the view list.\na: select all; c: clear all (in the view list).\nr: set range anchor; e: select through the highlighted end.\nEsc: dismiss/back. Left/Backspace: back outside text inputs.\nCtrl+C / Ctrl+Q: confirm abandonment. q is ordinary text.\n?: this help outside text fields; F1 works while editing.\n\nAll changes remain in memory. No endpoint is contacted and no catalogue is sealed. Discovery reads bounded Python source without importing your application. Cancellation is cooperative; an individual file/AST operation cannot be interrupted mid-call."
+                "Tab / Shift+Tab: move between fields and actions.\nArrows or j/k: move in lists. Space: toggle a view.\nEnter: choose a role or continue from the view list.\na: select all; c: clear all (in the view list).\nr: set range anchor; e: select through the highlighted end.\nEsc: dismiss/back. Left/Backspace: back outside text inputs.\nCtrl+C / Ctrl+Q: confirm abandonment. q is ordinary text.\n?: this help outside text fields; F1 works while editing.\n\nChanges remain in memory until confirmed after review. No endpoint is contacted and no catalogue is sealed. Discovery reads bounded Python source without importing your application. Cancellation is cooperative; an individual file/AST operation cannot be interrupted mid-call."
             )
             yield Button("Close help", id="close-help")
 
@@ -229,15 +229,13 @@ class Page(Screen):
                     Text("\n".join(draft.diagnostics()) or "No discovery issues."),
                     id="diagnostics",
                 )
-            else:
-                yield Static(Text(draft.preview()), id="preview")
             yield Static("", id="error", markup=False)
             with Horizontal(id="actions"):
                 if self.stage != "role":
                     yield Button("Back", id="back")
                 if self.stage != "scanning":
                     yield Button(
-                        "Close draft" if self.stage == "preview" else "Next",
+                        "Next",
                         id="next",
                         variant="primary",
                     )
@@ -296,7 +294,7 @@ class Page(Screen):
         elif self.stage == "role":
             help_text = "Everything: local server and sources. Send data: publisher beside your files/code. Host: server only, with no source scan. Default: everything on this machine. Roles guide pages; all use the same config schema."
         else:
-            help_text = "Draft only: Back keeps your choices in memory. Closing abandons them without changing files. Settings, per-view overrides, review/diff and saving follow in the settings stage."
+            help_text = "Draft only: Back keeps your choices in memory. Closing abandons them without changing files. Settings, per-view overrides and reviewed saving follow Next."
         self.query_one("#context-help", Static).update(help_text)
         if isinstance(focus, Input):
             legend = "Tab / Shift+Tab fields · Enter next field · Esc back · F1 help · Ctrl+C/Q abandon"
@@ -344,7 +342,7 @@ class Page(Screen):
                 self.app.draft.selected_ids = None
                 self.app.draft.scan_key = None
                 self.app.draft.discovery_skipped = True
-                self.app.show_stage("preview")
+                self.app.begin_settings()
         elif action in ("add-watch", "remove-watch"):
             draft = self.app.draft
             try:
@@ -398,6 +396,8 @@ class ConfigWizard(App):
     """
 
     def __init__(self, draft: Draft):
+        from . import schema  # Populate typed fields only in the optional tool.
+
         super().__init__()
         self.draft = draft
         self.job = None
@@ -405,6 +405,53 @@ class ConfigWizard(App):
         self.pending_key = None
         self.stage = "role"
         self.source_inputs = {}
+        self.form_inputs = {}
+        self.flow_history = []
+        self.save_path = None
+        self.review = None
+        self.saved_message = None
+
+    def begin_settings(self):
+        self.flow_history = [(self.stage, None, False)]
+        self.show_workflow(
+            "server"
+            if self.draft.role == "server"
+            else "publisher" if self.draft.role == "publisher" else "storage"
+        )
+
+    def show_workflow(self, stage, view_id=None, advanced=False):
+        from .workflow import WorkflowPage
+        from .schema import PAGES, fields_for
+
+        if stage in PAGES:
+            try:
+                for spec in fields_for(stage, self.draft, view_id):
+                    self.draft.value(spec)
+            except (ValueError, TypeError):
+                self.screen.query_one("#error", Static).update(
+                    "This page contains unsupported configuration values. Repair the config manually or start a new file with --config; existing content has not been changed."
+                )
+                return
+
+        self.stage = stage
+        self.switch_screen(WorkflowPage(stage, view_id=view_id, advanced=advanced))
+
+    def go_workflow(self, stage, *, view_id=None, advanced=False):
+        self.flow_history.append(
+            (
+                self.stage,
+                getattr(self.screen, "view_id", None),
+                getattr(self.screen, "advanced", False),
+            )
+        )
+        self.show_workflow(stage, view_id, advanced)
+
+    def back_workflow(self):
+        stage, view_id, advanced = self.flow_history.pop()
+        if stage in ("role", "sources", "selection"):
+            self.show_stage(stage)
+        else:
+            self.show_workflow(stage, view_id, advanced)
 
     def on_mount(self):
         self.push_screen(Page("role"))
@@ -432,6 +479,9 @@ class ConfigWizard(App):
             self.push_screen(Help())
 
     def action_abandon(self):
+        if self.saved_message:
+            self.exit(self.saved_message)
+            return
         if isinstance(self.screen, Confirm):
             return
         self.push_screen(Confirm(), self.confirm_abandon)
@@ -443,6 +493,11 @@ class ConfigWizard(App):
             self.exit()
 
     def action_back(self):
+        from .workflow import WorkflowPage
+
+        if isinstance(self.screen, WorkflowPage):
+            self.screen.back()
+            return
         if not isinstance(self.screen, Page):
             self.screen.dismiss()
             return
@@ -457,11 +512,6 @@ class ConfigWizard(App):
             "sources": "role",
             "scanning": "sources",
             "selection": "sources",
-            "preview": (
-                "role"
-                if self.draft.role == "server"
-                else ("selection" if self.draft.result else "sources")
-            ),
         }
         self.show_stage(previous[self.stage])
 
@@ -501,6 +551,11 @@ class ConfigWizard(App):
             return False
 
     def action_next(self):
+        from .workflow import WorkflowPage
+
+        if isinstance(self.screen, WorkflowPage):
+            self.screen.advance()
+            return
         if not isinstance(self.screen, Page):
             return
         try:
@@ -513,9 +568,10 @@ class ConfigWizard(App):
                     self.draft.sources()
                     for key in ("destination", "bearer", "target"):
                         self.draft.value(FIELDS[key])
+                if self.draft.role == "server":
+                    self.begin_settings()
                 else:
-                    self.draft.preview()
-                self.show_stage("preview" if self.draft.role == "server" else "sources")
+                    self.show_stage("sources")
             elif self.stage == "sources" and self.capture_sources():
                 setup = self.draft.sources()
                 key = (setup.target, setup.target_base, setup.include_pruned)
@@ -541,9 +597,7 @@ class ConfigWizard(App):
                         self.poll_timer.stop()
                     self.poll_timer = self.set_interval(0.1, self.poll_scan)
             elif self.stage == "selection":
-                self.show_stage("preview")
-            elif self.stage == "preview":
-                self.action_abandon()
+                self.begin_settings()
         except (ValueError, TypeError):
             self.screen.query_one("#error", Static).update(
                 "Configuration has unsupported source/destination values. Check the selected config; nothing was changed."
