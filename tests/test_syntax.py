@@ -263,6 +263,10 @@ def test_file_backed_python_respects_explicit_text_override(
     assert reply.status_code == 200, reply.text
     assert reply.json()["kind"] == expected
     assert reply.json()["meta"]["source_info"]["language"] == "python"
+    assert (
+        next(v for v in store.list_views() if v.view_id == "watch:code").icon_key
+        == expected
+    )
 
 
 def test_trimmed_tail_cannot_claim_complete_lexical_context(client, tmp_path):

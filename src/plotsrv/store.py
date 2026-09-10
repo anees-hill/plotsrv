@@ -146,6 +146,9 @@ def _icon_for_view_kind(
 def _icon_for_watched_file_kind(file_kind: str) -> IconKey:
     fk = (file_kind or "unknown").strip().lower()
 
+    if fk == "python":
+        return "python"
+
     if fk == "csv":
         return "table"
 
