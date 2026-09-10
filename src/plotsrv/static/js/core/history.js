@@ -123,6 +123,7 @@
   }
 
   function syncHistoryUi() {
+    if (core.syncViewExplanation) core.syncViewExplanation();
     syncNavigation();
     const sel = document.getElementById("history-select");
     const isHistory = isHistoryMode();

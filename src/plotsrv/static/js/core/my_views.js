@@ -112,6 +112,7 @@
     window.history.replaceState(null, "", url);
   }
   function refresh() {
+    if (core.syncViewExplanation) core.syncViewExplanation();
     frame = null;
     const button = document.getElementById("table-save-view-btn");
     if (!button || !baseline || applying) return;
@@ -157,6 +158,7 @@
     const result = contract.compatible(spec, schema());
     active = item;
     selectedSpec = spec;
+    if (core.syncViewExplanation) core.syncViewExplanation();
     if (item) baseline = item.spec;
     if (result.unsafe.length) {
       blockedSpec = spec;
@@ -284,6 +286,7 @@
         await contract.change(item, false, update ? active : undefined);
         active = item;
         selectedSpec = spec;
+        if (core.syncViewExplanation) core.syncViewExplanation();
         baseline = spec;
         requested = true;
         const url = new URL(window.location.href);
@@ -422,6 +425,7 @@
     }
     active = null;
     blockedSpec = remountSpec = selectedSpec = null;
+    if (core.syncViewExplanation) core.syncViewExplanation();
     state.myViewBlocked = false;
     requested = true;
     clearSelection();
@@ -485,5 +489,6 @@
       "This saved presentation cannot be applied: the source has no adjustable table or plot surface. The saved configuration is unchanged; open My views to manage it.";
   };
   core.captureViewSpec = capture;
+  core.getPresentationExplanation = () => selectedSpec ? {caption: selectedSpec.caption, origin: active ? "My view caption (saved on this browser)" : "Suggested presentation"} : null;
   core.applyPersonalView = select;
 })();

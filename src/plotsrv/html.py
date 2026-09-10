@@ -110,7 +110,20 @@ def render_index(
     """
     ui = ui_settings or get_ui_settings()
     assets = get_ui_assets()
-    views = views or []
+    from dataclasses import replace
+    from .descriptions import source_description
+    from .settings import get_section
+
+    descriptions = get_section("description-settings")
+    views = [
+        replace(
+            v,
+            description=source_description(
+                v.view_id, v.description, policy=descriptions
+            ),
+        )
+        for v in (views or [])
+    ]
     active_view_id = active_view_id or "default"
     active_view_id_attr = _escape_attr(active_view_id)
     view_freshness = view_freshness or {}
@@ -363,6 +376,7 @@ def render_index(
               <span class="ps-viewselect__itemcopy">
                 <span class="ps-viewselect__itemlabel">{label_html}</span>
                 <span class="ps-viewselect__itemmeta">{_escape_html(secondary)}</span>
+                {f'<span class="ps-viewselect__description">{_escape_html(v.description)}</span>' if v.description else ""}
               </span>
               <span class="ps-viewselect__check" aria-hidden="true">✓</span>
             </button>
@@ -388,7 +402,7 @@ def render_index(
 
     def _featured_item_html(feature: object, view: ViewMeta) -> str:
         title = getattr(feature, "title", None) or view.label
-        caption = getattr(feature, "caption", None)
+        caption = getattr(feature, "caption", None) or view.description
         thumbnail = getattr(feature, "thumbnail_url", None)
         selected = "true" if view.view_id == active_view_id else "false"
         current = ' aria-current="page"' if view.view_id == active_view_id else ""
@@ -1129,6 +1143,7 @@ def render_index(
             "label": v.label,
             "kind": v.kind,
             "icon_key": v.icon_key,
+            "description": v.description,
             "freshness": view_freshness.get(v.view_id),
         }
         for v in views
@@ -1228,6 +1243,15 @@ def render_index(
           <button id="expand-view" class="ps-expand-button" type="button" aria-label="Expand view" title="Expand view">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /></svg>
           </button>
+          <details id="view-about" class="ps-view-about" hidden>
+            <summary class="ps-expand-button" aria-label="About this view" title="About this view">i</summary>
+            <div class="ps-view-about__panel" role="dialog" aria-label="About this view">
+              <button type="button" aria-label="Close view explanation">×</button>
+              <strong>About this view</strong>
+              <p id="view-about-text"></p>
+              <p id="view-about-scope"></p>
+            </div>
+          </details>
           <button
             id="settings-button"
             class="ps-settings-trigger"

@@ -47,6 +47,7 @@
         section: cleanText(raw.section, "default"),
         kind: cleanText(raw.kind, "none").toLowerCase(),
         icon_key: cleanText(raw.icon_key, "unknown").toLowerCase(),
+        description: typeof raw.description === "string" ? raw.description.slice(0, 512) : "",
         freshness:
           raw.freshness && typeof raw.freshness === "object"
             ? raw.freshness
@@ -139,7 +140,7 @@
       resolved.push({
         view: view,
         title: cleanText(raw.title, view.label),
-        caption: cleanText(raw.caption, ""),
+        caption: cleanText(raw.caption, view.description).slice(0, 512),
         thumbnail_url: safePresentationUrl(raw.thumbnail_url || raw.thumbnail),
       });
     }
@@ -391,6 +392,7 @@
       ? view.section + " · " + viewTypeLabel(view)
       : viewTypeLabel(view);
     copy.appendChild(element("span", "ps-viewselect__itemmeta", meta));
+    if (view.description) copy.appendChild(element("span", "ps-viewselect__description", view.description));
 
     button.appendChild(freshness);
     if (!compact) {
@@ -604,7 +606,7 @@
           open.appendChild(image);
           const copy = element("span", "ps-viewselect__itemcopy");
           copy.appendChild(element("span", "ps-viewselect__itemlabel", item.spec.name));
-          copy.appendChild(element("span", "ps-viewselect__itemmeta", (known.has(item.spec.sourceId) ? item.spec.caption || item.spec.sourceId : "Source unavailable — " + item.spec.sourceId)));
+          copy.appendChild(element("span", "ps-viewselect__itemmeta", (known.has(item.spec.sourceId) ? item.spec.caption || known.get(item.spec.sourceId).description || item.spec.sourceId : "Source unavailable — " + item.spec.sourceId)));
           open.appendChild(copy);
           const check = element("span", "ps-viewselect__check", "✓"); check.setAttribute("aria-hidden", "true"); open.appendChild(check);
           row.appendChild(open);
@@ -752,6 +754,7 @@
     controller.setCatalogue = function (views) {
       controller.catalogue = normalizeViewCatalogue(views);
       config.viewCatalogue = controller.catalogue;
+      if (core.syncViewExplanation) core.syncViewExplanation();
       controller.recent = loadRecentViews(controller.catalogue);
       controller.pinned = loadPinnedViews(controller.catalogue);
       savePinnedViews(controller.pinned);
@@ -893,6 +896,7 @@
   function updateViewSelectorCatalogue(views) {
     config.viewCatalogue = normalizeViewCatalogue(views);
     if (activeController) activeController.setCatalogue(config.viewCatalogue);
+    else if (core.syncViewExplanation) core.syncViewExplanation();
   }
 
   function bindViewDropdown() {

@@ -20,6 +20,10 @@ see [Server-side checks](checks.md). Checks are separate from freshness and snap
 storage, and are not configured through decorator arguments. Optional named destinations
 under `webhook-settings` are documented in [Generic webhooks](webhooks.md).
 
+Short source explanations and publisher docstring opt-outs use
+`description-settings`; see [View descriptions](view-descriptions.md) for precedence,
+privacy and examples.
+
 Create a starter config with:
 
 ```bash

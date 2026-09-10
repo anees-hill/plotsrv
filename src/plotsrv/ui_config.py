@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from . import settings
+from .descriptions import clean as clean_description
 
 DEFAULT_LOGO_URL = "/static/plotsrv_icon_title_colour_swash_logo.png"
 DEFAULT_HEADER_TEXT = ""
@@ -144,6 +145,8 @@ def _load_featured_views(
             value = values.get(key)
             if not isinstance(value, str):
                 return None
+            if key == "caption":
+                return clean_description(_strip_quotes(value[:4096]))
             clean = _strip_quotes(value).strip()
             return clean or None
 
@@ -159,7 +162,7 @@ def _load_featured_views(
             FeaturedView(
                 view_id=view_id,
                 title=optional_text("title"),
-                caption=optional_text("caption"),
+                caption=clean_description(optional_text("caption")),
                 thumbnail_url=thumbnail_url,
             )
         )

@@ -126,6 +126,7 @@
   }
 
   function configureBottomBar() {
+    if (core.syncViewExplanation) core.syncViewExplanation();
     if (core.syncExpandedView) core.syncExpandedView();
     if (core.syncCompare) core.syncCompare();
     const complete = document.querySelector('[data-export-scope="complete"]');

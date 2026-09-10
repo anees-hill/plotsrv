@@ -149,6 +149,7 @@
   };
 
   core.bootstrap = function () {
+    if (core.bindViewExplanation) core.bindViewExplanation();
     if (core.bindExpandedView) core.bindExpandedView();
     if (typeof core.bindSettings === "function") {
       core.bindSettings();
