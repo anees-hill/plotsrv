@@ -58,11 +58,20 @@ def _identity(payload):
 
 
 def register(payload):
-    _keys(payload, ("protocol_version", "view_id", "client_id", "label", "section"))
+    _keys(
+        payload,
+        ("protocol_version", "view_id", "client_id", "label", "section", "description"),
+    )
     vid = _identity(payload)
     client = bounded_text(payload.get("client_id"), "client ID", 64)
+    from .descriptions import received_description
+
+    description = received_description(payload)
     descriptor = ViewDescriptor(
-        vid, payload.get("label") or vid, payload.get("section")
+        vid,
+        payload.get("label") or vid,
+        payload.get("section"),
+        description=description,
     )
     with store._STORE_LOCK:
         entries = records()
@@ -93,6 +102,10 @@ def register(payload):
         from .ingestion import register_catalogue
 
         descriptor = state().descriptors.get(vid, descriptor)
+        if description is not None:
+            from dataclasses import replace
+
+            descriptor = replace(descriptor, description=description)
         register_catalogue([descriptor], seal=False)
         if reclaim is not None:
             del entries[reclaim]

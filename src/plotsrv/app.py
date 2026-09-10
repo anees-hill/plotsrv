@@ -221,10 +221,35 @@ def _render_artifact_response(
         entries, pruned = observation_context or ([], False)
         from .ingestion import state as ingestion_state
         descriptor = ingestion_state().descriptors.get(view_id)
-        rr = render_observation(obj, view_id=view_id, entries=entries, pruned=pruned,
-                                snapshot=snapshot_id is not None,
-                                description=descriptor.description if descriptor else None,
-                                storage_message=_snapshot_capability(view_id)["message"] if snapshot_id is None else None)
+        from .descriptions import source_description
+
+        meta_view = store._VIEW_META.get(view_id)
+        description = source_description(
+            view_id,
+            (
+                meta_view.description
+                if meta_view
+                else descriptor.description if descriptor else None
+            ),
+        )
+        if description and snapshot_id is not None:
+            description = (
+                "Current source description (not stored with this snapshot): "
+                + description
+            )
+        rr = render_observation(
+            obj,
+            view_id=view_id,
+            entries=entries,
+            pruned=pruned,
+            snapshot=snapshot_id is not None,
+            description=description,
+            storage_message=(
+                _snapshot_capability(view_id)["message"]
+                if snapshot_id is None
+                else None
+            ),
+        )
     else:
         rr = render_any(obj, view_id=view_id, kind_hint=kind_hint)
 
@@ -1376,6 +1401,12 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
     from .ingestion import state
     state().authenticate(request)
 
+    from .descriptions import received_description
+
+    try:
+        description = received_description(payload)
+    except (ValueError, TypeError):
+        raise HTTPException(422, "Invalid source description") from None
     kind = str(payload.get("kind") or "").strip().lower()
     if kind not in ("plot", "table", "artifact"):
         raise HTTPException(
@@ -1418,6 +1449,7 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
             label=label,
             kind="none",
             icon_key="unknown",
+            description=description,
             activate_if_first=False,
         )
     except store.ViewOwnershipError as error:
@@ -1837,10 +1869,14 @@ def get_artifact(
 
 @app.get("/views")
 def get_views(request: Request) -> list[dict[str, Any]]:
+    from .descriptions import source_description
+    from .settings import get_section
+
     if config.get_views_local_only():
         require_local_request(request)
 
     out: list[dict[str, Any]] = []
+    description_policy = get_section("description-settings")
     for v in store.list_views():
         watched_file = _watched_file_meta_dict(v.view_id)
 
@@ -1851,6 +1887,9 @@ def get_views(request: Request) -> list[dict[str, Any]]:
                 "label": v.label,
                 "kind": v.kind,
                 "icon_key": v.icon_key,
+                "description": source_description(
+                    v.view_id, v.description, policy=description_policy
+                ),
                 "freshness": store.get_freshness(view_id=v.view_id),
                 "is_watched_file": watched_file is not None,
                 "materialization": (

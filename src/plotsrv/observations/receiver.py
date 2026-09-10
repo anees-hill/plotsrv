@@ -27,10 +27,14 @@ def receive_observation(payload: dict) -> dict:
             raise ValueError("invalid interval")
         summary = validate_summary(payload.get("observation"), view_id=view_id)
         label, section = payload.get("label") or view_id, payload.get("section")
+        from ..descriptions import received_description
+
+        description = received_description(payload)
         descriptor = ViewDescriptor(
             view_id,
             label,
             section,
+            description=description,
             kind="artifact",
             capabilities=("json", "observation-v1"),
             source=SourceMetadata(source_type=summary["source_type"]),
@@ -40,11 +44,11 @@ def receive_observation(payload: dict) -> dict:
     now = time.time()
     with store._STORE_LOCK:
         require_admitted(view_id)
-        previous = state().descriptors.get(view_id)
-        if previous is not None:
+        previous_meta = store._VIEW_META.get(view_id)
+        if previous_meta is not None and description is None:
             from dataclasses import replace
 
-            descriptor = replace(descriptor, description=previous.description)
+            descriptor = replace(descriptor, description=previous_meta.description)
         if not payload.get("force") and not store.should_accept_publish(
             view_id=view_id, update_limit_s=payload.get("update_limit_s"), now_s=now
         ):

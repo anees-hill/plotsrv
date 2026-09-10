@@ -43,7 +43,15 @@ def _validate_route_arguments(arguments):
             continue
         if key == "destination" and type(value) is PublishTarget:
             continue
-        if key in ("destination", "host", "mode", "label", "section", "view_id"):
+        if key in (
+            "destination",
+            "host",
+            "mode",
+            "label",
+            "section",
+            "view_id",
+            "description",
+        ):
             if type(value) is not str or len(value) > (
                 2048 if key == "destination" else 512
             ):
@@ -124,7 +132,14 @@ class ObservationWorker:
         )
         metadata = tuple(
             arguments.get(key)
-            for key in ("label", "section", "view_id", "update_limit_s", "force")
+            for key in (
+                "label",
+                "section",
+                "view_id",
+                "update_limit_s",
+                "force",
+                "description",
+            )
         )
         key = (target_key, metadata)
         if not self._cache_lock.acquire(False):
@@ -145,12 +160,16 @@ class ObservationWorker:
             if view_id is None:
                 view_id = f"{(section or 'default').strip() or 'default'}:{label.strip() or 'default'}"
             bounded_text(view_id, "view_id", 512)
+            from ..descriptions import source_description
+
+            description = source_description(view_id, arguments.get("description"))
             route = ObservationRoute(
                 target,
                 label,
                 section,
                 arguments.get("update_limit_s"),
                 arguments.get("force", False),
+                description=description,
             )
             if len(self._routes) >= self.engine.budget.max_view_ids:
                 self._routes.popitem(last=False)
@@ -282,6 +301,8 @@ class ObservationWorker:
             "update_limit_s": route.update_limit_s,
             "force": route.force,
         }
+        if route.description is not None:
+            payload["description"] = route.description
         if len(encode_summary(payload)) > MAX_REQUEST_BYTES:
             raise ValueError("observation request budget")
         if route.target.kind == "remote":

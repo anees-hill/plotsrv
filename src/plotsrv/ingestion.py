@@ -301,6 +301,7 @@ def register_catalogue(views: list[ViewDescriptor], *, seal: bool) -> dict[str, 
             store.register_view(
                 view_id=descriptor.view_id,
                 label=descriptor.label,
+                description=descriptor.description,
                 section=descriptor.section,
                 kind="stream" if existing and existing.kind == "stream" else "none",
                 activate_if_first=False,
@@ -461,6 +462,7 @@ def capabilities(request: Request):
             "watch-v2",
             "observation-v1",
             "checks-v1",
+            "view-descriptions-v1",
         ),
     ).to_dict()
     return {

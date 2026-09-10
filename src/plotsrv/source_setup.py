@@ -89,11 +89,15 @@ def watch_descriptor(spec: WatchSpec) -> ViewDescriptor:
     path = Path(spec.path)
     label = (spec.label or path.name).strip() or path.name
     section = (spec.section or "watch").strip() or "watch"
+    from .descriptions import source_description
+
+    vid = normalize_view_id(spec.view_id, section=section, label=label)
     return ViewDescriptor(
-        normalize_view_id(spec.view_id, section=section, label=label),
+        vid,
         label,
         section,
         source=SourceMetadata(basename=path.name, source_type="watch"),
+        description=source_description(vid),
     )
 
 
@@ -106,7 +110,7 @@ def build_manifest(
     excluded=(),
     reviewed: bool = False,
 ) -> dict:
-    """Build only; no network, storage, local file reads or implicit sealing.
+    """Build from metadata/config; no network, source-data reads or implicit sealing.
 
     A completed scan with unresolved/failed source files needs explicit review.
     Cancellation/resource exhaustion always rejects partial manifests. Explicit

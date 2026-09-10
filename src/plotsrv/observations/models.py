@@ -126,6 +126,7 @@ class ObservationRoute:
     section: str | None = None
     update_limit_s: int | None = None
     force: bool = False
+    description: str | None = None
     target_key: str = field(init=False)
 
     def __post_init__(self):
@@ -134,7 +135,7 @@ class ObservationRoute:
 
         if type(self.target) is not PublishTarget:
             raise ValueError("invalid observation target")
-        for name in ("label", "section"):
+        for name in ("label", "section", "description"):
             value = getattr(self, name)
             if value is not None:
                 if type(value) is not str:

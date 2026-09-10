@@ -481,6 +481,10 @@ def test_decorator_warm_calls_do_not_resolve_configuration(worker, monkeypatch):
 
     @view(observe=True, view_id="x")
     def pipeline(value):
+        """Bounded pipeline explanation.
+
+        Private implementation details are not published.
+        """
         return value
 
     monkeypatch.setattr(
@@ -489,6 +493,13 @@ def test_decorator_warm_calls_do_not_resolve_configuration(worker, monkeypatch):
         lambda **kwargs: pytest.fail("warm configuration access"),
     )
     monkeypatch.setattr(worker, "_deliver", lambda *args: True)
+    from plotsrv import descriptions
+
+    monkeypatch.setattr(
+        descriptions,
+        "source_description",
+        lambda *a, **kw: pytest.fail("warm description setup"),
+    )
     value = [1, 2]
     assert pipeline(value) is value
     assert publisher.flush_views(timeout=1)

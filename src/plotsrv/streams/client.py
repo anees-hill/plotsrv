@@ -354,6 +354,11 @@ class StreamClient:
                         "protocol_version": STREAM_PROTOCOL_VERSION,
                         "view_id": self.registration.view_id,
                         "label": self.registration.label,
+                        **(
+                            {"description": self.registration.description}
+                            if self.registration.description is not None
+                            else {}
+                        ),
                         "section": self.registration.section,
                         "client_id": self.registration.client_id,
                         "session_id": self.registration.session_id,

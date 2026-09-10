@@ -148,6 +148,7 @@ class PublishTask:
     kind: str | None = None
     artifact_kind: str | None = None
     estimated_bytes: int = 0
+    description: str | None = None
 
     @property
     def coalesce_key(self) -> str:

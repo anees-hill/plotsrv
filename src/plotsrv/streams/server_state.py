@@ -515,6 +515,7 @@ class StreamRegistry:
                 store.register_view(
                     view_id=registration.view_id,
                     label=registration.label,
+                    description=registration.description,
                     section=registration.section,
                     kind="stream",
                     icon_key="stream",

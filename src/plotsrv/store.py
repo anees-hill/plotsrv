@@ -44,6 +44,7 @@ class ViewMeta:
     section: str | None = None
 
     icon_key: IconKey = "unknown"
+    description: str | None = None
 
 
 class ViewOwnershipError(ValueError):
@@ -270,9 +271,14 @@ def register_view(
     label: str | None = None,
     kind: str = "none",
     icon_key: IconKey | None = None,  # NEW
+    description: str | None = None,
     activate_if_first: bool = True,
 ) -> str:
     vid = normalize_view_id(view_id, section=section, label=label)
+    if description is not None:
+        from .descriptions import received_description
+
+        description = received_description({"description": description})
     st = _ensure_view(vid)
 
     # Stream views own their logical ID for the life of this minimal
@@ -306,6 +312,11 @@ def register_view(
             else (previous_meta.section if previous_meta else None)
         ),
         icon_key=st.icon_key,
+        description=(
+            description
+            if description is not None
+            else (previous_meta.description if previous_meta else None)
+        ),
     )
     _VIEW_META[vid] = next_meta
     if next_meta != previous_meta:
@@ -422,6 +433,7 @@ def set_watched_file_meta(meta: WatchedFileMeta) -> None:
             label=existing.label,
             section=existing.section,
             icon_key=st.icon_key,
+            description=existing.description,
         )
         _VIEW_META[meta.view_id] = next_meta
         if next_meta != existing:

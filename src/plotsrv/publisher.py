@@ -447,6 +447,7 @@ def _try_publish_pathlike_view(
     debug: bool,
     async_: bool,
     destination: PublishTarget | None = None,
+    description: str | None = None,
 ) -> bool:
     """
     Publish a Path-like object if obj is a real filesystem path.
@@ -488,6 +489,7 @@ def _try_publish_pathlike_view(
                 force=force,
                 kind="table",
                 async_=async_,
+                description=description,
             )
             return True
 
@@ -508,6 +510,7 @@ def _try_publish_pathlike_view(
                 force=force,
                 kind="artifact",
                 async_=async_,
+                description=description,
             )
             return True
 
@@ -537,6 +540,7 @@ def _try_publish_pathlike_view(
                 force=force,
                 kind="artifact",
                 async_=async_,
+                description=description,
             )
             return True
 
@@ -554,6 +558,7 @@ def _try_publish_pathlike_view(
             force=force,
             kind="artifact",
             async_=async_,
+            description=description,
         )
         return True
 
@@ -575,6 +580,7 @@ def _try_publish_pathlike_view(
             force=force,
             kind="artifact",
             async_=async_,
+            description=description,
         )
         return True
 
@@ -607,6 +613,7 @@ def _publish_view_local(
     view_id: str | None,
     kind: str | None,
     artifact_kind: str | None,
+    description: str | None = None,
 ) -> None:
     """
     Publish directly into the in-process plotsrv server/store.
@@ -633,6 +640,21 @@ def _publish_view_local(
         kind=kind,
         artifact_kind=artifact_kind,
     )
+
+    if description is not None:
+        from . import store
+
+        vid = (
+            store.normalize_view_id(view_id, section=section, label=label)
+            if (view_id or label or section)
+            else store.get_active_view_id()
+        )
+        store.register_view(
+            view_id=vid,
+            kind=store.get_view_state(vid).kind,
+            description=description,
+            activate_if_first=False,
+        )
 
 
 def _coalesce_view_id(
@@ -713,7 +735,13 @@ def _publish_view_now(
     artifact_kind: str | None,
     debug: bool,
     target: PublishTarget | None = None,
+    description: str | None = None,
 ) -> bool:
+    from .descriptions import source_description
+
+    description = source_description(
+        _coalesce_view_id(view_id=view_id, section=section, label=label), description
+    )
     remote_host, remote_port = host or "127.0.0.1", port if port is not None else 8000
     remote_target = target if not launch else None
     if not launch:
@@ -739,6 +767,7 @@ def _publish_view_now(
         debug=debug,
         async_=False,
         destination=remote_target,
+        description=description,
     ):
         return True
 
@@ -753,6 +782,7 @@ def _publish_view_now(
                 view_id=view_id,
                 kind=kind,
                 artifact_kind=artifact_kind,
+                description=description,
             )
             return True
         except RuntimeError as exc:
@@ -792,6 +822,8 @@ def _publish_view_now(
             raise
         return False
 
+    if description is not None:
+        payload["description"] = description
     return _post_publish_payload(
         payload=payload,
         host=remote_host,
@@ -817,6 +849,7 @@ def _run_publish_task(task: PublishTask) -> bool:
         kind=task.kind,
         artifact_kind=task.artifact_kind,
         debug=False,
+        description=task.description,
     )
 
 
@@ -837,6 +870,7 @@ def publish_view(
     artifact_kind: str | None = None,
     async_: bool | None = None,
     observe: bool | ObservationOptions = False,
+    description: str | None = None,
 ) -> None:
     """
     Publish an object as a plotsrv browser view.
@@ -872,6 +906,9 @@ def publish_view(
     ``async_=None`` uses ``publish-settings.live.async_enabled`` (off by
     default); ``async_=False`` preserves synchronous behaviour.
     """
+    from .descriptions import clean
+
+    description = clean(description)
     if observe is not False:
         from .observations.runtime import observation_options, submit_observation
         options = observation_options(observe, async_)
@@ -879,9 +916,19 @@ def publish_view(
             raise ValueError("observation chooses its summary format; omit kind/artifact_kind")
         try:
             submit_observation(
-                obj, options, destination=destination, launch_server=launch_server,
-                mode=mode, host=host, port=port, label=label, section=section,
-                view_id=view_id, update_limit_s=update_limit_s, force=force,
+                obj,
+                options,
+                destination=destination,
+                launch_server=launch_server,
+                mode=mode,
+                host=host,
+                port=port,
+                label=label,
+                section=section,
+                view_id=view_id,
+                update_limit_s=update_limit_s,
+                force=force,
+                **({"description": description} if description is not None else {}),
             )
         except Exception:
             pass
@@ -930,7 +977,9 @@ def publish_view(
             force=force,
             kind=kind,
             artifact_kind=artifact_kind,
-            estimated_bytes=_estimate_publish_task_bytes(obj),
+            description=description,
+            estimated_bytes=_estimate_publish_task_bytes(obj)
+            + 4 * len(description or ""),
         )
         get_publish_worker().submit(task)
         return
@@ -949,6 +998,7 @@ def publish_view(
         kind=kind,
         artifact_kind=artifact_kind,
         debug=debug,
+        description=description,
     )
 
 

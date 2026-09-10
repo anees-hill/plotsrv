@@ -392,11 +392,21 @@ async def register_stream(request: Request) -> dict[str, Any]:
     from .contracts import ViewDescriptor
     from .ingestion import IngestionError
     try:
-        ViewDescriptor(payload["view_id"], payload.get("label"), payload.get("section"), kind="stream")
+        from .descriptions import received_description
+
+        description = received_description(payload)
+        ViewDescriptor(
+            payload["view_id"],
+            payload.get("label"),
+            payload.get("section"),
+            kind="stream",
+            description=description,
+        )
     except (ValueError, TypeError):
         raise IngestionError("inadmissible_view", 422, "invalid_stream_descriptor") from None
     _configure_heartbeat_timeout()
     registration = StreamRegistration(
+        description=description,
         protocol_version=STREAM_PROTOCOL_VERSION,
         view_id=_required_stream_identity(payload, "view_id"),
         label=_required_text(payload, "label"),

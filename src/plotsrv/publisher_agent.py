@@ -115,6 +115,12 @@ class RemoteWatcher:
                             client_id=current.client,
                             label=current.descriptor.label,
                             section=current.descriptor.section,
+                            **(
+                                {"description": current.descriptor.description}
+                                if current.descriptor.description is not None
+                                and "view-descriptions-v1" in caps.capabilities
+                                else {}
+                            ),
                         ),
                     )
                     session = response.get("session")

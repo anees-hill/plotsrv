@@ -31,6 +31,7 @@ class PlotsrvSpec:
     observe: bool | ObservationOptions = False
 
     view_id: str | None = None
+    description: str | None = None
 
 _PLOTSRV_ATTR = "__plotsrv__"
 _PLOTSRV_CLASS_WRAPPED = "__plotsrv_class_wrapped__"
@@ -152,6 +153,8 @@ def _publish_result(obj: Any, *, spec: PlotsrvSpec, label: str) -> None:
         "update_limit_s": spec.update_limit_s,
         "force": False,
     }
+    if spec.description is not None:
+        kwargs["description"] = spec.description
     if spec.view_id is not None:
         kwargs["view_id"] = spec.view_id
     if spec.async_ is not None:
@@ -230,6 +233,11 @@ def _wrap_with_publish(func: Any, spec: PlotsrvSpec) -> Any:
                     view_id=spec.view_id,
                     update_limit_s=spec.update_limit_s,
                     force=False,
+                    **(
+                        {"description": spec.description}
+                        if spec.description is not None
+                        else {}
+                    ),
                 )
                 worker.start()
             except Exception:
@@ -395,7 +403,17 @@ def view(
         get_observation_worker()
 
     def decorator(obj: Any) -> Any:
+        from .descriptions import function_description
+        from .store import normalize_view_id
+        from types import FunctionType
+
+        name = obj.__name__ if type(obj) is FunctionType else "default"
+        description = function_description(
+            obj,
+            view_id=normalize_view_id(view_id, section=section, label=label or name),
+        )
         spec = PlotsrvSpec(
+            description=description,
             kind="artifact",
             label=label,
             section=section,

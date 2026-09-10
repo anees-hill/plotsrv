@@ -502,6 +502,7 @@ def _passive_register_views(
             view_id=dv.view_id,
             section=dv.section,
             label=dv.label,
+            description=dv.description,
             kind="none",
             activate_if_first=False,
         )

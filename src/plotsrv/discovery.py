@@ -273,7 +273,7 @@ def _literal_metadata(call: ast.Call) -> bool:
     for kw in call.keywords:
         if kw.arg is None:
             return False
-        if kw.arg in {"view_id", "label", "section"}:
+        if kw.arg in {"view_id", "label", "section", "description"}:
             if not isinstance(kw.value, ast.Constant) or not (
                 kw.value.value is None or isinstance(kw.value.value, str)
             ):
@@ -468,11 +468,18 @@ def scan_sources(
                         kind = "unknown"
                         if owner is not None:
                             label = label or owner.name
-                            doc = ast.get_docstring(owner, clean=True)
-                            if doc:
-                                description = " ".join(doc.split("\n\n", 1)[0].split())[
-                                    :2048
-                                ]
+                            from .descriptions import source_description
+                            from .store import normalize_view_id
+
+                            first = owner.body[0] if owner.body else None
+                            value = first.value if isinstance(first, ast.Expr) else None
+                            doc = (
+                                value.value if isinstance(value, ast.Constant) else None
+                            )
+                            description = source_description(
+                                normalize_view_id(vid, section=section, label=label),
+                                docstring=doc,
+                            )
                         elif api == "stream_view":
                             source = _extract_kw_str(call, "source")
                             if not label and source:
@@ -494,6 +501,14 @@ def scan_sources(
                         if not label:
                             issue(path, "unresolved_identity", declaration.lineno)
                             continue
+                        if owner is None:
+                            from .descriptions import source_description
+                            from .store import normalize_view_id
+
+                            description = source_description(
+                                normalize_view_id(vid, section=section, label=label),
+                                _extract_kw_str(call, "description") if call else None,
+                            )
                         view = DiscoveredView(
                             kind,
                             label,

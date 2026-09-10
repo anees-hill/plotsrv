@@ -247,7 +247,10 @@ def stream_view(
     )
     stream_client_id = _resolve_identity(client_id, "client_id")
     stream_session_id = _resolve_identity(session_id, "session_id")
+    from ..descriptions import source_description
+
     registration = StreamRegistration(
+        description=source_description(stream_view_id),
         view_id=stream_view_id,
         label=stream_label,
         section=stream_section,

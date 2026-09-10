@@ -363,6 +363,8 @@ class StreamRegistration:
     source_status: SourceStatus = field(default_factory=SourceStatus, compare=False)
     source_health: SourceHealth = field(default_factory=SourceHealth, compare=False)
 
+    description: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class StreamAppend:
