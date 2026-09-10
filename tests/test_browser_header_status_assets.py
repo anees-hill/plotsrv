@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 _STATIC = Path(__file__).parents[1] / "src" / "plotsrv" / "static"
 _STATIC_JS = _STATIC / "js"
 
@@ -27,7 +26,11 @@ def test_snapshot_presentation_overrides_age_and_new_data_presentation() -> None
     status_source = _read("core/status.js")
 
     snapshot_branch = status_source.index('model.viewMode === "snapshot"')
-    new_data_branch = status_source.index('model.browserData === "update_available"')
+    # Captured Latest and paused streams have separate notices. Locate the
+    # ordinary Live branch without confusing their conditions with its priority.
+    new_data_branch = status_source.index(
+        'if (model.browserData === "update_available")'
+    )
     freshness_branch = status_source.index("const freshness = latest.freshness")
 
     assert snapshot_branch < new_data_branch < freshness_branch
@@ -58,14 +61,17 @@ def test_stream_header_uses_a_stable_lifecycle_presentation_and_slow_pulse() -> 
     assert "setHeaderStreamSessionState" in stream_source
     assert "notifyHeaderStreamPauseChanged" in status_source
     assert "core.notifyHeaderStreamPauseChanged()" in stream_source
-    assert 'config.kind !== "stream" && state.headerFreshnessTimer == null' in status_source
+    assert (
+        'config.kind !== "stream" && state.headerFreshnessTimer == null'
+        in status_source
+    )
     assert 'config.kind === "stream" && state.latestStatusPayload' in app_source
     assert "STREAM_STATUS_GRACE_MS = 2500" in status_source
     assert "state.headerStreamPendingStatus" in status_source
     assert "window.clearTimeout(state.headerStreamTransitionTimer)" in status_source
-    status_key = status_source.split("function streamHeaderStatusKey(value)", 1)[1].split(
-        "function clearHeaderStreamTransition", 1
-    )[0]
+    status_key = status_source.split("function streamHeaderStatusKey(value)", 1)[
+        1
+    ].split("function clearHeaderStreamTransition", 1)[0]
     assert "lastHeartbeat" not in status_key
     assert "ps-stream-active-pulse 4s" in status_css
     assert "prefers-reduced-motion: reduce" in status_css
@@ -73,9 +79,9 @@ def test_stream_header_uses_a_stable_lifecycle_presentation_and_slow_pulse() -> 
 
 def test_ordinary_latest_status_uses_the_green_live_tone() -> None:
     status_source = _read("core/status.js")
-    latest_branch = status_source.split(
-        'if (freshnessState === "unknown")', 1
-    )[1].split("function renderHeaderStatus", 1)[0]
+    latest_branch = status_source.split('if (freshnessState === "unknown")', 1)[
+        1
+    ].split("function renderHeaderStatus", 1)[0]
 
     assert 'tone: "live"' in latest_branch
 
@@ -89,7 +95,7 @@ def test_new_data_and_history_tones_add_matching_header_accents() -> None:
     assert 'header.setAttribute("data-status-accent", accent)' in status_source
     assert 'presentation.tone === "new-data"' in status_source
     assert 'presentation.tone === "history"' in status_source
-    assert '.ps-header[data-status-accent]::after' in layout_css
+    assert ".ps-header[data-status-accent]::after" in layout_css
     assert '.ps-header[data-status-accent="new-data"]' in layout_css
     assert '.ps-header[data-status-accent="history"]' in layout_css
     assert "--ps-header-status-accent: #f2c200" in layout_css
@@ -116,9 +122,9 @@ def test_header_status_opens_the_shared_accessible_modal() -> None:
 def test_view_selector_and_status_use_the_same_header_control_treatment() -> None:
     status_css = (_STATIC / "css" / "status.css").read_text(encoding="utf-8")
     controls_css = (_STATIC / "css" / "controls.css").read_text(encoding="utf-8")
-    html_source = (
-        Path(__file__).parents[1] / "src" / "plotsrv" / "html.py"
-    ).read_text(encoding="utf-8")
+    html_source = (Path(__file__).parents[1] / "src" / "plotsrv" / "html.py").read_text(
+        encoding="utf-8"
+    )
 
     shared = status_css.split(".ps-header-status__button,", 1)[1].split("}", 1)[0]
     assert ".ps-viewselect__btn" in shared
@@ -132,6 +138,9 @@ def test_view_selector_and_status_use_the_same_header_control_treatment() -> Non
         assert declaration in shared
 
     assert ".ps-header-status__button:hover,\n.ps-viewselect__btn:hover" in status_css
-    assert ".ps-header-status__button:focus-visible,\n.ps-viewselect__btn:focus-visible" in status_css
+    assert (
+        ".ps-header-status__button:focus-visible,\n.ps-viewselect__btn:focus-visible"
+        in status_css
+    )
     assert "grid-template-columns: auto minmax(0, auto) auto" in controls_css
     assert 'class="ps-viewselect__chev" aria-hidden="true">⌄</span>' in html_source
