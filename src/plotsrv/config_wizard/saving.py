@@ -105,8 +105,20 @@ def narrow_yaml(raw: bytes | None, edits: dict) -> bytes:
     desired = copy.deepcopy(original)
     for path, value in edits.items():
         assign(desired, path, value)
+
+    def checked(result):
+        if len(result) > MAX_BYTES:
+            raise SaveError(
+                "Proposed config exceeds 1 MiB; reduce the configuration before saving."
+            )
+        if _load_bounded(result) != desired:
+            raise SaveError(
+                "Cannot preserve this YAML layout safely. Repair the layout manually."
+            )
+        return result
+
     if desired == original:
-        return raw or b"{}\n"
+        return checked(raw or b"{}\n")
     newline = "\r\n" if "\r\n" in text else "\n"
 
     def emit(value):
@@ -123,16 +135,20 @@ def narrow_yaml(raw: bytes | None, edits: dict) -> bytes:
         )
 
     if not original and not text.strip():
-        return yaml.safe_dump(desired, sort_keys=False, allow_unicode=True).encode()
+        return checked(
+            yaml.safe_dump(desired, sort_keys=False, allow_unicode=True).encode()
+        )
     root = yaml.compose(text)
     if root is None:  # Comments-only file.
-        return (
-            text
-            + ("" if text.endswith("\n") else newline)
-            + yaml.safe_dump(desired, sort_keys=False, allow_unicode=True).replace(
-                "\n", newline
-            )
-        ).encode()
+        return checked(
+            (
+                text
+                + ("" if text.endswith("\n") else newline)
+                + yaml.safe_dump(desired, sort_keys=False, allow_unicode=True).replace(
+                    "\n", newline
+                )
+            ).encode()
+        )
     replacements = []
 
     def walk(node, old, new):
@@ -204,10 +220,25 @@ def narrow_yaml(raw: bytes | None, edits: dict) -> bytes:
                         )
                     start = text.rfind("\n", 0, key_node.start_mark.index) + 1
                     end = value_node.end_mark.index
-                    if value_node.end_mark.column:
+                    if (
+                        isinstance(value_node, (yaml.MappingNode, yaml.SequenceNode))
+                        and not value_node.flow_style
+                    ):
+                        # Block collections end at the next sibling's indentation.
+                        end = (
+                            text.rfind("\n", 0, end) + 1
+                            if value_node.end_mark.column
+                            else end
+                        )
+                    elif value_node.end_mark.column:
                         end = text.find("\n", end)
                         end = len(text) if end < 0 else end + 1
-                    replacements.append((start, end, ""))
+                    comments = "".join(
+                        line
+                        for line in text[start:end].splitlines(keepends=True)
+                        if line.lstrip().startswith("#")
+                    )
+                    replacements.append((start, end, comments))
                 else:
                     walk(value_node, value, new[key])
             additions = {k: v for k, v in new.items() if k not in old}
@@ -248,11 +279,7 @@ def narrow_yaml(raw: bytes | None, edits: dict) -> bytes:
     for start, end, replacement in sorted(replacements, reverse=True):
         text = text[:start] + replacement + text[end:]
     result = text.encode("utf-8")
-    if len(result) > MAX_BYTES or _load_bounded(result) != desired:
-        raise SaveError(
-            "Cannot preserve this YAML layout safely. Use a new file or repair the layout manually."
-        )
-    return result
+    return checked(result)
 
 
 @dataclass(frozen=True)
@@ -267,7 +294,7 @@ class Review:
 
 def prepare(draft, destination: str) -> Review:
     from .schema import validate_document, review_projection
-    from .draft import _load_bounded
+    from .draft import _load_bounded, saved_target
 
     path = Path(destination).expanduser().absolute()
     if not path.parent.is_dir():
@@ -310,11 +337,7 @@ def prepare(draft, destination: str) -> Review:
                         ("publisher-settings", "discovery", "target"),
                         draft.name,
                     )
-                ] = str(sources.scan_root()) + (
-                    ":" + sources.target.partition(":")[2]
-                    if ":" in sources.target
-                    else ""
-                )
+                ] = saved_target(sources.target, base=sources.target_base)
         for field_path, value in list(edits.items()):
             if (
                 field_path[-1] == "root_dir"

@@ -203,7 +203,7 @@ for key in ("async_enabled", "max_pending_views", "max_pending_mb", "flush_timeo
                 else "seconds" if key.endswith("_s") else "views"
             )
         ),
-        None if key == "async_enabled" else 0.001,
+        None if key == "async_enabled" else 0 if key == "flush_timeout_s" else 0.001,
     )
 for key in (
     "request_timeout_s",
@@ -221,6 +221,18 @@ for key in (
         "seconds",
         0.001,
     )
+add(
+    "publish",
+    "remote_stream_request_timeout_s",
+    ("publisher-settings", "destination", "stream_request_timeout_s"),
+    "Remote stream request timeout",
+    "float",
+    "Maximum wait for each stream HTTP request to the configured destination. Retry delays below are separate.",
+    "seconds",
+    0.001,
+    300,
+    default=model_default(PublishTarget, "stream_request_timeout_s"),
+)
 for key, kind, choices in (
     ("materialization", "str", ("auto", "memory", "file")),
     ("file_threshold_mb", "float", ()),
@@ -304,6 +316,18 @@ add(
 
 def fields_for(page, draft, view_id=None):
     specs = [FIELDS[key] for key in PAGES[page]]
+    if page == "publish":
+        remote = bool(draft.value(FIELDS["destination"]))
+        specs = [
+            spec
+            for spec in specs
+            if spec.key
+            != (
+                "stream_request_timeout_s"
+                if remote
+                else "remote_stream_request_timeout_s"
+            )
+        ]
     if view_id is None:
         return specs
     result = []
@@ -315,6 +339,11 @@ def fields_for(page, draft, view_id=None):
             "default_min_store_interval": "min_store_interval",
         }.get(spec.path[-1], spec.path[-1])
         default = True if key == "enabled" else draft.value(spec)
+        if page == "freshness" and key == "enabled" and draft.role != "server":
+            watched = view_id in {w.view_id for w in draft.watches()}
+            configured = view_id in draft.section("freshness-settings").get("views", {})
+            if watched and not configured:
+                default = False
         result.append(
             replace(spec, path=(spec.path[0], "views", view_id, key), default=default)
         )
@@ -363,7 +392,7 @@ def validate_document(document, name, base, role):
                         break
                     node = node[part]
                 if node is not None:
-                    spec.parse(str(node))
+                    spec.parse_config(node)
         if role != "server":
             pub = section("publisher-settings")
             get_publisher_sources(section=pub, base=base)
@@ -401,6 +430,19 @@ def validate_document(document, name, base, role):
                     )
             elif role == "publisher":
                 raise ValueError("Publisher destination URL is required")
+            streams = section("stream-settings")
+            initial = streams.get(
+                "retry_initial_delay_s",
+                config._DEFAULTS["stream-settings"]["retry_initial_delay_s"],
+            )
+            maximum = streams.get(
+                "retry_max_delay_s",
+                config._DEFAULTS["stream-settings"]["retry_max_delay_s"],
+            )
+            if float(maximum) < float(initial):
+                raise ValueError(
+                    "Stream maximum retry delay must be at least the initial delay"
+                )
             ObservationBudget.from_mapping(
                 section("publish-settings").get("observe", {})
             )
@@ -441,7 +483,7 @@ def validate_document(document, name, base, role):
                             "storage_" if sec == "storage-settings" else "freshness_"
                         ) + original_key
                         if field_key in FIELDS and val is not None:
-                            FIELDS[field_key].parse(str(val))
+                            FIELDS[field_key].parse_config(val)
                     if sec == "freshness-settings":
                         effective = {**raw, **row}
                         warn = config._parse_duration_seconds(
@@ -501,7 +543,7 @@ def review_projection(document, name, role):
             # Values were validated on the proposed document; old invalid secrets
             # in destination fields are hidden instead of echoed in the diff.
             try:
-                parsed = spec.parse("" if node is None else str(node))
+                parsed = spec.parse_config(node)
                 assign(output, spec.path, parsed)
             except ValueError:
                 assign(output, spec.path, "<invalid value hidden>")
@@ -585,7 +627,7 @@ def review_projection(document, name, role):
 for key, kind, label, choices in (
     ("enabled", "bool", "Keep the latest stored view", ()),
     ("restore_on_startup", "bool", "Restore latest views at server startup", ()),
-    ("restore_scope", "str", "Latest restore scope", ("discovered", "all")),
+    ("restore_scope", "str", "Latest restore scope", ("discovered", "all", "none")),
 ):
     add(
         "storage",

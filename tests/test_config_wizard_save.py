@@ -417,10 +417,8 @@ def test_skip_missing_cli_target_and_preserve_callable_suffix(tmp_path):
     source.write_text("def operation(): pass\n")
     d.cli_target = str(source) + ":operation"
     d.discovery_skipped = False
-    proposed = yaml.safe_load(prepare(d, str(d.path)).proposed)
-    assert proposed["publisher-settings"]["discovery"]["target"].endswith(
-        "app.py:operation"
-    )
+    with pytest.raises(ValueError, match="module:callable"):
+        prepare(d, str(d.path))
 
 
 @pytest.mark.parametrize(
@@ -443,3 +441,135 @@ def test_explicit_null_view_overdue_uses_runtime_derived_threshold(tmp_path):
         b"freshness-settings:\n  warn_after: 1m\n  overdue_after: 2m\n  views:\n    output:\n      warn_after: 5m\n      overdue_after: null\n",
     )
     prepare(d, str(d.path))
+
+
+def test_combined_ids_have_independent_owners(tmp_path):
+    d = load(
+        tmp_path,
+        b"server-settings:\n  admission:\n    mode: catalogue-locked\n    allowed_ids: [existing]\npublisher-settings:\n  discovery:\n    additional_ids: [publisher-old]\n",
+        role="combined",
+    )
+    d.discovery_skipped = True
+    d.add_id("server-new", "server")
+    d.add_id("publisher-new", "publisher")
+    document = yaml.safe_load(prepare(d, str(d.path)).proposed)
+    assert document["server-settings"]["admission"]["allowed_ids"] == [
+        "existing",
+        "server-new",
+    ]
+    assert document["publisher-settings"]["discovery"]["additional_ids"] == [
+        "publisher-old",
+        "publisher-new",
+    ]
+    d.role = "server"
+    assert d.configured_ids() == ["existing", "server-new"]
+    d.role = "publisher"
+    assert d.configured_ids() == ["publisher-old", "publisher-new"]
+
+
+@pytest.mark.parametrize("raw", [None, b"", b"# preserved\n", b"{}\n"])
+def test_every_yaml_save_path_enforces_output_bound(raw):
+    with pytest.raises(SaveError, match="1 MiB"):
+        narrow_yaml(raw, {("custom",): "x" * (1024 * 1024)})
+
+
+@pytest.mark.parametrize("key", ["first", "middle", "last"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n"])
+def test_remove_block_entry_preserves_siblings_and_comments(key, newline):
+    raw = (
+        (
+            "storage-settings:\n  views:\n    first:\n      enabled: true\n    # retain this comment\n    middle:\n      keep_last: 3\n    last:\n      enabled: false\nother: preserved\n"
+        )
+        .replace("\n", newline)
+        .encode()
+    )
+    result = narrow_yaml(raw, {("storage-settings", "views", key): DELETE})
+    expected = yaml.safe_load(raw)
+    del expected["storage-settings"]["views"][key]
+    assert yaml.safe_load(result) == expected
+    assert b"# retain this comment" in result
+
+
+def test_callable_module_target_remains_executable(tmp_path, monkeypatch):
+    import importlib
+    from plotsrv.config_wizard.draft import saved_target
+
+    (tmp_path / "wizard_callable_example.py").write_text("def run():\n    return 42\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    d = load(tmp_path, role="combined")
+    d.cli_target = "wizard_callable_example:run"
+    other = tmp_path / "config"
+    other.mkdir()
+    document = yaml.safe_load(prepare(d, str(other / "chosen.yml")).proposed)
+    target = document["publisher-settings"]["discovery"]["target"]
+    assert target == "wizard_callable_example:run"
+    module, name = target.split(":")
+    assert getattr(importlib.import_module(module), name)() == 42
+    assert saved_target("./wizard_callable_example.py") == str(
+        tmp_path / "wizard_callable_example.py"
+    )
+    with pytest.raises(ValueError, match="module:callable"):
+        saved_target("./wizard_callable_example.py:run")
+
+
+def test_huge_integer_is_validation_error():
+    with pytest.raises(ValueError):
+        FIELDS["bind_port"].parse("9" * 400)
+
+
+def test_remote_stream_timeout_uses_destination_model(tmp_path):
+    from plotsrv.publishing.models import PublishTarget
+
+    d = load(tmp_path, role="publisher")
+    d.set_value(FIELDS["destination"], "https://receiver.example")
+    d.set_value(FIELDS["remote_stream_request_timeout_s"], "0.25")
+    d.discovery_skipped = True
+    fields = schema.fields_for("publish", d)
+    assert "remote_stream_request_timeout_s" in {f.key for f in fields}
+    assert "stream_request_timeout_s" not in {f.key for f in fields}
+    document = yaml.safe_load(prepare(d, str(d.path)).proposed)
+    destination = document["publisher-settings"]["destination"]
+    target = PublishTarget(
+        kind="remote", base_url=destination.pop("url"), **destination
+    )
+    assert target.stream_request_timeout_s == 0.25
+    d.set_value(FIELDS["stream_retry_initial_delay_s"], "10")
+    d.set_value(FIELDS["stream_retry_max_delay_s"], "1")
+    with pytest.raises(SaveError, match="maximum retry delay"):
+        prepare(d, str(d.path))
+
+
+def test_runtime_valid_storage_and_zero_flush_are_preserved(tmp_path):
+    raw = b"storage-settings:\n  default_keep_last: false\n  latest: {restore_scope: none}\npublish-settings:\n  live: {flush_timeout_s: 0}\nlimits:\n  watched_files: {max_mb: off}\n"
+    d = load(tmp_path, raw, role="combined")
+    d.discovery_skipped = True
+    d.set_value(FIELDS["freshness_enabled"], "true")
+    review = prepare(d, str(d.path))
+    save(review)
+    settings.set_runtime_context(config_path=d.path)
+    assert config.get_storage_default_keep_last() == 2
+    assert config.get_publish_flush_timeout_s() == 0
+    assert config.get_watch_max_bytes() is None
+    assert b"default_keep_last: false" in review.proposed
+    assert FIELDS["storage_default_keep_last"].parse_config(True) == 1
+
+
+def test_watch_freshness_requires_explicit_opt_in(tmp_path):
+    d = load(tmp_path, role="combined")
+    d.discovery_skipped = True
+    d.add_watch("service.log", "logs:service", "tail")
+    d.set_value(FIELDS["freshness_enabled"], "true")
+    d.set_value(FIELDS["freshness_warn_after"], "1m")
+    spec = next(
+        f
+        for f in schema.fields_for("freshness", d, "logs:service")
+        if f.key == "freshness_enabled"
+    )
+    assert d.value(spec) is False
+    d.set_value(spec, "true")
+    save(prepare(d, str(d.path)))
+    settings.set_runtime_context(config_path=d.path)
+    assert config.has_freshness_view_config("logs:service")
+    assert config.get_freshness_view_enabled("logs:service")
+    assert config.get_freshness_warn_after_s("logs:service") == 60

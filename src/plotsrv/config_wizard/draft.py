@@ -89,13 +89,24 @@ class FieldSpec:
             if text.lower() not in ("true", "false"):
                 raise ValueError("Choose true or false.")
             return text.lower() == "true"
+        if self.key == "watch_max_mb" and text.lower() in (
+            "off",
+            "none",
+            "null",
+            "inf",
+            "infinity",
+            "0",
+            "false",
+        ):
+            return "off"
         if self.kind in ("int", "float"):
             try:
                 value = int(text) if self.kind == "int" else float(text)
             except ValueError:
                 raise ValueError("Enter a valid number.") from None
             if (
-                not math.isfinite(value)
+                (self.kind == "float" and not math.isfinite(value))
+                or (self.kind == "int" and value.bit_length() > 63)
                 or (self.minimum is not None and value < self.minimum)
                 or (self.maximum is not None and value > self.maximum)
             ):
@@ -106,6 +117,20 @@ class FieldSpec:
         if text:
             bounded_text(text, self.label, 4096)
         return text or self.default
+
+    def parse_config(self, value):
+        # Runtime retention accepts false/null as the inherited default and true as 1.
+        if self.kind == "keep":
+            from ..config import _as_keep_last
+
+            normalized = _as_keep_last(value, self.default)
+            return "off" if normalized is None else normalized
+        if self.key == "watch_max_mb":
+            from ..config import _parse_mb_to_bytes
+
+            if _parse_mb_to_bytes(value, self.default) is None:
+                return "off"
+        return self.parse("" if value is None else str(value))
 
     def help(self, origin: str) -> str:
         return f"{self.meaning}\nUnits: {self.units}. Default: {self.default if self.default is not None else 'unset'}.\n{origin} Explicit command/API choices override configuration. * marks a value different from the displayed default."
@@ -219,6 +244,7 @@ class Draft:
     scan_key: tuple | None = None
     discovery_skipped: bool = False
     manual_ids: list[str] | None = None
+    server_ids: list[str] | None = None
 
     @classmethod
     def load(cls, *, config=None, name=None, target=None):
@@ -266,15 +292,13 @@ class Draft:
                 return spec.default
             current = current[key]
         # Validate before showing potentially sensitive malformed legacy values.
-        if (current is None or type(current) is bool) and spec.kind == "keep":
-            return spec.default
         if (
             spec.kind in ("env", "url")
             and current is not None
             and type(current) is not str
         ):
             raise ValueError("Credential references and URLs must be strings.")
-        return spec.parse("" if current is None else str(current))
+        return spec.parse_config(current)
 
     def origin(self, spec):
         if spec.path in self.edits:
@@ -333,23 +357,50 @@ class Draft:
     def watches(self):
         return tuple(watch_descriptor(w) for w in self.sources().watches)
 
-    def add_watch(self, path, view_id, read_mode):
-        bounded_text(path, "watch path", 4096)
-        bounded_text(view_id, "watch ID", 512)
-        rows = list(
+    def watch_entries(self):
+        return list(
             self.watch_rows
             if self.watch_rows is not None
             else self.section("publisher-settings").get("watch", [])
         )
-        if len(rows) >= MAX_CATALOGUE_VIEWS:
-            raise ValueError("Watch count exceeds catalogue limit")
-        rows.append(
-            {
-                "path": path,
-                "view_id": view_id,
-                **({"read_mode": read_mode} if read_mode else {}),
-            }
-        )
+
+    def add_watch(self, path, view_id, read_mode):
+        self.edit_watch(path, view_id, read_mode)
+
+    def edit_watch(
+        self,
+        path,
+        view_id,
+        read_mode,
+        *,
+        index=-1,
+        label="",
+        section="",
+        materialization="auto",
+    ):
+        bounded_text(path, "watch path", 4096)
+        bounded_text(view_id, "watch ID", 512)
+        rows = self.watch_entries()
+        row = {
+            "path": path,
+            "view_id": view_id,
+            **({"read_mode": read_mode} if read_mode else {}),
+            **({"label": label} if label else {}),
+            **({"section": section} if section else {}),
+            **(
+                {"materialization": materialization}
+                if materialization != "auto"
+                else {}
+            ),
+        }
+        if index == -1:
+            if len(rows) >= MAX_CATALOGUE_VIEWS:
+                raise ValueError("Watch count exceeds catalogue limit")
+            rows.append(row)
+        else:
+            if not 0 <= index < len(rows):
+                raise ValueError("Choose an existing watch")
+            rows[index] = row
         get_publisher_sources(section={"watch": rows}, base=self.path.parent)
         self.watch_rows = rows
 
@@ -391,22 +442,25 @@ class Draft:
             lines.append(f"{self.result.issue_count} issues total; diagnostics capped.")
         return lines
 
-    def configured_ids(self):
-        if self.manual_ids is not None:
-            return self.manual_ids
-        if self.role == "server":
+    def configured_ids(self, owner=None):
+        owner = owner or ("server" if self.role == "server" else "publisher")
+        staged = self.server_ids if owner == "server" else self.manual_ids
+        if staged is not None:
+            return staged
+        if owner == "server":
             return list(
                 self.section("server-settings").get("admission", {}).get("allowed_ids")
                 or []
             )
         return list(self.sources().additional_ids)
 
-    def add_id(self, value):
+    def add_id(self, value, owner=None):
+        owner = owner or ("server" if self.role == "server" else "publisher")
         bounded_text(value, "logical ID", 512)
-        ids = list(self.configured_ids())
+        ids = list(self.configured_ids(owner))
         if value in ids:
             raise ValueError("That logical ID is already present.")
-        if self.role != "server" and (
+        if owner != "server" and (
             value in (self.selected_ids or ())
             or value in {w.view_id for w in self.watches()}
         ):
@@ -416,10 +470,15 @@ class Draft:
         if len(ids) >= MAX_CATALOGUE_VIEWS:
             raise ValueError("Catalogue ID limit reached.")
         ids.append(value)
-        self.manual_ids = ids
+        if owner == "server":
+            self.server_ids = ids
+        else:
+            self.manual_ids = ids
 
     def known_ids(self):
         ids = set(self.configured_ids()) | set(self.selected_ids or ())
+        if self.role == "combined":
+            ids.update(self.configured_ids("server"))
         if self.role != "server":
             ids.update(w.view_id for w in self.watches())
         for section in ("storage-settings", "freshness-settings"):
@@ -484,14 +543,9 @@ class Draft:
                     self.selected_ids or ()
                 )
             if self.cli_target is not None and not self.discovery_skipped:
-                from ..source_targets import resolve_source_target
-
-                # Store the reviewed scope on this machine, not a path reinterpreted
-                # relative to a different config folder on the next launch.
-                suffix = self.cli_target.partition(":")[2]
-                edits[("publisher-settings", "discovery", "target")] = str(
-                    resolve_source_target(self.cli_target)
-                ) + (":" + suffix if suffix else "")
+                edits[("publisher-settings", "discovery", "target")] = saved_target(
+                    self.cli_target
+                )
             elif self.result is not None and self.sources().target is None:
                 from ..source_targets import default_source_target
 
@@ -506,15 +560,15 @@ class Draft:
                     edits[("publisher-settings", "destination")] = None
         if self.role != "publisher":
             if self.value(FIELDS["admission"]) == "catalogue-locked":
-                if self.manual_ids is not None:
+                if self.server_ids is not None:
                     edits[("server-settings", "admission", "allowed_ids")] = (
-                        self.manual_ids
+                        self.server_ids
                     )
             elif (
                 self.section("server-settings").get("admission", {}).get("allowed_ids")
                 is not None
             ):
-                edits[("server-settings", "admission", "allowed_ids")] = DELETE
+                edits[("server-settings", "admission", "allowed_ids")] = None
         return {
             scoped_path(self.config, path, self.name): value
             for path, value in edits.items()
@@ -545,3 +599,19 @@ class Draft:
         else:
             line += "\nFor a locked receiver, review the complete multi-project ID union before explicitly adding --seal-catalogue --reviewed. Saving does not send that command."
         return line
+
+
+def saved_target(target, base=None):
+    """Keep import expressions executable; anchor filesystem discovery paths."""
+    from ..source_targets import resolve_source_target
+
+    raw, separator, callable_name = str(target).partition(":")
+    is_module = bool(raw) and all(part.isidentifier() for part in raw.split("."))
+    if separator and not is_module:
+        raise ValueError(
+            "Callable targets must use module:callable, not file:callable."
+        )
+    resolved = resolve_source_target(target, base=base)
+    if is_module and (separator or not ((base or Path.cwd()) / raw).exists()):
+        return str(target)
+    return str(resolved)
