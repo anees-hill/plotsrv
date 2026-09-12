@@ -6,7 +6,7 @@ from typing import Literal
 import json
 
 from .config import TableViewMode
-from .store import ViewMeta
+from .view_metadata import ViewMeta
 from .table_explorer_markup import render_table_explorer
 from .ui_assets import get_ui_assets
 from .ui_config import (
@@ -19,7 +19,11 @@ ViewKind = Literal["none", "plot", "table", "artifact", "stream"]
 
 def _stream_insights_help(panel: str) -> str:
     """Explanations of server observations, not client-side anomaly detection."""
-    titles = {"since": "Since last visit", "noteworthy": "Noteworthy", "history": "History"}
+    titles = {
+        "since": "Since last visit",
+        "noteworthy": "Noteworthy",
+        "history": "History",
+    }
     copy = {
         "since": """
           <p>Compares the stream’s current cumulative counters with a compatible checkpoint saved by this browser for this view. It reports changes in accepted records, source severities and noteworthy observations, not a replay of every log entry.</p>
@@ -44,12 +48,12 @@ def _stream_insights_help(panel: str) -> str:
         """,
     }
     title = titles[panel]
-    return f'''<details class="ps-stream-insights-help">
+    return f"""<details class="ps-stream-insights-help">
       <summary aria-label="Help: {title}">?</summary>
       <div class="ps-stream-insights-help__body" role="region" aria-label="About {title}" tabindex="0">
         <strong>About {title}</strong>{copy[panel]}
       </div>
-    </details>'''
+    </details>"""
 
 
 def _plotsrv_version() -> str:
@@ -104,6 +108,7 @@ def render_index(
     browser_update_instance_id: str | None = None,
     table_plot_max_points: int = 5_000,
     file_backed: bool = False,
+    static_preview: bool = False,
 ) -> str:
     """
     Return the HTML for the main viewer page.
@@ -114,7 +119,7 @@ def render_index(
     from .descriptions import source_description
     from .settings import get_section
 
-    descriptions = get_section("description-settings")
+    descriptions = {} if static_preview else get_section("description-settings")
     views = [
         replace(
             v,
@@ -194,9 +199,7 @@ def render_index(
         enabled = (
             ui.export_table
             if view_kind == "table"
-            else ui.export_image
-            if view_kind == "plot"
-            else True
+            else ui.export_image if view_kind == "plot" else True
         )
         if not enabled:
             return ""
@@ -247,9 +250,7 @@ def render_index(
         }.get(view_kind, "none")
         disabled = " disabled" if action == "none" else ""
         title = (
-            ' title="Nothing is available to export yet."'
-            if action == "none"
-            else ""
+            ' title="Nothing is available to export yet."' if action == "none" else ""
         )
         return f"""
           <div id="export-control" class="ps-export" data-export-kind="{view_kind}">
@@ -346,9 +347,7 @@ def render_index(
         label_html = _escape_html(compact_title or v.label)
         section = v.section or "default"
         type_label = _view_type_label(v)
-        secondary = (
-            f"{section} · {type_label}" if include_section else type_label
-        )
+        secondary = f"{section} · {type_label}" if include_section else type_label
         is_selected = v.view_id == active_view_id
         selected = "true" if is_selected else "false"
         current = ' aria-current="page"' if is_selected else ""
@@ -395,9 +394,7 @@ def render_index(
         if feature.view_id in views_by_id
     ]
     compact_by_id = {
-        item.view_id: item
-        for item in configured_compact
-        if item.view_id in views_by_id
+        item.view_id: item for item in configured_compact if item.view_id in views_by_id
     }
 
     def _featured_item_html(feature: object, view: ViewMeta) -> str:
@@ -1029,6 +1026,22 @@ def render_index(
           </div>
         """
 
+    if static_preview:
+        # Only the temporary customiser requests this inert skeleton. No runtime
+        # JavaScript, settings dialogs, subscriptions or production state enter it.
+        return f"""<!doctype html><html lang="en" data-theme="light"><head>
+          <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+          <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; img-src 'self' blob:; form-action 'none'; base-uri 'none'">
+          <link rel="stylesheet" href="{assets.css}"><title>{page_title}</title></head>
+          <body class="ps-body" data-kind="{kind}">
+          <header id="site-header" class="header ps-header">
+            <div class="header-left ps-header__left" id="preview-branding">
+              <img src="{logo_url}" alt="Dashboard logo" class="header-logo ps-header__logo">
+              <div class="header-title ps-header__title">{header_text}</div>
+            </div><div class="header-right ps-header__right" id="preview-controls">{header_status_html}{dropdown_html}</div>
+          </header><main class="page ps-page"><section class="plot-card ps-card">{content_html}</section></main>
+          {footer_html}</body></html>"""
+
     plotsrv_version = _escape_html(_plotsrv_version())
     settings_html = f"""
       <section
@@ -1165,6 +1178,7 @@ def render_index(
         for item in configured_compact
     ]
     from . import settings
+
     cfg_json = json.dumps(
         {
             "active_view_id": active_view_id,

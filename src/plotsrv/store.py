@@ -14,38 +14,9 @@ from . import config
 from .artifacts import Artifact, ArtifactKind, Truncation
 from .browser_updates import browser_update_hub
 
-IconKey = Literal[
-    "unknown",
-    "plot",
-    "table",
-    "stream",
-    "text",
-    "json",
-    "python",
-    "markdown",
-    "image",
-    "html",
-    "traceback",
-    "exception",
-]
+from .view_metadata import IconKey, ViewMeta
 
 MAX_DATA_ACTIVITY_EVENTS = 256
-
-
-@dataclass(frozen=True, slots=True)
-class ViewMeta:
-    """
-    Metadata that describes a view shown in the UI dropdown.
-    """
-
-    view_id: str
-    kind: str  # "none" | "plot" | "table" | "artifact" | "stream"
-    label: str
-    section: str | None = None
-
-    icon_key: IconKey = "unknown"
-    description: str | None = None
-
 
 class ViewOwnershipError(ValueError):
     """A logical stream view cannot be repurposed as an ordinary view."""

@@ -92,7 +92,9 @@ def _strip_quotes(s: str) -> str:
     return t
 
 
-def _resolve_asset_url(raw: str, *, default_url: str) -> tuple[str, Path | None]:
+def _resolve_asset_url(
+    raw: str, *, default_url: str, base: Path | None = None, resolve_files: bool = True
+) -> tuple[str, Path | None]:
     """
     Accept:
       - direct URL or served paths: http(s)://, /static/, /assets/
@@ -106,7 +108,9 @@ def _resolve_asset_url(raw: str, *, default_url: str) -> tuple[str, Path | None]
     if raw2.startswith(("http://", "https://", "/static/", "/assets/")):
         return raw2, None
 
-    base = settings.get_runtime_config_dir() or Path.cwd()
+    if not resolve_files:
+        return default_url, None
+    base = base or settings.get_runtime_config_dir() or Path.cwd()
     p = (base / raw2).expanduser().resolve()
     if p.exists() and p.is_file():
         return f"/assets/{p.name}", p
@@ -116,6 +120,9 @@ def _resolve_asset_url(raw: str, *, default_url: str) -> tuple[str, Path | None]
 
 def _load_featured_views(
     raw: Any,
+    *,
+    base: Path | None = None,
+    resolve_files: bool = True,
 ) -> tuple[tuple[FeaturedView, ...], tuple[Path, ...]]:
     """Parse optional featured-view entries, ignoring malformed values."""
     if not isinstance(raw, list):
@@ -131,9 +138,7 @@ def _load_featured_views(
             values: dict[str, Any] = {}
         elif isinstance(entry, dict):
             raw_id = entry.get("view", entry.get("view_id"))
-            view_id = (
-                _strip_quotes(raw_id).strip() if isinstance(raw_id, str) else ""
-            )
+            view_id = _strip_quotes(raw_id).strip() if isinstance(raw_id, str) else ""
             values = entry
         else:
             continue
@@ -153,7 +158,9 @@ def _load_featured_views(
         thumbnail_url: str | None = None
         thumbnail = optional_text("thumbnail")
         if thumbnail:
-            resolved, local_file = _resolve_asset_url(thumbnail, default_url="")
+            resolved, local_file = _resolve_asset_url(
+                thumbnail, default_url="", base=base, resolve_files=resolve_files
+            )
             thumbnail_url = resolved or None
             if local_file is not None:
                 asset_files.append(local_file)
@@ -184,9 +191,7 @@ def _load_compact_views(raw: Any) -> tuple[CompactView, ...]:
             title = None
         elif isinstance(entry, dict):
             raw_id = entry.get("view", entry.get("view_id"))
-            view_id = (
-                _strip_quotes(raw_id).strip() if isinstance(raw_id, str) else ""
-            )
+            view_id = _strip_quotes(raw_id).strip() if isinstance(raw_id, str) else ""
             raw_title = entry.get("title")
             title = (
                 _strip_quotes(raw_title).strip() or None
@@ -207,7 +212,9 @@ _UI_SETTINGS: UISettings | None = None
 _UI_CACHE_KEY: tuple[str | None, str | None] | None = None
 
 
-def load_ui_settings() -> UISettings:
+def load_ui_settings(
+    *, section: dict | None = None, base: Path | None = None, resolve_files: bool = True
+) -> UISettings:
     page_title = DEFAULT_PAGE_TITLE
     favicon_url = DEFAULT_FAVICON_URL
 
@@ -231,7 +238,7 @@ def load_ui_settings() -> UISettings:
     assets_dir: Path | None = None
     asset_files: list[Path] = []
 
-    ui = settings.get_section("ui-settings")
+    ui = settings.get_section("ui-settings") if section is None else section
 
     if isinstance(ui.get("page_title"), str) and ui["page_title"].strip():
         page_title = _strip_quotes(ui["page_title"]).strip() or page_title
@@ -263,21 +270,31 @@ def load_ui_settings() -> UISettings:
     show_help_note = _as_bool(ui.get("show_help_note"), show_help_note)
 
     if isinstance(ui.get("logo"), str):
-        logo_url, ad = _resolve_asset_url(ui["logo"], default_url=DEFAULT_LOGO_URL)
+        logo_url, ad = _resolve_asset_url(
+            ui["logo"],
+            default_url=DEFAULT_LOGO_URL,
+            base=base,
+            resolve_files=resolve_files,
+        )
         if ad is not None:
             assets_dir = ad
             asset_files.append(ad)
 
     if isinstance(ui.get("favicon"), str):
         favicon_url, ad2 = _resolve_asset_url(
-            ui["favicon"], default_url=DEFAULT_FAVICON_URL
+            ui["favicon"],
+            default_url=DEFAULT_FAVICON_URL,
+            base=base,
+            resolve_files=resolve_files,
         )
         if ad2 is not None and assets_dir is None:
             assets_dir = ad2
         if ad2 is not None:
             asset_files.append(ad2)
 
-    featured_views, featured_assets = _load_featured_views(ui.get("featured_views"))
+    featured_views, featured_assets = _load_featured_views(
+        ui.get("featured_views"), base=base, resolve_files=resolve_files
+    )
     compact_views = _load_compact_views(ui.get("compact_views"))
     asset_files.extend(featured_assets)
 
@@ -323,4 +340,5 @@ def get_dashboard_scope(serving_url: str) -> str:
     URL must be supplied by its owning server route, never inferred from bind.
     """
     from .contracts import dashboard_scope
+
     return dashboard_scope(serving_url, settings.get_runtime_name())
