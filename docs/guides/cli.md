@@ -247,8 +247,8 @@ unless explicitly configured for that view; choose Yes to opt in.
 Advanced covers Watch, Publish, Limits and server Security/Admission. Checks and
 webhooks offer modest controls and existing-schema guidance; they do not have a
 second rule language. Existing rules and destinations are validated and retained.
-For appearance, use `ui-settings`; the separate `plotsrv config ui` interface is
-not yet available in this build.
+For appearance, run `plotsrv config ui` after saving, with the same `--config`
+and `--name`. It opens a separate temporary browser editor.
 
 | Keys | Action |
 | --- | --- |
@@ -501,3 +501,76 @@ plotsrv run demo_pipeline.py --config plotsrv.yaml
 - [Freshness](freshness.md)
 - [Watch files](../get-started/watch-files.md)
 - [Deployment Patterns](deployment-patterns.md)
+
+## Browser appearance editor
+
+```bash
+plotsrv config ui
+plotsrv config ui --config plotsrv.yml --name etl
+plotsrv config ui --config /srv/plotsrv/plotsrv.yml --no-open
+```
+
+Run this command on the machine holding the **server config and its images**.
+It opens a temporary editor at `http://127.0.0.1:8766`. Paste the session key
+printed in your terminal into the browser. The key grants access to this draft
+and its final save; keep it private. It is separate from a publisher bearer key,
+never included in the URL, and never saved in browser storage or HTTP access logs.
+No source scan, live data subscription or production restart occurs.
+
+The preview uses the dashboard's renderer and styling with three example rows.
+Choose a highlighted logo/header/control region, or use the equivalent keyboard
+settings list. Change the title, logo, tab icon or supported visibility options,
+then choose **Update preview**. Light/Dark previews help check image contrast;
+they do not change browser theme preferences. There is one shared logo for both
+appearances. Legacy refresh/termination/colour settings and view lists remain
+editable in YAML and are preserved by this tool.
+
+Uploads accept still PNG/JPEG files up to **2 MiB**, **2048 pixels per side** and
+**2 megapixels**. They are re-encoded as PNG, with metadata removed before it can
+be inflated. SVG, HTML, animation and malformed images are refused. At most two
+images / 4 MiB are staged, with 16 successful uploads per session. Images stay in
+memory until Save. Existing external URLs or images outside the approved image
+directory remain configured, but are not fetched for preview.
+
+New images go into `plotsrv-assets/` beside the config. Use `--assets-dir images`
+to select another directory inside that config folder. Its parent must exist;
+the selected directory is created only when saving an upload. Existing directories
+are reused without replacing them. Images receive unique filenames, and collisions
+fail safely. The editor cannot accept arbitrary asset paths from the browser.
+Relative references use the ordinary plotsrv `/assets/` serving mechanism.
+
+**Review changes** shows the exact scoped YAML paths and an effective UI diff.
+**Save and close editor** writes a unique backup and atomically replaces the config.
+Only the listed UI fields change; other settings, comments and instances stay
+untouched. Files changed by another editor must be reopened and reviewed in a
+new session. Failed saves remove only newly created assets from that attempt;
+existing files are never deleted. Unsupported YAML layouts are refused rather
+than reformatted destructively. Files remain limited to 1 MiB, with the same
+YAML structure restrictions as the terminal wizard.
+
+Save or Cancel closes the temporary service. Ctrl+C also clears staged images.
+Closing only the browser tab does not stop the command; stop it in the terminal,
+or let its one-hour session expire. The editor has no background preview polling.
+Saving is bounded synchronous work in this separate tool; decoder calls are not
+hard-cancelled by a timer. No new optional/required package is introduced: image
+decoding uses Pillow, already required by plotsrv's plotting dependencies.
+
+For a headless host, keep the editor bound to loopback and forward its port:
+
+```bash
+# On the host holding the server config:
+plotsrv config ui --config /srv/plotsrv/plotsrv.yml --no-open
+
+# On your workstation:
+ssh -L 8766:127.0.0.1:8766 my-server
+# Open http://127.0.0.1:8766 and paste the key from the remote terminal.
+```
+
+The browser Host and Origin must match the printed address exactly. If you use
+another local tunnel port or hostname, pass its exact origin, for example
+`--origin http://localhost:9876`. `--port 0` chooses an available listening port.
+A non-loopback bind emits a warning and requires an explicit HTTPS `--origin`:
+put a restricted TLS reverse proxy in front of the temporary tool. The tool does
+not terminate TLS itself. Do not expose its unencrypted backend port, and preserve
+the browser Host through the proxy. Prefer the SSH tunnel. Normal `plotsrv serve`
+never exposes these editor routes.

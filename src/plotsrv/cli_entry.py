@@ -67,6 +67,12 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         return launch(build_parser().parse_args(args))
 
+    if args[:2] == ["config", "ui"]:
+        from .cli_parser import build_parser
+        from .ui_customiser import launch
+
+        return launch(build_parser().parse_args(args))
+
     from .cli import main as full_main
 
     return full_main(args)

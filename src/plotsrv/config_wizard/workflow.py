@@ -73,7 +73,7 @@ class WorkflowPage(Page):
                     )
                 if self.stage == "checks":
                     yield Static(
-                        "Existing checks-settings.rules and webhook-settings.destinations are preserved and validated. Edit those modest YAML schemas using the checks/webhooks guides; headers_env takes environment names. Endpoints and secret values are hidden here. Nothing is sent.\nAppearance: use ui-settings until the separate plotsrv config ui tool is available."
+                        "Existing checks-settings.rules and webhook-settings.destinations are preserved and validated. Edit those modest YAML schemas using the checks/webhooks guides; headers_env takes environment names. Endpoints and secret values are hidden here. Nothing is sent.\nAppearance: run plotsrv config ui with the same --config and --name after saving."
                     )
                 if self.stage == "publish":
                     yield Static(
@@ -179,7 +179,7 @@ class WorkflowPage(Page):
                     )
                 )
                 yield Static(
-                    "Settings apply only to the process reading this config. Appearance: use ui-settings until the separate plotsrv config ui tool is available."
+                    "Settings apply only to the process reading this config. Appearance: run plotsrv config ui with the same --config and --name after saving."
                 )
                 yield Roles(
                     *(name.replace("_", " ").title() for name in self.menu),

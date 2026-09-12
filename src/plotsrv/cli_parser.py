@@ -473,6 +473,44 @@ def build_parser() -> argparse.ArgumentParser:
         "--name", default=None, help="Configuration instance to edit"
     )
 
+    config_ui_p = config_sub.add_parser(
+        "ui", help="Temporary browser editor for server UI settings"
+    )
+    config_ui_p.add_argument(
+        "--config",
+        default=None,
+        help="Server config to edit (default: detected config or plotsrv.yml)",
+    )
+    config_ui_p.add_argument(
+        "--name", default=None, help="Configuration instance to edit"
+    )
+    config_ui_p.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Temporary editor bind address; default loopback",
+    )
+    config_ui_p.add_argument(
+        "--port",
+        type=int,
+        default=8766,
+        help="Temporary editor port (default: 8766; 0 chooses a free port)",
+    )
+    config_ui_p.add_argument(
+        "--assets-dir",
+        default="plotsrv-assets",
+        help="Approved image directory inside the config folder; created only on save",
+    )
+    config_ui_p.add_argument(
+        "--origin",
+        default=None,
+        help="Exact browser origin for a tunnel or HTTPS proxy, e.g. http://localhost:8766",
+    )
+    config_ui_p.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Print connection instructions without opening a browser",
+    )
+
     config_create_p = config_sub.add_parser(
         "create",
         help="Create a starter plotsrv.yml config file",

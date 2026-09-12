@@ -1242,6 +1242,11 @@ def main(argv: list[str] | None = None) -> int:
 
         return launch(args)
 
+    if args.cmd == "config" and args.config_cmd == "ui":
+        from .ui_customiser import launch
+
+        return launch(args)
+
     apply_runtime_options(
         config=getattr(args, "config", None),
         name=getattr(args, "name", None),
