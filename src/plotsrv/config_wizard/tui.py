@@ -1,4 +1,4 @@
-"""Keyboard-only role/source foundation. Deliberately no save/finish operation."""
+"""Optional keyboard wizard: source discovery and navigation to reviewed saving."""
 
 from __future__ import annotations
 
@@ -23,6 +23,23 @@ ROLES = (
     ("publisher", "Send data to another plotsrv server"),
     ("server", "Host a plotsrv server"),
 )
+
+
+class Choice(Select):
+    """The wizard's short choice menus use the same j/k navigation as its lists."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, type_to_search=False, **kwargs)
+
+    def on_key(self, event):
+        if self.expanded and event.key in ("j", "k"):
+            menu = self.query_one(OptionList)
+            if event.key == "j":
+                menu.action_cursor_down()
+            else:
+                menu.action_cursor_up()
+            event.stop()
+            event.prevent_default()
 
 
 class Roles(OptionList):
@@ -119,7 +136,7 @@ class Confirm(ModalScreen[bool]):
     BINDINGS = [("escape", "cancel", "Keep editing")]
 
     def compose(self):
-        with Vertical(id="dialog"):
+        with VerticalScroll(id="dialog"):
             yield Static("Abandon this draft? Nothing has been written.")
             yield Button("Keep editing", id="keep", variant="primary")
             yield Button("Abandon draft", id="abandon")
@@ -170,7 +187,13 @@ class Page(Screen):
                 yield Static(
                     "Files and application code stay on this machine. A package/path can focus discovery; leaving it empty uses normal project detection."
                 )
-                for key in ("destination", "bearer", "target"):
+                if draft.role == "combined":
+                    yield Button("Remote destination (optional)", id="remote-routing")
+                for key in (
+                    ("destination", "bearer", "target")
+                    if draft.role == "publisher"
+                    else ("target", "destination", "bearer")
+                ):
                     spec = FIELDS[key]
                     value = (
                         draft.cli_target
@@ -186,7 +209,12 @@ class Page(Screen):
                         max_length=4096,
                     )
                 if draft.original is not None:
-                    selection = draft.sources().selection
+                    sources = draft.sources()
+                    selection = (
+                        ("exact IDs: " + str(list(sources.exact_selection)))
+                        if sources.exact_selection is not None
+                        else sources.selection
+                    )
                     yield Static(
                         Text(
                             f"Editing existing configuration. Discovery selection starts from: {selection or 'all (runtime default)'}. Existing selections are not reset when returning to this page."
@@ -196,22 +224,57 @@ class Page(Screen):
                     "Watched files (optional; config-relative paths)", classes="heading"
                 )
                 yield Static(self.watch_summary(), id="watch-summary", markup=False)
-                yield Input(
-                    placeholder="Local file path", id="watch-path", max_length=4096
-                )
-                yield Input(
-                    placeholder="Stable logical view ID, e.g. logs:service",
-                    id="watch-id",
-                    max_length=512,
-                )
-                yield Select(
-                    [("Automatic head/tail", ""), ("Head", "head"), ("Tail", "tail")],
-                    value="",
-                    allow_blank=False,
-                    id="watch-mode",
-                )
-                yield Button("Add watch to draft", id="add-watch")
-                yield Button("Remove last watch", id="remove-watch")
+                yield Button("Configure watches (optional)", id="configure-watches")
+                with Vertical(id="watch-editor"):
+                    yield Choice(
+                        self.watch_options(),
+                        value=-1,
+                        allow_blank=False,
+                        id="watch-choice",
+                    )
+                    yield Input(
+                        placeholder="Local file path", id="watch-path", max_length=4096
+                    )
+                    yield Input(
+                        placeholder="Stable logical view ID, e.g. logs:service",
+                        id="watch-id",
+                        max_length=512,
+                    )
+                    yield Input(
+                        placeholder="Display label (optional)",
+                        id="watch-label",
+                        max_length=512,
+                    )
+                    yield Input(
+                        placeholder="Section (optional)",
+                        id="watch-section",
+                        max_length=512,
+                    )
+                    yield Choice(
+                        [
+                            ("Use global representation", ""),
+                            ("Automatic", "auto"),
+                            ("Memory", "memory"),
+                            ("File", "file"),
+                        ],
+                        value="",
+                        allow_blank=False,
+                        id="watch-materialization",
+                    )
+                    yield Choice(
+                        [
+                            ("Automatic head/tail", ""),
+                            ("Head", "head"),
+                            ("Tail", "tail"),
+                        ],
+                        value="",
+                        allow_blank=False,
+                        id="watch-mode",
+                    )
+                    yield Button("Add / update watch", id="add-watch")
+                    yield Button(
+                        "Remove selected watch", id="remove-watch", disabled=True
+                    )
                 yield Button("Continue without discovery", id="skip")
             elif self.stage == "scanning":
                 yield Static("Enumerating source files…", id="progress")
@@ -243,6 +306,38 @@ class Page(Screen):
             yield Static("", id="context-help", markup=False)
         yield Static("", id="legend", markup=False)
 
+    def watch_options(self):
+        return [
+            ("New watch", -1),
+            *[
+                (w.view_id or w.path, i)
+                for i, w in enumerate(self.app.draft.sources().watches)
+            ],
+        ]
+
+    def on_select_changed(self, event):
+        if event.select.id != "watch-choice" or event.value is Select.BLANK:
+            return
+        index = event.value
+        rows = self.app.draft.watch_entries()
+        row = rows[index] if index >= 0 else {}
+        for key, field in (
+            ("path", "path"),
+            ("id", "view_id"),
+            ("label", "label"),
+            ("section", "section"),
+        ):
+            self.query_one("#watch-" + key, Input).value = row.get(field) or ""
+        if index >= 0 and not row.get("view_id"):
+            self.query_one("#watch-id", Input).value = self.app.draft.watches()[
+                index
+            ].view_id
+        self.query_one("#watch-mode", Select).value = row.get("read_mode") or ""
+        self.query_one("#watch-materialization", Select).value = (
+            row.get("materialization") or ""
+        )
+        self.query_one("#remove-watch", Button).disabled = index < 0
+
     def watch_summary(self):
         watches = self.app.draft.sources().watches
         return (
@@ -261,7 +356,18 @@ class Page(Screen):
             )
             roles.focus()
         elif self.stage == "sources":
-            self.query_one("#destination", Input).focus()
+            self.query_one("#watch-editor").display = bool(
+                self.app.draft.watch_entries()
+            )
+            remote = self.app.draft.role == "publisher" or bool(
+                self.app.source_inputs.get(
+                    "destination", self.app.draft.value(FIELDS["destination"])
+                )
+            )
+            for key in ("destination", "bearer"):
+                self.query_one("#" + key).display = remote
+                self.query_one("#label-" + key).display = remote
+            self.query_one("#destination" if remote else "#target", Input).focus()
             for key in ("destination", "bearer", "target"):
                 self.mark_field(key)
         elif self.stage == "selection":
@@ -281,7 +387,19 @@ class Page(Screen):
         label.set_class(changed, "modified")
 
     def on_resize(self, event: events.Resize):
-        self.query_one("#help-panel").styles.height = 3 if event.size.height < 24 else 6
+        self.query_one("#help-panel").styles.height = (
+            2 if event.size.height < 16 else 3 if event.size.height < 24 else 6
+        )
+        self.query_one("#legend", Static).update(
+            "Tab fields · Esc back · F1 help"
+            if event.size.height < 16
+            else "Tab fields · Enter choose · Esc back · F1 help"
+        )
+        self.call_after_refresh(self.keep_focus_visible)
+
+    def keep_focus_visible(self):
+        if self.focused:
+            self.focused.scroll_visible(animate=False)
 
     def update_help(self):
         focus = self.focused
@@ -303,7 +421,9 @@ class Page(Screen):
             legend = f"↑↓ / j k move · Space toggle · a all / c clear · r anchor{anchor} / e end · Enter next · Esc back · ? help · Ctrl+C/Q abandon"
         else:
             legend = "↑↓ / j k lists · Tab / Shift+Tab fields · Enter choose · Esc back · ? help · Ctrl+C/Q abandon"
-        self.query_one("#legend", Static).update(legend)
+        self.query_one("#legend", Static).update(
+            "Tab fields · Esc back · F1 help" if self.size.height < 16 else legend
+        )
 
     def on_descendant_focus(self, event):
         self.update_help()
@@ -343,23 +463,41 @@ class Page(Screen):
                 self.app.draft.scan_key = None
                 self.app.draft.discovery_skipped = True
                 self.app.begin_settings()
+        elif action == "configure-watches":
+            self.query_one("#watch-editor").display = True
+            self.query_one("#watch-choice").focus()
+        elif action == "remote-routing":
+            self.query_one("#destination").display = True
+            self.query_one("#bearer").display = True
+            self.query_one("#label-destination").display = True
+            self.query_one("#label-bearer").display = True
+            self.query_one("#destination").focus()
         elif action in ("add-watch", "remove-watch"):
             draft = self.app.draft
             try:
+                index = self.query_one("#watch-choice", Select).value
                 if action == "add-watch":
-                    draft.add_watch(
+                    draft.edit_watch(
                         self.query_one("#watch-path", Input).value.strip(),
                         self.query_one("#watch-id", Input).value.strip(),
                         self.query_one("#watch-mode", Select).value,
+                        index=index,
+                        label=self.query_one("#watch-label", Input).value.strip(),
+                        section=self.query_one("#watch-section", Input).value.strip(),
+                        materialization=self.query_one(
+                            "#watch-materialization", Select
+                        ).value,
                     )
                     self.query_one("#watch-path", Input).value = ""
                     self.query_one("#watch-id", Input).value = ""
                 else:
-                    draft.watch_rows = list(
-                        draft.watch_rows
-                        if draft.watch_rows is not None
-                        else draft.section("publisher-settings").get("watch", [])
-                    )[:-1]
+                    if index >= 0:
+                        rows = draft.watch_entries()
+                        del rows[index]
+                        draft.watch_rows = rows
+                choice = self.query_one("#watch-choice", Select)
+                choice.set_options(self.watch_options())
+                choice.value = -1
                 self.query_one("#watch-summary", Static).update(self.watch_summary())
                 self.query_one("#error", Static).update("")
             except ValueError:
@@ -383,6 +521,7 @@ class ConfigWizard(App):
     #content { height: 1fr; padding: 0 1; }
     .heading { text-style: bold; margin-top: 1; }
     #roles { height: 6; }
+    #watch-editor { height: auto; }
     #views { height: 14; min-height: 5; }
     #help-panel { height: 6; max-height: 35%; padding: 0 1; background: $boost; }
     #context-help { height: auto; }
@@ -391,8 +530,8 @@ class ConfigWizard(App):
     Button { margin: 0 1 0 0; }
     #error { color: $error; height: auto; }
     .modified { color: $text-muted; }
-    Confirm, Help { align: center middle; background: $background 70%; }
-    #dialog { width: 80%; max-width: 78; height: auto; max-height: 90%; padding: 1 2; border: round $primary; background: $surface; }
+    Confirm, Help, SaveConfirmation { align: center middle; background: $background 70%; }
+    #dialog { width: 80%; max-width: 78; height: auto; max-height: 90%; padding: 0 1; border: round $primary; background: $surface; }
     """
 
     def __init__(self, draft: Draft):
@@ -614,6 +753,12 @@ class ConfigWizard(App):
             )
             self.screen.query_one("#progress", Static).update(
                 f"{progress.phase.title()}: {progress.processed}/{total} files; {progress.files_found} found, {progress.skipped} skipped."
+                + (
+                    "\nTip: this is a broad scan. Cancel and choose a package or source folder to narrow discovery."
+                    if job.setup.target is None
+                    and (progress.files_found >= 1000 or progress.elapsed_s >= 5)
+                    else ""
+                )
             )
         if not job.done.is_set():
             return

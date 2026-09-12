@@ -225,11 +225,9 @@ def narrow_yaml(raw: bytes | None, edits: dict) -> bytes:
                         and not value_node.flow_style
                     ):
                         # Block collections end at the next sibling's indentation.
-                        end = (
-                            text.rfind("\n", 0, end) + 1
-                            if value_node.end_mark.column
-                            else end
-                        )
+                        line_start = text.rfind("\n", 0, end) + 1
+                        if not text[line_start:end].strip():
+                            end = line_start
                     elif value_node.end_mark.column:
                         end = text.find("\n", end)
                         end = len(text) if end < 0 else end + 1
@@ -293,7 +291,7 @@ class Review:
 
 
 def prepare(draft, destination: str) -> Review:
-    from .schema import validate_document, review_projection
+    from .schema import validate_document, review_projection, review_layout
     from .draft import _load_bounded, saved_target
 
     path = Path(destination).expanduser().absolute()
@@ -364,8 +362,13 @@ def prepare(draft, destination: str) -> Review:
             tofile="effective after",
         )
     )
+    layout = yaml.safe_dump(
+        review_layout(document, draft.name, draft.role),
+        sort_keys=False,
+        allow_unicode=True,
+    )
     commands = draft.commands(path)
-    notice = f"Selected instance: {draft.name or '(global)'}.\nManaged configured values (built-in defaults apply where omitted; unrelated content, comments and webhook endpoints are hidden here and preserved in the file).\n"
+    notice = f"Selected instance: {draft.name or '(global)'}.\nProposed YAML excerpts, in their actual global/default/instance placement (unrelated content, other instances, comments and webhook endpoints are hidden here and preserved in the file). Built-in defaults apply where omitted.\n"
     return Review(
         path,
         target,
@@ -373,8 +376,8 @@ def prepare(draft, destination: str) -> Review:
         current_source,
         proposed,
         notice
-        + display
-        + "\nChanges:\n"
+        + layout
+        + "\nEffective changes:\n"
         + (diff or "(no effective changes)\n")
         + "\nAfter saving (services are not changed):\n"
         + commands,

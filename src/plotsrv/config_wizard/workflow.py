@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 from rich.text import Text
-from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.containers import Horizontal, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, OptionList, Select, Static
 
 from .draft import FIELDS
 from .schema import PAGES, fields_for
-from .saving import DELETE, SaveError, prepare, read_snapshot, save
-from .tui import Page, Roles
+from .saving import SaveError, prepare, read_snapshot, save
+from .tui import Page, Roles, Choice
 
 
 class SaveConfirmation(ModalScreen[bool]):
     BINDINGS = [("escape", "cancel", "Return to review")]
 
     def compose(self):
-        with Vertical(id="dialog"):
+        with VerticalScroll(id="dialog"):
             yield Static(
                 "Write exactly the reviewed configuration? Existing files receive a unique backup. Running services will not change."
             )
@@ -42,13 +42,27 @@ class WorkflowPage(Page):
         self.specs = []
         self.menu = []
 
+    @property
+    def id_owner(self):
+        return (
+            "server"
+            if self.stage == "server" or self.app.draft.role == "server"
+            else "publisher"
+        )
+
     def compose(self):
         draft = self.app.draft
-        title = self.stage.title() + (f" · {self.view_id}" if self.view_id else "")
+        title = self.stage.replace("_", " ").title() + (
+            f" · {self.view_id}" if self.view_id else ""
+        )
         yield Static(Text("plotsrv configuration · " + title), id="title")
         with VerticalScroll(id="content"):
             if self.stage in PAGES:
                 self.specs = fields_for(self.stage, draft, self.view_id)
+                if self.stage == "storage_advanced":
+                    yield Static(
+                        "Latest restore and storage queue settings. Disk storage on the main Storage page remains the master switch."
+                    )
                 if self.stage == "publisher":
                     yield Static(
                         "Publisher-side budgets only. Receiver storage and UI are configured on the server. Missing key values may be set later on that machine; only environment names are saved."
@@ -75,7 +89,7 @@ class WorkflowPage(Page):
                         ("true", "false") if spec.kind == "bool" else ()
                     )
                     if choices:
-                        yield Select(
+                        yield Choice(
                             [
                                 (
                                     (
@@ -112,7 +126,7 @@ class WorkflowPage(Page):
                     )
                     yield Static(
                         Text(
-                            "\n".join(draft.configured_ids())
+                            "\n".join(draft.configured_ids(self.id_owner))
                             or "(none — locked servers may await explicit bootstrap)"
                         ),
                         id="manual-summary",
@@ -144,7 +158,14 @@ class WorkflowPage(Page):
                     ["watch", "publish", "limits"]
                     if draft.role == "publisher"
                     else (
-                        ["watch", "limits", "security", "checks", "server"]
+                        [
+                            "watch",
+                            "limits",
+                            "security",
+                            "checks",
+                            "server",
+                            "storage_advanced",
+                        ]
                         if draft.role == "server"
                         else [
                             "watch",
@@ -153,13 +174,17 @@ class WorkflowPage(Page):
                             "security",
                             "checks",
                             "server",
+                            "storage_advanced",
                         ]
                     )
                 )
                 yield Static(
                     "Settings apply only to the process reading this config. Appearance: use ui-settings until the separate plotsrv config ui tool is available."
                 )
-                yield Roles(*(name.title() for name in self.menu), id="workflow-menu")
+                yield Roles(
+                    *(name.replace("_", " ").title() for name in self.menu),
+                    id="workflow-menu",
+                )
                 yield Button("Review and save", id="review-path")
             elif self.stage == "save_path":
                 yield Static(
@@ -251,7 +276,9 @@ class WorkflowPage(Page):
             text += " Per-view inheritance: reset removes this instance’s override and reveals its parent policy."
         self.query_one("#context-help", Static).update(text)
         self.query_one("#legend", Static).update(
-            "Tab / Shift+Tab fields · Enter choose · Esc back · F1 help · Ctrl+C/Q abandon"
+            "Tab fields · Esc back · F1 help"
+            if self.size.height < 16
+            else "Tab / Shift+Tab fields · Enter choose · Esc back · F1 help · Ctrl+C/Q abandon"
         )
 
     def changed(self, key, value):
@@ -274,7 +301,9 @@ class WorkflowPage(Page):
             for spec in self.specs:
                 widget = self.query_one("#" + spec.key)
                 # Disabled sections retain untouched settings, including legacy values.
-                if not widget.display:
+                if not widget.display and str(widget.value) == self.display(
+                    self.app.draft.value(spec), spec
+                ):
                     continue
                 parsed = spec.parse(str(widget.value))
                 if parsed != self.app.draft.value(spec) or (
@@ -283,6 +312,14 @@ class WorkflowPage(Page):
                     and not self.advanced
                 ):
                     edits[spec.path] = parsed
+            if self.view_id and edits:
+                enabled = next(
+                    (spec for spec in self.specs if spec.path[-1] == "enabled"), None
+                )
+                if enabled:
+                    edits[enabled.path] = enabled.parse(
+                        str(self.query_one("#" + enabled.key).value)
+                    )
             self.app.draft.update_edits(edits)
             return True
         except ValueError as error:
@@ -352,7 +389,7 @@ class WorkflowPage(Page):
                     self.app.form_inputs.pop((self.stage, self.view_id, spec.key), None)
                 self.app.back_workflow()
             elif action == "await-bootstrap":
-                self.app.draft.manual_ids = None
+                self.app.draft.server_ids = None
                 self.app.draft.edits[
                     ("server-settings", "admission", "allowed_ids")
                 ] = None
@@ -360,15 +397,24 @@ class WorkflowPage(Page):
                     "No configured ID manifest: a locked server will await explicit publisher bootstrap. An explicitly empty list would instead deny all IDs."
                 )
             elif action == "add-id":
-                self.app.draft.add_id(self.query_one("#manual-id", Input).value.strip())
+                self.app.draft.add_id(
+                    self.query_one("#manual-id", Input).value.strip(), self.id_owner
+                )
                 self.query_one("#manual-id", Input).value = ""
                 self.query_one("#manual-summary", Static).update(
-                    Text("\n".join(self.app.draft.configured_ids()))
+                    Text("\n".join(self.app.draft.configured_ids(self.id_owner)))
                 )
             elif action == "remove-id":
-                self.app.draft.manual_ids = list(self.app.draft.configured_ids())[:-1]
+                setattr(
+                    self.app.draft,
+                    "server_ids" if self.id_owner == "server" else "manual_ids",
+                    list(self.app.draft.configured_ids(self.id_owner))[:-1],
+                )
                 self.query_one("#manual-summary", Static).update(
-                    Text("\n".join(self.app.draft.configured_ids()) or "(none)")
+                    Text(
+                        "\n".join(self.app.draft.configured_ids(self.id_owner))
+                        or "(none)"
+                    )
                 )
             elif action == "save-reviewed":
                 self.app.push_screen(SaveConfirmation(), self.confirm_save)

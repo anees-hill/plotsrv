@@ -10,7 +10,6 @@ from collections import Counter
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 import math
-import os
 import re
 from typing import Any
 
@@ -376,7 +375,7 @@ class Draft:
         index=-1,
         label="",
         section="",
-        materialization="auto",
+        materialization="",
     ):
         bounded_text(path, "watch path", 4096)
         bounded_text(view_id, "watch ID", 512)
@@ -387,11 +386,7 @@ class Draft:
             **({"read_mode": read_mode} if read_mode else {}),
             **({"label": label} if label else {}),
             **({"section": section} if section else {}),
-            **(
-                {"materialization": materialization}
-                if materialization != "auto"
-                else {}
-            ),
+            **({"materialization": materialization} if materialization else {}),
         }
         if index == -1:
             if len(rows) >= MAX_CATALOGUE_VIEWS:
@@ -488,7 +483,7 @@ class Draft:
         return sorted(ids)
 
     def save_edits(self):
-        from .saving import scoped_path, DELETE
+        from .saving import scoped_path
 
         edits = dict(self.edits)
         # Switching roles must not apply abandoned edits for the other machine.

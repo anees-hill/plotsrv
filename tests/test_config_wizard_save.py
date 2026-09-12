@@ -491,7 +491,7 @@ def test_remove_block_entry_preserves_siblings_and_comments(key, newline):
 
 
 def test_callable_module_target_remains_executable(tmp_path, monkeypatch):
-    import importlib
+    from plotsrv.loader import load_callable
     from plotsrv.config_wizard.draft import saved_target
 
     (tmp_path / "wizard_callable_example.py").write_text("def run():\n    return 42\n")
@@ -504,8 +504,7 @@ def test_callable_module_target_remains_executable(tmp_path, monkeypatch):
     document = yaml.safe_load(prepare(d, str(other / "chosen.yml")).proposed)
     target = document["publisher-settings"]["discovery"]["target"]
     assert target == "wizard_callable_example:run"
-    module, name = target.split(":")
-    assert getattr(importlib.import_module(module), name)() == 42
+    assert load_callable(target)() == 42
     assert saved_target("./wizard_callable_example.py") == str(
         tmp_path / "wizard_callable_example.py"
     )
@@ -573,3 +572,56 @@ def test_watch_freshness_requires_explicit_opt_in(tmp_path):
     assert config.has_freshness_view_config("logs:service")
     assert config.get_freshness_view_enabled("logs:service")
     assert config.get_freshness_warn_after_s("logs:service") == 60
+
+
+def test_review_shows_actual_instance_layout_without_secrets(tmp_path):
+    raw = b"storage-settings:\n  default:\n    enabled: true\n    default_keep_last: false\n  instance:\n    mine: {default_keep_last: 3}\n    someone_else: {root_dir: private-other-path}\ncustom: secret-unrelated-value\n"
+    d = load(tmp_path, raw, name="mine")
+    d.set_value(FIELDS["storage_default_keep_last"], "7")
+    r = prepare(d, str(d.path))
+    assert "  default:\n" in r.text
+    assert "  instance:\n    mine:\n      default_keep_last: 7" in r.text
+    assert "default_keep_last: false" in r.text
+    assert "Effective changes:" in r.text
+    assert "private-other-path" not in r.text
+    assert "secret-unrelated-value" not in r.text
+    assert b"private-other-path" in r.proposed
+
+
+def test_dynamic_instance_masks_inherited_allowlist(tmp_path):
+    d = load(
+        tmp_path,
+        b"server-settings:\n  default:\n    admission: {mode: catalogue-locked, allowed_ids: [one]}\n",
+        name="mine",
+    )
+    d.set_value(FIELDS["admission"], "dynamic")
+    document = yaml.safe_load(prepare(d, str(d.path)).proposed)
+    actual = settings.effective_section(document, "server-settings", name="mine")
+    assert actual["admission"] == {"mode": "dynamic", "allowed_ids": None}
+    assert document["server-settings"]["default"]["admission"]["allowed_ids"] == ["one"]
+
+
+def test_delete_last_block_at_eof_without_newline():
+    raw = b"views:\n  one:\n    enabled: true\n  two:\n    enabled: false"
+    result = narrow_yaml(raw, {("views", "two"): DELETE})
+    assert yaml.safe_load(result) == {"views": {"one": {"enabled": True}}}
+
+
+def test_watch_editor_distinguishes_inheritance_from_explicit_auto(tmp_path):
+    d = load(tmp_path, role="combined")
+    d.add_watch("service.log", "logs:service", "tail")
+    assert "materialization" not in d.watch_entries()[0]
+    d.edit_watch(
+        "service.log",
+        "logs:service",
+        "tail",
+        index=0,
+        materialization="auto",
+        label="Service",
+        section="Operations",
+    )
+    assert d.sources().watches[0].materialization == "auto"
+    before = d.watch_entries()
+    with pytest.raises(ValueError):
+        d.add_watch("other.log", "logs:service", "head")
+    assert d.watch_entries() == before

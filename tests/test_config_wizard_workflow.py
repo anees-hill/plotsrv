@@ -87,6 +87,7 @@ def test_publisher_manual_ids_advanced_and_custom_save(tmp_path):
                 "https://receiver.example/base"
             )
             app.screen.query_one("#bearer", Input).value = "PUBLISH_KEY_UNSET"
+            await button(p, app, "configure-watches")
             app.screen.query_one("#watch-path", Input).value = "never-opened.log"
             app.screen.query_one("#watch-id", Input).value = "logs:stable"
             await button(p, app, "add-watch")
@@ -232,3 +233,145 @@ def test_confirmation_cancel_then_abandon_preserves_bytes(tmp_path):
 
     asyncio.run(run())
     assert path.read_bytes() == raw and list(tmp_path.iterdir()) == [path]
+
+
+def test_local_routing_disclosure_watch_editor_and_dropdown_keys(tmp_path):
+    d = Draft.load(config=tmp_path / "plotsrv.yml")
+    d.add_watch("one.log", "logs:one", "tail")
+    d.add_watch("two.log", "logs:two", "head")
+
+    async def run():
+        app = ConfigWizard(d)
+        async with app.run_test() as p:
+            await p.press("enter")
+            assert app.focused.id == "target"
+            assert not app.screen.query_one("#destination").display
+            await button(p, app, "remote-routing")
+            assert app.focused.id == "destination"
+            assert app.screen.query_one("#destination").display
+            choice = app.screen.query_one("#watch-choice", Select)
+            choice.focus()
+            await p.press("enter", "j", "enter")
+            assert choice.value == 0
+            assert app.screen.query_one("#watch-path", Input).value == "one.log"
+            app.screen.query_one("#watch-label", Input).value = "Service log"
+            app.screen.query_one("#watch-section", Input).value = "Operations"
+            await button(p, app, "add-watch")
+            assert len(d.watch_entries()) == 2
+            assert d.watch_entries()[0]["label"] == "Service log"
+            choice.value = 0
+            await p.pause()
+            await button(p, app, "remove-watch")
+            assert [w.view_id for w in d.watches()] == ["logs:two"]
+            assert not d.path.exists()
+
+    asyncio.run(run())
+
+
+def test_edit_then_disable_retains_dependent_values(tmp_path):
+    d = Draft.load(config=tmp_path / "plotsrv.yml")
+    d.role = "server"
+
+    async def run():
+        app = ConfigWizard(d)
+        async with app.run_test() as p:
+            await p.press("enter")
+            await button(p, app, "next")
+            app.screen.query_one("#storage_enabled", Select).value = "true"
+            await p.pause()
+            app.screen.query_one("#storage_default_keep_last", Input).value = "19"
+            app.screen.query_one("#storage_enabled", Select).value = "false"
+            await p.pause()
+            await button(p, app, "next")
+            app.screen.query_one("#freshness_enabled", Select).value = "true"
+            await p.pause()
+            app.screen.query_one("#freshness_warn_after", Input).value = "3m"
+            app.screen.query_one("#freshness_enabled", Select).value = "false"
+            await p.pause()
+            await button(p, app, "next")
+            await finish(p, app)
+
+    asyncio.run(run())
+    cfg = yaml.safe_load(d.path.read_bytes())
+    assert cfg["storage-settings"]["default_keep_last"] == 19
+    assert cfg["freshness-settings"]["warn_after"] == "3m"
+    assert cfg["freshness-settings"]["enabled"] is False
+
+
+def test_small_confirmation_scrolls_focused_action_into_view(tmp_path):
+    from plotsrv.config_wizard.workflow import SaveConfirmation
+
+    d = Draft.load(config=tmp_path / "plotsrv.yml")
+
+    async def run():
+        app = ConfigWizard(d)
+        async with app.run_test(size=(40, 12)) as p:
+            app.push_screen(SaveConfirmation())
+            await p.pause()
+            assert app.focused.id == "cancel-save"
+            await p.press("tab")
+            await p.pause()
+            focused = app.focused
+            assert focused.id == "confirm-save"
+            assert app.screen.region.contains_region(focused.region)
+            assert app.screen.query_one(
+                "#dialog"
+            ).scrollable_content_region.contains_region(focused.region)
+            await p.press("escape")
+            await p.press("enter")
+            await p.resize_terminal(38, 10)
+            await p.pause()
+            assert app.focused.id == "target"
+            assert app.screen.query_one("#content").scrollable_content_region.overlaps(
+                app.focused.region
+            )
+            assert not d.path.exists()
+
+    asyncio.run(run())
+
+
+def test_combined_server_page_edits_server_ids_only(tmp_path):
+    d = Draft.load(config=tmp_path / "plotsrv.yml")
+    d.config = {
+        "server-settings": {
+            "admission": {"mode": "catalogue-locked", "allowed_ids": ["server-old"]}
+        },
+        "publisher-settings": {"discovery": {"additional_ids": ["publisher-old"]}},
+    }
+    d.discovery_skipped = True
+
+    async def run():
+        app = ConfigWizard(d)
+        async with app.run_test() as p:
+            app.go_workflow("server", advanced=True)
+            await p.pause()
+            assert "server-old" in str(
+                app.screen.query_one("#manual-summary", Static).content
+            )
+            app.screen.query_one("#manual-id", Input).value = "server-new"
+            await button(p, app, "add-id")
+            assert d.configured_ids("server") == ["server-old", "server-new"]
+            assert d.configured_ids("publisher") == ["publisher-old"]
+            assert not d.path.exists()
+
+    asyncio.run(run())
+
+
+def test_watch_threshold_edit_keeps_disabled_choice(tmp_path):
+    d = Draft.load(config=tmp_path / "plotsrv.yml")
+    d.add_watch("service.log", "logs:service", "tail")
+
+    async def run():
+        app = ConfigWizard(d)
+        async with app.run_test() as p:
+            app.go_workflow("freshness", view_id="logs:service")
+            await p.pause()
+            assert app.screen.query_one("#freshness_enabled", Select).value == "false"
+            app.screen.query_one("#freshness_warn_after", Input).value = "2m"
+            assert app.screen.collect()
+            assert d.section("freshness-settings")["views"]["logs:service"] == {
+                "enabled": False,
+                "warn_after": "2m",
+            }
+
+    asyncio.run(run())

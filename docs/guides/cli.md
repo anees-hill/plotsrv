@@ -226,19 +226,23 @@ plotsrv config init ./src --config plotsrv.yml --name etl
 
 Choose **Everything on this machine**, **Send data to another plotsrv server**,
 or **Host a plotsrv server**. Local setup proceeds through sources, storage and
-freshness, then offers Review and save or Advanced. Publisher setup offers a
+freshness, then offers Review and save or Advanced. Local setup starts with your
+source target; Remote destination is optional, and existing remote settings stay
+visible. Publisher setup offers a
 destination, key environment reference, watches, manual logical IDs and bounded
 publication/observation settings. Server setup covers bind, ingestion/admission,
 storage and freshness without requiring application source code.
 
 Storage and freshness start with on/off choices. Turning either off retains
 values you may re-enable. Storage exposes snapshot size/retention, watched-file
-storage, latest restore and queue settings. Freshness uses server receipt time:
+storage; latest restore and queue settings are under Advanced / Storage advanced.
+Freshness uses server receipt time:
 an unset warning threshold uses the expected interval; an unset overdue
 threshold uses twice the warning. Disabling disk storage does not disable
 in-memory stream summaries. Per-view editors use the same logical IDs, including
 configured/manual IDs when there is no local catalogue. Reset removes the local
-override and reveals inherited policy.
+override and reveals inherited policy. Watched-file freshness starts disabled
+unless explicitly configured for that view; choose Yes to opt in.
 
 Advanced covers Watch, Publish, Limits and server Security/Admission. Checks and
 webhooks offer modest controls and existing-schema guidance; they do not have a
@@ -249,7 +253,7 @@ not yet available in this build.
 | Keys | Action |
 | --- | --- |
 | Tab / Shift+Tab | Move through fields and actions |
-| Arrows / j / k | Move within lists |
+| Arrows / j / k | Move within lists and open dropdowns |
 | Space | Toggle a discovered view |
 | a / c | Select all / clear all in the view list |
 | r, then e | Set a range anchor, move, select through its end |
@@ -273,7 +277,10 @@ so clearing every view means no discovery and never accidentally means all.
 Legacy `selection` keeps its existing label/section/ID matching and empty-means-all
 behaviour when exact selection is absent. An explicit CLI `--include` overrides
 the configured selection. Watches and direct API publication are independent of
-AST selection.
+AST selection. Choose Configure watches to add files; the editor opens
+automatically for existing watches. Select an existing watch to edit its path, logical ID, label,
+section, read mode or materialization (inherited or explicit), or remove that specific watch. Changes
+apply with Add / update watch; New watch starts a new entry.
 
 The wizard never reads watched-file contents, tests a destination, reads secret
 values, registers views, seals a catalogue or changes a running service. Key and
@@ -282,7 +289,10 @@ on the machine starting the corresponding service; startup still validates them
 and fails closed when required values are absent. Locked servers may use a
 complete configured ID list, or await an explicit publisher bootstrap. An empty
 configured list seals a catalogue admitting no IDs. Review the complete union
-before using the generated `--seal-catalogue --reviewed` guidance.
+before using the generated `--seal-catalogue --reviewed` guidance. Publisher
+additional IDs and server admission IDs are separate lists, including in local
+setup. Advanced / Publish shows the applicable local or remote stream timeout;
+the maximum retry delay must be at least the initial delay.
 
 Config selection follows the existing resolver: explicit `--config`, environment
 selection, then `plotsrv.yml` before `plotsrv.yaml`. New drafts default to
@@ -291,7 +301,8 @@ selection, then `plotsrv.yml` before `plotsrv.yaml`. New drafts default to
 including `--config` and the selected instance. CLI bind flags override saved
 server bind values for combined `run` as well as standalone `serve`.
 
-Before saving, inspect managed YAML values and their diff; unrelated content,
+Before saving, inspect managed YAML excerpts in their actual default/instance
+placement and the effective-value diff; unrelated content,
 comments and webhook endpoints are hidden from the review display. They are
 retained in the actual file. Confirmation writes a unique restrictive backup
 when replacing a file, then atomically replaces the target. New files use
@@ -309,7 +320,10 @@ parser events, and files exceeding 1 MiB are refused with repair/new-file guidan
 An existing config must remain in its original directory when saving under a new
 name, so unrelated relative paths cannot silently change meaning. New configs
 may use another existing directory; explicitly entered source/storage paths keep
-their original base. Directories are not created automatically. The draft allows
+their original base. Module/package expressions retain their import names,
+including `package.module:callable`; run those commands from the project
+environment where the module is importable. Use `module:callable` for callable
+execution, rather than `file.py:callable`. Directories are not created automatically. The draft allows
 at most 2,048 field edits in one session.
 
 Discovery has one cooperative worker and one replaceable progress slot; there is

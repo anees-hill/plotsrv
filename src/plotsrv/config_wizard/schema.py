@@ -15,6 +15,7 @@ from ..connection_config import (
 )
 from ..observations.models import ObservationBudget
 from ..publishing.models import PublishTarget
+from ..webhook_config import WebhookConfig
 from .draft import FIELDS, FieldSpec, model_default
 
 PAGES = {
@@ -143,9 +144,15 @@ for key, label, path, kind, default in (
         "Allow remote publishers without a key",
         ("ingestion", "allow_remote_without_key"),
         "bool",
-        False,
+        model_default(ServerConnectionConfig, "allow_remote_without_key"),
     ),
-    ("admission", "Source admission", ("admission", "mode"), "str", "dynamic"),
+    (
+        "admission",
+        "Source admission",
+        ("admission", "mode"),
+        "str",
+        model_default(ServerConnectionConfig, "admission_mode"),
+    ),
 ):
     add(
         "server",
@@ -310,12 +317,18 @@ add(
     "seconds",
     1,
     86400,
-    default=60,
+    default=model_default(WebhookConfig, "event_cooldown_s"),
 )
 
 
 def fields_for(page, draft, view_id=None):
     specs = [FIELDS[key] for key in PAGES[page]]
+    if page == "watch" and draft.role == "publisher":
+        specs = [
+            spec
+            for spec in specs
+            if spec.key not in ("watch_max_concurrent", "watch_wait_timeout_s")
+        ]
     if page == "publish":
         remote = bool(draft.value(FIELDS["destination"]))
         specs = [
@@ -367,7 +380,16 @@ def validate_document(document, name, base, role):
     )
     try:
         for page in (
-            ("storage", "freshness", "server", "security", "checks", "watch", "limits")
+            (
+                "storage",
+                "storage_advanced",
+                "freshness",
+                "server",
+                "security",
+                "checks",
+                "watch",
+                "limits",
+            )
             if role == "server"
             else (
                 ("publisher", "publish", "watch", "limits")
@@ -513,13 +535,22 @@ def validate_document(document, name, base, role):
         raise SaveError("Invalid configuration: " + str(error)) from None
 
 
-def review_projection(document, name, role):
+def review_projection(document, name, role, *, raw_values=False):
     """Whitelist managed values; never echo arbitrary YAML/comments or webhook URLs."""
     from .saving import assign
 
     output = {}
     pages = (
-        ("storage", "freshness", "server", "watch", "limits", "security", "checks")
+        (
+            "storage",
+            "storage_advanced",
+            "freshness",
+            "server",
+            "watch",
+            "limits",
+            "security",
+            "checks",
+        )
         if role == "server"
         else (
             ("publisher", "publish", "watch", "limits")
@@ -544,7 +575,7 @@ def review_projection(document, name, role):
             # in destination fields are hidden instead of echoed in the diff.
             try:
                 parsed = spec.parse_config(node)
-                assign(output, spec.path, parsed)
+                assign(output, spec.path, node if raw_values else parsed)
             except ValueError:
                 assign(output, spec.path, "<invalid value hidden>")
     for section_key, keys2 in (
@@ -623,7 +654,7 @@ def review_projection(document, name, role):
     return output
 
 
-# Additional existing snapshot controls stay in the same storage form.
+# Less common snapshot controls follow Advanced, keeping core setup short.
 for key, kind, label, choices in (
     ("enabled", "bool", "Keep the latest stored view", ()),
     ("restore_on_startup", "bool", "Restore latest views at server startup", ()),
@@ -660,3 +691,134 @@ _core = {
 }
 PAGES["publish"].extend(key for key in PAGES["publisher"] if key not in _core)
 PAGES["publisher"][:] = [key for key in PAGES["publisher"] if key in _core]
+
+
+def review_layout(document, name, role):
+    """Show whitelisted YAML in its actual global/default/instance placement."""
+    output = {}
+    owners = {spec.path[0] for spec in FIELDS.values()}
+    for section_key, raw in document.items():
+        if section_key not in owners or not isinstance(raw, dict):
+            continue
+
+        def project(row):
+            return review_projection(
+                {section_key: row}, None, role, raw_values=True
+            ).get(section_key, {})
+
+        shown = project(
+            {
+                k: v
+                for k, v in raw.items()
+                if k not in ("default", "instance", "instances")
+            }
+        )
+        if isinstance(raw.get("default"), dict):
+            defaults = project(raw["default"])
+            if defaults:
+                shown["default"] = defaults
+        if name:
+            for group in ("instance", "instances"):
+                instances = raw.get(group, {})
+                if isinstance(instances, dict) and isinstance(
+                    instances.get(name), dict
+                ):
+                    selected = project(instances[name])
+                    if selected:
+                        shown[group] = {name: selected}
+        if shown:
+            output[section_key] = shown
+    return output
+
+
+# Field-specific explanations accompany the shared units/default/inheritance help.
+_MEANINGS = {
+    "storage_enabled": "Enable server disk snapshots. Turning this off retains retention choices for later.",
+    "storage_watch_enabled": "Allow disk snapshots of watched files. Storage must also be enabled; watches remain visible without disk history.",
+    "storage_root_dir": "Folder holding server snapshots and latest saved views. Relative paths start beside this config file.",
+    "storage_max_snapshot_size_mb": "Skip individual snapshots larger than this size; this does not increase publisher capture or transport bounds.",
+    "storage_default_keep_last": "Maximum stored snapshots retained for each view. Off means unlimited retention; per-view settings can override this.",
+    "storage_default_min_store_interval": "Minimum gap between stored snapshots for one view. Off allows every eligible update; live display still updates independently.",
+    "freshness_enabled": "Enable server freshness checks based on last data receipt. Watched files require a per-view opt-in as well as this global switch.",
+    "freshness_expected_every": "Expected gap between data receipts. Used as the warning threshold when warn_after is unset.",
+    "freshness_warn_after": "Mark a view late after this gap since its last receipt. Unset inherits the expected update interval.",
+    "freshness_overdue_after": "Mark a view overdue after this gap since its last receipt. Unset uses twice the warning threshold.",
+    "bind_host": "Interface on which this server listens. Loopback serves this machine; a remote interface requires a key reference or explicit no-key exposure.",
+    "bind_port": "TCP port on the machine hosting plotsrv. An explicit CLI port overrides this value.",
+    "ingress_key": "Environment variable containing the expected publisher bearer key on the server machine. Only its name is saved; it is not dashboard authentication.",
+    "allow_remote": "Explicitly permit publishers without a bearer key on a non-loopback bind. Use only for an intentionally trusted endpoint.",
+    "admission": "Dynamic accepts new logical view IDs. Catalogue-locked accepts only the configured list, or awaits explicit publisher bootstrap when no list is configured.",
+    "live_async_enabled": "Prepare ordinary live publications in the background with latest-wins coalescing. observe=True uses its own bounded asynchronous path.",
+    "live_max_pending_views": "Maximum distinct views waiting for ordinary live publication; updates to a waiting view coalesce.",
+    "live_max_pending_mb": "Memory budget for pending ordinary live publication work. This is separate from observation and server storage queues.",
+    "live_flush_timeout_s": "Maximum wait when flushing ordinary live publication during shutdown. Zero returns without waiting.",
+    "stream_request_timeout_s": "Maximum transport wait for a stream request to a local destination. Remote destinations use their separate destination timeout.",
+    "stream_retry_initial_delay_s": "Initial pause before retrying a failed stream request. Backoff grows up to the maximum retry delay.",
+    "stream_retry_max_delay_s": "Maximum pause between stream retries. Must be at least the initial delay; does not change remote-watch retry policy.",
+    "stream_shutdown_drain_timeout_s": "Maximum shutdown wait for queued stream data before abandoning remaining work.",
+    "watch_materialization": "Choose local watch representation: memory, file-backed, or automatic based on size. A remote receiver never opens the publisher path.",
+    "watch_file_threshold_mb": "Automatic materialization switches larger watched files to a file-backed representation at this size.",
+    "watch_max_concurrent": "Maximum simultaneous server loads of file-backed watch previews. Remote transfer has separate hard bounds.",
+    "watch_wait_timeout_s": "Maximum wait to obtain a server file-preview loading slot; zero avoids waiting.",
+    "latest_enabled": "Keep a latest saved version alongside snapshot history. Requires server storage to be enabled.",
+    "latest_restore_on_startup": "Restore eligible latest saved content when this server starts; does not enlarge an admission catalogue.",
+    "latest_restore_scope": "Restore discovered views, all stored views, or none. Locked admission remains an independent restriction.",
+    "storage_max_pending_tasks": "Maximum queued server snapshot-writing tasks. Excess work is best-effort; publisher queue bounds are separate.",
+    "storage_max_pending_mb": "Maximum memory reserved for queued server snapshot writes. Does not increase producer or snapshot size limits.",
+}
+_OBSERVE_MEANINGS = {
+    "max_rows": "Maximum sampled table rows; row selection spreads across the available rows.",
+    "max_fields": "Maximum inspected table columns or mapping fields.",
+    "max_elements": "Maximum sampled array elements.",
+    "max_nodes": "Maximum visited nodes in detached nested capture.",
+    "max_depth": "Maximum nesting depth inspected during capture.",
+    "max_value_bytes": "Maximum bytes retained from an individual sampled value.",
+    "max_categories": "Maximum categories retained in a sampled summary; cardinality is sample-derived.",
+    "max_capture_bytes": "Maximum retained detached capture size before background handoff.",
+    "max_output_bytes": "Maximum observation output envelope size before transport.",
+    "exploratory_rows": "Additional probing allowance for uninformative table samples, within the same fixed total capture budgets.",
+    "max_dimensions": "Maximum supported array dimensions before safe degradation.",
+    "max_blocks": "Maximum pandas storage blocks inspected before safe degradation.",
+    "capture_ms": "Cooperative foreground capture time allowance. An individual operation cannot be cancelled mid-call.",
+    "view_interval_s": "Minimum interval between admitted observations of the same view.",
+    "process_interval_s": "Minimum interval between admitted observations across the process.",
+    "max_pending": "Maximum pending detached observations; overload drops or coalesces work.",
+    "max_pending_bytes": "Total reserved byte budget for pending observations. Must fit at least one output envelope.",
+    "max_view_ids": "Maximum tracked observation view IDs, bounding admission bookkeeping.",
+}
+_MEANINGS.update(
+    {
+        "observe_" + key: value + " Production safety caps still apply."
+        for key, value in _OBSERVE_MEANINGS.items()
+    }
+)
+_MEANINGS.update(
+    {
+        "limit_max_plot_bytes": "Maximum prepared plot payload size in bytes; the other peer enforces its own limit.",
+        "limit_max_table_rows": "Maximum rows in a prepared table publication; observe capture has its own smaller sampling budget.",
+        "limit_max_table_columns": "Maximum columns in a prepared table publication; this does not raise observe capture limits.",
+        "limit_max_artifact_text_chars": "Maximum text characters retained in a prepared text artifact.",
+        "limit_max_json_container_items": "Maximum items retained from a JSON container during publication preparation.",
+        "security_docs_enabled": "Expose the server API documentation routes.",
+        "security_openapi_enabled": "Expose the server OpenAPI schema route.",
+        "security_shutdown_enabled": "Enable the server shutdown endpoint. Keep administrative access restricted.",
+        "security_control_local_only": "Restrict server control endpoints to local clients.",
+        "security_internal_read_local_only": "Restrict internal data-reading endpoints to local clients.",
+        "security_status_local_only": "Restrict status endpoints to local clients.",
+        "security_history_local_only": "Restrict stored history endpoints to local clients.",
+        "security_views_local_only": "Restrict view-management endpoints to local clients.",
+        "security_tracebacks_enabled": "Expose exception tracebacks in server responses; tracebacks can contain sensitive application details.",
+    }
+)
+for _key, _meaning in _MEANINGS.items():
+    FIELDS[_key] = replace(FIELDS[_key], meaning=_meaning)
+
+PAGES["storage_advanced"] = [
+    key
+    for key in PAGES["storage"]
+    if key.startswith("latest_")
+    or key in ("storage_max_pending_tasks", "storage_max_pending_mb")
+]
+PAGES["storage"][:] = [
+    key for key in PAGES["storage"] if key not in PAGES["storage_advanced"]
+]

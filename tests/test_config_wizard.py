@@ -276,6 +276,8 @@ def test_text_keys_destination_validation_and_watch(project):
                 "https://remote.example/base/"
             )
             app.screen.query_one("#target", Input).value = str(project)
+            app.screen.query_one("#configure-watches").focus()
+            await pilot.press("enter")
             app.screen.query_one("#watch-path", Input).value = "missing-file.log"
             app.screen.query_one("#watch-id", Input).value = "logs:stable"
             app.screen.query_one("#add-watch").focus()
@@ -557,3 +559,61 @@ def test_completed_scan_waits_for_help_without_an_idle_timer(project, monkeypatc
         asyncio.run(run())
     finally:
         release.set()
+
+
+def test_broad_implicit_scan_shows_narrowing_tip(project, monkeypatch):
+    app_class = ui()
+    from plotsrv.config_wizard import scanning
+    from textual.widgets import Static
+
+    release = Event()
+    entered = Event()
+    monkeypatch.chdir(project)
+
+    def blocked(root, *, on_progress, **kwargs):
+        on_progress(DiscoveryProgress("scanning", 50, 1200, 1200, 0, 6))
+        entered.set()
+        release.wait(5)
+        return scan_sources(project)
+
+    monkeypatch.setattr(scanning, "scan_sources", blocked)
+
+    async def run():
+        app = app_class(Draft.load(config=project / "plotsrv.yml"))
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            app.screen.query_one("#next").focus()
+            await pilot.press("enter")
+            await until(pilot, entered.is_set)
+            await until(
+                pilot,
+                lambda: "narrow discovery"
+                in str(app.screen.query_one("#progress", Static).content),
+            )
+            assert app.job.progress is None
+            await pilot.press("escape")
+            release.set()
+            await until(pilot, app.job.done.is_set)
+
+    try:
+        asyncio.run(run())
+    finally:
+        release.set()
+
+
+def test_existing_exact_empty_selection_is_described(project):
+    app_class = ui()
+    from textual.widgets import Static
+
+    path = project / "plotsrv.yml"
+    path.write_text("publisher-settings:\n  discovery:\n    exact_selection: []\n")
+
+    async def run():
+        app = app_class(Draft.load(config=path))
+        async with app.run_test() as pilot:
+            await pilot.press("enter")
+            text = "\n".join(str(widget.content) for widget in app.screen.query(Static))
+            assert "exact IDs: []" in text
+            assert "all (runtime default)" not in text
+
+    asyncio.run(run())
