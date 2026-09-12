@@ -1,0 +1,52 @@
+/* Only loaded by the temporary UI customiser. */
+.customiser { margin:0; padding:24px; color:var(--ps-text); background:var(--ps-page-bg); font:15px/1.5 system-ui,sans-serif; }
+.customiser [hidden] { display:none !important; }
+.customiser h1 { font-size:25px; margin:0; }
+.customiser h2 { font-size:18px; margin:0 0 12px; }
+.customiser p { margin:6px 0 14px; }
+.customiser button, .customiser input, .customiser select { font:inherit; color:inherit; }
+.customiser button { padding:7px 12px; border:1px solid var(--ps-border); border-radius:6px; background:var(--ps-surface); cursor:pointer; }
+.customiser button:disabled { opacity:.55; cursor:wait; }
+.customiser input[type=text], .customiser input[type=password], .customiser select { padding:7px; border:1px solid var(--ps-border); border-radius:4px; background:var(--ps-surface); max-width:100%; }
+.customiser input[type=text], .customiser input[type=password] { width:100%; box-sizing:border-box; }
+.customiser input[type=file] { width:100%; font-size:13px; }
+.customiser :focus-visible { outline:3px solid var(--ps-focus); outline-offset:3px; }
+.editor-heading { display:flex; align-items:center; gap:16px; margin-bottom:12px; }
+.editor-heading img { width:44px; height:44px; object-fit:contain; }
+.editor-heading p, .muted { color:var(--ps-muted); }
+#login { max-width:520px; margin:40px auto; padding:24px; background:var(--ps-surface); border:1px solid var(--ps-border); border-radius:10px; }
+#unlock { display:grid; gap:12px; }
+#notice { min-height:24px; overflow-wrap:anywhere; }
+.scope { display:flex; gap:18px; flex-wrap:wrap; margin-bottom:20px; overflow-wrap:anywhere; }
+.scope p { flex-basis:100%; color:var(--ps-muted); font-size:13px; }
+.editor-layout { display:grid; grid-template-columns:minmax(320px,1fr) 310px; gap:24px; }
+.preview-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+#preview { display:block; width:100%; height:520px; border:1px solid var(--ps-border); border-radius:9px; background:var(--ps-surface); }
+.customiser aside { padding:18px; border:1px solid var(--ps-border); border-radius:9px; background:var(--ps-surface); }
+.customiser nav { display:flex; gap:5px; flex-wrap:wrap; margin-bottom:16px; }
+.customiser nav button { font-size:13px; padding:6px; }
+.customiser nav [aria-pressed=true] { background:var(--ps-accent-soft); border-color:var(--ps-accent); }
+.customiser fieldset { border:0; padding:0; margin:0; }
+.customiser legend { font-weight:600; margin-bottom:12px; }
+.setting { margin-bottom:18px; }
+.setting label { display:block; font-weight:600; margin-bottom:5px; }
+.setting p, .customiser aside > p { font-size:12px; color:var(--ps-muted); overflow-wrap:anywhere; }
+.setting input[type=checkbox] { width:18px; height:18px; }
+.setting button { font-size:12px; margin-top:6px; }
+.editor-actions { display:flex; justify-content:flex-end; gap:12px; margin-top:24px; }
+#review, #save { background:var(--ps-accent-soft); border-color:var(--ps-accent); }
+#review-dialog { width:min(760px,90vw); max-height:85vh; overflow:auto; color:var(--ps-text); background:var(--ps-surface); border:1px solid var(--ps-border); border-radius:10px; padding:24px; }
+#review-dialog::backdrop { background:rgba(0,0,0,.55); }
+#diff { white-space:pre-wrap; overflow-wrap:anywhere; font-size:13px; background:var(--ps-surface-soft); padding:14px; }
+.dialog-actions { display:flex; gap:12px; flex-wrap:wrap; justify-content:flex-end; }
+@media(max-width:850px) { .customiser { padding:14px; } .editor-layout { grid-template-columns:1fr; } #preview { height:390px; } }
+
+#preview-favicon { width:20px; height:20px; vertical-align:middle; object-fit:contain; }
+
+#preview-branding[role=button], #preview-controls[role=button], #preview-footer[role=button] { cursor:pointer; }
+#preview-branding[role=button]:hover, #preview-controls[role=button]:hover, #preview-footer[role=button]:hover,
+#preview-branding[role=button]:focus-visible, #preview-controls[role=button]:focus-visible, #preview-footer[role=button]:focus-visible { outline:2px dashed var(--ps-focus); outline-offset:3px; }
+#preview-branding[role=button] > *, #preview-controls[role=button] > *, #preview-footer[role=button] > * { pointer-events:none; }
+
+.preview-tab { display:flex; align-items:center; gap:8px; padding:8px 12px; border:1px solid var(--ps-border); border-bottom:0; border-radius:8px 8px 0 0; background:var(--ps-surface-soft); }
+#preview-page-title { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

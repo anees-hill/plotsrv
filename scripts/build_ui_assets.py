@@ -102,8 +102,18 @@ def _outputs() -> dict[Path, bytes]:
         "tabulator_js": "/static/vendor/tabulator/5.5.0/tabulator.min.js",
         "tabulator_version": "5.5.0",
     }
+    custom_css = _bundle(("css/config_ui.css",))
+    custom_js = _bundle(("js/config_ui.js",))
+    custom_css_name = f"plotsrv-customiser.{_fingerprint(custom_css)}.css"
+    custom_js_name = f"plotsrv-customiser.{_fingerprint(custom_js)}.js"
+    manifest.update(
+        customiser_css=f"/static/dist/{custom_css_name}",
+        customiser_js=f"/static/dist/{custom_js_name}",
+    )
     manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
     return {
+        DIST / custom_css_name: custom_css,
+        DIST / custom_js_name: custom_js,
         DIST / css_name: css,
         DIST / js_name: js,
         DIST / "manifest.json": manifest_bytes,
@@ -138,7 +148,7 @@ def build(*, check: bool) -> int:
     manifest_temp.write_bytes(outputs[manifest_path])
     manifest_temp.replace(manifest_path)
 
-    for old in DIST.glob("plotsrv-ui.*"):
+    for old in (*DIST.glob("plotsrv-ui.*"), *DIST.glob("plotsrv-customiser.*")):
         if old not in expected and old.is_file():
             old.unlink()
     print("Built " + ", ".join(path.name for path in outputs))
