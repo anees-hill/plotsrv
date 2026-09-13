@@ -320,13 +320,42 @@ def build_parser() -> argparse.ArgumentParser:
     publish_p.add_argument("--quiet", action="store_true")
 
     watch_p = sub.add_parser(
-        "watch", help="Watch a file and publish live updates as a view"
+        "watch", help="Watch a file or directory and publish live updates as views"
     )
-    watch_p.add_argument("path", help="Path to a file to watch")
+    watch_p.add_argument(
+        "path", help="File or directory to watch (directory discovery runs once)"
+    )
+    watch_p.add_argument(
+        "--max-depth",
+        type=int,
+        default=None,
+        help="Directory subfolder depth, 0 = root only (default: 2; maximum: 16)",
+    )
+    watch_p.add_argument(
+        "--max-views",
+        type=int,
+        default=None,
+        help="Directory view limit (default: 32; maximum: 64); overflow stops startup",
+    )
+    watch_p.add_argument(
+        "--include",
+        action="append",
+        default=None,
+        metavar="GLOB",
+        help="Directory filename or relative-path pattern; repeat to match any (quote globs)",
+    )
     watch_p.add_argument("--config", default=None)
     watch_p.add_argument("--name", default=None)
-    watch_p.add_argument("--destination", default=None, help="Publish to this existing server; file remains local to this process")
-    watch_p.add_argument("--bearer-token-env", default=None, help="Credential environment variable for explicit destination")
+    watch_p.add_argument(
+        "--destination",
+        default=None,
+        help="Publish to this existing server; file remains local to this process",
+    )
+    watch_p.add_argument(
+        "--bearer-token-env",
+        default=None,
+        help="Credential environment variable for explicit destination",
+    )
     watch_p.set_defaults(host_supplied=False, port_supplied=False)
     watch_p.add_argument("--host", action=_ExplicitValueAction, default="127.0.0.1")
     watch_p.add_argument("--port", action=_ExplicitValueAction, type=int, default=8000)
@@ -340,7 +369,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="How to interpret the file",
     )
     watch_p.add_argument(
-        "--section", default="watch", help="View section (default: watch)"
+        "--section",
+        action=_ExplicitValueAction,
+        default="watch",
+        help="File section (default: watch); directory section prefix",
     )
     watch_p.add_argument("--label", default=None, help="View label (default: filename)")
     watch_p.add_argument(

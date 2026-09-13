@@ -13,8 +13,8 @@ from plotsrv import runtime
 from plotsrv.publishing import transport
 
 
-@pytest.fixture
-def probe(tmp_path, monkeypatch):
+@pytest.fixture(params=[False, True], ids=["threads", "coalesced"])
+def probe(tmp_path, monkeypatch, request):
     path = tmp_path / "source.txt"
     path.write_text("initial")
     clock = [0.0]
@@ -72,6 +72,7 @@ def probe(tmp_path, monkeypatch):
             host="127.0.0.1",
             port=1,
             register_views=False,
+            coalesce=request.param,
         )
 
     return path, waits, reads, hook, run
@@ -177,7 +178,10 @@ def test_shutdown_during_preparation_prevents_publication(probe, monkeypatch):
     assert len(reads) == 1
 
 
-def test_fifteen_watch_startup_recovers_over_http_and_stops(tmp_path, monkeypatch):
+@pytest.mark.parametrize("coalesce", [False, True])
+def test_fifteen_watch_startup_recovers_over_http_and_stops(
+    tmp_path, monkeypatch, coalesce
+):
     received = {}
     requests = []
     active = [0, 0]
@@ -241,8 +245,13 @@ def test_fifteen_watch_startup_recovers_over_http_and_stops(tmp_path, monkeypatc
     workers = []
     try:
         workers = runtime.start_watch_threads(
-            specs, host="127.0.0.1", port=server.server_port, register_views=False
+            specs,
+            host="127.0.0.1",
+            port=server.server_port,
+            register_views=False,
+            coalesce=coalesce,
         )
+        assert len(workers) == (1 if coalesce else 15)
         deadline = time.monotonic() + 30
         while len(received) < 15 and time.monotonic() < deadline:
             time.sleep(0.05)
@@ -258,7 +267,11 @@ def test_fifteen_watch_startup_recovers_over_http_and_stops(tmp_path, monkeypatc
         assert not any(worker.is_alive() for worker in workers)
         # A fresh batch is not stopped by the previous batch's cancellation.
         workers = runtime.start_watch_threads(
-            specs[:1], host="127.0.0.1", port=server.server_port, register_views=False
+            specs[:1],
+            host="127.0.0.1",
+            port=server.server_port,
+            register_views=False,
+            coalesce=coalesce,
         )
         deadline = time.monotonic() + 3
         while len(requests) == previous and time.monotonic() < deadline:

@@ -1001,6 +1001,46 @@ def _run_passive_server_forever(
         return 0
 
 
+def _run_watch_collection(
+    watches: list[WatchConfig], *, host: str, port: int, every: float, quiet: bool
+) -> int:
+    """Serve an already-discovered collection using ordinary local watch steps."""
+    start_server, stop_server = _get_server_hooks()
+    client_host = _client_host_for_bind_host(host)
+    threads = []
+    try:
+        register_watch_views(watches, activate_first_if_none=True)
+        _get_restore_streams_hook()()
+        start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+        if not _wait_for_server(client_host, port, timeout_s=5.0):
+            return _die(
+                f"server did not become ready at http://{client_host}:{port}/status"
+            )
+        threads = start_watch_threads(
+            watches,
+            host=client_host,
+            port=port,
+            register_views=False,
+            coalesce=True,
+            every=every,
+        )
+        store.set_service_info(service_mode=True, target="watch", refresh_rate_s=None)
+        while any(thread.is_alive() for thread in threads):
+            for thread in threads:
+                thread.join(timeout=0.2)
+        return 0
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        from .runtime import stop_watch_threads
+
+        stop_watch_threads()
+        stop_server(join=False)
+        for thread in threads:
+            thread.join(timeout=2.0)
+        store.set_service_info(service_mode=False, target=None, refresh_rate_s=None)
+
+
 def _run_watch_mode(
     path: str,
     *,
@@ -1375,17 +1415,91 @@ def main(argv: list[str] | None = None) -> int:
             return _die(str(e))
 
         from .publisher_agent import destination_for_cli, RemoteWatcher, foreground
+
         try:
+            directory = Path(args.path).expanduser().is_dir()
+            if directory:
+                import math
+                from .watch_directory import (
+                    discover_directory,
+                    DEFAULT_DEPTH,
+                    DEFAULT_VIEWS,
+                )
+
+                if not math.isfinite(args.every) or args.every < 0.1:
+                    raise ValueError(
+                        "watch interval must be finite and at least 0.1 seconds"
+                    )
+                specs = discover_directory(
+                    WatchConfig(
+                        path=args.path,
+                        label=args.label,
+                        view_id=args.view_id,
+                        section=(
+                            args.section
+                            if getattr(args, "section_supplied", False)
+                            else None
+                        ),
+                        kind=args.kind,
+                        read_mode=read_mode,
+                        max_bytes=max_bytes,
+                        encoding=args.encoding,
+                        update_limit_s=args.update_limit_s,
+                        force=args.force,
+                        materialization=args.materialization,
+                    ),
+                    max_depth=(
+                        args.max_depth if args.max_depth is not None else DEFAULT_DEPTH
+                    ),
+                    max_views=(
+                        args.max_views if args.max_views is not None else DEFAULT_VIEWS
+                    ),
+                    include=args.include,
+                )
+                if not args.quiet:
+                    print(
+                        f"Watching {len(specs)} files (startup discovery only; "
+                        f"depth {args.max_depth if args.max_depth is not None else DEFAULT_DEPTH}). "
+                        "Hidden entries, symlinks and unsupported formats are excluded. "
+                        "Restart to discover new files.",
+                        file=sys.stderr,
+                    )
+            elif (
+                args.max_depth is not None or args.max_views is not None or args.include
+            ):
+                raise ValueError(
+                    "--max-depth, --max-views and --include require a directory"
+                )
             target = destination_for_cli(args)
+            if directory:
+                if target.base_url is not None:
+                    return foreground(RemoteWatcher(specs, target, every=args.every))
+                return _run_watch_collection(
+                    specs,
+                    host=args.host,
+                    port=args.port,
+                    every=args.every,
+                    quiet=args.quiet,
+                )
             if target.base_url is not None:
-                spec = WatchConfig(path=args.path, label=args.label, section=args.section,
-                    view_id=args.view_id, kind=args.kind, read_mode=read_mode,
-                    max_bytes=max_bytes, encoding=args.encoding,
-                    update_limit_s=args.update_limit_s, force=args.force,
-                    materialization=args.materialization)
+                spec = WatchConfig(
+                    path=args.path,
+                    label=args.label,
+                    section=args.section,
+                    view_id=args.view_id,
+                    kind=args.kind,
+                    read_mode=read_mode,
+                    max_bytes=max_bytes,
+                    encoding=args.encoding,
+                    update_limit_s=args.update_limit_s,
+                    force=args.force,
+                    materialization=args.materialization,
+                )
                 return foreground(RemoteWatcher([spec], target, every=args.every))
         except ValueError as error:
             return _die(str(error))
+        except KeyboardInterrupt:
+            return 130
 
         return _run_watch_mode(
             args.path,

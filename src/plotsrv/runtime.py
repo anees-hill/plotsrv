@@ -10,7 +10,7 @@ import weakref
 import threading
 import time
 from collections import deque
-from collections.abc import Mapping, Sequence
+from collections.abc import Generator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -1702,9 +1702,20 @@ def start_watch_threads(
     host: str,
     port: int,
     register_views: bool = True,
+    coalesce: bool = False,
+    every: float = 1.0,
 ) -> list[threading.Thread]:
+    # Coalesced launchers use the same per-file steps/backoff with one scheduler,
+    # retaining only metadata between turns. Existing callers keep their threads.
+    import math
+
+    if not math.isfinite(every) or every < 0.1:
+        raise ValueError("watch interval must be finite and at least 0.1 seconds")
     configs = coerce_watch_configs(watches)
     threads: list[threading.Thread] = []
+    steps: list[Generator[float, None, None]] = []
+    if not configs:
+        return threads
 
     if register_views:
         registered_views = register_watch_views(configs, activate_first_if_none=True)
@@ -1718,11 +1729,11 @@ def start_watch_threads(
     for spec, registered in zip(configs, registered_views, strict=True):
         resolved_max_bytes = resolve_watch_max_bytes(spec, view_id=registered.view_id)
 
-        def _worker(
+        def _steps(
             watch_config: WatchConfig = spec,
             registered_view: RegisteredWatchView = registered,
             watch_max_bytes: int | None = resolved_max_bytes,
-        ) -> None:
+        ) -> Generator[float, None, None]:
             pth = registered_view.path
             last_sig = None
             failures = 0
@@ -1785,7 +1796,7 @@ def start_watch_threads(
                 )
 
             while not stop.is_set():
-                delay = 1.0
+                delay = every
                 try:
                     stat_error = None
                     try:
@@ -1794,7 +1805,7 @@ def start_watch_threads(
                         sig = None
                         stat_error = error
                     if sig is not None and sig == last_sig:
-                        stop.wait(delay)
+                        yield delay
                         continue
                     if registered_view.materialization == "file":
                         error_text = (
@@ -1828,7 +1839,9 @@ def start_watch_threads(
                     # escape into the application that started it.
                     failures = min(failures + 1, 5)
                 if failures:
-                    delay = min(30.0, 2**failures + random.uniform(0.0, 1.0))
+                    delay = max(
+                        every, min(30.0, 2**failures + random.uniform(0.0, 1.0))
+                    )
                     now = time.monotonic()
                     if not stop.is_set() and now >= next_log:
                         logger.warning(
@@ -1836,7 +1849,22 @@ def start_watch_threads(
                             registered_view.view_id,
                         )
                         next_log = now + 30.0
-                stop.wait(delay)
+                # Do not retain exception tracebacks (which may reference a parser)
+                # while this generator is suspended between scheduler turns.
+                stat_error = None
+                yield delay
+
+        iterator = _steps()
+        if coalesce:
+            steps.append(iterator)
+            continue
+
+        def _worker(iterator: Generator[float, None, None] = iterator) -> None:
+            try:
+                for delay in iterator:
+                    stop.wait(delay)
+            finally:
+                iterator.close()
 
         t = threading.Thread(
             target=_worker,
@@ -1845,5 +1873,37 @@ def start_watch_threads(
         )
         t.start()
         threads.append(t)
+
+    if coalesce:
+
+        def _group_worker() -> None:
+            due = [0.0] * len(steps)
+            try:
+                while not stop.is_set():
+                    reschedule = []
+                    for index, iterator in enumerate(steps):
+                        if stop.is_set():
+                            break
+                        if time.monotonic() >= due[index]:
+                            try:
+                                delay = next(iterator)
+                            except StopIteration:
+                                return
+                            reschedule.append((index, delay))
+                    # Share deadlines across the batch: settled files should
+                    # cause one wakeup per interval, not one wakeup per file.
+                    finished = time.monotonic()
+                    for index, delay in reschedule:
+                        due[index] = finished + delay
+                    stop.wait(max(0.0, min(due) - time.monotonic()))
+            finally:
+                for iterator in steps:
+                    iterator.close()
+
+        thread = threading.Thread(
+            target=_group_worker, name="plotsrv-watch", daemon=True
+        )
+        thread.start()
+        threads.append(thread)
 
     return threads
