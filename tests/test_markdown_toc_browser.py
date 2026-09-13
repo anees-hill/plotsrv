@@ -134,3 +134,91 @@ def test_heading_scan_and_labels_are_bounded_and_safe(page):
     }""")
     assert page.locator(".ps-markdown-toc nav a").count() == 0
     assert "limited" in page.locator(".ps-markdown-toc__note").inner_text()
+
+
+@pytest.mark.parametrize("theme,width", [("light", 1366), ("dark", 390)])
+def test_code_copy_preserves_whitespace_and_supports_keyboard(page, theme, width):
+    mount(page, "artifacts:text")
+    page.set_viewport_size({"width": width, "height": 900})
+    page.evaluate("theme=>document.documentElement.dataset.theme=theme", theme)
+    source = 'def example():\n    text = "<tag> & café"  \n\n    return text\n'
+    install(
+        page,
+        "# Example\n\nInline `code` stays inline.\n\n```python\n"
+        + source
+        + "```\n\n```\nsecond block\n```",
+    )
+    page.evaluate(
+        "PLOTSRV.core.copyTextToClipboard=async text=>{window.copied=text;return true;}"
+    )
+    buttons = page.get_by_role("button", name="Copy code", exact=True)
+    assert buttons.count() == 2
+    assert buttons.first.is_visible()
+    buttons.first.focus()
+    page.keyboard.press("Enter")
+    page.get_by_role("button", name="Copied", exact=True).wait_for()
+    assert page.get_by_role("button", name="Copied", exact=True).evaluate(
+        "el=>el===document.activeElement"
+    )
+    assert page.evaluate("window.copied") == source
+    assert page.locator(".plotsrv-markdown pre").first.text_content() == source
+    assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    page.screenshot(path=f"/tmp/plotsrv-markdown-copy-{theme}.png")
+    page.get_by_role("button", name="Copy code", exact=True).last.click()
+    assert page.evaluate("window.copied") == "second block\n"
+    # The controls sit outside <pre>, so the existing export remains source-only.
+    with page.expect_download() as download:
+        page.evaluate("PLOTSRV.core.exportArtifact()")
+    from pathlib import Path
+
+    assert Path(download.value.path()).read_text() == source
+    page.wait_for_function(
+        "Array.from(document.querySelectorAll('.ps-markdown-code-copy span')).every(el=>!el.textContent)"
+    )
+    page.evaluate(
+        "PLOTSRV.renderers.initArtifactEnhancements(document.getElementById('artifact-root'))"
+    )
+    assert page.locator(".ps-markdown-code-copy").count() == 2
+    assert page.locator(".ps-markdown-code-block .ps-markdown-code-block").count() == 0
+
+
+def test_code_copy_failure_and_refresh_during_pending_copy(page):
+    mount(page, "artifacts:text")
+    install(page, "```\noriginal\n```\n\n```\nother\n```")
+    page.evaluate(
+        "() => { PLOTSRV.core.copyTextToClipboard=async()=>{throw new Error('denied');}; }"
+    )
+    page.get_by_role("button", name="Copy code", exact=True).first.click()
+    page.get_by_role("button", name="Copy failed", exact=True).wait_for()
+    assert page.locator(".plotsrv-markdown pre").first.text_content() == "original\n"
+    page.evaluate("""() => {
+      window.copyCalls=0;
+      PLOTSRV.core.copyTextToClipboard=()=>{window.copyCalls++; return new Promise(resolve=>window.finishCopy=resolve);};
+    }""")
+    page.get_by_role("button", name="Copy failed", exact=True).click()
+    page.get_by_role("button", name="Copy code", exact=True).last.click()
+    assert page.evaluate("window.copyCalls") == 1
+    install(page, "```\nreplacement\n```")
+    page.get_by_role("button", name="Copy code", exact=True).click()
+    assert page.evaluate("window.copyCalls") == 1
+    page.evaluate("window.finishCopy(true)")
+    assert page.locator(".ps-markdown-code-copy span").text_content() == ""
+    assert page.locator(".ps-markdown-code-copy").count() == 1
+    page.evaluate(
+        "PLOTSRV.core.copyTextToClipboard=async text=>{window.copied=text;return true;}"
+    )
+    page.get_by_role("button", name="Copy code", exact=True).click()
+    assert page.evaluate("window.copied") == "replacement\n"
+    install(page, "```\nunsafe\n```", unsafe=True)
+    assert page.locator(".ps-markdown-code-copy").count() == 0
+
+
+def test_code_copy_discovery_is_bounded_and_cleanup_restores_markup(page):
+    mount(page, "artifacts:text")
+    install(page, "```\ncode\n```\n\n" * 1001)
+    assert page.locator(".ps-markdown-code-copy").count() == 1000
+    assert page.locator("pre").count() == 1001
+    page.evaluate("PLOTSRV.core.disposeMarkdownToc()")
+    assert page.locator(".ps-markdown-code-copy").count() == 0
+    assert page.locator(".ps-markdown-code-block").count() == 0
+    assert page.locator("pre").count() == 1001

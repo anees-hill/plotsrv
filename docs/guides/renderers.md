@@ -280,6 +280,15 @@ Markdown is useful for:
 
 Markdown sanitisation is configurable.
 
+Rendered code blocks have a small **Copy code** icon in their top-right corner.
+It copies the displayed code, preserving indentation, blank lines and trailing
+newlines, and briefly shows **Copied** (or **Copy failed** if the clipboard is
+unavailable). The button supports keyboard and touch use in light/dark themes;
+inline code has no extra controls. Copy controls are excluded from code exports.
+Like the TOC, these controls apply to sanitized Markdown, leaving sandboxed HTML
+isolated. Button discovery is bounded to 1,000 blocks / 10,000 document elements;
+code text is read only when a copy button is clicked.
+
 Use **TOC** above a rendered Markdown document to open its table of contents.
 Click a heading to jump to that section. **Heading depth** defaults to H1–H3;
 choose H1 only or include deeper headings through H6. The sidebar follows the

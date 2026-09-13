@@ -6,6 +6,87 @@
   let preference = { view: null, open: false, depth: 3 };
   let serial = 0;
   let dispose = null;
+  let copying = false;
+
+  function initCodeCopies(markdown) {
+    const blocks = [];
+    const walker = document.createTreeWalker(markdown, NodeFilter.SHOW_ELEMENT);
+    let node;
+    let visited = 0;
+    while (visited++ < 10000 && blocks.length < 1000 && (node = walker.nextNode())) {
+      if (node.tagName === "PRE" && node.firstElementChild && node.firstElementChild.tagName === "CODE") {
+        blocks.push(node);
+      }
+    }
+    const buttons = new Map();
+    const wrappers = [];
+    let active = true;
+    let feedbackButton = null;
+    let timer = 0;
+    blocks.forEach(pre => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "ps-markdown-code-block";
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ps-markdown-code-copy";
+      button.title = "Copy code";
+      button.setAttribute("aria-label", "Copy code");
+      button.innerHTML = '<svg aria-hidden="true" focusable="false" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7">' +
+        '<rect x="8" y="8" width="12" height="13" rx="2"></rect><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"></path></svg>' +
+        '<span role="status" aria-live="polite"></span>';
+      pre.before(wrapper);
+      wrapper.append(button, pre);
+      buttons.set(button, pre.firstElementChild);
+      wrappers.push(wrapper);
+    });
+
+    function resetFeedback() {
+      if (timer) window.clearTimeout(timer);
+      timer = 0;
+      if (feedbackButton) {
+        feedbackButton.title = "Copy code";
+        feedbackButton.setAttribute("aria-label", "Copy code");
+        feedbackButton.querySelector("span").textContent = "";
+      }
+      feedbackButton = null;
+    }
+
+    async function onCopy(event) {
+      const button = event.target.closest(".ps-markdown-code-copy");
+      const code = buttons.get(button);
+      if (!code || copying) return;
+      copying = true;
+      button.setAttribute("aria-disabled", "true");
+      resetFeedback();
+      let ok = false;
+      try {
+        // Read the displayed code only on demand. Never include controls, trim,
+        // or cache a second copy of every code block during rendering.
+        ok = await core.copyTextToClipboard(code.textContent || "");
+      } catch (_) {
+        // Clipboard denial must not affect the document or its navigation.
+      } finally {
+        copying = false;
+      }
+      if (!active) return;
+      button.removeAttribute("aria-disabled");
+      const message = ok ? "Copied" : "Copy failed";
+      button.title = message;
+      button.setAttribute("aria-label", message);
+      button.querySelector("span").textContent = message;
+      feedbackButton = button;
+      timer = window.setTimeout(resetFeedback, 1500);
+    }
+
+    markdown.addEventListener("click", onCopy);
+    return function () {
+      active = false;
+      markdown.removeEventListener("click", onCopy);
+      resetFeedback();
+      buttons.clear();
+      wrappers.forEach(wrapper => wrapper.replaceWith(wrapper.querySelector("pre")));
+    };
+  }
 
   function disposeMarkdownToc() {
     if (dispose) dispose();
@@ -31,6 +112,7 @@
       preference = { view: app.config.activeViewId, open: false, depth: 3 };
     }
     const inline = markdown.classList.contains("plotsrv-markdown--sanitized");
+    const disposeCopies = inline ? initCodeCopies(markdown) : function () {};
     const prefix = "ps-md-toc-" + (++serial);
     const shell = document.createElement("div");
     shell.className = "ps-markdown-shell";
@@ -155,6 +237,7 @@
     }
 
     dispose = function () {
+      disposeCopies();
       toggle.removeEventListener("click", onToggle);
       close.removeEventListener("click", onClose);
       select.removeEventListener("change", onDepth);

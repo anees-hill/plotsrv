@@ -1,5 +1,33 @@
 /* src/plotsrv/static/css/renderers/markdown.css */
 
+.ps-markdown-code-block { position: relative; }
+.plotsrv-markdown .ps-markdown-code-block > pre { padding-top: 2.8rem; }
+.ps-markdown-code-copy {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.45rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--ps-border);
+  border-radius: 5px;
+  background: var(--ps-surface-raised);
+  color: var(--ps-text);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.ps-markdown-code-copy span:empty { display: none; }
+.ps-markdown-code-copy:hover { background: var(--ps-surface-hover); }
+.ps-markdown-code-copy:focus-visible {
+  outline: 2px solid var(--ps-focus);
+  outline-offset: 2px;
+}
+.ps-markdown-code-copy[aria-disabled="true"] { cursor: wait; opacity: 0.65; }
+
 .ps-markdown-shell,
 .ps-markdown-layout {
   width: 100%;
