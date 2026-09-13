@@ -519,7 +519,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_ui_p.add_argument(
         "--host",
         default="127.0.0.1",
-        help="Temporary editor bind address; default loopback",
+        help="Bind host (default: 127.0.0.1; use 0.0.0.0 for remote access)",
     )
     config_ui_p.add_argument(
         "--port",
@@ -535,7 +535,7 @@ def build_parser() -> argparse.ArgumentParser:
     config_ui_p.add_argument(
         "--origin",
         default=None,
-        help="Exact browser origin for a tunnel or HTTPS proxy, e.g. http://localhost:8766",
+        help="Optional exact browser-origin restriction, e.g. https://plots.example.org",
     )
     config_ui_p.add_argument(
         "--no-open",

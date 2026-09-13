@@ -55,9 +55,9 @@ async def body(request, limit):
     return bytes(result)
 
 
-def create_app(draft, *, origin, token=None, on_close=None):
-    origin = browser_origin(origin)
-    authority = urlsplit(origin).netloc
+def create_app(draft, *, origin=None, token=None, on_close=None):
+    origin = browser_origin(origin) if origin is not None else None
+    authority = urlsplit(origin).netloc if origin is not None else None
     token = token or secrets.token_urlsafe(32)
     expires = monotonic() + SESSION_SECONDS
     busy = False
@@ -86,12 +86,17 @@ def create_app(draft, *, origin, token=None, on_close=None):
     async def gate(request: Request, call_next):
         nonlocal busy
         response = None
-        if (
-            len(request.headers.getlist("host")) != 1
-            or request.headers.get("host") != authority
+        # A bind address is not a browser hostname: wildcard binds and SSH port
+        # forwarding must work without an explicit external-origin configuration.
+        # --origin remains an optional pin for deployments that want one.
+        expected_origin = (
+            origin or f"{request.url.scheme}://{request.headers.get('host', '')}"
+        )
+        if len(request.headers.getlist("host")) != 1 or (
+            authority is not None and request.headers.get("host") != authority
         ):
             response = Response("Invalid Host", status_code=403)
-        elif request.headers.get("origin") not in (None, origin):
+        elif request.headers.get("origin") not in (None, expected_origin):
             response = Response("Invalid Origin", status_code=403)
         elif request.scope.get("query_string"):
             response = Response("Query parameters are not supported", status_code=400)
@@ -109,7 +114,7 @@ def create_app(draft, *, origin, token=None, on_close=None):
                     "Editor session is invalid or expired", status_code=403
                 )
             elif request.method != "GET" and (
-                request.headers.get("origin") != origin
+                request.headers.get("origin") != expected_origin
                 or request.headers.get("x-plotsrv-ui-action") != "edit"
             ):
                 response = Response("Invalid mutation origin/action", status_code=403)

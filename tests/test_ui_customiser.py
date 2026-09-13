@@ -372,24 +372,85 @@ def test_session_expiry_and_lifespan_cleanup(tmp_path, monkeypatch):
     assert not draft.images.staged and not draft.images.root.exists()
 
 
-def test_cli_remote_bind_requires_tls_origin_and_warns(tmp_path, capsys):
+@pytest.mark.parametrize("host", ["0.0.0.0", "127.0.0.1", "localhost"])
+def test_cli_bind_needs_only_host_and_port(tmp_path, capsys, monkeypatch, host):
     from plotsrv.cli_parser import build_parser
     from plotsrv.ui_customiser import launch
+    import uvicorn
 
+    def run(server, *, sockets):
+        assert server.config.host == host
+        assert server.config.port == sockets[0].getsockname()[1] > 0
+        client = TestClient(server.config.app, base_url="http://my-server:9876")
+        token = server.config.app.state.capability
+        headers = {
+            **HEADERS,
+            "Origin": "http://my-server:9876",
+            "X-Plotsrv-UI-Session": token,
+        }
+        assert client.get("/").status_code == 200
+        assert client.get("/api/state", headers=headers).status_code == 200
+        assert client.post("/api/cancel", json={}, headers=headers).status_code == 200
+        assert server.should_exit
+
+    monkeypatch.setattr(uvicorn.Server, "run", run)
     args = build_parser().parse_args(
         [
             "config",
             "ui",
             "--host",
-            "0.0.0.0",
+            host,
+            "--port",
+            "0",
             "--config",
             str(tmp_path / "plotsrv.yml"),
             "--no-open",
         ]
     )
-    assert launch(args) == 2
-    assert "WARNING" in capsys.readouterr().err
+    assert launch(args) == 0
+    output = capsys.readouterr()
+    assert not output.err
+    assert "Open http://" in output.out
+    assert "Open http://0.0.0.0" not in output.out
     assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://192.0.2.10:8766",
+        "http://my-server:9876",
+        "http://localhost:9876",
+        "http://[::1]:8766",
+        "https://plots.example.org",
+    ],
+)
+def test_default_origin_follows_browser_address(tmp_path, url):
+    draft = Draft(tmp_path / "plotsrv.yml")
+    from urllib.parse import urlsplit
+
+    # This Starlette TestClient version cannot parse IPv6 base_url authorities;
+    # send the actual browser Host explicitly while exercising the same ASGI path.
+    client = TestClient(
+        create_app(draft, token=TOKEN),
+        base_url=urlsplit(url).scheme + "://testserver",
+        headers={"Host": urlsplit(url).netloc},
+    )
+    headers = {**HEADERS, "Origin": url}
+    assert client.get("/").status_code == 200
+    assert client.get("/api/state").status_code == 403
+    assert client.get("/api/state", headers=headers).status_code == 200
+    assert (
+        client.post(
+            "/api/cancel",
+            json={},
+            headers={**headers, "Origin": "https://unrelated.example"},
+        ).status_code
+        == 403
+    )
+    assert not draft.closed
+    assert client.post("/api/cancel", json={}, headers=headers).status_code == 200
+    assert draft.closed and not draft.path.exists()
 
 
 def test_inert_mode_ignores_description_config(monkeypatch, tmp_path):
@@ -449,7 +510,8 @@ def test_normal_server_has_no_writer_routes():
     assert not {"/api/draft", "/api/review", "/api/save", "/api/upload/{key}"} & paths
 
 
-def test_real_cli_ephemeral_port_and_cancel(tmp_path):
+@pytest.mark.parametrize("host", ["127.0.0.1", "0.0.0.0"])
+def test_real_cli_ephemeral_port_and_cancel(tmp_path, host):
     import subprocess, sys, selectors, json, urllib.request
 
     process = subprocess.Popen(
@@ -461,6 +523,8 @@ def test_real_cli_ephemeral_port_and_cancel(tmp_path):
             "ui",
             "--config",
             str(tmp_path / "plotsrv.yml"),
+            "--host",
+            host,
             "--port",
             "0",
             "--no-open",

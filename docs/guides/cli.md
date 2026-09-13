@@ -555,7 +555,17 @@ Saving is bounded synchronous work in this separate tool; decoder calls are not
 hard-cancelled by a timer. No new optional/required package is introduced: image
 decoding uses Pillow, already required by plotsrv's plotting dependencies.
 
-For a headless host, keep the editor bound to loopback and forward its port:
+Use `--host` and `--port` to choose where the editor listens, just as with
+`plotsrv serve`. For example, to access it directly from another machine:
+
+```bash
+plotsrv config ui --config /srv/plotsrv/plotsrv.yml --host 0.0.0.0 --port 8766 --no-open
+# Open http://my-server:8766 and paste the key printed in the terminal.
+```
+
+HTTP works directly; an HTTPS proxy or `--origin` is not required for a remote
+bind. The default remains `127.0.0.1:8766`, and `--port 0` chooses a free port.
+You can also use SSH port forwarding:
 
 ```bash
 # On the host holding the server config:
@@ -566,11 +576,7 @@ ssh -L 8766:127.0.0.1:8766 my-server
 # Open http://127.0.0.1:8766 and paste the key from the remote terminal.
 ```
 
-The browser Host and Origin must match the printed address exactly. If you use
-another local tunnel port or hostname, pass its exact origin, for example
-`--origin http://localhost:9876`. `--port 0` chooses an available listening port.
-A non-loopback bind emits a warning and requires an explicit HTTPS `--origin`:
-put a restricted TLS reverse proxy in front of the temporary tool. The tool does
-not terminate TLS itself. Do not expose its unencrypted backend port, and preserve
-the browser Host through the proxy. Prefer the SSH tunnel. Normal `plotsrv serve`
-never exposes these editor routes.
+Different browser hostnames and forwarded ports work without extra flags.
+`--origin` is optional: supply it only when you want to restrict the editor to
+one exact browser origin. The session key and final save confirmation still
+apply. Normal `plotsrv serve` never exposes these editor routes.

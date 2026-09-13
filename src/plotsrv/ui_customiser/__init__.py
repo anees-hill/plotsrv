@@ -4,7 +4,6 @@ from __future__ import annotations
 
 
 def launch(args):
-    import ipaddress
     from pathlib import Path
     import secrets
     import socket
@@ -22,21 +21,8 @@ def launch(args):
     draft = None
     try:
         host = args.host
-        try:
-            loopback = ipaddress.ip_address(host).is_loopback
-        except ValueError:
-            loopback = host == "localhost"
         if not 0 <= args.port <= 65535:
             raise SaveError("Port must be between 0 and 65535.")
-        if not loopback:
-            print(
-                "WARNING: remote config editor binding. Restrict access and use an HTTPS reverse proxy; the session key grants config-writing access. Prefer loopback with an SSH tunnel. Publisher bearer keys do not authorise this editor.",
-                file=sys.stderr,
-            )
-            if not args.origin or not args.origin.startswith("https://"):
-                raise SaveError(
-                    "Non-loopback binding requires --origin https://HOST and a restricted TLS proxy."
-                )
         path = (
             Path(args.config)
             if args.config
@@ -52,12 +38,13 @@ def launch(args):
         sock.bind(address[4])
         sock.listen(8)
         port = sock.getsockname()[1]
-        authority = f"[{host}]" if ":" in host else host
+        browser_host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+        authority = f"[{browser_host}]" if ":" in browser_host else browser_host
         origin = browser_origin(args.origin or f"http://{authority}:{port}")
         token = secrets.token_urlsafe(32)
         app = create_app(
             draft,
-            origin=origin,
+            origin=args.origin,
             token=token,
             on_close=lambda: setattr(server, "should_exit", True) if server else None,
         )
@@ -68,14 +55,13 @@ def launch(args):
                 port=port,
                 access_log=False,
                 log_level="critical",
-                proxy_headers=False,
                 limit_concurrency=8,
                 timeout_keep_alive=3,
                 timeout_graceful_shutdown=5,
             )
         )
         print(
-            f"Open {origin}/\nTemporary session key (paste into the editor): {token}\nConfig: {draft.path}\nSession expires in one hour. Save, Cancel or Ctrl+C closes the editor.\nFor a headless host, forward port {port} over SSH; use --origin if the browser port differs.",
+            f"Open {origin}/\nTemporary session key (paste into the editor): {token}\nConfig: {draft.path}\nSession expires in one hour. Save, Cancel or Ctrl+C closes the editor.\nListening on {host}:{port}. For remote access, use this machine's address with port {port}; SSH forwarding also works.",
             flush=True,
         )
         if not args.no_open:

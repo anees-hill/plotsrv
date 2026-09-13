@@ -14,15 +14,15 @@ from plotsrv.ui_customiser.server import create_app
 from tests.test_ui_customiser import png
 
 
-@pytest.fixture
-def editor(tmp_path):
+@pytest.fixture(params=[False, True], ids=["browser-address", "pinned-origin"])
+def editor(tmp_path, request):
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     sock.listen(8)
     origin = f"http://127.0.0.1:{sock.getsockname()[1]}"
     draft = Draft(tmp_path / "plotsrv.yml")
     token = "browser-test-session"
-    app = create_app(draft, origin=origin, token=token)
+    app = create_app(draft, origin=origin if request.param else None, token=token)
     server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_level="critical"))
     thread = threading.Thread(
         target=server.run, kwargs={"sockets": [sock]}, daemon=True
