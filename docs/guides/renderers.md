@@ -280,6 +280,20 @@ Markdown is useful for:
 
 Markdown sanitisation is configurable.
 
+Use **TOC** above a rendered Markdown document to open its table of contents.
+Click a heading to jump to that section. **Heading depth** defaults to H1–H3;
+choose H1 only or include deeper headings through H6. The sidebar follows the
+browser's light/dark theme and supports keyboard navigation; Escape closes it.
+On small screens, the contents appear above the document and close after a jump.
+
+The open state and depth survive live updates and snapshot changes for the same
+view during the current page session. Heading jumps do not change the selected
+snapshot or browser URL. The TOC covers the rendered preview, so truncated content
+may have fewer headings than the full source. Its scan is limited to 1,000 headings
+or 10,000 document elements and runs only when opened; there is no extra polling
+or network request. Raw-HTML Markdown displayed in an isolated sandbox, and raw
+fallback previews, show a disabled TOC button with an explanation.
+
 ## HTML renderer
 
 HTML strings and HTML files are rendered with the HTML renderer.

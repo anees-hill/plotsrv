@@ -680,6 +680,8 @@
 
     if (typeof renderers.initObservation === "function") renderers.initObservation(root);
 
+    if (typeof renderers.initMarkdownToc === "function") renderers.initMarkdownToc(root);
+
     if (typeof core.initArtifactScrollNav === "function") {
       core.initArtifactScrollNav(root);
     }

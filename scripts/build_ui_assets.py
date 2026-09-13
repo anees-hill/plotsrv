@@ -58,6 +58,7 @@ JS_SOURCES = (
     "js/core/auto_refresh.js",
     "js/core/view_selector.js",
     "js/renderers/artifact.js",
+    "js/renderers/markdown.js",
     "js/renderers/plot.js",
     "js/renderers/table.js",
     "js/renderers/table_plot.js",

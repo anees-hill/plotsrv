@@ -222,6 +222,7 @@
       const data = await res.json();
       if (!isCurrent() || signal.aborted) return false;
       disposeArtifactScrollNav();
+      if (core.disposeMarkdownToc) core.disposeMarkdownToc();
       root.dataset.plotsrvSourceDownloadUrl =
         data.meta && typeof data.meta.source_download_url === "string"
           ? data.meta.source_download_url
@@ -357,7 +358,8 @@
 
     const root = document.getElementById("artifact-root");
     if (root) {
-      return String(root.innerText || root.textContent || "");
+      const content = root.querySelector(".plotsrv-markdown") || root;
+      return String(content.innerText || content.textContent || "");
     }
 
     return "";

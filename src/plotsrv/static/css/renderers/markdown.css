@@ -1,5 +1,119 @@
 /* src/plotsrv/static/css/renderers/markdown.css */
 
+.ps-markdown-shell,
+.ps-markdown-layout {
+  width: 100%;
+  min-width: 0;
+}
+
+.plot-frame--artifact:has(.ps-markdown-shell) { overflow: visible; }
+
+.ps-markdown-toolbar {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 4;
+  width: fit-content;
+  margin-bottom: 0.65rem;
+}
+
+.ps-markdown-shell--toc .ps-markdown-layout {
+  display: grid;
+  grid-template-columns: minmax(12rem, 17rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.ps-markdown-layout > .plotsrv-markdown {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.ps-markdown-toc {
+  position: sticky;
+  top: 3.5rem;
+  max-height: calc(100vh - 8rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0.8rem;
+  border: 1px solid var(--ps-border);
+  border-radius: 8px;
+  background: var(--ps-surface);
+  color: var(--ps-text);
+  font-size: 0.85rem;
+}
+
+.ps-markdown-toc[hidden] { display: none; }
+
+.ps-markdown-toc__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.7rem;
+}
+
+.ps-markdown-toc__title button {
+  min-width: 32px;
+  min-height: 32px;
+  font-size: 1.1rem;
+  border: 1px solid var(--ps-border);
+  border-radius: 5px;
+  background: var(--ps-surface-raised);
+  color: var(--ps-text);
+  cursor: pointer;
+}
+
+.ps-markdown-toc__depth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ps-muted);
+}
+
+.ps-markdown-toc select {
+  padding: 0.35rem;
+  border: 1px solid var(--ps-border);
+  border-radius: 5px;
+  background: var(--ps-surface-raised);
+  color: var(--ps-text);
+}
+
+.ps-markdown-toc ol {
+  list-style: none;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.ps-markdown-toc li {
+  margin: 0;
+  padding-left: calc(var(--toc-level) * 0.65rem);
+}
+
+.ps-markdown-toc a {
+  display: block;
+  padding: 0.4rem;
+  border-radius: 4px;
+  color: var(--ps-link);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+  line-height: 1.4;
+}
+
+.ps-markdown-toc a:hover { background: var(--ps-surface-hover); }
+.ps-markdown-toc :focus-visible {
+  outline: 2px solid var(--ps-focus);
+  outline-offset: 2px;
+}
+.ps-markdown-toc__note { color: var(--ps-muted); }
+.ps-markdown-toc__note:empty { display: none; }
+.ps-markdown-layout :is(h1, h2, h3, h4, h5, h6) { scroll-margin-top: 4rem; }
+
+@media (max-width: 700px) {
+  .ps-markdown-shell--toc .ps-markdown-layout { grid-template-columns: minmax(0, 1fr); }
+  .ps-markdown-toc { position: static; max-height: 40vh; }
+}
+
 .plotsrv-markdown {
   width: 100%;
   line-height: 1.58;
