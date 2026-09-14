@@ -528,7 +528,7 @@ def render_index(
                     aria-label="Choose view; current view is {active_label}">
               <img class="ps-viewselect__icon" src="{active_icon}" alt="" />
               <span class="ps-viewselect__label">{active_label}</span>
-              <span class="ps-viewselect__chev" aria-hidden="true">⌄</span>
+              <svg class="ps-viewselect__chev" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 8 10.5 13 5.5" /></svg>
             </button>
 
             <div id="view-selector-menu" class="ps-viewselect__menu" role="dialog" aria-label="Browse views" hidden>
@@ -900,7 +900,7 @@ def render_index(
               <span id="header-status-label" class="ps-header-status__label">Latest</span>
               <span id="header-status-context" class="ps-header-status__context">Checking status…</span>
               <span id="header-check-attention" class="ps-check-attention" aria-label="Unseen check activity" hidden>!</span>
-              <span class="ps-header-status__chevron" aria-hidden="true">⌄</span>
+              <svg class="ps-header-status__chevron" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 8 10.5 13 5.5" /></svg>
             </button>
             <span id="header-check-announcement" class="ps-visually-hidden" role="status" aria-live="polite"></span>
           </div>

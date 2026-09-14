@@ -392,12 +392,6 @@
   font-weight: 700;
 }
 
-.ps-viewselect__chev {
-  color: #606a73;
-  font-size: 1.1rem;
-  line-height: 1;
-  transition: transform 120ms ease;
-}
 
 .ps-viewselect__btn[aria-expanded="true"] .ps-viewselect__chev {
   transform: rotate(180deg);

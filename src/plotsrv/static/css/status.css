@@ -186,10 +186,14 @@ body[data-kind="stream"] .ps-header-status[data-status-tone="live"] .ps-header-s
   display: none;
 }
 
-.ps-header-status__chevron {
+.ps-header-status__chevron,
+.ps-viewselect__chev {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  align-self: center;
   color: #606a73;
-  font-size: 1.1rem;
-  line-height: 1;
   transition: transform 120ms ease;
 }
 
