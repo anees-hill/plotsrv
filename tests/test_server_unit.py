@@ -1131,3 +1131,44 @@ def test_restore_latest_discovered_scope_restores_registered_view_only(
     assert "etl:orders" in views
     assert "ops:health" not in views
     assert store.get_kind("etl:orders") == "table"
+
+
+@pytest.mark.parametrize("publish_during_load", [False, True])
+def test_restore_latest_never_replaces_live_material(monkeypatch, tmp_path, publish_during_load):
+    meta = _latest_meta()
+    reads = []
+
+    def publish():
+        store.set_artifact(obj="live content", kind="text", view_id=meta.view_id)
+
+    class Backend:
+        def __init__(self, **kwargs):
+            pass
+
+        def list_latest(self):
+            return [meta]
+
+        def load_latest(self, *, view_id):
+            reads.append(view_id)
+            if publish_during_load:
+                publish()
+            return LoadedLatest(meta=meta, obj="old content")
+
+    monkeypatch.setattr(srv.config, "get_storage_restore_latest_on_startup", lambda: True)
+    monkeypatch.setattr(srv.config, "get_storage_latest_restore_scope", lambda: "all")
+    monkeypatch.setattr(srv.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(srv, "FileLatestStateBackend", Backend)
+    if not publish_during_load:
+        publish()
+    assert srv.restore_latest_views_from_storage() == 0
+    assert reads == ([meta.view_id] if publish_during_load else [])
+    assert store.get_artifact(view_id=meta.view_id).obj == "live content"
+    assert store.get_status(view_id=meta.view_id)["restored_from_storage"] is False
+
+
+def test_live_publish_clears_actual_restoration():
+    meta = _latest_meta()
+    assert srv._restore_latest_loaded_view(LoadedLatest(meta=meta, obj="old content"))
+    assert store.get_status(view_id=meta.view_id)["restored_from_storage"] is True
+    store.set_artifact(obj="live content", kind="text", view_id=meta.view_id)
+    assert store.get_status(view_id=meta.view_id)["restored_from_storage"] is False

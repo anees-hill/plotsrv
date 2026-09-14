@@ -231,7 +231,27 @@ def _set_restored_status(*, view_id: str, updated_at: str | None) -> None:
     )
 
 
-def _restore_latest_loaded_view(loaded: Any) -> None:
+def _has_current_view_material(view_id: str) -> bool:
+    # Caller holds the store lock; registration alone does not imply content.
+    current = store._VIEWS.get(view_id)
+    return current is not None and (
+        current.artifact is not None or current.plot_png is not None
+        or current.table_df is not None or current.watched_file is not None
+        or current.kind == "stream"
+    )
+
+
+def _restore_latest_loaded_view(loaded: Any) -> bool:
+    # Restoration fills empty views only. A publish may have arrived before
+    # startup restoration, or while its disk record was being loaded.
+    with store._STORE_LOCK:
+        if _has_current_view_material(loaded.meta.view_id):
+            return False
+        _apply_restored_latest_view(loaded)
+        return True
+
+
+def _apply_restored_latest_view(loaded: Any) -> None:
     """
     Restore one LoadedLatest record into the in-memory store.
 
@@ -343,9 +363,13 @@ def restore_latest_views_from_storage(
             continue
 
         try:
+            # Avoid loading disk bodies when live material is already present.
+            with store._STORE_LOCK:
+                if _has_current_view_material(meta.view_id):
+                    continue
             loaded = latest_backend.load_latest(view_id=meta.view_id)
-            _restore_latest_loaded_view(loaded)
-            restored += 1
+            if _restore_latest_loaded_view(loaded):
+                restored += 1
         except Exception:
             continue
 
