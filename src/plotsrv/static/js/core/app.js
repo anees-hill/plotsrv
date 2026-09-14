@@ -26,7 +26,7 @@
       loadingTimer = window.setTimeout(function () { indicator.hidden = false; }, 180);
     }
     let finished = false;
-    return function () {
+    return function (applied) {
       if (finished) return;
       finished = true;
       pendingContentLoads -= 1;
@@ -35,7 +35,7 @@
       loadingTimer = null;
       indicator.hidden = true;
       content.setAttribute("aria-busy", "false");
-      content.dataset.contentReady = "true";
+      if (applied) content.dataset.contentReady = "true";
     };
   }
 
@@ -81,42 +81,30 @@
 
     if (document.getElementById("artifact-root")) {
       if (typeof core.loadArtifact === "function") {
-        return core.loadArtifact().then(function (applied) {
-          return refreshChromeAfterLoad().then(function () { return applied; });
-        });
+        return core.loadArtifact();
       }
       return Promise.resolve();
     }
 
     if (document.getElementById("stream-grid")) {
       if (typeof core.loadStream === "function") {
-        return core.loadStream().then(function (applied) {
-          return refreshChromeAfterLoad().then(function () { return applied; });
-        });
+        return core.loadStream();
       }
       return Promise.resolve();
     }
 
     if (document.getElementById("table-grid") || document.getElementById("simple-table-root")) {
       if (typeof core.loadTable === "function") {
-        return core.loadTable().then(function (applied) {
-          return refreshChromeAfterLoad().then(function () { return applied; });
-        });
+        return core.loadTable();
       }
       return Promise.resolve();
     }
 
     if (document.getElementById("plot")) {
       if (typeof core.refreshPlot === "function") {
-        return core.refreshPlot().then(function (applied) {
-          return refreshChromeAfterLoad().then(function () { return applied; });
-        });
+        return core.refreshPlot();
       }
       return Promise.resolve();
-    }
-
-    if (typeof core.refreshStatus === "function") {
-      return core.refreshStatus();
     }
 
     return Promise.resolve();
@@ -137,15 +125,45 @@
     });
     state.reloadCurrentViewPromise = refreshPromise;
 
-    function clearInFlight() {
-      finishLoading();
+    function clearInFlight(applied) {
+      if (applied !== false) state.initialViewLoadComplete = true;
+      finishLoading(applied !== false);
       if (state.reloadCurrentViewPromise === refreshPromise) {
         state.reloadCurrentViewPromise = null;
       }
     }
 
-    refreshPromise.then(clearInFlight, clearInFlight);
+    refreshPromise.then(clearInFlight, function () { clearInFlight(false); });
+    // Content is ready as soon as its renderer finishes. Status/catalogue
+    // requests must not hold the loading indicator or the next reload open.
+    refreshPromise.then(refreshChromeAfterLoad, refreshChromeAfterLoad).catch(function () {});
     return refreshPromise;
+  };
+
+  core.ensureInitialViewLoaded = function () {
+    if (state.initialViewLoadComplete || document.hidden) return Promise.resolve(false);
+    if (state.initialViewLoadPromise) return state.initialViewLoadPromise;
+
+    const initialPromise = core.reloadCurrentView().then(function (applied) {
+      if (applied !== false) {
+        if (core.markInitialViewLoaded) core.markInitialViewLoaded();
+        if (!(core.isHistoryMode && core.isHistoryMode()) && core.markBrowserViewApplied) {
+          core.markBrowserViewApplied();
+        }
+      }
+      if (core.showPendingSnapshotNotice) core.showPendingSnapshotNotice();
+      return applied;
+    }).catch(function () { return false; }).then(function (applied) {
+      state.initialViewLoadPromise = null;
+      // A failed first request is not successful content, but later update
+      // notices must be allowed to recover it. A hidden/skipped startup never
+      // reaches this point and is retried when the page becomes visible.
+      state.initialViewLoadAttempted = true;
+      if (core.bindUpdateNotifications) core.bindUpdateNotifications();
+      return applied;
+    });
+    state.initialViewLoadPromise = initialPromise;
+    return initialPromise;
   };
 
   core.bootstrap = function () {
@@ -195,7 +213,6 @@
     }
 
     if (core.bindCompare) core.bindCompare();
-    const finishInitialLoading = beginContentLoading();
     const loadHistoryPromise =
       typeof core.loadHistory === "function"
         ? core.loadHistory()
@@ -208,22 +225,7 @@
       if (core.showPendingSnapshotNotice) core.showPendingSnapshotNotice();
     }).catch(function () {});
     if (core.syncHistoryUi) core.syncHistoryUi();
-    core.reloadCurrentView()
-      .then(function (applied) {
-        if (typeof core.markInitialViewLoaded === "function") core.markInitialViewLoaded();
-        if (applied !== false && !(core.isHistoryMode && core.isHistoryMode()) && typeof core.markBrowserViewApplied === "function") {
-          core.markBrowserViewApplied();
-        }
-        if (typeof core.showPendingSnapshotNotice === "function") {
-          core.showPendingSnapshotNotice();
-        }
-      })
-      .catch(function () {
-        if (typeof core.markInitialViewLoaded === "function") core.markInitialViewLoaded();
-        if (typeof core.refreshStatus === "function") {
-          core.refreshStatus();
-        }
-      }).then(finishInitialLoading, finishInitialLoading);
+    core.ensureInitialViewLoaded();
   };
 
   document.addEventListener("DOMContentLoaded", function () {

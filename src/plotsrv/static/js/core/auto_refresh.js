@@ -10,9 +10,16 @@
   // The server emits an observable heartbeat every 20 seconds. Waiting for
   // more than two missed heartbeats avoids churn during brief suspension while
   // still recovering a silently wedged proxy/browser connection.
-  const STREAM_UPDATE_STALE_MS = 55000;
-  const STREAM_UPDATE_WATCHDOG_MS = 20000;
-  const STREAM_UPDATE_RECONNECT_MS = 2000;
+  const UPDATE_SOURCE_STALE_MS = 55000;
+  const UPDATE_SOURCE_WATCHDOG_MS = 20000;
+  const UPDATE_SOURCE_RECONNECT_MIN_MS = 2000;
+  const UPDATE_SOURCE_RECONNECT_MAX_MS = 30000;
+  let notificationsBound = false;
+  let pageSuspended = false;
+
+  function initialLoadSettled() {
+    return state.initialViewLoadComplete || state.initialViewLoadAttempted;
+  }
 
   function clearStreamUpdateRetry() {
     if (state.browserUpdateRetryTimer != null) {
@@ -24,7 +31,7 @@
 
   function scheduleStreamUpdateRetry() {
     if (config.kind !== "stream" || state.browserUpdateRetryTimer != null ||
-        !state.pendingBrowserUpdate) return;
+        document.hidden || pageSuspended || !state.pendingBrowserUpdate) return;
     const attempt = Number.isSafeInteger(state.browserUpdateRetryAttempt)
       ? state.browserUpdateRetryAttempt
       : 0;
@@ -124,6 +131,7 @@
 
   function finishAppliedUpdate(revision) {
     clearStreamUpdateRetry();
+    state.initialViewLoadComplete = true;
     state.appliedUpdateRevision = Math.max(state.appliedUpdateRevision, revision);
     if (typeof core.markBrowserViewApplied === "function") {
       core.markBrowserViewApplied();
@@ -152,7 +160,7 @@
     if (config.kind === "stream" && state.browserUpdateRetryTimer != null && !force) {
       return Promise.resolve(false);
     }
-    if (!state.initialViewLoadComplete || !canApplyPendingUpdate(options)) {
+    if (!initialLoadSettled() || pageSuspended || !canApplyPendingUpdate(options)) {
       showPendingUpdate();
       return Promise.resolve(false);
     }
@@ -265,7 +273,7 @@
 
     // A single assignment coalesces any burst while a fetch is in flight.
     state.pendingBrowserUpdate = payload;
-    if (!state.initialViewLoadComplete || !canApplyPendingUpdate()) {
+    if (!initialLoadSettled() || !canApplyPendingUpdate()) {
       showPendingUpdate();
       return;
     }
@@ -275,6 +283,7 @@
   function noteUpdateSourceActivity(source) {
     if (state.browserUpdateSource !== source) return;
     state.browserUpdateLastEventAt = Date.now();
+    state.browserUpdateReconnectAttempt = 0;
   }
 
   function clearUpdateSourceReconnect() {
@@ -285,14 +294,23 @@
   }
 
   function connectUpdateSource() {
-    if (state.browserUpdateSource || typeof window.EventSource !== "function") return;
+    if (!notificationsBound || !initialLoadSettled() || document.hidden || pageSuspended ||
+        state.browserUpdateSource || state.browserUpdateReconnectTimer != null ||
+        typeof window.EventSource !== "function") return;
     const url = "/updates?view=" + encodeURIComponent(config.activeViewId) +
-      "&since=" + encodeURIComponent(state.observedUpdateRevision);
-    const source = new window.EventSource(url);
+      "&since=" + encodeURIComponent(Math.max(0, state.observedUpdateRevision));
+    let source;
+    try {
+      source = new window.EventSource(url);
+    } catch (e) {
+      scheduleUpdateSourceReconnect();
+      return;
+    }
     state.browserUpdateSource = source;
     state.browserUpdateLastEventAt = Date.now();
     source.addEventListener("open", function () {
-      noteUpdateSourceActivity(source);
+      if (state.browserUpdateSource !== source) return;
+      state.browserUpdateLastEventAt = Date.now();
       clearUpdateSourceReconnect();
     });
     source.addEventListener("keepalive", function () {
@@ -308,37 +326,48 @@
       }
     });
     source.addEventListener("error", function () {
-      if (state.browserUpdateSource !== source || config.kind !== "stream") return;
-      // EventSource normally reconnects itself. A CLOSED source cannot do so,
-      // therefore replace only that terminal case; the watchdog handles a
-      // connection which remains CONNECTING or silently stalls.
-      if (source.readyState === 2) scheduleUpdateSourceReconnect();
+      if (state.browserUpdateSource !== source) return;
+      // Own retries so an unavailable server backs off, including terminal
+      // EventSource errors. Hidden pages never reconnect in the background.
+      scheduleUpdateSourceReconnect();
     });
+    scheduleUpdateSourceWatchdog();
+  }
+
+  function disconnectUpdateSource() {
+    const source = state.browserUpdateSource;
+    state.browserUpdateSource = null;
+    if (source && typeof source.close === "function") source.close();
+    if (state.browserUpdateWatchdogTimer != null) {
+      window.clearTimeout(state.browserUpdateWatchdogTimer);
+      state.browserUpdateWatchdogTimer = null;
+    }
   }
 
   function reconnectUpdateSource() {
     clearUpdateSourceReconnect();
-    if (document.hidden || config.kind !== "stream") return;
-    const source = state.browserUpdateSource;
-    state.browserUpdateSource = null;
-    if (source && typeof source.close === "function") source.close();
+    disconnectUpdateSource();
     connectUpdateSource();
   }
 
   function scheduleUpdateSourceReconnect() {
-    if (state.browserUpdateReconnectTimer != null || document.hidden ||
-        config.kind !== "stream") return;
+    disconnectUpdateSource();
+    if (state.browserUpdateReconnectTimer != null || document.hidden || pageSuspended) return;
+    const attempt = state.browserUpdateReconnectAttempt || 0;
+    const delay = Math.min(UPDATE_SOURCE_RECONNECT_MAX_MS,
+      UPDATE_SOURCE_RECONNECT_MIN_MS * Math.pow(2, Math.min(attempt, 4)));
+    state.browserUpdateReconnectAttempt = Math.min(attempt + 1, 5);
     state.browserUpdateReconnectTimer = window.setTimeout(
       reconnectUpdateSource,
-      STREAM_UPDATE_RECONNECT_MS
+      delay
     );
   }
 
   function checkUpdateSourceLiveness() {
     state.browserUpdateWatchdogTimer = null;
-    if (!document.hidden && config.kind === "stream" && state.browserUpdateSource) {
+    if (!document.hidden && !pageSuspended && state.browserUpdateSource) {
       const lastEventAt = Number(state.browserUpdateLastEventAt);
-      if (!Number.isFinite(lastEventAt) || Date.now() - lastEventAt > STREAM_UPDATE_STALE_MS) {
+      if (!Number.isFinite(lastEventAt) || Date.now() - lastEventAt > UPDATE_SOURCE_STALE_MS) {
         reconnectUpdateSource();
       }
     }
@@ -346,17 +375,18 @@
   }
 
   function scheduleUpdateSourceWatchdog() {
-    if (config.kind !== "stream" || state.browserUpdateWatchdogTimer != null ||
+    if (document.hidden || pageSuspended || !state.browserUpdateSource ||
+        state.browserUpdateWatchdogTimer != null ||
         typeof window.setTimeout !== "function") return;
     state.browserUpdateWatchdogTimer = window.setTimeout(
       checkUpdateSourceLiveness,
-      STREAM_UPDATE_WATCHDOG_MS
+      UPDATE_SOURCE_WATCHDOG_MS
     );
   }
 
   function bindUpdateNotifications() {
+    notificationsBound = true;
     connectUpdateSource();
-    scheduleUpdateSourceWatchdog();
   }
 
   function markInitialViewLoaded() {
@@ -368,15 +398,37 @@
     if (state.pendingBrowserUpdate) applyPendingUpdate();
   }
 
-  document.addEventListener("visibilitychange", function () {
-    if (document.hidden) return;
-    const lastEventAt = Number(state.browserUpdateLastEventAt);
-    if (config.kind === "stream" && state.browserUpdateSource &&
-        (!Number.isFinite(lastEventAt) || Date.now() - lastEventAt > STREAM_UPDATE_STALE_MS)) {
-      reconnectUpdateSource();
+  function suspendNotifications() {
+    clearUpdateSourceReconnect();
+    disconnectUpdateSource();
+    clearStreamUpdateRetry();
+    state.browserUpdateReconnectAttempt = 0;
+  }
+
+  function resumeNotifications() {
+    if (!notificationsBound || document.hidden || pageSuspended) return;
+    if (!state.initialViewLoadComplete && core.ensureInitialViewLoaded) {
+      core.ensureInitialViewLoaded();
+    } else {
+      connectUpdateSource();
+      notifyUpdateEligibilityChanged();
     }
-    notifyUpdateEligibilityChanged();
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) suspendNotifications();
+    else resumeNotifications();
   });
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("pagehide", function () {
+      pageSuspended = true;
+      suspendNotifications();
+    });
+    window.addEventListener("pageshow", function () {
+      pageSuspended = false;
+      resumeNotifications();
+    });
+  }
 
   core.getAutomaticUpdateBlockers = getAutomaticUpdateBlockers;
   core.canApplyPendingUpdate = canApplyPendingUpdate;

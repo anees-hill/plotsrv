@@ -473,3 +473,34 @@ attempts. A drained worker's 100 ms idle interval used about 0.059 ms of process
 in this run; indefinite condition waits and absence of an unreferenced worker are
 also tested. Native DNS is not hard-cancellable, as documented in
 [Generic webhooks](../guides/webhooks.md).
+
+## Browser loading and connection lifecycle
+
+With Playwright Chromium installed, run:
+
+```bash
+python -m pytest -q tests/test_browser_connection_lifecycle.py tests/test_content_loading_browser.py tests/test_browser_refresh_assets.py
+```
+
+The connection tests start an isolated HTTP/1 server and open eight tabs. They
+exercise foreground/background transitions, deferred initial content, reconnect
+catch-up, navigation and page-cache restoration. Headless Chromium reports all
+tabs as visible, so the tests explicitly drive visibility changes while retaining
+real network connections. Mocked HTTP routes alone cannot detect connection-pool
+starvation. Separate cases hold status/catalogue replies, advance their deadlines,
+and check that content finishes independently and late replies cannot replace
+newer status. Retry tests use a controlled clock to check backoff and cleanup.
+
+The browser opens its update stream after the first content attempt, closes it
+when hidden or leaving the page, and reconciles on return. Disconnected visible
+pages retry with a 2–30 second backoff. A visible connection has one 20-second
+liveness timer; a healthy idle connection does not trigger HTTP polling. Status
+and catalogue requests coalesce independently, time out after ten seconds and
+are cancelled when hidden or leaving the page.
+
+This reclaims connections from background tabs; it does not multiplex multiple
+simultaneously visible dashboard windows. Enough visible windows on the same
+HTTP/1 origin can still exhaust the browser connection pool. Keep that case
+separate from the foreground/background regression test when measuring many
+dashboards. It remains a transport limitation, not a guarantee covered by these
+tests.

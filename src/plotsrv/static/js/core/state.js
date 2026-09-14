@@ -125,10 +125,13 @@
   state.browserUpdateLastEventAt = null;
   state.browserUpdateWatchdogTimer = null;
   state.browserUpdateReconnectTimer = null;
+  state.browserUpdateReconnectAttempt = 0;
   state.browserUpdateApplying = false;
   state.browserUpdateRetryTimer = null;
   state.browserUpdateRetryAttempt = 0;
   state.initialViewLoadComplete = false;
+  state.initialViewLoadAttempted = false;
+  state.initialViewLoadPromise = null;
   state.tabulatorInstance = null;
   state.tablePlotCapabilities = null;
   state.tablePlotSupportingCollapsed = null;

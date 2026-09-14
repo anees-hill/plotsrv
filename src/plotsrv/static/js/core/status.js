@@ -12,6 +12,57 @@
   const state = window.PLOTSRV.state;
   const config = window.PLOTSRV.config;
   const STREAM_STATUS_GRACE_MS = 2500;
+  const METADATA_TIMEOUT_MS = 10000;
+  const metadataRequests = new Map(); // At most one /status and one /views.
+  let pageSuspended = false;
+
+  function refreshMetadata(promiseKey, url, apply) {
+    if (document.hidden || pageSuspended) return Promise.resolve();
+    if (state[promiseKey]) return state[promiseKey];
+    const controller = new AbortController();
+    const requestedView = config.activeViewId;
+    const requestedServerEpoch = state.browserUpdateGeneration;
+    metadataRequests.set(promiseKey, controller);
+    const timer = window.setTimeout(function () { controller.abort(); }, METADATA_TIMEOUT_MS);
+    const request = Promise.resolve().then(function () {
+      return fetch(url, {signal: controller.signal});
+    }).then(function (response) {
+      return response.ok ? response.json() : null;
+    }).then(function (payload) {
+      if (payload && !controller.signal.aborted && !pageSuspended &&
+          requestedView === config.activeViewId && requestedServerEpoch === state.browserUpdateGeneration) {
+        apply(payload);
+      }
+    }).catch(function () {
+      // Retain the last status on failure. The next event or explicit refresh
+      // can retry; there is no background metadata polling loop.
+    }).finally(function () {
+      window.clearTimeout(timer);
+      if (metadataRequests.get(promiseKey) === controller) metadataRequests.delete(promiseKey);
+      if (state[promiseKey] === request) state[promiseKey] = null;
+    });
+    state[promiseKey] = request;
+    return request;
+  }
+
+  function cancelMetadataRequests() {
+    for (const [key, controller] of metadataRequests) {
+      controller.abort();
+      state[key] = null;
+    }
+    metadataRequests.clear();
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) cancelMetadataRequests();
+  });
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("pagehide", function () {
+      pageSuspended = true;
+      cancelMetadataRequests();
+    });
+    window.addEventListener("pageshow", function () { pageSuspended = false; });
+  }
 
   function fmtLocalTime(iso) {
     if (!iso) return "—";
@@ -159,63 +210,46 @@
       Object.keys(ICONS).forEach(key => { ICONS[key] = core.uiImageUrl(ICONS[key]); });
     }
 
-    const refreshPromise = (async function () {
-      try {
-        const res = await fetch("/views?_ts=" + Date.now());
-        if (!res.ok) return;
-        const views = await res.json();
-
-        const byId = {};
-        for (const v of views) {
-          byId[v.view_id] = v;
-        }
-
-        if (typeof core.updateViewSelectorCatalogue === "function") {
-          core.updateViewSelectorCatalogue(views);
-        }
-
-        const items = wrap.querySelectorAll("[data-plotsrv-view]");
-        items.forEach(function (btn) {
-          const vid = btn.getAttribute("data-plotsrv-view");
-          if (!vid) return;
-          const meta = byId[vid];
-          if (!meta) return;
-
-          const iconKey = meta.icon_key || "unknown";
-          const img = btn.querySelector(".ps-viewselect__itemicon");
-          if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
-            img.setAttribute("src", ICONS[iconKey]);
-          }
-
-          applyFreshnessClass(btn, meta.freshness || null);
-        });
-
-        const activeMeta = byId[config.activeViewId];
-        if (activeMeta) {
-          const iconKey = activeMeta.icon_key || "unknown";
-          const img = wrap.querySelector(".ps-viewselect__icon");
-          const label = wrap.querySelector(".ps-viewselect__label");
-          if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
-            img.setAttribute("src", ICONS[iconKey]);
-          }
-          if (label) label.textContent = String(activeMeta.label || activeMeta.view_id);
-        }
-        if (nextRevision !== null) {
-          state.viewMenuRevision = nextRevision;
-        }
-      } catch (e) {
-        // ignore
+    return refreshMetadata("viewMenuRefreshPromise", "/views?_ts=" + Date.now(), function (views) {
+      const byId = {};
+      for (const v of views) {
+        byId[v.view_id] = v;
       }
-    })();
 
-    state.viewMenuRefreshPromise = refreshPromise;
-    function clearInFlight() {
-      if (state.viewMenuRefreshPromise === refreshPromise) {
-        state.viewMenuRefreshPromise = null;
+      if (typeof core.updateViewSelectorCatalogue === "function") {
+        core.updateViewSelectorCatalogue(views);
       }
-    }
-    refreshPromise.then(clearInFlight, clearInFlight);
-    return refreshPromise;
+
+      const items = wrap.querySelectorAll("[data-plotsrv-view]");
+      items.forEach(function (btn) {
+        const vid = btn.getAttribute("data-plotsrv-view");
+        if (!vid) return;
+        const meta = byId[vid];
+        if (!meta) return;
+
+        const iconKey = meta.icon_key || "unknown";
+        const img = btn.querySelector(".ps-viewselect__itemicon");
+        if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
+          img.setAttribute("src", ICONS[iconKey]);
+        }
+
+        applyFreshnessClass(btn, meta.freshness || null);
+      });
+
+      const activeMeta = byId[config.activeViewId];
+      if (activeMeta) {
+        const iconKey = activeMeta.icon_key || "unknown";
+        const img = wrap.querySelector(".ps-viewselect__icon");
+        const label = wrap.querySelector(".ps-viewselect__label");
+        if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
+          img.setAttribute("src", ICONS[iconKey]);
+        }
+        if (label) label.textContent = String(activeMeta.label || activeMeta.view_id);
+      }
+      if (nextRevision !== null) {
+        state.viewMenuRevision = nextRevision;
+      }
+    });
   }
 
   function elapsedLabel(totalSeconds) {
@@ -655,21 +689,10 @@
       return state.statusRefreshPromise;
     }
 
-    const refreshPromise = (async function () {
-      try {
-        const requestedView = config.activeViewId;
-        const requestedServerEpoch = state.browserUpdateGeneration;
-        const res = await fetch(
-        "/status?view=" + encodeURIComponent(requestedView) + "&_ts=" + Date.now()
-        );
-        if (!res.ok) return;
-
-        const s = await res.json();
-        if (requestedView !== config.activeViewId || requestedServerEpoch !== state.browserUpdateGeneration) return;
-
+    return refreshMetadata("statusRefreshPromise",
+      "/status?view=" + encodeURIComponent(config.activeViewId) + "&_ts=" + Date.now(), function (s) {
       const errWrap = document.getElementById("status-error-wrap");
       const err = document.getElementById("status-error");
-
 
       const isHistory =
         typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
@@ -688,23 +711,13 @@
         }
       }
 
-        await refreshViewIcons(s.view_menu_revision);
-        if (typeof core.renderStatusModal === "function") {
-          core.renderStatusModal();
-        }
-      } catch (e) {
-        // ignore
+      // Catalogue work has its own coalescing/deadline; it cannot hold status
+      // or modal updates open while its response is slow.
+      refreshViewIcons(s.view_menu_revision);
+      if (typeof core.renderStatusModal === "function") {
+        core.renderStatusModal();
       }
-    })();
-
-    state.statusRefreshPromise = refreshPromise;
-    function clearInFlight() {
-      if (state.statusRefreshPromise === refreshPromise) {
-        state.statusRefreshPromise = null;
-      }
-    }
-    refreshPromise.then(clearInFlight, clearInFlight);
-    return refreshPromise;
+    });
   }
 
   core.fmtLocalTime = fmtLocalTime;

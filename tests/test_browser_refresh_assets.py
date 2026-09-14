@@ -86,7 +86,7 @@ def test_updates_are_event_driven_coalesced_and_visibility_aware() -> None:
     assert "historical_stream_session" in source
     assert "stream_paused" in source
     assert 'source.addEventListener("keepalive"' in source
-    assert "STREAM_UPDATE_STALE_MS" in source
+    assert "UPDATE_SOURCE_STALE_MS" in source
     assert "scheduleUpdateSourceWatchdog" in source
 
 
@@ -113,6 +113,7 @@ class FakeEventSource {
 }
 const state = {
   observedUpdateRevision: 7,
+  initialViewLoadComplete: true,
   browserUpdateSource: null,
   browserUpdateLastEventAt: null,
   browserUpdateWatchdogTimer: null,
@@ -166,6 +167,63 @@ if (sources.length !== 2 || !first.closed || !sources[1].url.includes("since=7")
         capture_output=True,
         text=True,
     )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_update_retries_back_off_and_hidden_or_disposed_pages_have_no_timers():
+    script = r'''
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+for (const kind of ['plot', 'table', 'artifact', 'stream']) {
+  const timers = new Map(), sources = [], listeners = {};
+  let nextTimer = 0;
+  class Source {
+    constructor(url) { this.url=url; this.events={}; sources.push(this); }
+    addEventListener(name, fn) { this.events[name]=fn; }
+    close() { this.closed=true; }
+  }
+  const state = {observedUpdateRevision:7, initialViewLoadComplete:false};
+  const document = {hidden:false, querySelector:()=>null,
+    addEventListener:(name, fn)=>listeners[name]=fn};
+  const window = {EventSource:Source, PLOTSRV:{core:{},state,config:{kind,activeViewId:'view'}},
+    addEventListener:(name, fn)=>listeners[name]=fn,
+    setTimeout:(fn, delay)=>{timers.set(++nextTimer,{fn,delay});return nextTimer;},
+    clearTimeout:id=>timers.delete(id)};
+  vm.runInNewContext(fs.readFileSync(process.argv[1],'utf8'), {window,document,Promise});
+  const core=window.PLOTSRV.core;
+  core.bindUpdateNotifications();
+  assert.equal(sources.length,0); // Initial content has priority over SSE.
+  core.markInitialViewLoaded(); core.bindUpdateNotifications();
+  assert.equal(sources.length,1);
+  assert.equal(timers.size,1);
+  for (const delay of [2000,4000,8000,16000,30000,30000]) {
+    const source=sources.at(-1);
+    source.events.error();
+    assert(source.closed);
+    assert.equal(timers.size,1);
+    const [id,timer]=[...timers][0];
+    assert.equal(timer.delay,delay);
+    timers.delete(id); timer.fn();
+  }
+  sources.at(-1).events.keepalive();
+  sources.at(-1).events.error();
+  assert.equal([...timers.values()][0].delay,2000); // Healthy traffic resets backoff.
+  document.hidden=true; listeners.visibilitychange();
+  assert.equal(timers.size,0);
+  assert.equal(state.browserUpdateSource,null);
+  document.hidden=false; listeners.visibilitychange();
+  assert.equal(timers.size,1);
+  listeners.pagehide();
+  assert.equal(timers.size,0);
+  assert.equal(state.browserUpdateSource,null);
+  core.bindUpdateNotifications();
+  assert.equal(state.browserUpdateSource,null);
+  listeners.pageshow();
+  assert(state.browserUpdateSource.url.includes('since=7'));
+  assert.equal(timers.size,1);
+}
+'''
+    subprocess.run(["node", "-e", script, str(_STATIC_JS / "core/auto_refresh.js")],
+                   check=True, capture_output=True, text=True)
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
@@ -454,7 +512,7 @@ def test_refresh_paths_share_in_flight_promises_and_gate_view_metadata() -> None
     assert "state.viewMenuRefreshPromise" in status_source
     assert "core.updateViewSelectorCatalogue(views)" in status_source
     assert "view_menu_revision" in status_source
-    assert "await refreshViewIcons(s.view_menu_revision)" in status_source
+    assert "refreshViewIcons(s.view_menu_revision)" in status_source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")

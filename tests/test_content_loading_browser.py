@@ -153,3 +153,84 @@ def test_superseded_decode_cannot_replace_newer_plot(page):
     page.evaluate("releaseDecode()")
     assert page.evaluate("oldPlotLoad") is False
     assert page.locator("#plot").get_attribute("src") == current
+
+
+@pytest.mark.parametrize("endpoint,promise_key", [
+    ("status", "statusRefreshPromise"), ("views", "viewMenuRefreshPromise"),
+])
+def test_stalled_metadata_cannot_hold_content_and_times_out(page, endpoint, promise_key):
+    mount(page, "plots:figure")
+    page.clock.install()
+    held = []
+    pattern = "**/" + endpoint + "?**"
+    page.route(pattern, lambda route: held.append(route))
+    page.goto("http://plotsrv.test/?view=plots:figure", wait_until="domcontentloaded")
+    page.wait_for_function("PLOTSRV.state.initialViewLoadComplete")
+    page.wait_for_function("key => !!PLOTSRV.state[key]", arg=promise_key)
+    assert held
+    assert page.locator("#plot").is_visible()
+    assert page.locator("#view-content").get_attribute("aria-busy") == "false"
+    assert not page.evaluate("!!PLOTSRV.state.reloadCurrentViewPromise")
+
+    # Reloading real content remains possible and metadata requests coalesce.
+    assert page.evaluate("PLOTSRV.core.reloadCurrentView()")
+    if endpoint == "views":
+        page.wait_for_function("!PLOTSRV.state.statusRefreshPromise")
+    assert len(held) == 1
+    page.clock.fast_forward(10001)
+    page.wait_for_function("key => !PLOTSRV.state[key]", arg=promise_key)
+    for route in held:
+        route.abort()
+    page.unroute(pattern)
+    page.evaluate("PLOTSRV.core.refreshStatus()")
+    page.wait_for_function("!PLOTSRV.state.statusRefreshPromise && !PLOTSRV.state.viewMenuRefreshPromise")
+    assert page.evaluate("!!PLOTSRV.state.latestStatusPayload")
+
+
+@pytest.mark.parametrize("recovery", ["notice", "explicit"])
+def test_failed_initial_load_can_recover_on_a_later_update(page, recovery):
+    mount(page, "plots:figure")
+    page.route("**/plot?**", lambda route: route.fulfill(status=503, body="Temporarily unavailable"))
+    page.goto("http://plotsrv.test/?view=plots:figure", wait_until="domcontentloaded")
+    page.wait_for_function("PLOTSRV.state.initialViewLoadAttempted")
+    assert not page.evaluate("PLOTSRV.state.initialViewLoadComplete")
+    page.unroute("**/plot?**")
+    if recovery == "notice":
+        page.evaluate("""PLOTSRV.core.receiveBrowserUpdate({
+          revision:PLOTSRV.state.observedUpdateRevision + 1,
+          view_id:'plots:figure', kind:'plot', change_type:'ordinary'
+        })""")
+    else:
+        assert page.evaluate("PLOTSRV.core.reloadCurrentView()")
+    page.wait_for_function("PLOTSRV.state.initialViewLoadComplete && !PLOTSRV.state.browserUpdateApplying")
+    assert page.locator("#plot").is_visible()
+    assert not page.evaluate("!!PLOTSRV.state.pendingBrowserUpdate")
+
+
+@pytest.mark.parametrize("invalidate", ["pagehide", "receiver-restart"])
+def test_late_status_cannot_overwrite_a_resumed_or_restarted_page(page, invalidate):
+    mount(page)
+    page.wait_for_function("!PLOTSRV.state.statusRefreshPromise && !PLOTSRV.state.viewMenuRefreshPromise")
+    page.evaluate("""() => {
+      const fetch = window.fetch;
+      window.fetch = (url, options) => {
+        if (!url.startsWith('/status?')) return fetch(url, options);
+        window.fetch = fetch;
+        window.oldStatusSignal = options.signal;
+        return new Promise(resolve => { window.releaseOldStatus = () => resolve(new Response(
+          JSON.stringify({view_id:'tables:main', last_updated:'2000-01-01T00:00:00Z'}),
+          {headers:{'Content-Type':'application/json'}})); });
+      };
+      void (window.oldStatus = PLOTSRV.core.refreshStatus());
+    }""")
+    page.wait_for_function("typeof releaseOldStatus === 'function'")
+    if invalidate == "pagehide":
+        page.evaluate("window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true}))")
+        assert page.evaluate("oldStatusSignal.aborted && !PLOTSRV.state.statusRefreshPromise")
+        page.evaluate("window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted:true}))")
+    else:
+        page.evaluate("PLOTSRV.state.browserUpdateGeneration += 1")
+    page.evaluate("releaseOldStatus(); oldStatus")
+    assert page.evaluate("PLOTSRV.state.latestStatusPayload.last_updated") == "2026-09-09T12:00:00Z"
+    page.evaluate("PLOTSRV.core.refreshStatus()")
+    assert page.evaluate("PLOTSRV.state.latestStatusPayload.last_updated") == "2026-09-09T12:00:00Z"
