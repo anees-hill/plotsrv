@@ -26,7 +26,7 @@ def _static_asset_url(value: object, *, key: str) -> str:
     return url
 
 
-def get_ui_assets() -> UIAssets:
+def get_ui_assets(*, kind: str | None = None) -> UIAssets:
     """Return verified, package-local URLs from the current UI manifest.
 
     The manifest is intentionally read for each rendered page. Development
@@ -41,8 +41,10 @@ def get_ui_assets() -> UIAssets:
             "plotsrv UI assets are missing or invalid; run scripts/build_ui_assets.py"
         ) from exc
 
+    page_scripts = raw.get("js_by_kind")
+    script = page_scripts.get(kind, raw.get("js")) if isinstance(page_scripts, dict) else raw.get("js")
     return UIAssets(
         css=_static_asset_url(raw.get("css"), key="css"),
-        js=_static_asset_url(raw.get("js"), key="js"),
+        js=_static_asset_url(script, key="js"),
         tabulator_js=_static_asset_url(raw.get("tabulator_js"), key="tabulator_js"),
     )

@@ -12,6 +12,31 @@
   const state = window.PLOTSRV.state;
   const config = window.PLOTSRV.config;
 
+  function decodePlot(url, signal) {
+    const image = new Image();
+    return new Promise(function (resolve, reject) {
+      function cleanup() {
+        image.onload = image.onerror = null;
+        if (signal) signal.removeEventListener("abort", abort);
+      }
+      function done() { cleanup(); resolve(image); }
+      function failed(error) { cleanup(); image.src = ""; reject(error); }
+      function abort() { failed(new DOMException("Plot load cancelled", "AbortError")); }
+      if (signal && signal.aborted) { abort(); return; }
+      if (signal) signal.addEventListener("abort", abort, {once: true});
+      image.src = url;
+      if (typeof image.decode === "function") image.decode().then(done, failed);
+      else {
+        image.onload = done;
+        image.onerror = () => failed(new Error("Plot image could not be decoded"));
+        if (image.complete) {
+          if (image.naturalWidth) done();
+          else failed(new Error("Plot image could not be decoded"));
+        }
+      }
+    });
+  }
+
   async function refreshPlot() {
     const img = document.getElementById("plot");
     if (!img) return;
@@ -28,6 +53,7 @@
 
     const load = core.beginSnapshotLoad ? core.beginSnapshotLoad("plot") :
       {current: () => true, finish: () => {}, signal: undefined};
+    let candidateUrl = null;
     try {
       const res = await (core.fetchView || fetch)(url, {signal: load.signal});
       if (!load.current()) return false;
@@ -47,11 +73,15 @@
 
       const blob = await res.blob();
       if (!load.current() || (load.signal && load.signal.aborted)) return false;
-      if (typeof core.clearPlotObjectUrl === "function") {
-        core.clearPlotObjectUrl();
-      }
-      state.plotObjectUrl = URL.createObjectURL(blob);
-      img.src = state.plotObjectUrl;
+      candidateUrl = URL.createObjectURL(blob);
+      await decodePlot(candidateUrl, load.signal);
+      if (!load.current() || (load.signal && load.signal.aborted)) return false;
+      const previousUrl = state.plotObjectUrl;
+      img.src = candidateUrl;
+      img.hidden = false;
+      state.plotObjectUrl = candidateUrl;
+      candidateUrl = null;
+      if (previousUrl) URL.revokeObjectURL(previousUrl);
 
       if (typeof core.setStatusMessage === "function") {
         core.setStatusMessage("");
@@ -68,6 +98,7 @@
       }
       return false;
     } finally {
+      if (candidateUrl) URL.revokeObjectURL(candidateUrl);
       load.finish();
     }
   }

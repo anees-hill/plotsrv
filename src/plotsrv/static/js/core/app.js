@@ -201,13 +201,14 @@
         ? core.loadHistory()
         : Promise.resolve();
 
-    loadHistoryPromise
-      .then(function () {
-        if (typeof core.syncHistoryUi === "function") {
-          core.syncHistoryUi();
-        }
-        return core.reloadCurrentView();
-      })
+    // Metadata is independent of the selected content URL. Do not make a
+    // slow history directory hold up Latest or an explicitly selected version.
+    Promise.resolve(loadHistoryPromise).then(function () {
+      if (core.syncHistoryUi) core.syncHistoryUi();
+      if (core.showPendingSnapshotNotice) core.showPendingSnapshotNotice();
+    }).catch(function () {});
+    if (core.syncHistoryUi) core.syncHistoryUi();
+    core.reloadCurrentView()
       .then(function (applied) {
         if (typeof core.markInitialViewLoaded === "function") core.markInitialViewLoaded();
         if (applied !== false && !(core.isHistoryMode && core.isHistoryMode()) && typeof core.markBrowserViewApplied === "function") {

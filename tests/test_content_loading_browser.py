@@ -1,5 +1,7 @@
 """Delayed content feedback, including failures and image loading."""
 import pytest
+from urllib.parse import parse_qs, urlparse
+from tests.test_expanded_view_browser import mount
 
 from plotsrv.html import render_index
 from tests.test_plot_controls_browser import page, STATIC
@@ -81,3 +83,73 @@ def test_plot_indicator_waits_for_image_and_clears_on_error(page):
     assert held
     held[0].abort()
     page.wait_for_selector("#content-loading", state="hidden")
+
+
+def test_slow_history_does_not_block_initial_table(page):
+    mount(page)
+    held = []
+    page.route("**/history/navigation?**", lambda route: held.append(route))
+    page.goto("http://plotsrv.test/?view=tables:main", wait_until="domcontentloaded")
+    page.wait_for_function("PLOTSRV.state.initialViewLoadComplete")
+    assert held
+    assert page.locator("#table-grid .tabulator-row").count() > 0
+    assert page.evaluate("PLOTSRV.state.snapshotNavigation.loading")
+    for route in held:
+        route.fulfill(json={"snapshots": [], "capability": {"enabled": False}})
+    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.loading")
+
+
+def test_initial_plot_downloads_only_selected_content_once(page):
+    mount(page, "plots:figure")
+    requests = []
+    page.on("request", lambda request: requests.append(request.url) if urlparse(request.url).path == "/plot" else None)
+    for suffix in ("", "&snapshot=1"):
+        requests.clear()
+        page.goto("http://plotsrv.test/?view=plots:figure" + suffix)
+        page.wait_for_function("PLOTSRV.state.initialViewLoadComplete")
+        assert len(requests) == 1
+        assert parse_qs(urlparse(requests[0]).query).get("snapshot") == (["1"] if suffix else None)
+        assert page.locator("#plot").is_visible()
+        assert page.locator("#plot").evaluate("img => img.complete && img.naturalWidth > 0")
+
+
+def test_invalid_plot_preserves_displayed_image_and_releases_candidate(page):
+    mount(page, "plots:figure")
+    previous = page.locator("#plot").get_attribute("src")
+    page.evaluate("""() => {
+      window.revoked = [];
+      const revoke = URL.revokeObjectURL.bind(URL);
+      URL.revokeObjectURL = url => { revoked.push(url); revoke(url); };
+    }""")
+    page.route("**/plot?**", lambda route: route.fulfill(body="broken image", content_type="image/png"))
+    assert page.evaluate("PLOTSRV.core.reloadCurrentView()") is False
+    assert page.locator("#plot").get_attribute("src") == previous
+    assert page.locator("#plot").evaluate("img => img.complete && img.naturalWidth > 0")
+    revoked = page.evaluate("revoked")
+    assert len(revoked) == 1 and previous not in revoked
+
+
+def test_superseded_decode_cannot_replace_newer_plot(page):
+    mount(page, "plots:figure")
+    previous = page.locator("#plot").get_attribute("src")
+    page.evaluate("""() => {
+      const decode = HTMLImageElement.prototype.decode;
+      let first = true;
+      HTMLImageElement.prototype.decode = function () {
+        if (!first) return decode.call(this);
+        first = false;
+        window.decodeHeld = true;
+        return new Promise((resolve, reject) => {
+          window.releaseDecode = () => decode.call(this).then(resolve, reject);
+        });
+      };
+      window.oldPlotLoad = PLOTSRV.core.refreshPlot();
+    }""")
+    page.wait_for_function("window.decodeHeld")
+    assert page.locator("#plot").get_attribute("src") == previous
+    assert page.evaluate("PLOTSRV.core.refreshPlot()")
+    current = page.locator("#plot").get_attribute("src")
+    assert current != previous
+    page.evaluate("releaseDecode()")
+    assert page.evaluate("oldPlotLoad") is False
+    assert page.locator("#plot").get_attribute("src") == current

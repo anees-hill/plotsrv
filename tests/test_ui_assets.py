@@ -350,7 +350,7 @@ def test_rich_table_loads_local_tabulator_before_plotsrv_bundle() -> None:
     response = TestClient(app).get("/")
 
     assert response.status_code == 200
-    assets = get_ui_assets()
+    assets = get_ui_assets(kind="table")
     loaded = _static_requests(response.text)
     assert assets.tabulator_js in loaded
     assert response.text.index(assets.tabulator_js) < response.text.index(assets.js)
@@ -398,3 +398,16 @@ def test_public_module_compatibility_imports_remain_available() -> None:
     assert callable(app_module.require_local_request)
     assert callable(runtime_module.file_backed_load_slot)
     assert callable(server_module.refresh_view)
+
+
+def test_plot_and_table_pages_omit_unneeded_renderer_code() -> None:
+    full = (_STATIC / get_ui_assets().js.removeprefix("/static/")).read_text()
+    for kind in ("plot", "table"):
+        assets = get_ui_assets(kind=kind)
+        source = (_STATIC / assets.js.removeprefix("/static/")).read_text()
+        assert len(source) < len(full) * 0.8
+        assert "plotsrv source: js/renderers/stream.js" not in source
+        assert "plotsrv source: js/renderers/markdown.js" not in source
+        assert f"plotsrv source: js/renderers/{kind}.js" in source
+        assert "plotsrv source: js/core/compare.js" in source
+        assert "plotsrv source: js/core/app.js" in source

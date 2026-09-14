@@ -12,3 +12,5 @@
   align-items: center;
   justify-content: center;
 }
+
+#plot[hidden] { display: none; }

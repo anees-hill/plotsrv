@@ -114,7 +114,7 @@ def render_index(
     Return the HTML for the main viewer page.
     """
     ui = ui_settings or get_ui_settings()
-    assets = get_ui_assets()
+    assets = get_ui_assets(kind=kind)
     from dataclasses import replace
     from .descriptions import source_description
     from .settings import get_section
@@ -834,7 +834,7 @@ def render_index(
     elif kind == "plot":
         content_html = f"""
           <div class="plot-frame ps-frame ps-frame--plot plot-frame--plot">
-            <img id="plot" class="ps-plot" src="/plot?view={active_view_id_attr}" alt="Current plot (or none yet)" />
+            <img id="plot" class="ps-plot" {'src="/plot?view=' + active_view_id_attr + '"' if static_preview else 'hidden'} alt="Current plot" />
           </div>
         """
         footer_html = _footer_html(kind)

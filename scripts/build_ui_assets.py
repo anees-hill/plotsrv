@@ -74,6 +74,14 @@ JS_SOURCES = (
 )
 
 
+# Page kinds are known before HTML is sent. Keep one request per page and
+# retain the complete bundle for mixed artifact/stream surfaces and consumers.
+PAGE_RENDERERS = {
+    "plot": {"plot"},
+    "table": {"table", "table_plot", "table_plot_controls"},
+}
+
+
 def _bundle(paths: tuple[str, ...]) -> bytes:
     chunks: list[bytes] = []
     for relative in paths:
@@ -97,7 +105,17 @@ def _outputs() -> dict[Path, bytes]:
     js = _bundle(JS_SOURCES)
     css_name = f"plotsrv-ui.{_fingerprint(css)}.css"
     js_name = f"plotsrv-ui.{_fingerprint(js)}.js"
+    page_scripts = {}
+    page_outputs = {}
+    for kind, renderers in PAGE_RENDERERS.items():
+        paths = tuple(path for path in JS_SOURCES if not path.startswith("js/renderers/")
+                      or Path(path).stem in renderers)
+        data = _bundle(paths)
+        name = f"plotsrv-ui.{_fingerprint(data)}.js"
+        page_scripts[kind] = f"/static/dist/{name}"
+        page_outputs[DIST / name] = data
     manifest = {
+        "js_by_kind": page_scripts,
         "css": f"/static/dist/{css_name}",
         "js": f"/static/dist/{js_name}",
         "tabulator_js": "/static/vendor/tabulator/5.5.0/tabulator.min.js",
@@ -113,6 +131,7 @@ def _outputs() -> dict[Path, bytes]:
     )
     manifest_bytes = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()
     return {
+        **page_outputs,
         DIST / custom_css_name: custom_css,
         DIST / custom_js_name: custom_js,
         DIST / css_name: css,
