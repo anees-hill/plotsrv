@@ -15,6 +15,7 @@ from ..json_model import (
     build_json_document,
 )
 from ..table_explorer_markup import render_table_explorer
+from ..ui_images import ui_image_url
 
 _ICON_SRC = {
     "json": "/static/logo_json.png",
@@ -337,7 +338,7 @@ def _render_document_node(node: dict[str, Any]) -> str:
     icon_html = ""
     if icon_key and icon_key in _ICON_SRC:
         icon_html = (
-            f'<img class="ps-json-typeicon" src="{_ICON_SRC[icon_key]}" alt="" />'
+            f'<img class="ps-json-typeicon" src="{ui_image_url(_ICON_SRC[icon_key])}" alt="" />'
         )
 
     toggle_class = (
