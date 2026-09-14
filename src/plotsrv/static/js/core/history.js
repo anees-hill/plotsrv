@@ -257,6 +257,8 @@
       } else {
         parts.push('<option value="">Live (latest)</option>');
         for (const snap of snapshots) {
+          // Latest follows the server; keep a stored latest entry only when selected.
+          if ((snap.is_latest || snap.is_live_equivalent) && snap.snapshot_id !== state.currentSnapshot) continue;
           const ts = snapshotLabel(snap.created_at || snap.snapshot_id);
           const label = (snap.is_latest ? "Newest stored · " : "") + ts +
             (snap.is_live_equivalent ? " · Same revision as Live" : " · Stored version");

@@ -79,7 +79,7 @@ def test_modal_keeps_snapshot_browser_and_freshness_axes_separate() -> None:
     source = _read("js/core/status_modal.js")
 
     assert 'setText("status-modal-viewing", "Snapshot")' in source
-    assert 'setText("status-modal-viewing", "Latest data")' in source
+    assert 'payload.restored_from_storage ? "Restored data" : "Latest data"' in source
     assert 'state.headerStatus.browserData === "update_available"' in source
     assert '"Newer update waiting"' in source
     assert 'core.applyPendingUpdate({ force: true })' in source

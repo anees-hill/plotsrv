@@ -410,8 +410,11 @@
       setText("status-modal-viewing", "Current stream");
       setText("status-modal-viewing-detail", "This browser follows the active observation.");
     } else {
-      setText("status-modal-viewing", "Latest data");
-      setText("status-modal-viewing-detail", "This view follows accepted live updates.");
+      setText("status-modal-viewing", payload.restored_from_storage ? "Restored data" : "Latest data");
+      setText("status-modal-viewing-detail", payload.restored_from_storage
+        ? "Restored from storage. Waiting for the next live update." +
+          (payload.restored_at ? " Restored at " + core.fmtLocalTime(payload.restored_at) + "." : "")
+        : "This view follows accepted live updates.");
     }
 
     const lastArrival = payload.last_data_arrival_at;

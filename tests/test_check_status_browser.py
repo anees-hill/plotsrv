@@ -455,3 +455,26 @@ def test_arrival_axis_adapts_to_range_and_screen_width(page):
     labels = ticks.all_text_contents()
     page.set_viewport_size({"width": 1200, "height": 1000})
     assert ticks.all_text_contents() == labels
+
+
+def test_restored_status_moves_to_header_and_clears_on_live_update(page):
+    mount(page)
+    page.evaluate("""() => {
+      const header = document.createElement("header"); header.id = "site-header"; document.body.prepend(header);
+      PLOTSRV.core.setHeaderLatestStatus({restored_from_storage:true,
+        restored_at:'2026-09-14T10:20:50Z', freshness:{enabled:false}});
+    }""")
+    assert page.locator("#header-status-label").inner_text() == "Restored"
+    assert page.locator("#site-header").get_attribute("data-status-accent") == "history"
+    assert page.locator("#header-status").get_attribute("data-status-tone") == "restored"
+    opened(page)
+    assert page.locator("#status-modal-viewing").inner_text() == "Restored data"
+    assert "Restored at" in page.locator("#status-modal-viewing-detail").inner_text()
+    page.evaluate("PLOTSRV.core.setHeaderViewState('snapshot', {createdAt:'2026-09-13T12:00:00Z'})")
+    assert page.locator("#header-status").get_attribute("data-status-tone") == "history"
+    page.evaluate("""() => {
+      PLOTSRV.core.setHeaderViewState('latest');
+      PLOTSRV.core.setHeaderLatestStatus({restored_from_storage:false, freshness:{enabled:false}});
+    }""")
+    assert page.locator("#header-status-label").inner_text() != "Restored"
+    assert page.locator("#site-header").get_attribute("data-status-accent") is None

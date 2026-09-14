@@ -381,6 +381,14 @@
     }
 
     const latest = model.latestData || {};
+    if (latest.restored) {
+      return {
+        visible: config.showHeaderFreshness,
+        tone: "restored", label: "Restored", context: "Waiting for a live update",
+        title: "Restored from storage",
+        copy: "Showing restored data while waiting for the next live update.",
+      };
+    }
     const freshness = latest.freshness;
     const freshnessState = freshness && freshness.enabled !== false
       ? String(freshness.state || "unknown").toLowerCase()
@@ -453,7 +461,7 @@
     wrap.setAttribute("data-status-tone", presentation.tone);
     const header = document.getElementById("site-header");
     if (header) {
-      const accent = presentation.visible &&
+      const accent = presentation.visible && presentation.tone === "restored" ? "history" : presentation.visible &&
         (presentation.tone === "new-data" || presentation.tone === "history")
         ? presentation.tone
         : null;
@@ -501,6 +509,7 @@
     state.latestStatusPayload = statusPayload || null;
     if (typeof core.receiveCheckStatus === "function") core.receiveCheckStatus(statusPayload && statusPayload.checks);
     state.headerStatus.latestData = {
+      restored: !!(statusPayload && statusPayload.restored_from_storage),
       lastUpdated: statusPayload && statusPayload.last_updated
         ? statusPayload.last_updated
         : null,
@@ -576,6 +585,14 @@
 
   function refreshLocalFreshness() {
     const latest = state.headerStatus.latestData || {};
+    if (latest.restored) {
+      return {
+        visible: config.showHeaderFreshness,
+        tone: "restored", label: "Restored", context: "Waiting for a live update",
+        title: "Restored from storage",
+        copy: "Showing restored data while waiting for the next live update.",
+      };
+    }
     const freshness = latest.freshness;
     const updatedAt = Date.parse(latest.lastUpdated || "");
     if (!freshness || freshness.enabled === false || !Number.isFinite(updatedAt)) {
@@ -650,9 +667,6 @@
       const errWrap = document.getElementById("status-error-wrap");
       const err = document.getElementById("status-error");
 
-      const restored = !!s.restored_from_storage;
-      const restoredAt = s.restored_at || null;
-      const restoreSource = s.restore_source || "storage";
 
       const isHistory =
         typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
@@ -669,22 +683,6 @@
           err.textContent = "";
           errWrap.hidden = true;
         }
-      }
-
-      const isRestoredLive =
-        restored &&
-        !(typeof core.isHistoryMode === "function" && core.isHistoryMode());
-      
-      if (isRestoredLive && typeof core.setStatusMessage === "function") {
-        const sourceLabel = restoreSource === "latest" ? "latest storage" : "storage";
-        const restoredAtText = restoredAt ? " Restored at " + fmtLocalTime(restoredAt) + "." : "";
-        core.setStatusMessage(
-          '<span class="ps-restored-badge">RESTORED</span> ' +
-            "Restored from " +
-            core.escapeHtml(sourceLabel) +
-            ". Waiting for the next live update." +
-            core.escapeHtml(restoredAtText)
-        );
       }
 
         await refreshViewIcons(s.view_menu_revision);

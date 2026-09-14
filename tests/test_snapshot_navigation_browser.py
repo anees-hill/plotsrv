@@ -116,16 +116,18 @@ def test_keyboard_boundaries_exact_and_ambiguous_latest(page):
     assert page.locator("#artifact-root").inner_text() == "Version latest"
     assert "snapshot=" not in page.url
     assert page.evaluate("bodyReads") == ["1", "latest"]
-    # Future exact revision proof changes the label, not the Latest sentinel.
+    # Hide the duplicate stored latest until it is explicitly selected.
     page.evaluate("""async () => {
       const original=makeMeta;
       makeMeta=url=>{const data=original(url); data.snapshots[0].is_live_equivalent=true; return data;};
       await PLOTSRV.core.loadHistory();
     }""")
-    assert "Same revision as Live" in page.locator("#history-select").inner_text()
+    assert page.locator("#history-select option").count() == 1
+    assert "Live (latest)" in page.locator("#history-select").inner_text()
     page.click("#snapshot-older")
     settled(page)
     assert page.evaluate("PLOTSRV.state.currentSnapshot") == "1"
+    assert "Same revision as Live" in page.locator("#history-select option:checked").inner_text()
     assert page.locator("#snapshot-newer").is_enabled()
 
 

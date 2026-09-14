@@ -654,18 +654,6 @@ body.ps-status-modal-open {
   pointer-events: none;
 }
 
-.ps-restored-badge {
-  display: inline-block;
-  padding: 0.1rem 0.45rem;
-  border-radius: 999px;
-  border: 1px solid var(--history-border);
-  color: var(--history-text);
-  background: var(--history-bg);
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
 /* Check attention is independent of the freshness dot and header colour. */
 .ps-check-attention {
   display: inline-flex;
@@ -717,3 +705,7 @@ body.ps-status-modal-open {
 }
 .ps-arrival-chart__tick::before { left: 50%; }
 #status-modal-range-end::before { right: 0; }
+
+.ps-header-status[data-status-tone="restored"] .ps-header-status__dot {
+  background: var(--ps-muted, #858b91);
+}
