@@ -62,3 +62,114 @@ body.ps-compare:not(.ps-expanded) .tabulator { max-height: max(100px, calc(100dv
 body.ps-compare:not(.ps-expanded) .tabulator { height: var(--ps-table-available, 55vh) !important; min-height: 0; max-height: none; }
 
 #compare-calendar { max-height: max(100px, min(300px, calc(100dvh - var(--ps-bottom-dock-clearance, 200px) - 16px))); overflow: auto; }
+
+/* Normal floating bar: distinct actions and a joined snapshot navigation group. */
+body:not(.ps-compare) .ps-bottom-bar {
+  padding: 0.65rem 0.8rem;
+  border-radius: 14px;
+  box-sizing: border-box;
+}
+body:not(.ps-compare) .ps-bottom-bar__controls { gap: 0.75rem; flex-wrap: wrap; justify-content: center; }
+body:not(.ps-compare) .ps-bottom-bar :is(.ps-export__button, #compare-enter) {
+  min-height: 38px;
+  padding: 0.45rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+body:not(.ps-compare) .ps-bottom-bar #export-control {
+  padding-right: 0.85rem;
+  border-right: 1px solid var(--ps-border);
+}
+body:not(.ps-compare) .ps-bottom-bar .ps-snapshots { gap: 0; }
+body:not(.ps-compare) .ps-bottom-bar .ps-snapshots__selector {
+  position: relative;
+  gap: 0.85rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.ps-snapshots__chevron { display: none; }
+body:not(.ps-compare) .ps-bottom-bar .ps-snapshots__chevron {
+  display: block;
+  position: absolute;
+  right: 0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+  color: var(--ps-muted);
+}
+body:not(.ps-compare) .ps-bottom-bar #history-select {
+  appearance: none;
+  box-sizing: border-box;
+  width: 260px;
+  min-width: 110px;
+  max-width: 30vw;
+  height: 38px;
+  padding: 0.4rem 2.2rem 0.4rem 0.85rem;
+  border: 1px solid var(--ps-border);
+  border-radius: 8px 0 0 8px;
+  background: var(--ps-floating-bg);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+body:not(.ps-compare) .ps-bottom-bar .ps-snapshots:not(:has(.ps-snapshot-arrow:not([hidden]))) #history-select {
+  border-radius: 8px;
+}
+body:not(.ps-compare) .ps-bottom-bar .ps-snapshot-arrow {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  min-width: 40px;
+  height: 38px;
+  min-height: 38px;
+  margin-left: 0;
+  border-left-width: 0;
+  padding: 0;
+  border-radius: 0;
+  border-color: var(--ps-border);
+  background: var(--ps-floating-bg);
+}
+body:not(.ps-compare) .ps-bottom-bar .ps-snapshot-arrow[hidden] { display: none; }
+body:not(.ps-compare) .ps-bottom-bar #snapshot-newer { border-radius: 0 8px 8px 0; }
+body:not(.ps-compare) #compare-enter { position: relative; margin-left: 0.85rem; }
+body:not(.ps-compare) #compare-enter::before {
+  content: "";
+  position: absolute;
+  left: -0.9rem;
+  top: 10%;
+  height: 80%;
+  border-left: 1px solid var(--ps-border);
+}
+body:not(.ps-compare) .ps-bottom-bar :is(#bottom-pin, #bottom-collapse) {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  min-height: 38px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+body:not(.ps-compare) .ps-bottom-bar #bottom-pin[aria-pressed="true"] {
+  background: var(--ps-surface-hover);
+  color: var(--ps-accent-strong);
+}
+body:not(.ps-compare) .ps-bottom-bar #bottom-collapse {
+  width: 38px;
+  border-left-color: var(--ps-border);
+  border-radius: 0;
+}
+body.ps-bar-pinned:not(.ps-compare) .ps-bottom-bar { border-radius: 10px 10px 0 0; }
+@media (max-width: 700px) {
+  body:not(.ps-compare) .ps-bottom-bar { padding: 0.5rem; }
+  body:not(.ps-compare) .ps-bottom-bar__controls { gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
+  body:not(.ps-compare) .ps-bottom-bar .ps-snapshots__selector > span:first-child { display: none; }
+  body:not(.ps-compare) .ps-bottom-bar #history-select { width: 150px; max-width: 35vw; min-width: 80px; }
+  body:not(.ps-compare) .ps-bottom-bar #export-control { padding-right: 0.5rem; }
+  body:not(.ps-compare) #compare-enter { margin-left: 0; }
+  body:not(.ps-compare) #compare-enter::before { display: none; }
+  body:not(.ps-compare) .ps-bottom-bar :is(.ps-export__button, #compare-enter) { padding-inline: 0.7rem; }
+}
