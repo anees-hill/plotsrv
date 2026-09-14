@@ -1255,7 +1255,7 @@ def render_index(
 
         <div class="header-right ps-header__right">
           <button id="expand-view" class="ps-expand-button" type="button" aria-label="Expand view" title="Expand view">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" /></svg>
+            <svg class="ps-header-control-icon" viewBox="405 409 445 445" width="20" height="20" aria-hidden="true" focusable="false"><image href="/static/icons/header-fullscreen.png" width="1254" height="1254" /></svg>
           </button>
           <details id="view-about" class="ps-view-about" hidden>
             <summary class="ps-expand-button" aria-label="About this view" title="About this view">i</summary>
@@ -1274,7 +1274,7 @@ def render_index(
             aria-haspopup="dialog"
             aria-controls="settings-page"
             aria-expanded="false">
-            <img src="/static/settings-cog.png" alt="" aria-hidden="true" />
+            <svg class="ps-header-control-icon" viewBox="228 235 798 798" width="20" height="20" aria-hidden="true" focusable="false"><image href="/static/icons/header-settings.png" width="1254" height="1254" /></svg>
           </button>
           {header_status_html}
           {dropdown_html}

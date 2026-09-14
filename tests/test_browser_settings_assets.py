@@ -57,12 +57,14 @@ def test_settings_trigger_uses_supplied_icon_and_precedes_freshness() -> None:
     )[1].split("</header>", 1)[0]
 
     assert 'id="settings-button"' in header_right
-    assert 'src="/static/settings-cog.png"' in header_right
+    assert 'href="/static/icons/header-settings.png"' in header_right
+    assert 'href="/static/icons/header-fullscreen.png"' in header_right
     assert 'aria-controls="settings-page"' in header_right
     assert header_right.index('id="settings-button"') < header_right.index(
         'id="header-status"'
     )
-    assert (STATIC / "settings-cog.png").is_file()
+    assert (STATIC / "icons/header-settings.png").is_file()
+    assert (STATIC / "icons/header-fullscreen.png").is_file()
 
 
 def test_settings_remains_available_when_freshness_is_disabled() -> None:

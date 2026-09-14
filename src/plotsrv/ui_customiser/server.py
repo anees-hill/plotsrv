@@ -169,6 +169,12 @@ def create_app(draft, *, origin=None, token=None, on_close=None):
     }
     # Package images only; no arbitrary directories and no production JS bundle.
     asset_names.update("/static/" + p.name for p in STATIC.glob("*.png") if p.is_file())
+    asset_names.update(
+        {
+            "/static/icons/header-settings.png",
+            "/static/icons/header-fullscreen.png",
+        }
+    )
 
     @app.get("/")
     async def index():

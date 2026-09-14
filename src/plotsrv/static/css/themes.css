@@ -160,7 +160,8 @@ html[data-theme="dark"] .ps-header {
 }
 
 /* Settings entry point and full-page dialog. */
-.ps-settings-trigger {
+.ps-settings-trigger,
+#expand-view {
   display: grid;
   flex: 0 0 auto;
   width: 36px;
@@ -175,30 +176,34 @@ html[data-theme="dark"] .ps-header {
   place-items: center;
 }
 
-.ps-settings-trigger:hover {
+.ps-settings-trigger:hover,
+#expand-view:hover {
   border-color: var(--ps-subtle);
   background: var(--ps-surface-hover);
 }
 
-.ps-settings-trigger:focus-visible {
+.ps-settings-trigger:focus-visible,
+#expand-view:focus-visible {
   outline: 2px solid var(--ps-focus);
   outline-offset: 2px;
 }
 
-.ps-settings-trigger img {
+/* SVG viewports frame the supplied PNG artwork without its uneven transparent
+   margins. Both header icons retain the same visible size and colour treatment. */
+.ps-header-control-icon {
   display: block;
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
 }
 
-html[data-theme="dark"] .ps-settings-trigger img {
-  filter: brightness(1.35);
+html[data-theme="dark"] .ps-header-control-icon {
+  filter: brightness(1.6);
 }
 
 @media (prefers-color-scheme: dark) {
-  html[data-theme="system"] .ps-settings-trigger img {
-    filter: brightness(1.35);
+  html[data-theme="system"] .ps-header-control-icon {
+    filter: brightness(1.6);
   }
 }
 
