@@ -57,7 +57,7 @@ def test_settings_trigger_uses_supplied_icon_and_precedes_freshness() -> None:
     )[1].split("</header>", 1)[0]
 
     assert 'id="settings-button"' in header_right
-    assert 'href="/static/icons/header-settings.png"' in header_right
+    assert 'href="/static/ui-images/header-settings.png"' in header_right
     assert 'stroke-width="1.9"' in header_right
     assert 'aria-controls="settings-page"' in header_right
     assert header_right.index('id="settings-button"') < header_right.index(
@@ -98,7 +98,7 @@ def test_settings_page_shows_installed_version_and_documentation_link(
 
     assert 'id="settings-about-title">About this dashboard</h2>' in rendered
     assert "<strong>plotsrv</strong>" in rendered
-    assert 'src="/static/plotsrv_icon_logo.png"' in rendered
+    assert 'src="/static/ui-images/plotsrv_icon_logo.png"' in rendered
     assert "<code>9.8.7</code>" in rendered
     assert 'href="https://docs.plotsrv.com/"' in rendered
     assert 'target="_blank" rel="noopener noreferrer"' in rendered

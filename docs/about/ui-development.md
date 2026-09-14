@@ -44,3 +44,19 @@ The watch loop remains in `runtime.py`, and server lifecycle state remains in
 `server.py`. Move those only as part of a designed service abstraction; their
 state and compatibility behavior should not be split opportunistically during
 UI work.
+
+### Small package images
+
+The UI uses prebuilt copies of package artwork from `static/ui-images/`.
+Original PNGs remain available at their existing paths. After changing an
+original listed in `ui_images.py`, regenerate its UI copy:
+
+```bash
+python scripts/build_ui_images.py
+python scripts/build_ui_images.py --check
+```
+
+Resizing happens during development/build preparation, never in the serving
+process. Custom logo URLs are left unchanged. Plot and table pages also select
+smaller script bundles at render time; artifact/stream pages retain the complete
+bundle for their mixed renderer surfaces.

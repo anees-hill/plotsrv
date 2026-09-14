@@ -9,10 +9,10 @@ def page(manifest):
     shared = escape(manifest["css"], quote=True)
     return f"""<!doctype html><html lang="en" data-theme="light"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>plotsrv · Dashboard appearance</title><link rel="icon" href="/static/plotsrv_icon_logo.png">
+<title>plotsrv · Dashboard appearance</title><link rel="icon" href="/static/ui-images/plotsrv_icon_logo.png">
 <link rel="stylesheet" href="{shared}"><link rel="stylesheet" href="{css}"><script src="{js}" defer></script>
 </head><body class="customiser">
-<header class="editor-heading"><img src="/static/plotsrv_icon_logo.png" alt="plotsrv"><div><h1>Dashboard appearance</h1><p>Temporary editor · changes stay in the draft until you confirm Save.</p></div></header>
+<header class="editor-heading"><img src="/static/ui-images/plotsrv_icon_logo.png" alt="plotsrv"><div><h1>Dashboard appearance</h1><p>Temporary editor · changes stay in the draft until you confirm Save.</p></div></header>
 <p id="notice" role="status" aria-live="polite"></p>
 <section id="login"><h2>Open your editing session</h2><p>Paste the temporary session key printed by <code>plotsrv config ui</code>. It stays in memory in this tab.</p>
 <form id="unlock"><label for="session">Session key</label><input id="session" type="password" autocomplete="off" maxlength="128" required autofocus><button type="submit">Open editor</button></form></section>
@@ -21,7 +21,7 @@ def page(manifest):
 <div class="editor-layout"><section class="preview-pane" aria-labelledby="preview-title">
 <div class="preview-heading"><h2 id="preview-title">Preview</h2><label>Appearance <select id="theme"><option value="light">Light</option><option value="dark">Dark</option></select></label></div>
 <p>Example data only. Choose the logo, header controls or lower bar to edit their settings.</p>
-<div class="preview-tab" aria-label="Browser tab preview"><img id="preview-favicon" src="/static/plotsrv_icon_logo.png" alt="Preview tab icon"><span id="preview-page-title"></span></div>
+<div class="preview-tab" aria-label="Browser tab preview"><img id="preview-favicon" src="/static/ui-images/plotsrv_icon_logo.png" alt="Preview tab icon"><span id="preview-page-title"></span></div>
 <iframe id="preview" title="Dashboard preview with example data" sandbox="allow-same-origin"></iframe>
 <p class="muted">Preview controls select settings; they do not operate a dashboard. One logo is used in both appearances.</p>
 </section><aside aria-label="Appearance settings">

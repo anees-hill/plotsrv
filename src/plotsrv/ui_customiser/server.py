@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from starlette.requests import ClientDisconnect
 
 from ..config_wizard.saving import SaveError
+from ..ui_images import UI_IMAGE_URLS
 from .uploads import MAX_IMAGE_BYTES
 
 STATIC = Path(__file__).resolve().parents[1] / "static"
@@ -167,6 +168,7 @@ def create_app(draft, *, origin=None, token=None, on_close=None):
         manifest["customiser_css"],
         manifest["customiser_js"],
     }
+    asset_names.update(UI_IMAGE_URLS.values())
     # Package images only; no arbitrary directories and no production JS bundle.
     asset_names.update("/static/" + p.name for p in STATIC.glob("*.png") if p.is_file())
     asset_names.update(

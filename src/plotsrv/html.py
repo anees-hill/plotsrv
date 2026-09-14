@@ -9,6 +9,7 @@ from .config import TableViewMode
 from .view_metadata import ViewMeta
 from .table_explorer_markup import render_table_explorer
 from .ui_assets import get_ui_assets
+from .ui_images import UI_IMAGE_URLS, ui_image_url
 from .ui_config import (
     UISettings,
     get_ui_settings,
@@ -89,7 +90,7 @@ def _safe_url_attr(s: object, *, default: str = "") -> str:
     if low.startswith(("javascript:", "data:text/html")):
         return default
 
-    return _escape_attr(raw)
+    return _escape_attr(ui_image_url(raw))
 
 
 def render_index(
@@ -157,7 +158,7 @@ def render_index(
           hidden>
           <img
             class="ps-bottom-bar__disk-icon"
-            src="/static/logo_on_disk.png"
+            src="/static/ui-images/logo_on_disk.png"
             alt="File-backed watched view" />
         </span>
         """
@@ -280,9 +281,11 @@ def render_index(
 
     def _icon_url(v: ViewMeta | None) -> str:
         if v is None:
-            return LOGO_BY_KEY["unknown"]
-        return LOGO_BY_KEY.get(
-            getattr(v, "icon_key", "unknown"), LOGO_BY_KEY["unknown"]
+            return ui_image_url(LOGO_BY_KEY["unknown"])
+        return ui_image_url(
+            LOGO_BY_KEY.get(
+                getattr(v, "icon_key", "unknown"), LOGO_BY_KEY["unknown"]
+            )
         )
 
     def _freshness_class(v: ViewMeta) -> str:
@@ -1128,7 +1131,7 @@ def render_index(
               <div class="ps-settings-about__card ps-settings-about__product">
                 <img
                   class="ps-settings-about__plotsrv-logo"
-                  src="/static/plotsrv_icon_logo.png"
+                  src="/static/ui-images/plotsrv_icon_logo.png"
                   width="64"
                   height="64"
                   alt=""
@@ -1198,6 +1201,7 @@ def render_index(
             "show_header_freshness": ui.show_freshness,
             "show_header_history": ui.show_history_banner,
             "view_catalogue": view_catalogue,
+            "ui_image_urls": UI_IMAGE_URLS,
             "featured_views": featured_config,
             "compact_views": compact_config,
         },
@@ -1275,7 +1279,7 @@ def render_index(
             aria-haspopup="dialog"
             aria-controls="settings-page"
             aria-expanded="false">
-            <svg class="ps-header-control-icon" viewBox="228 235 798 798" width="20" height="20" aria-hidden="true" focusable="false"><image href="/static/icons/header-settings.png" width="1254" height="1254" /></svg>
+            <svg class="ps-header-control-icon" viewBox="228 235 798 798" width="20" height="20" aria-hidden="true" focusable="false"><image href="/static/ui-images/header-settings.png" width="1254" height="1254" /></svg>
           </button>
           {header_status_html}
           {dropdown_html}

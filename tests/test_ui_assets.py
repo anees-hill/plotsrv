@@ -411,3 +411,21 @@ def test_plot_and_table_pages_omit_unneeded_renderer_code() -> None:
         assert f"plotsrv source: js/renderers/{kind}.js" in source
         assert "plotsrv source: js/core/compare.js" in source
         assert "plotsrv source: js/core/app.js" in source
+
+
+def test_ui_image_copies_are_small_and_originals_remain_available() -> None:
+    from PIL import Image
+    from plotsrv.ui_images import UI_IMAGE_SOURCES, UI_IMAGE_URLS, ui_image_url
+
+    client = TestClient(app)
+    for source, maximum in UI_IMAGE_SOURCES.items():
+        original = _STATIC / source
+        url = UI_IMAGE_URLS["/static/" + source]
+        copy = _STATIC / url.removeprefix("/static/")
+        assert original.is_file() and copy.is_file()
+        assert copy.stat().st_size < 100_000
+        with Image.open(copy) as image:
+            assert max(image.size) <= maximum
+        assert client.get(url).status_code == 200
+    assert ui_image_url("/assets/custom-logo.png") == "/assets/custom-logo.png"
+    assert ui_image_url("https://example.test/logo.png") == "https://example.test/logo.png"

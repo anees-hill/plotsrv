@@ -112,7 +112,7 @@
     if (response.status !== 204) { logo = URL.createObjectURL(await response.blob()); imageUrls.push(logo); }
     const icon = await request("/api/image/favicon");
     if (icon.status !== 204) { const url = URL.createObjectURL(await icon.blob()); imageUrls.push(url); $("preview-favicon").src = url; }
-    else $("preview-favicon").src = "/static/plotsrv_icon_logo.png";
+    else $("preview-favicon").src = "/static/ui-images/plotsrv_icon_logo.png";
     const iframe = $("preview");
     await new Promise((resolve, reject) => {
     const deadline = setTimeout(() => { iframe.onload = null; iframe.removeAttribute("srcdoc"); reject(new Error("Preview did not finish loading. Try Update preview again.")); }, 10000);

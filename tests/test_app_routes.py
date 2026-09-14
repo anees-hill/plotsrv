@@ -1304,12 +1304,19 @@ def test_views_file_backed_unknown_watch_uses_text_icon(
 
 def test_index_includes_file_backed_status_indicator_markup(
     client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from dataclasses import replace
+    from importlib import import_module
+
+    app_module = import_module("plotsrv.app")
+    ui = replace(app_module.get_ui_settings(), show_statusline=True)
+    monkeypatch.setattr(app_module, "get_ui_settings", lambda: ui)
     resp = client.get("/")
 
     assert resp.status_code == 200
     text = resp.text
 
     assert 'id="status-file-backed"' in text
-    assert "/static/logo_on_disk.png" in text
+    assert "/static/ui-images/logo_on_disk.png" in text
     assert "ps-bottom-bar__disk-icon" in text

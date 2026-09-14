@@ -10,6 +10,11 @@
 
   const core = window.PLOTSRV.core;
 
+  core.uiImageUrl = function (url) {
+    const images = (window.PLOTSRV_CONFIG || {}).ui_image_urls || {};
+    return images[url] || url;
+  };
+
   core.escapeHtml = function (s) {
     return String(s)
       .replaceAll("&", "&amp;")

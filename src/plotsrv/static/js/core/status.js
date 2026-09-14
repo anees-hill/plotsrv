@@ -155,6 +155,9 @@
       text: "/static/logo_txt.png",
       html: "/static/logo_html.png",
     };
+    if (core.uiImageUrl) {
+      Object.keys(ICONS).forEach(key => { ICONS[key] = core.uiImageUrl(ICONS[key]); });
+    }
 
     const refreshPromise = (async function () {
       try {
