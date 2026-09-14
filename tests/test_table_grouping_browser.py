@@ -72,3 +72,37 @@ def test_restored_grouping_and_reset_keep_rows_visible(page, kind):
     assert page.locator("#table-grid .tabulator-row:not(.tabulator-group)").count() == 3
     assert page.evaluate("replacements") == 0
     assert not [warning for warning in warnings if "Table Not Initialized" in warning]
+
+
+def test_refresh_preserves_columns_and_rebuilds_only_for_schema_changes(page):
+    page.click("#table-mode-table-btn")
+    payload = {
+        "columns": ["pot", "timestamp", "value"],
+        "rows": [{"pot": "A", "timestamp": 1, "value": 9}, {"pot": "B", "timestamp": 2, "value": 3}],
+    }
+    page.route("**/table/data?**", lambda route: route.fulfill(json=payload))
+    page.select_option("#table-group-by-select", "pot")
+    page.evaluate("""() => {
+      const table = PLOTSRV.state.tabulatorInstance;
+      table.moveColumn('value', 'pot', false);
+      table.getColumn('value').setWidth(190);
+      table.hideColumn('timestamp');
+      table.setSort('value', 'desc');
+      window.keptColumn = table.getColumn('value').getElement();
+      window.rebuilds = 0;
+      const original = table.setColumns.bind(table);
+      table.setColumns = (...args) => { rebuilds++; return original(...args); };
+    }""")
+    for _ in range(2):
+        assert page.evaluate("PLOTSRV.core.loadTable()")
+    assert page.evaluate("rebuilds") == 0
+    assert page.evaluate("PLOTSRV.state.tabulatorInstance.getColumn('value').getElement() === keptColumn")
+    assert page.evaluate("PLOTSRV.state.tabulatorInstance.getColumn('value').getWidth()") == 190
+    assert not page.evaluate("PLOTSRV.state.tabulatorInstance.getColumn('timestamp').isVisible()")
+    assert page.locator(".tabulator-group").count() == 2
+    assert page.evaluate("PLOTSRV.state.tabulatorInstance.getSorters()[0].dir") == "desc"
+    payload["columns"].append("extra")
+    payload["rows"][0]["extra"] = "new"
+    assert page.evaluate("PLOTSRV.core.loadTable()")
+    assert page.evaluate("rebuilds") == 1
+    assert page.locator('.tabulator-col[tabulator-field="extra"]').is_visible()

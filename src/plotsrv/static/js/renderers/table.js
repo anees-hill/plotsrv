@@ -85,6 +85,14 @@
     return ordered;
   }
 
+  function hasSameTableFields(table, columns) {
+    if (!table || typeof table.getColumns !== "function") return false;
+    const existing = table.getColumns();
+    if (existing.length !== columns.length) return false;
+    const fields = new Set(columns.map(column => column.field));
+    return existing.every(column => fields.has(column.getField()));
+  }
+
   function currentSorters(table) {
     if (!table || typeof table.getSorters !== "function") return [];
     try {
@@ -1717,10 +1725,15 @@
       if (state.tabulatorInstance) {
         const sorters = currentSorters(state.tabulatorInstance);
         columns = preserveColumnOrder(columns, state.tabulatorInstance);
-        state.tableAppliedGrouping = undefined;
-        await Promise.resolve(state.tabulatorInstance.setColumns(columns));
+        const schemaChanged = !hasSameTableFields(state.tabulatorInstance, columns);
+        if (schemaChanged) {
+          state.tableAppliedGrouping = undefined;
+          await Promise.resolve(state.tabulatorInstance.setColumns(columns));
+        }
+        // replaceData preserves existing column widths/order, grouping and sorting.
+        // Rebuilding unchanged columns needlessly lays out every visible cell twice.
         await Promise.resolve(state.tabulatorInstance.replaceData(rows));
-        if (sorters.length && typeof state.tabulatorInstance.setSort === "function") {
+        if (schemaChanged && sorters.length && typeof state.tabulatorInstance.setSort === "function") {
           await Promise.resolve(state.tabulatorInstance.setSort(sorters));
         }
         configureTableExplorer({
