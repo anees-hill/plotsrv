@@ -10,7 +10,6 @@
 
   const core = window.PLOTSRV.core;
   const config = window.PLOTSRV.config;
-  const MAX_RECENT_VIEWS = 4;
   const ICONS = {
     unknown: "/static/logo_unknown.png",
     plot: "/static/logo_plot.png",
@@ -203,78 +202,6 @@
     const stored = loadStoredMode();
     if (stored === "grouped" || stored === "az" || stored === "my") return stored;
     return "grouped";
-  }
-
-  function recentStorageKey() {
-    return storageKey("viewSelectorRecent", "plotsrv:v1:view_selector_recent");
-  }
-
-  function loadRecentViews(catalogue) {
-    const valid = new Set(catalogue.map(function (view) { return view.view_id; }));
-    try {
-      const parsed = JSON.parse(localStorage.getItem(recentStorageKey()) || "[]");
-      if (!Array.isArray(parsed)) return [];
-      return parsed
-        .map(String)
-        .filter(function (viewId, index, items) {
-          return valid.has(viewId) && items.indexOf(viewId) === index;
-        })
-        .slice(0, MAX_RECENT_VIEWS);
-    } catch (e) {
-      return [];
-    }
-  }
-
-  function saveRecentViews(viewIds) {
-    try {
-      localStorage.setItem(
-        recentStorageKey(),
-        JSON.stringify(viewIds.slice(0, MAX_RECENT_VIEWS))
-      );
-    } catch (e) {
-      // ignore
-    }
-  }
-
-  function rememberRecentView(viewId, catalogue) {
-    if (!viewId) return [];
-    const recent = loadRecentViews(catalogue).filter(function (item) {
-      return item !== viewId;
-    });
-    if (catalogue.some(function (view) { return view.view_id === viewId; })) {
-      recent.unshift(viewId);
-    }
-    const bounded = recent.slice(0, MAX_RECENT_VIEWS);
-    saveRecentViews(bounded);
-    return bounded;
-  }
-
-  function recentVisibilityStorageKey() {
-    return storageKey(
-      "viewSelectorRecentVisible",
-      "plotsrv:v1:view_selector_recent_visible"
-    );
-  }
-
-  function loadRecentVisibility() {
-    const key = recentVisibilityStorageKey();
-    const stored = typeof core.loadPref === "function"
-      ? core.loadPref(key, "shown")
-      : (function () {
-          try { return localStorage.getItem(key) || "shown"; }
-          catch (e) { return "shown"; }
-        })();
-    return stored !== "hidden";
-  }
-
-  function saveRecentVisibility(visible) {
-    const value = visible ? "shown" : "hidden";
-    const key = recentVisibilityStorageKey();
-    if (typeof core.savePref === "function") core.savePref(key, value);
-    else {
-      try { localStorage.setItem(key, value); }
-      catch (e) { /* Browser storage is optional. */ }
-    }
   }
 
   function pinnedStorageKey() {
@@ -491,41 +418,6 @@
     fragment.appendChild(group);
   }
 
-  function appendRecentGroup(fragment, views, pinnedIds, compactById, visible) {
-    if (visible && !views.length) return;
-    const group = element("section", "ps-viewselect__group ps-viewselect__group--recent");
-    group.setAttribute("aria-label", "Recent");
-    const heading = element("div", "ps-viewselect__group-heading");
-    heading.appendChild(element("h3", "ps-viewselect__group-label", "Recent"));
-    const action = element(
-      "button",
-      "ps-viewselect__group-action",
-      visible ? "Hide" : "Show"
-    );
-    action.type = "button";
-    action.setAttribute("data-view-recent-toggle", "1");
-    action.setAttribute("aria-expanded", visible ? "true" : "false");
-    action.setAttribute("aria-controls", "view-selector-recent-items");
-    heading.appendChild(action);
-    group.appendChild(heading);
-    const items = element("div", "ps-viewselect__group-items");
-    items.id = "view-selector-recent-items";
-    items.hidden = !visible;
-    items.setAttribute("role", "list");
-    for (const view of views) {
-      items.appendChild(
-        makeViewItem(
-          view,
-          true,
-          pinnedIds.has(view.view_id),
-          compactById.get(view.view_id)
-        )
-      );
-    }
-    group.appendChild(items);
-    fragment.appendChild(group);
-  }
-
   function createController(wrap) {
     const trigger = wrap.querySelector(".ps-viewselect__btn");
     const menu = wrap.querySelector(".ps-viewselect__menu");
@@ -538,16 +430,10 @@
       catalogue: normalizeViewCatalogue(config.viewCatalogue),
       mode: "grouped",
       query: "",
-      recent: [],
-      recentVisible: loadRecentVisibility(),
       pinned: [],
       renderFrame: null,
     };
     controller.mode = initialViewSelectorMode();
-    controller.recent = rememberRecentView(
-      config.activeViewId,
-      controller.catalogue
-    );
     controller.pinned = loadPinnedViews(controller.catalogue);
     savePinnedViews(controller.pinned);
 
@@ -661,19 +547,6 @@
           .filter(Boolean);
         appendGroup(fragment, "Pinned views", pinned, true, pinnedIds, compactById);
 
-        const recent = controller.recent
-          .map(function (viewId) { return byId.get(viewId); })
-          .filter(function (view) {
-            return view && !featuredIds.has(view.view_id) && !pinnedIds.has(view.view_id);
-          });
-        appendRecentGroup(
-          fragment,
-          recent,
-          pinnedIds,
-          compactById,
-          controller.recentVisible
-        );
-
         const groups = new Map();
         for (const view of controller.catalogue) {
           if (featuredIds.has(view.view_id) || pinnedIds.has(view.view_id)) continue;
@@ -755,7 +628,6 @@
       controller.catalogue = normalizeViewCatalogue(views);
       config.viewCatalogue = controller.catalogue;
       if (core.syncViewExplanation) core.syncViewExplanation();
-      controller.recent = loadRecentViews(controller.catalogue);
       controller.pinned = loadPinnedViews(controller.catalogue);
       savePinnedViews(controller.pinned);
       render();
@@ -835,17 +707,6 @@
         } else window.location.href = core.personalViewUrl(item);
         return;
       }
-      const recentToggle = event.target.closest && event.target.closest("[data-view-recent-toggle]");
-      if (recentToggle) {
-        event.preventDefault();
-        event.stopPropagation();
-        controller.recentVisible = !controller.recentVisible;
-        saveRecentVisibility(controller.recentVisible);
-        render();
-        const nextToggle = results.querySelector("[data-view-recent-toggle]");
-        if (nextToggle) nextToggle.focus();
-        return;
-      }
       const pin = event.target.closest && event.target.closest("[data-pin-view]");
       if (pin) {
         event.preventDefault();
@@ -867,7 +728,6 @@
       if (!item) return;
       const viewId = item.getAttribute("data-plotsrv-view");
       if (!viewId) return;
-      controller.recent = rememberRecentView(viewId, controller.catalogue);
       window.location.href = window.location.pathname + "?view=" + encodeURIComponent(viewId);
     });
     menu.addEventListener("keydown", function (event) {
@@ -925,8 +785,6 @@
   core.saveViewSelectorMode = saveViewSelectorMode;
   core.loadPinnedViews = loadPinnedViews;
   core.togglePinnedView = togglePinnedView;
-  core.loadRecentVisibility = loadRecentVisibility;
-  core.saveRecentVisibility = saveRecentVisibility;
   core.updateViewSelectorCatalogue = updateViewSelectorCatalogue;
   core.bindViewDropdown = bindViewDropdown;
 })();

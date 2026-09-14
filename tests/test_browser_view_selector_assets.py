@@ -27,7 +27,7 @@ def test_view_selector_source_keeps_navigation_explicit_and_local_lists_safe() -
         Path(__file__).parents[1] / "src" / "plotsrv" / "static" / "css" / "controls.css"
     ).read_text(encoding="utf-8")
 
-    assert "const MAX_RECENT_VIEWS = 4" in source
+    assert "Recent" not in source
     assert (
         'window.location.href = window.location.pathname + "?view=" + encodeURIComponent(viewId)' in source
     )
@@ -42,12 +42,12 @@ def test_view_selector_source_keeps_navigation_explicit_and_local_lists_safe() -
     assert 'event.target.closest("[data-pin-view]")' in source
     assert "core.togglePinnedView" in source
     assert 'viewSelectorPinned: "plotsrv:v1:view_selector_pinned"' in storage
-    assert 'viewSelectorRecentVisible: "plotsrv:v1:view_selector_recent_visible"' in storage
+    assert "viewSelectorRecent" not in storage
     assert "document.cookie" not in source
     assert ".ps-viewselect__pin--active" in controls
-    assert ".ps-viewselect__group-action" in controls
+    assert ".ps-viewselect__group-action" not in controls
     assert ".ps-viewselect__item--compact" in controls
-    assert 'event.target.closest("[data-view-recent-toggle]")' in source
+    assert "data-view-recent-toggle" not in source
     assert "core.resolveCompactViews" in source
     assert "core.updateViewSelectorCatalogue" in source
 
@@ -101,17 +101,6 @@ const compact = core.resolveCompactViews(views, [
 ]);
 if (compact.length !== 2 || compact[0].title !== "alpha" || compact[1].title !== "Small plot") {
   throw new Error("compact references were not reconciled with the catalogue");
-}
-if (!core.loadRecentVisibility()) {
-  throw new Error("Recent should be visible by default");
-}
-core.saveRecentVisibility(false);
-if (core.loadRecentVisibility()) {
-  throw new Error("hidden Recent preference did not persist");
-}
-core.saveRecentVisibility(true);
-if (!core.loadRecentVisibility()) {
-  throw new Error("shown Recent preference did not persist");
 }
 if (core.initialViewSelectorMode(true) !== "grouped") {
   throw new Error("Grouped was not the default when featured views exist");

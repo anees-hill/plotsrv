@@ -138,8 +138,6 @@ Anyone using the page can also pin views from the selector. Pinned view IDs are
 kept in that browser's local storage and appear in a **Pinned views** section in
 Grouped mode. Pins do not change server configuration, are not sent with HTTP
 requests, and are automatically reconciled when views are added or removed.
-The **Recent** heading also has a small Hide/Show action; that choice is kept in
-the same browser-local storage.
 
 ## Compact views
 

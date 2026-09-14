@@ -1,8 +1,8 @@
 {
-  "css": "/static/dist/plotsrv-ui.0ee87235a76e.css",
+  "css": "/static/dist/plotsrv-ui.603087d2fa12.css",
   "customiser_css": "/static/dist/plotsrv-customiser.dd3d37e6d6c4.css",
   "customiser_js": "/static/dist/plotsrv-customiser.505ca6c629a6.js",
-  "js": "/static/dist/plotsrv-ui.3ebada345ccd.js",
+  "js": "/static/dist/plotsrv-ui.bb18d06119cd.js",
   "tabulator_js": "/static/vendor/tabulator/5.5.0/tabulator.min.js",
   "tabulator_version": "5.5.0"
 }
