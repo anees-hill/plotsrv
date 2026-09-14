@@ -84,6 +84,15 @@
   color: var(--text);
 }
 
+/* Leave room for native select text and descenders, including larger fonts. */
+#table-group-by-select {
+  box-sizing: border-box;
+  height: auto;
+  min-height: 32px;
+  padding-block: 0.2rem;
+  line-height: 1.3;
+}
+
 .ps-table-input:focus,
 .ps-table-select:focus,
 .ps-table-filter-value:focus,
