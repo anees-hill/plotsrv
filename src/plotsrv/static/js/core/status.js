@@ -324,7 +324,7 @@
           label: "Source unavailable",
           context: "Waiting for the source",
           title: "Stream source unavailable",
-          copy: "The active stream source is unavailable; plotsrv is waiting for it to return.",
+          copy: "The active stream source is unavailable; waiting for it to return.",
         };
       }
 
@@ -333,7 +333,7 @@
           tone: "live",
           label: "Stream active",
           title: "Stream active",
-          copy: "plotsrv is receiving a live producer stream.",
+          copy: "Receiving a live producer stream.",
         },
         retrying: {
           tone: "warn",
@@ -364,7 +364,7 @@
         tone: "neutral",
         label: "Stream connecting",
         title: "Waiting for stream status",
-        copy: "plotsrv has not yet observed the producer state.",
+        copy: "The producer state has not yet been observed.",
       };
       return Object.assign(
         { visible: config.showHeaderFreshness, context: "" },
@@ -437,7 +437,7 @@
         label: "Latest",
         context: policyLabel,
         title: "No latest data yet",
-        copy: policyLabel + ". This browser will remain on the latest view while plotsrv waits for data.",
+        copy: policyLabel + ". This browser will remain on the latest view while waiting for data.",
       };
     }
 

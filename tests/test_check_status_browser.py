@@ -469,12 +469,70 @@ def test_restored_status_moves_to_header_and_clears_on_live_update(page):
     assert page.locator("#header-status").get_attribute("data-status-tone") == "restored"
     opened(page)
     assert page.locator("#status-modal-viewing").inner_text() == "Restored data"
+    assert page.locator("#status-modal-health").get_attribute("data-status-tone") == "restored"
     assert "Restored at" in page.locator("#status-modal-viewing-detail").inner_text()
     page.evaluate("PLOTSRV.core.setHeaderViewState('snapshot', {createdAt:'2026-09-13T12:00:00Z'})")
     assert page.locator("#header-status").get_attribute("data-status-tone") == "history"
+    assert page.locator("#status-modal-health").get_attribute("data-status-tone") == "history"
     page.evaluate("""() => {
       PLOTSRV.core.setHeaderViewState('latest');
       PLOTSRV.core.setHeaderLatestStatus({restored_from_storage:false, freshness:{enabled:false}});
     }""")
     assert page.locator("#header-status-label").inner_text() != "Restored"
     assert page.locator("#site-header").get_attribute("data-status-accent") is None
+
+
+def test_compact_status_hierarchy_empty_checks_and_disclosure_keyboard(page):
+    mount(page, {"version": 1, "generation": "empty", "cursor": 0, "states": [], "events": []})
+    page.evaluate("""() => {
+      const now = new Date().toISOString();
+      PLOTSRV.core.setHeaderLatestStatus({last_updated: now, last_data_arrival_at: now,
+        freshness: {enabled: true, state: 'ok', label: 'Fresh', age_s: 0,
+          expected_every_s: 60, warn_after_s: 120, overdue_after_s: 300},
+        data_activity: {events: [{received_at: now}], limit: 256}});
+    }""")
+    opened(page)
+    assert page.locator("#status-modal-health-label").inner_text() == "Live and up to date"
+    assert page.locator("#status-modal-received").inner_text() == "Just now"
+    assert page.locator("#status-checks-context").is_hidden()
+    assert page.locator("#status-checks-personal").is_hidden()
+    assert page.locator("#status-modal-actions").is_hidden()
+    assert page.locator("#status-modal-policy-copy").is_hidden()
+    assert page.locator("#status-modal-view-id").is_hidden()
+    assert page.locator("#status-modal").bounding_box()["width"] <= 760
+    activity = page.locator(".ps-status-modal__activity").bounding_box()
+    checks = page.locator("#status-modal-checks").bounding_box()
+    assert activity["y"] + activity["height"] <= checks["y"] + 1
+    technical = page.locator(".ps-status-modal__technical > summary")
+    technical.focus()
+    page.keyboard.press("Tab")
+    assert page.locator("#status-modal-close-icon").evaluate("e => e === document.activeElement")
+    page.keyboard.press("Shift+Tab")
+    assert technical.evaluate("e => e === document.activeElement")
+    page.keyboard.press("Enter")
+    assert page.locator("#status-modal-view-id").is_visible()
+    page.locator("#status-modal-policy > summary").focus()
+    page.keyboard.press("Enter")
+    assert "2 minutes" in page.locator("#status-modal-policy-values").inner_text()
+    for freshness, tone, label in (("warn", "warn", "Stale"), ("error", "error", "Very stale")):
+        page.evaluate("""freshness => {
+          const payload = PLOTSRV.state.latestStatusPayload;
+          payload.freshness.state = freshness;
+          PLOTSRV.core.setHeaderLatestStatus(payload);
+        }""", freshness)
+        assert page.locator("#status-modal-health").get_attribute("data-status-tone") == tone
+        assert page.locator("#status-modal-health-label").inner_text() == label
+    page.evaluate("PLOTSRV.core.setHeaderBrowserDataState('update_available')")
+    assert page.locator("#status-modal-health-label").inner_text() == "New data available"
+    assert page.locator("#status-modal-update-now").is_visible()
+    page.evaluate("""() => {
+      PLOTSRV.state.currentSnapshot = 'stored';
+      PLOTSRV.core.setHeaderViewState('snapshot');
+    }""")
+    assert page.locator("#status-modal-health-label").inner_text() == "Snapshot"
+    assert page.locator("#status-modal-update-now").is_hidden()
+    assert page.locator("#status-modal-return-latest").is_visible()
+    # The redesign adds no background check reads.
+    assert page.evaluate("checkReads") == 1
+    page.keyboard.press("Escape")
+    assert page.locator("#header-status-button").evaluate("e => e === document.activeElement")

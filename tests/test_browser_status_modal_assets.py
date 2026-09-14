@@ -23,8 +23,8 @@ def test_modal_markup_is_labelled_scrollable_and_shared_by_all_status_states() -
 
     assert 'role="dialog"' in html_source
     assert 'aria-modal="true"' in html_source
-    assert 'aria-labelledby="status-modal-title"' in html_source
-    assert 'aria-describedby="status-modal-intro"' in html_source
+    assert 'aria-label="Live data status"' in html_source
+    assert 'id="status-modal-intro"' not in html_source
     assert 'id="status-modal-update-now"' in html_source
     assert 'id="status-modal-return-latest"' in html_source
     assert 'id="status-modal-range"' in html_source
@@ -33,34 +33,24 @@ def test_modal_markup_is_labelled_scrollable_and_shared_by_all_status_states() -
     assert "overflow: auto" in css_source
 
 
-def test_regular_summary_drops_browser_card_and_gives_freshness_double_width() -> None:
-    regular = html_mod.render_index(
-        kind="table",
-        table_view_mode="rich",
-        table_html_simple=None,
-        max_table_rows_simple=200,
-        max_table_rows_rich=1000,
-    )
-    stream = html_mod.render_index(
-        kind="stream",
-        table_view_mode="rich",
-        table_html_simple=None,
-        max_table_rows_simple=200,
-        max_table_rows_rich=1000,
-    )
-    css = _read("css/status.css")
-
-    assert "ps-status-modal__summary--regular" in regular
-    assert 'id="status-modal-browser"' not in regular
-    assert ">Browser view<" not in regular
-    assert 'class="ps-status-fact ps-status-fact--freshness"' in regular
-    assert "grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr)" in css
-    assert ".ps-status-modal__summary--regular .ps-status-fact--freshness" in css
-
-    assert "ps-status-modal__summary--stream" in stream
-    assert 'id="status-modal-browser"' in stream
-    assert ">Browser stream<" in stream
-    assert "grid-template-columns: repeat(4, minmax(0, 1fr))" in css
+def test_summary_has_two_facts_and_diagnostics_follow_activity() -> None:
+    for kind in ("table", "stream"):
+        rendered = html_mod.render_index(
+            kind=kind, table_view_mode="rich", table_html_simple=None,
+            max_table_rows_simple=200, max_table_rows_rich=1000,
+        )
+        summary = rendered.split('class="ps-status-modal__summary"', 1)[1].split('</section>', 1)[0]
+        assert summary.count('class="ps-status-fact"') == 2
+        assert 'id="status-modal-freshness"' not in summary
+        assert 'id="status-modal-browser"' not in summary
+        assert rendered.index('id="status-modal-health"') < rendered.index('id="status-modal-viewing"')
+        assert rendered.index('id="status-modal-activity-title"') < rendered.index('id="status-modal-checks"')
+        assert '<details id="status-modal-policy"' in rendered
+        assert '<details class="ps-status-modal__technical">' in rendered
+        assert 'id="status-modal-title"' not in rendered
+        assert 'id="status-modal-browser"' in rendered
+        modal = rendered.split('id="status-modal-backdrop"', 1)[1].split('</footer>', 1)[0]
+        assert "plotsrv" not in modal.lower()
 
 
 def test_modal_interaction_traps_focus_restores_focus_and_dismisses_with_escape() -> None:
@@ -228,7 +218,7 @@ def test_stream_modal_distinguishes_records_heartbeats_and_continuity() -> None:
     assert 'brief quiet gaps are tolerated and heartbeats are excluded."' in source
     assert 'streamView ? "Stream status" : "Live data status"' in source
     assert 'streamView ? "Producer state" : "Freshness"' in source
-    assert 'streamView ? "Records received over time" : "Data received over time"' in source
+    assert 'streamView ? "Recent stream activity" : "Recent updates"' in source
     assert "if (policy) policy.hidden = streamView" in source
     assert 'id="status-modal-policy"' in html_source
     assert "status-modal-stream-lifecycle" in source

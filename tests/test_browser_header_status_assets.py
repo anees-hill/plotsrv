@@ -145,5 +145,6 @@ def test_view_selector_and_status_use_the_same_header_control_treatment() -> Non
     assert "grid-template-columns: auto minmax(0, auto) auto" in controls_css
     for name in ("ps-viewselect__chev", "ps-header-status__chevron"):
         assert f'<svg class="{name}" aria-hidden="true" focusable="false"' in html_source
-    assert html_source.count('<path d="M3 5.5 8 10.5 13 5.5" />') == 2
+        icon = html_source.split(f'<svg class="{name}"', 1)[1].split('</svg>', 1)[0]
+        assert '<path d="M3 5.5 8 10.5 13 5.5" />' in icon
     assert ".ps-header-status__chevron,\n.ps-viewselect__chev {" in status_css

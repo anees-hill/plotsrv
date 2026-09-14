@@ -94,6 +94,10 @@
     context.textContent = historical
       ? "Checks refer to the latest accepted live data, not this historical snapshot or stored session."
       : "Checks refer to accepted live data. The results below stay fixed while you read.";
+    const hasChecks = !!(shown && shown.states.length);
+    context.hidden = !hasChecks;
+    const personal = el("status-checks-personal");
+    if (personal) personal.hidden = !hasChecks;
     const button = el("status-checks-load");
     if (button) {
       const changed = shown && latest && (shown.generation !== latest.generation || shown.cursor < latest.cursor ||

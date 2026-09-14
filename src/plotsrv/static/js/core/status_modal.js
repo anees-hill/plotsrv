@@ -112,9 +112,13 @@
     last.textContent = formatAxisTime(end, span);
     first.title = new Date(start).toLocaleString();
     last.title = new Date(end).toLocaleString();
+    // End labels are edge-aligned; reserve their full width plus half a tick
+    // label so 12-hour timestamps do not collide on narrow screens.
+    const startClearance = Math.max(spacing, first.getBoundingClientRect().width + spacing / 2);
+    const endClearance = Math.max(spacing, last.getBoundingClientRect().width + spacing / 2);
     for (let time = origin, count = 0; time < end && count < 14; time += step, count += 1) {
       const position = (time - start) / span;
-      if (position * width < spacing || (1 - position) * width < spacing) continue;
+      if (position * width < startClearance || (1 - position) * width < endClearance) continue;
       const tick = document.createElement("span");
       tick.className = "ps-arrival-chart__tick";
       tick.style.left = position * 100 + "%";
@@ -370,13 +374,14 @@
     const streamView = config.kind === "stream";
     const policy = document.getElementById("status-modal-policy");
 
-    setText("status-modal-title", streamView ? "Stream status" : "Live data status");
-    setText(
-      "status-modal-intro",
-      streamView
-        ? "What plotsrv and this browser currently know about this stream."
-        : "What plotsrv and this browser currently know about this view."
-    );
+    setAttribute("status-modal", "aria-label", streamView ? "Stream status" : "Live data status");
+    const presentation = core.deriveHeaderStatus ? core.deriveHeaderStatus(state.headerStatus) : null;
+    if (presentation) {
+      setAttribute("status-modal-health", "data-status-tone", presentation.tone);
+      setText("status-modal-health-label", presentation.label === "Live" ? "Live and up to date" : presentation.label);
+      setText("status-modal-health-copy", presentation.label === "Live"
+        ? "Latest data is within its freshness policy." : presentation.copy);
+    }
     setAttribute(
       "status-modal-close-icon",
       "aria-label",
@@ -391,7 +396,7 @@
     setText("status-modal-freshness-label", streamView ? "Producer state" : "Freshness");
     setText(
       "status-modal-activity-title",
-      streamView ? "Records received over time" : "Data received over time"
+      streamView ? "Recent stream activity" : "Recent updates"
     );
     if (policy) policy.hidden = streamView;
 
@@ -414,7 +419,7 @@
       setText("status-modal-viewing-detail", payload.restored_from_storage
         ? "Restored from storage. Waiting for the next live update." +
           (payload.restored_at ? " Restored at " + core.fmtLocalTime(payload.restored_at) + "." : "")
-        : "This view follows accepted live updates.");
+        : "");
     }
 
     const lastArrival = payload.last_data_arrival_at;
@@ -473,7 +478,7 @@
       "status-modal-activity-copy",
       config.kind === "stream"
         ? "Nearby accepted record batches are combined into activity ranges; brief quiet gaps are tolerated and heartbeats are excluded."
-        : "Each dot represents a published update received by plotsrv."
+        : "Each dot represents a published update received."
     );
     setText("status-modal-view-id", config.activeViewId);
     setText(
@@ -500,6 +505,8 @@
 
     const updateNow = document.getElementById("status-modal-update-now");
     const returnLatest = document.getElementById("status-modal-return-latest");
+    const actions = document.getElementById("status-modal-actions");
+    if (actions) actions.hidden = !historical && (!waiting || state.streamPaused);
     if (updateNow) updateNow.hidden = !waiting || historical || state.streamPaused;
     if (returnLatest) {
       returnLatest.hidden = !historical;
@@ -514,7 +521,7 @@
           "summary, [href], [tabindex]:not([tabindex='-1'])"
       )
     ).filter(function (element) {
-      return !element.closest("[hidden]");
+      return !element.closest("[hidden]") && element.getClientRects().length > 0;
     });
   }
 

@@ -592,9 +592,6 @@ body.ps-settings-open {
 #status,
 .ps-bottom-alert,
 .ps-status-modal,
-.ps-status-modal__summary,
-.ps-status-modal__policy,
-.ps-status-modal__activity,
 .ps-table-topbar,
 .ps-table-columns-panel,
 .artifact-input,
@@ -762,12 +759,6 @@ body.ps-settings-open {
   box-shadow: var(--ps-shadow);
 }
 
-.ps-status-modal__stream,
-.ps-status-modal__technical {
-  border-color: var(--ps-border);
-  background: var(--ps-surface-soft);
-}
-
 .ps-status-fact + .ps-status-fact,
 .ps-status-fact:nth-child(n + 3) {
   border-color: var(--ps-border-soft);
@@ -775,14 +766,6 @@ body.ps-settings-open {
 
 .ps-status-fact__label {
   color: var(--ps-muted);
-}
-
-.ps-arrival-chart__track {
-  border-color: var(--ps-border);
-  background-color: var(--ps-surface-soft);
-  background-image:
-    repeating-linear-gradient(to right, transparent 0, transparent calc(12.5% - 1px), var(--ps-border-soft) 12.5%),
-    repeating-linear-gradient(to bottom, transparent 0, transparent 20px, var(--ps-border-soft) 21px);
 }
 
 /* Table UI, including the third-party grid. */
