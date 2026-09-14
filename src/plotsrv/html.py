@@ -232,7 +232,7 @@ def render_index(
                   aria-haspopup="menu"
                   aria-expanded="false"
                   aria-controls="export-menu">
-                  Export <span aria-hidden="true">⌄</span>
+                  Export <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 5.5 8 10.5 13 5.5" /></svg>
                 </button>
                 <div id="export-menu" class="ps-export__menu" role="menu" hidden>
                   {items}
@@ -1256,7 +1256,7 @@ def render_index(
 
         <div class="header-right ps-header__right">
           <button id="expand-view" class="ps-expand-button" type="button" aria-label="Expand view" title="Expand view">
-            <svg class="ps-header-control-icon" viewBox="405 409 445 445" width="20" height="20" aria-hidden="true" focusable="false"><image href="/static/icons/header-fullscreen.png" width="1254" height="1254" /></svg>
+            <svg class="ps-header-control-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#666463" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7.5 1H1v6.5M16.5 1H23v6.5M1 16.5V23h6.5M23 16.5V23h-6.5" /></svg>
           </button>
           <details id="view-about" class="ps-view-about" hidden>
             <summary class="ps-expand-button" aria-label="About this view" title="About this view">i</summary>

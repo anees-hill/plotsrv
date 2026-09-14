@@ -65,7 +65,7 @@ body.ps-compare:not(.ps-expanded) .tabulator { height: var(--ps-table-available,
 
 /* Normal floating bar: distinct actions and a joined snapshot navigation group. */
 body:not(.ps-compare) .ps-bottom-bar {
-  padding: 0.65rem 0.8rem;
+  padding: 0.3rem 0.8rem;
   border-radius: 14px;
   box-sizing: border-box;
 }
@@ -164,7 +164,7 @@ body:not(.ps-compare) .ps-bottom-bar #bottom-collapse {
 }
 body.ps-bar-pinned:not(.ps-compare) .ps-bottom-bar { border-radius: 10px 10px 0 0; }
 @media (max-width: 700px) {
-  body:not(.ps-compare) .ps-bottom-bar { padding: 0.5rem; }
+  body:not(.ps-compare) .ps-bottom-bar { padding: 0.25rem 0.5rem; }
   body:not(.ps-compare) .ps-bottom-bar__controls { gap: 0.5rem; flex-wrap: wrap; justify-content: center; }
   body:not(.ps-compare) .ps-bottom-bar .ps-snapshots__selector > span:first-child { display: none; }
   body:not(.ps-compare) .ps-bottom-bar #history-select { width: 150px; max-width: 35vw; min-width: 80px; }

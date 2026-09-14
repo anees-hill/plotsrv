@@ -50,6 +50,14 @@
       (/(Z|\+00:00)$/.test(String(value)) ? String(value) : date.toISOString()) + " (UTC)";
   }
 
+  function snapshotLabel(value) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value || "") : date.toLocaleString([], {
+      year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
+  }
+
   function announce(message) {
     const notice = document.getElementById("snapshot-navigation-notice");
     if (notice) notice.textContent = message;
@@ -249,7 +257,7 @@
       } else {
         parts.push('<option value="">Live (latest)</option>');
         for (const snap of snapshots) {
-          const ts = preciseTimestamp(snap.created_at || snap.snapshot_id);
+          const ts = snapshotLabel(snap.created_at || snap.snapshot_id);
           const label = (snap.is_latest ? "Newest stored · " : "") + ts +
             (snap.is_live_equivalent ? " · Same revision as Live" : " · Stored version");
 
@@ -258,7 +266,7 @@
           parts.push(
             '<option value="' +
               core.escapeHtml(snap.snapshot_id) +
-              '">' +
+              '" title="' + core.escapeHtml(preciseTimestamp(snap.created_at || snap.snapshot_id)) + '">' +
               core.escapeHtml(label) +
               kind +
               "</option>"
@@ -268,7 +276,9 @@
 
       sel.innerHTML = parts.join("");
       if (data.selected && !snapshots.some(x => x.snapshot_id === data.selected.snapshot_id)) {
-        sel.append(new Option(preciseTimestamp(data.selected.created_at) + " · Stored version", data.selected.snapshot_id));
+        const option = new Option(snapshotLabel(data.selected.created_at) + " · Stored version", data.selected.snapshot_id);
+        option.title = preciseTimestamp(data.selected.created_at);
+        sel.append(option);
       }
       if (data.next_cursor) sel.append(new Option("Older snapshots…", "__older_page__"));
       if (before) sel.append(new Option("Newest snapshots…", "__newest_page__"));

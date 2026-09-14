@@ -58,7 +58,7 @@ def test_settings_trigger_uses_supplied_icon_and_precedes_freshness() -> None:
 
     assert 'id="settings-button"' in header_right
     assert 'href="/static/icons/header-settings.png"' in header_right
-    assert 'href="/static/icons/header-fullscreen.png"' in header_right
+    assert 'stroke-width="1.9"' in header_right
     assert 'aria-controls="settings-page"' in header_right
     assert header_right.index('id="settings-button"') < header_right.index(
         'id="header-status"'

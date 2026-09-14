@@ -104,7 +104,10 @@ def test_keyboard_boundaries_exact_and_ambiguous_latest(page):
     assert page.locator("#artifact-root").inner_text() == "Version 1"
     assert page.locator("#snapshot-older").is_disabled()
     assert page.locator("#snapshot-newer").is_enabled()
-    assert "UTC" in page.locator("#history-select").inner_text()
+    selected = page.locator("#history-select option:checked")
+    assert "2026" in selected.inner_text()
+    assert "T12:00" not in selected.inner_text()
+    assert "UTC" in selected.get_attribute("title")
     assert "snapshot=1" in page.url
     assert page.evaluate("marked") == 0
     page.locator("#snapshot-newer").focus()

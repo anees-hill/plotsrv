@@ -94,7 +94,7 @@
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.84);
   box-shadow: 0 7px 20px rgba(0, 0, 0, 0.11);
-  backdrop-filter: blur(10px) saturate(125%);
+  backdrop-filter: none;
   pointer-events: auto;
 }
 

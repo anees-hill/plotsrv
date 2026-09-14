@@ -188,8 +188,8 @@ html[data-theme="dark"] .ps-header {
   outline-offset: 2px;
 }
 
-/* SVG viewports frame the supplied PNG artwork without its uneven transparent
-   margins. Both header icons retain the same visible size and colour treatment. */
+/* The settings viewport frames the supplied PNG; fullscreen uses matching
+   vector artwork. Both retain the same visible size and colour treatment. */
 .ps-header-control-icon {
   display: block;
   width: 20px;
@@ -713,6 +713,7 @@ body.ps-settings-open {
 }
 
 .ps-bottom-bar {
+  --ps-floating-bg: var(--ps-surface-raised);
   border-color: var(--ps-border);
   background: var(--ps-floating-bg);
   color: var(--ps-text);
