@@ -85,7 +85,7 @@
       target.disabled = !source || source.disabled;
       target.title = source ? source.title : "Unavailable";
     }
-    label("compare-message", nav.error || ui.error || (nav.pending ? "Loading selected version…" : ui.loading ? "Loading stored metadata…" : state.currentSnapshot && selected && selected.created_at.slice(0, 10) !== ui.day ? "Selected version is outside this displayed day." : pinned ? pinned.scope + ". Held for inspection; choose Latest again to capture current data." : ""));
+    label("compare-message", nav.error || ui.error || (nav.loadingVisible ? "Loading selected version…" : ui.loading ? "Loading stored metadata…" : state.currentSnapshot && selected && selected.created_at.slice(0, 10) !== ui.day ? "Selected version is outside this displayed day." : pinned ? pinned.scope + ". Held for inspection; choose Latest again to capture current data." : ""));
     el("compare-day").value = ui.day;
     for (const mode of ["timeline", "list"]) {
       el("compare-" + mode + "-tab").setAttribute("aria-pressed", String(ui.mode === mode));

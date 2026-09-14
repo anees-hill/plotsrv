@@ -15,12 +15,20 @@
   // Shared by toolbar and future focus/Compare surfaces. No DOM is required
   // to fetch metadata, choose a version, or protect an asynchronous selection.
   const navigation = state.snapshotNavigation = {
-    metadata: null, viewId: config.activeViewId, loading: false, pending: false, error: "",
+    metadata: null, viewId: config.activeViewId, loading: false, pending: false, loadingVisible: false, error: "",
     displayed: state.currentSnapshot || null, revision: 0,
   };
   let historyController = null;
   let historyRequest = 0;
   let selectionPromise = null;
+  let loadingNoticeTimer = null;
+
+  function clearLoadingNotice() {
+    if (loadingNoticeTimer !== null) window.clearTimeout(loadingNoticeTimer);
+    loadingNoticeTimer = null;
+    navigation.loadingVisible = false;
+  }
+
   const bodyLoads = new Map(); // At most one each: artifact, table, plot.
 
   function beginSnapshotLoad(kind) {
@@ -85,6 +93,7 @@
   }
 
   function selectionFailed(message) {
+    clearLoadingNotice();
     if (!navigation.pending && !state.currentSnapshot) {
       if (core.setStatusMessage) core.setStatusMessage(core.escapeHtml(message));
       return; // Ordinary Live failures remain eligible for a later live update.
@@ -354,7 +363,18 @@
     for (const controller of bodyLoads.values()) controller.abort();
     writeSnapshotToUrl(selected);
     syncHistoryUi();
-    announce("Loading selected version. Previous content may still be visible.");
+    clearLoadingNotice();
+    announce("");
+    const noticeRevision = navigation.revision;
+    const noticeView = config.activeViewId;
+    loadingNoticeTimer = window.setTimeout(function () {
+      loadingNoticeTimer = null;
+      if (!navigation.pending || navigation.error || noticeRevision !== navigation.revision ||
+          noticeView !== config.activeViewId) return;
+      navigation.loadingVisible = true;
+      announce("Loading selected version. Previous content may still be visible.");
+      syncNavigation();
+    }, 500);
     // Metadata work is coalesced with the body selection below.
     navigation.loading = true;
     syncNavigation();
@@ -402,6 +422,7 @@
         navigation.pending = false;
       }
     })().finally(function () {
+      clearLoadingNotice();
       navigation.pending = false;
       selectionPromise = null;
       state.compareCandidate = null;
@@ -460,6 +481,7 @@
   core.beginSnapshotLoad = beginSnapshotLoad;
   core.snapshotSelectionFailed = selectionFailed;
   window.addEventListener("pagehide", function () {
+    clearLoadingNotice();
     historyRequest += 1;
     if (historyController) historyController.abort();
     for (const controller of bodyLoads.values()) controller.abort();

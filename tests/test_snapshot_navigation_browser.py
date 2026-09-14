@@ -353,3 +353,30 @@ def test_pending_selection_blocks_forced_live_updates_and_failure_has_no_hot_ret
     page.wait_for_timeout(100)
     assert page.evaluate("reloads") == 1
     assert page.evaluate("PLOTSRV.state.pendingBrowserUpdate.revision") == 10
+
+
+def test_loading_notice_waits_for_slow_selection_and_cleans_up(page):
+    mount(page)
+    page.evaluate("""() => {
+      window.notices = [];
+      const notice = document.getElementById('snapshot-navigation-notice');
+      new MutationObserver(() => notices.push(notice.textContent)).observe(notice, {childList:true});
+      PLOTSRV.core.snapshotNavigation.select('80');
+    }""")
+    settled(page)
+    page.wait_for_timeout(550)
+    assert not any("Loading selected" in text for text in page.evaluate("notices"))
+    page.evaluate("() => {held=['79']; PLOTSRV.core.snapshotNavigation.select('79');}")
+    assert page.locator("#snapshot-navigation-notice").inner_text() == ""
+    page.wait_for_function("PLOTSRV.state.snapshotNavigation.loadingVisible")
+    assert "Loading selected" in page.locator("#snapshot-navigation-notice").inner_text()
+    page.evaluate("releases['79']()")
+    settled(page)
+    assert page.locator("#snapshot-navigation-notice").inner_text() == ""
+    assert not page.evaluate("PLOTSRV.state.snapshotNavigation.loadingVisible")
+    page.evaluate("() => {failures['78']=500; PLOTSRV.core.snapshotNavigation.select('78');}")
+    settled(page)
+    error = page.locator("#snapshot-navigation-notice").inner_text()
+    assert error and "Loading selected" not in error
+    page.wait_for_timeout(550)
+    assert page.locator("#snapshot-navigation-notice").inner_text() == error
