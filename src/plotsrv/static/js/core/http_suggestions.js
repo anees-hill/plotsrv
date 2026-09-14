@@ -5,20 +5,22 @@
   const derived = new WeakMap();
   let profile = null,
     rawColumns = [],
-    opening = false;
+    opening = false,
+    selectedName = null;
   core.tableFieldLabel = function (field) {
     const labels = (state.observationProfile && state.observationProfile.labels) || (state.httpProfile && state.httpProfile.labels) || {};
     return Object.prototype.hasOwnProperty.call(labels, field)
       ? labels[field]
       : field;
   };
-  async function open(spec) {
+  async function open(spec, suggestionName = null) {
     if (opening) return;
     opening = true;
     core.mountHttpSuggestions();
     let errorMessage = null;
     try {
       await core.applyViewSpec(spec);
+      selectedName = suggestionName;
     } catch (error) {
       errorMessage = "Presentation unavailable: " + error.message;
     } finally {
@@ -29,6 +31,10 @@
       document.getElementById("http-suggestions-scope").textContent =
         errorMessage;
   }
+  core.clearHttpSuggestionSelection = function () {
+    selectedName = null;
+    if (document.getElementById("http-suggestions")) core.mountHttpSuggestions();
+  };
   core.prepareHttpSuggestions = function (data) {
     rawColumns = data.columns.slice();
     profile =
@@ -85,11 +91,11 @@
       select.className = "ps-table-select";
       select.setAttribute("aria-label", "Suggested views");
       select.addEventListener("change", async function () {
+        if (select.value === "") return;
         const chosen = ((profile && profile.recipes) || [])[
           Number(select.value)
         ];
-        select.value = "";
-        if (chosen) await open(chosen);
+        if (chosen) await open(chosen, chosen.name);
       });
       const raw = document.createElement("button");
       raw.type = "button";
@@ -131,15 +137,23 @@
     // Keep keyboard focus/open native menus stable across ordinary appends.
     if (select.dataset.signature !== signature) {
       select.replaceChildren(new Option("Suggested views", ""));
+      select.options[0].disabled = true;
       recipes.forEach((recipe, index) =>
         select.add(new Option(recipe.name, String(index))),
       );
       select.dataset.signature = signature;
     }
+    // This is the chosen starting presentation, even after manual edits.
+    // Match by name because available recipes can change order as data arrives.
+    if (!opening) {
+      const selected = recipes.findIndex(recipe => recipe.name === selectedName);
+      const value = selected < 0 ? "" : String(selected);
+      if (select.value !== value) select.value = value;
+    }
     select.disabled = opening || !recipes.length;
     area.querySelector("button").disabled = opening;
     select.title = recipes.length
-      ? "Open a presentation; customise it and save on this browser"
+      ? "Choose a starting presentation; its name stays selected when you customise the settings"
       : (profile && profile.unavailable) || "No HTTP suggestions available";
     const message = profile
       ? recipes.length

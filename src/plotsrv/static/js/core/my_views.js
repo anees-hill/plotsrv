@@ -158,6 +158,7 @@
     const result = contract.compatible(spec, schema());
     active = item;
     selectedSpec = spec;
+    if (item && core.clearHttpSuggestionSelection) core.clearHttpSuggestionSelection();
     if (core.syncViewExplanation) core.syncViewExplanation();
     if (item) baseline = item.spec;
     if (result.unsafe.length) {
@@ -425,6 +426,7 @@
     }
     active = null;
     blockedSpec = remountSpec = selectedSpec = null;
+    if (core.clearHttpSuggestionSelection) core.clearHttpSuggestionSelection();
     if (core.syncViewExplanation) core.syncViewExplanation();
     state.myViewBlocked = false;
     requested = true;
