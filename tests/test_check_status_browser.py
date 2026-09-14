@@ -422,3 +422,36 @@ def test_notification_diagnostics_do_not_create_unseen_check_activity(page):
     assert "http_permanent" in page.locator("#status-checks-current pre").inner_text()
     assert page.locator("#status-checks-events article").count() == 1
     assert page.locator("#header-check-attention").is_hidden()
+
+
+def test_arrival_axis_adapts_to_range_and_screen_width(page):
+    mount(page)
+    opened(page)
+    page.set_viewport_size({"width": 1200, "height": 1000})
+    page.select_option("#status-modal-range", "86400")
+    ticks = page.locator(".ps-arrival-chart__tick")
+    assert 3 <= ticks.count() <= 12
+    desktop_count = ticks.count()
+    day_labels = ticks.all_text_contents()
+    page.select_option("#status-modal-range", "900")
+    assert ticks.count() >= 2
+    assert ticks.all_text_contents() != day_labels
+    page.select_option("#status-modal-range", "604800")
+    assert ticks.count() >= 2
+    page.select_option("#status-modal-range", "86400")
+    reads = page.evaluate("checkReads")
+    page.set_viewport_size({"width": 375, "height": 800})
+    page.wait_for_function(
+        "count => document.querySelectorAll('.ps-arrival-chart__tick').length < count",
+        arg=desktop_count,
+    )
+    assert ticks.count() >= 1
+    boxes = page.locator(".ps-arrival-chart__axis > span").evaluate_all(
+        "els => els.map(el => {const r=el.getBoundingClientRect(); return {left:r.left,right:r.right};}).sort((a,b)=>a.left-b.left)"
+    )
+    assert all(a["right"] <= b["left"] for a, b in zip(boxes, boxes[1:]))
+    assert page.evaluate("checkReads") == reads
+    page.evaluate("PLOTSRV.core.closeStatusModal()")
+    labels = ticks.all_text_contents()
+    page.set_viewport_size({"width": 1200, "height": 1000})
+    assert ticks.all_text_contents() == labels

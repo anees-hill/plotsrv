@@ -83,9 +83,45 @@
     const date = new Date(milliseconds);
     if (!Number.isFinite(date.getTime())) return "—";
     if (rangeMilliseconds <= 86400000) {
-      return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      return date.toLocaleTimeString([], {
+        hour: "2-digit", minute: "2-digit",
+        ...(rangeMilliseconds < 60000 ? { second: "2-digit" } : {}),
+      });
     }
     return date.toLocaleDateString([], { month: "short", day: "numeric" });
+  }
+
+  function renderArrivalAxis(start, end, track) {
+    const first = document.getElementById("status-modal-range-start");
+    const last = document.getElementById("status-modal-range-end");
+    const axis = first && first.parentElement;
+    if (!axis || !last) return;
+    axis.querySelectorAll(".ps-arrival-chart__tick").forEach(function (tick) { tick.remove(); });
+    const span = end - start;
+    const width = track.getBoundingClientRect().width;
+    const spacing = span > 86400000 ? 84 : 70;
+    const slots = Math.max(1, Math.min(12, Math.floor(width / spacing)));
+    const intervals = [1, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800,
+      3600, 7200, 10800, 14400, 21600, 43200, 86400, 172800, 604800];
+    const step = (intervals.find(function (seconds) { return seconds * 1000 >= span / slots; }) ||
+      Math.ceil(span / slots / 604800000) * 604800) * 1000;
+    // Align hours to local wall time, while positioning by elapsed time (including DST).
+    const offset = new Date(start).getTimezoneOffset() * 60000;
+    const origin = Math.ceil((start - offset) / step) * step + offset;
+    first.textContent = formatAxisTime(start, span);
+    last.textContent = formatAxisTime(end, span);
+    first.title = new Date(start).toLocaleString();
+    last.title = new Date(end).toLocaleString();
+    for (let time = origin, count = 0; time < end && count < 14; time += step, count += 1) {
+      const position = (time - start) / span;
+      if (position * width < spacing || (1 - position) * width < spacing) continue;
+      const tick = document.createElement("span");
+      tick.className = "ps-arrival-chart__tick";
+      tick.style.left = position * 100 + "%";
+      tick.textContent = formatAxisTime(time, span);
+      tick.title = new Date(time).toLocaleString();
+      axis.appendChild(tick);
+    }
   }
 
   function streamRangeTolerance(events) {
@@ -213,9 +249,7 @@
     }
 
     empty.hidden = visible.length !== 0;
-    const rangeMilliseconds = now - start;
-    setText("status-modal-range-start", formatAxisTime(start, rangeMilliseconds));
-    setText("status-modal-range-end", formatAxisTime(now, rangeMilliseconds));
+    renderArrivalAxis(start, now, track);
     if (chart) {
       const visibleItems = config.kind === "stream" ? streamRanges.length : visible.length;
       const itemName = config.kind === "stream" ? "stream activity range" : "data arrival event";
@@ -488,6 +522,7 @@
     if (!backdrop) return;
     state.statusModalReturnFocus = document.activeElement;
     state.statusModalOpen = true;
+    window.addEventListener("resize", renderStatusModal);
     backdrop.hidden = false;
     if (document.body) document.body.classList.add("ps-status-modal-open");
     if (button) button.setAttribute("aria-expanded", "true");
@@ -507,6 +542,7 @@
     if (!backdrop || backdrop.hidden) return;
     backdrop.hidden = true;
     state.statusModalOpen = false;
+    window.removeEventListener("resize", renderStatusModal);
     if (typeof core.closeCheckStatus === "function") core.closeCheckStatus();
     if (document.body) document.body.classList.remove("ps-status-modal-open");
     if (button) button.setAttribute("aria-expanded", "false");
