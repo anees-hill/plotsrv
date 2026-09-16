@@ -32,14 +32,14 @@
 }
 
 .ps-code-toolbar__meta {
-  padding: 0.2rem 0.48rem;
-  border: 1px solid #ead4dc;
-  border-radius: 999px;
-  background: #fff7f9;
-  color: #8d4253;
-  font-size: 0.78rem;
-  font-weight: 650;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
   cursor: default;
+  opacity: 0.8;
 }
 
 .ps-code {

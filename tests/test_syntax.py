@@ -99,6 +99,33 @@ def test_multiline_tokens_remain_balanced_and_preserve_source():
     assert syntax.highlight(raw, "python", partial_tail=True).html is None
 
 
+def test_education_pipeline_is_highlighted_within_preview_limits():
+    source = (
+        Path(__file__).parents[1] / "demos" / "education" / "pipeline.py"
+    ).read_text(encoding="utf-8")
+
+    result = syntax.highlight(source, "python")
+
+    assert result.reason is None
+    assert result.html is not None
+    assert 'ps-code-token--keyword' in result.html
+
+
+def test_code_toolbar_uses_the_same_compact_language_icon_as_the_view_menu():
+    from plotsrv.renderers.code import CodeRenderer
+
+    result = CodeRenderer().render(
+        "SELECT count(*) FROM records;", view_id="v",
+        source_info={"language": "sql"},
+    )
+
+    assert 'class="ps-code-toolbar__meta ps-code-view-icon"' in result.html
+    assert 'class="ps-code-view-icon__glyph"' in result.html
+    assert 'class="ps-code-view-icon__language"' in result.html
+    assert 'aria-label="SQL"' in result.html
+    assert ">SQL</span>" in result.html
+
+
 def test_limits_precede_lexer_work_and_bound_expansion(monkeypatch):
     import pygments.lexers
 

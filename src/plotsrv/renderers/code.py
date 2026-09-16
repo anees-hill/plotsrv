@@ -13,6 +13,30 @@ from .syntax import highlight, presentation
 from .base import Renderer, RenderResult
 
 
+_LANGUAGE_MARKERS = {
+    "python": "PY", "r": "R", "sql": "SQL", "bash": "SH",
+    "javascript": "JS", "typescript": "TS", "css": "CSS", "c": "C",
+    "cpp": "C++", "go": "GO", "rust": "RS",
+}
+_LANGUAGE_NAMES = {
+    "python": "Python", "r": "R", "sql": "SQL", "bash": "Shell",
+    "javascript": "JavaScript", "typescript": "TypeScript", "css": "CSS",
+    "c": "C", "cpp": "C++", "go": "Go", "rust": "Rust",
+}
+
+
+def _language_icon(language: str | None) -> str:
+    marker = _LANGUAGE_MARKERS.get(language or "", "CODE")
+    name = _LANGUAGE_NAMES.get(language or "", "Plain text")
+    return (
+        f'<span class="ps-code-toolbar__meta ps-code-view-icon" role="img" '
+        f'aria-label="{escape(name)}" title="{escape(name)}">'
+        '<span class="ps-code-view-icon__glyph" aria-hidden="true"></span>'
+        f'<span class="ps-code-view-icon__language" aria-hidden="true">'
+        f'{escape(marker)}</span></span>'
+    )
+
+
 @dataclass(slots=True)
 class CodeRenderer(Renderer):
     kind: str = "code"
@@ -60,9 +84,7 @@ class CodeRenderer(Renderer):
             <button type="button" class="artifact-btn" data-plotsrv-code-action="highlight" aria-pressed="true" title="Toggle syntax highlighting">Highlight</button>
             <button type="button" class="artifact-btn" data-plotsrv-code-action="lines" aria-pressed="true" title="Toggle line numbers">Lines</button>
           </div>
-          <div class="ps-code-toolbar__meta" title="Bounded server-side syntax highlighting.">
-            {escape(language or "Plain text")}
-          </div>
+          {_language_icon(language)}
         </div>
         """.strip()
 
@@ -91,4 +113,3 @@ class CodeRenderer(Renderer):
                 "syntax_limited": coloured.reason,
             },
         )
-

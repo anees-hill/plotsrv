@@ -10,6 +10,7 @@ MAX_INPUT_BYTES = 64 * 1024
 MAX_TOKENS = 4096
 MAX_OUTPUT_BYTES = 256 * 1024
 MAX_LINES = 2000
+MAX_HIGHLIGHT_SECONDS = 0.25
 _SLOTS = BoundedSemaphore(2)
 
 # Deliberately supported built-ins: never fall through to entry-point plugins.
@@ -65,7 +66,7 @@ def highlight(text, language, *, partial_tail=False):
         from pygments.token import Token
 
         lexer = get_lexer_by_name(language, stripnl=False, ensurenl=False)
-        deadline = time.monotonic() + 0.025
+        deadline = time.monotonic() + MAX_HIGHLIGHT_SECONDS
         parts, cost, consumed = [], 0, 0
         groups = (
             (Token.Comment, "comment"),

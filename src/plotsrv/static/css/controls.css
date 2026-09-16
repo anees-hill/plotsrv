@@ -972,28 +972,46 @@
   .ps-snapshots__selector select { min-width: 64px; max-width: 30vw; }
 }
 
-/* A single inert SVG mask, with readable language markers in either theme. */
-.ps-code-view-icon.ps-viewselect__icon,
-.ps-code-view-icon.ps-viewselect__itemicon {
+/* A compact code mark shared by the view selector and code renderer. */
+.ps-code-view-icon {
+  position: relative;
   display: inline-flex;
-  flex: 0 0 32px;
-  width: 32px;
-  height: 30px;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   color: inherit;
 }
+.ps-code-view-icon.ps-viewselect__icon {
+  flex: 0 0 14px;
+  width: 14px;
+  height: 14px;
+}
+.ps-code-view-icon.ps-viewselect__itemicon {
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+}
 .ps-code-view-icon__glyph {
   display: block;
-  width: 20px;
-  height: 20px;
+  width: 100%;
+  height: 100%;
   background: currentColor;
   mask: url("/static/icons/code.svg") center / contain no-repeat;
   -webkit-mask: url("/static/icons/code.svg") center / contain no-repeat;
 }
 .ps-code-view-icon__language {
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 10px;
+  position: absolute;
+  left: 50%;
+  bottom: -2px;
+  padding: 0 1px;
+  transform: translateX(-50%);
+  background: var(--ps-surface, #fff);
+  font-size: 6px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 7px;
+}
+.ps-code-view-icon.ps-viewselect__icon .ps-code-view-icon__language {
+  bottom: -3px;
+  font-size: 5px;
+  line-height: 6px;
 }

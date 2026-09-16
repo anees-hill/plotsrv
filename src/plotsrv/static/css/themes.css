@@ -1029,7 +1029,6 @@ body.ps-settings-open {
 .ps-text-toolbar .artifact-btn.is-active,
 .ps-code-toolbar .artifact-btn.is-active,
 .ps-text-reverse-indicator,
-.ps-code-toolbar__meta,
 .plotsrv-markdown__sandbox-note {
   border-color: var(--ps-border);
   background: var(--ps-accent-soft);

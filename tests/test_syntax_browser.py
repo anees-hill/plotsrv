@@ -119,6 +119,7 @@ def test_code_badge_matches_theme_and_fits_mobile(page, theme, width):
     icon = page.locator('.ps-viewselect__icon')
     assert icon.inner_text() == 'SQL'
     assert icon.locator('.ps-code-view-icon__glyph').evaluate("e => getComputedStyle(e).maskImage.includes('code.svg')")
-    assert icon.bounding_box()['width'] <= 40
+    assert icon.bounding_box()['width'] == 14
+    assert icon.bounding_box()['height'] == 14
     page.evaluate("PLOTSRV.core.updateViewIcon(document.querySelector('.ps-viewselect__icon'), {icon_key:'code', code_language:'r'})")
     assert page.locator('.ps-viewselect__icon').inner_text() == 'R'
