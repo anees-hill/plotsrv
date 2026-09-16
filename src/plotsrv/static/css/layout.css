@@ -28,6 +28,10 @@
   pointer-events: none;
 }
 
+.ps-header[data-status-accent] {
+  border-bottom-color: transparent;
+}
+
 .ps-header[data-status-accent="new-data"] {
   --ps-header-status-accent: #f2c200;
 }

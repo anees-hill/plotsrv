@@ -81,6 +81,9 @@ def test_every_renderer_uses_the_persistent_bottom_dock(
     assert "Terminate plotsrv server" in rendered
     assert ">Stop server<" in rendered
     assert 'id="bottom-pin"' not in rendered
+    assert 'id="snapshot-mode-banner"' in rendered
+    assert 'id="snapshot-mode-return-latest"' in rendered
+    assert 'id="snapshot-mode-dismiss"' in rendered
     assert rendered.rfind('id="bottom-collapse"') > rendered.rfind(
         'class="ps-bottom-bar__terminate"'
     )
@@ -234,3 +237,17 @@ def test_normal_bottom_bar_is_shorter_and_gives_snapshots_the_removed_control_sp
     assert "#bottom-pin" not in compare
     assert "ps-bar-pinned" not in compare
     assert "pinned:" not in bar_source
+
+
+def test_snapshot_mode_banner_stays_in_flow_and_can_be_hidden_per_snapshot() -> None:
+    status = (STATIC / "css" / "status.css").read_text(encoding="utf-8")
+    history = (STATIC / "js" / "core" / "history.js").read_text(encoding="utf-8")
+    banner = status.split(".ps-snapshot-mode-banner {", 1)[1].split("}", 1)[0]
+
+    assert "position: relative" in banner
+    assert "position: fixed" not in banner
+    assert "position: absolute" not in banner
+    assert "banner.hidden = !snapshot || bannerDismissed" in history
+    assert "if (snapshot !== bannerSnapshot)" in history
+    assert 'bannerLatest.addEventListener("click", returnToLive)' in history
+    assert "bannerDismissed = true" in history

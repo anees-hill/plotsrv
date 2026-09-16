@@ -152,6 +152,26 @@ def test_bounded_pages_pin_selection_and_never_load_unselected_bodies(page):
     assert page.locator("#snapshot-older").is_disabled()
 
 
+def test_snapshot_reminder_reserves_space_and_resets_for_each_selection(page):
+    mount(page)
+    page.select_option("#history-select", "2")
+    settled(page)
+    banner = page.locator("#snapshot-mode-banner")
+    assert banner.is_visible()
+    assert "Viewing stored snapshot" in banner.inner_text()
+    assert "2026" in page.locator("#snapshot-mode-banner-time").inner_text()
+    assert banner.evaluate("e => getComputedStyle(e).position") == "relative"
+    page.click("#snapshot-mode-dismiss")
+    assert banner.is_hidden()
+    page.select_option("#history-select", "1")
+    settled(page)
+    assert banner.is_visible()
+    page.click("#snapshot-mode-return-latest")
+    settled(page)
+    assert banner.is_hidden()
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") is None
+
+
 def test_latest_wins_coalesces_rapid_selection_and_ignores_late_body(page):
     mount(page)
     page.evaluate(

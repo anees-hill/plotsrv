@@ -22,6 +22,8 @@
   let historyRequest = 0;
   let selectionPromise = null;
   let loadingNoticeTimer = null;
+  let bannerSnapshot = null;
+  let bannerDismissed = false;
 
   function clearLoadingNotice() {
     if (loadingNoticeTimer !== null) window.clearTimeout(loadingNoticeTimer);
@@ -139,6 +141,25 @@
     return selected && selected.snapshot_id === state.currentSnapshot ? selected : null;
   }
 
+  function syncSnapshotModeBanner() {
+    const banner = document.getElementById("snapshot-mode-banner");
+    if (!banner) return;
+    const snapshot = state.currentSnapshot || null;
+    if (snapshot !== bannerSnapshot) {
+      bannerSnapshot = snapshot;
+      bannerDismissed = false;
+    }
+    banner.hidden = !snapshot || bannerDismissed;
+    if (!snapshot) return;
+    const meta = currentHistoryMeta();
+    const time = document.getElementById("snapshot-mode-banner-time");
+    if (time) {
+      time.textContent = meta && meta.created_at
+        ? snapshotLabel(meta.created_at)
+        : "Snapshot " + snapshot;
+    }
+  }
+
   function syncHistoryUi() {
     if (core.syncViewExplanation) core.syncViewExplanation();
     syncNavigation();
@@ -154,6 +175,7 @@
     if (unavailableReturn) {
       unavailableReturn.hidden = !isHistory && !pinned && !navigation.error;
     }
+    syncSnapshotModeBanner();
 
     if (typeof core.setHeaderViewState === "function") {
       const meta = currentHistoryMeta();
@@ -458,6 +480,19 @@
     if (latest && !latest.dataset.navigationBound) {
       latest.dataset.navigationBound = "1";
       latest.addEventListener("click", returnToLive);
+    }
+    const bannerLatest = document.getElementById("snapshot-mode-return-latest");
+    if (bannerLatest && !bannerLatest.dataset.navigationBound) {
+      bannerLatest.dataset.navigationBound = "1";
+      bannerLatest.addEventListener("click", returnToLive);
+    }
+    const dismiss = document.getElementById("snapshot-mode-dismiss");
+    if (dismiss && !dismiss.dataset.navigationBound) {
+      dismiss.dataset.navigationBound = "1";
+      dismiss.addEventListener("click", function () {
+        bannerDismissed = true;
+        syncSnapshotModeBanner();
+      });
     }
   }
 

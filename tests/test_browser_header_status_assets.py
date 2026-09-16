@@ -96,6 +96,7 @@ def test_new_data_and_history_tones_add_matching_header_accents() -> None:
     assert 'presentation.tone === "new-data"' in status_source
     assert 'presentation.tone === "history"' in status_source
     assert ".ps-header[data-status-accent]::after" in layout_css
+    assert ".ps-header[data-status-accent] {\n  border-bottom-color: transparent;" in layout_css
     assert '.ps-header[data-status-accent="new-data"]' in layout_css
     assert '.ps-header[data-status-accent="history"]' in layout_css
     assert "--ps-header-status-accent: #f2c200" in layout_css
