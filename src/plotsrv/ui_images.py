@@ -8,6 +8,7 @@ _ICON_NAMES = (
     "logo_image",
     "logo_markdown",
     "logo_json",
+    "logo_observe",
     "logo_python",
     "logo_python_traceback",
     "logo_exception",

@@ -200,6 +200,7 @@
       image: "/static/logo_image.png",
       markdown: "/static/logo_markdown.png",
       json: "/static/logo_json.png",
+      observe: "/static/logo_observe.png",
       python: "/static/logo_python.png",
       traceback: "/static/logo_exception.png",
       exception: "/static/logo_exception.png",       

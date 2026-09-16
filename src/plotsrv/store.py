@@ -616,7 +616,13 @@ def set_artifact(
     st = _ensure_view(vid)
 
     st.kind = "artifact"
-    st.icon_key = _icon_for_view_kind("artifact", artifact_kind=kind)
+    st.icon_key = (
+        "observe"
+        if kind == "json"
+        and type(obj) is dict
+        and obj.get("type") == "plotsrv_observation"
+        else _icon_for_view_kind("artifact", artifact_kind=kind)
+    )
     st.artifact = Artifact(
         kind=kind,
         obj=obj,

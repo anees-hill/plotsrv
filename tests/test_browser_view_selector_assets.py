@@ -50,6 +50,9 @@ def test_view_selector_source_keeps_navigation_explicit_and_local_lists_safe() -
     assert "data-view-recent-toggle" not in source
     assert "core.resolveCompactViews" in source
     assert "core.updateViewSelectorCatalogue" in source
+    assert 'observe: "/static/logo_observe.png"' in source
+    assert 'observe: "Observation"' in source
+    assert '.ps-viewselect__icon[src$="/logo_observe.png"]' in controls
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")

@@ -362,6 +362,11 @@
   height: 17.5px;
 }
 
+.ps-viewselect__icon[src$="/logo_observe.png"] {
+  width: 18px;
+  height: 18px;
+}
+
 .ps-viewselect__label {
   white-space: nowrap;
   max-width: 36vw;
@@ -633,6 +638,11 @@
 .ps-viewselect__itemicon[src$="/logo_stream.png"] {
   width: 22.5px;
   height: 22.5px;
+}
+
+.ps-viewselect__itemicon[src$="/logo_observe.png"] {
+  width: 23px;
+  height: 23px;
 }
 
 .ps-viewselect__itemcopy,

@@ -12,6 +12,7 @@ IconKey = Literal[
     "stream",
     "text",
     "json",
+    "observe",
     "python",
     "code",
     "markdown",

@@ -1,22 +1,230 @@
-.ps-observation { max-width: 100%; }
-.ps-observation h2, .ps-observation h3 { margin: 0 0 .65rem; font-size: 1.05rem; }
-.ps-observation-overview, .ps-observation-section { margin: 0 0 1rem; padding: 1rem; border: 1px solid var(--ps-border, #ddd); border-radius: .6rem; }
-.ps-observation-metadata { display: flex; flex-wrap: wrap; gap: 1rem 2.5rem; margin: 1rem 0; }
-.ps-observation-metadata dt { font-size: .8rem; opacity: .7; }
-.ps-observation-metadata dd { margin: .2rem 0 0; font-weight: 600; overflow-wrap: anywhere; }
-.ps-observation-scroll { overflow-x: auto; }
-.ps-observation-facts { width: 100%; border-collapse: collapse; text-align: left; font-size: .85rem; }
-.ps-observation-facts th, .ps-observation-facts td { padding: .55rem; vertical-align: top; border-bottom: 1px solid var(--ps-border, #ddd); overflow-wrap: anywhere; }
-.ps-observation summary { cursor: pointer; font-weight: 600; }
-.ps-observation summary:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
-.ps-observation .ps-table-topbar, .ps-observation .ps-table-topbar__right { flex-wrap: wrap; }
+.ps-observation {
+  width: min(1180px, 100%);
+  max-width: 100%;
+  margin: 0 auto;
+  color: var(--ps-text, var(--text));
+}
+.ps-observation h2,
+.ps-observation h3,
+.ps-observation h4,
+.ps-observation p { margin-top: 0; }
+.ps-observation-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--ps-border, var(--border));
+  border-radius: 0.65rem;
+  background: linear-gradient(135deg, var(--ps-surface, #fff), var(--ps-surface-soft, #f8f9fa));
+}
+.ps-observation-header__copy { min-width: 0; }
+.ps-observation-eyebrow {
+  display: block;
+  margin-bottom: 0.2rem;
+  color: var(--ps-muted, var(--muted));
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.ps-observation-header h2 { margin-bottom: 0.25rem; font-size: 1.35rem; }
+.ps-observation-size { margin-bottom: 0.65rem; color: var(--ps-muted, var(--muted)); font-size: 0.86rem; }
+.ps-observation-description { margin-bottom: 0.45rem; color: var(--ps-muted, var(--muted)); font-size: 0.86rem; }
+.ps-observation-conclusion { margin-bottom: 0; font-size: 0.95rem; }
+.ps-observation-header__status {
+  display: grid;
+  justify-items: end;
+  gap: 0.22rem;
+  flex: 0 0 auto;
+  color: var(--ps-muted, var(--muted));
+  font-size: 0.75rem;
+}
+.ps-observation-header__status > span { color: var(--ps-text, var(--text)); font-weight: 700; }
+.ps-observation-history {
+  margin-top: 0.45rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--ps-border, var(--border));
+  border-radius: 0.45rem;
+  background: var(--ps-surface-raised, #fff);
+  color: var(--ps-text, var(--text));
+  font-weight: 650;
+  cursor: pointer;
+}
+.ps-observation-tabs {
+  display: flex;
+  gap: 0.35rem;
+  margin: 0 0 0.85rem;
+  padding: 0.38rem 0.7rem 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--ps-border-soft, var(--border));
+}
+.ps-observation-tabs button {
+  position: relative;
+  min-width: 5.5rem;
+  padding: 0.65rem 0.7rem 0.7rem;
+  border: 0;
+  background: transparent;
+  color: var(--ps-muted, var(--muted));
+  cursor: pointer;
+}
+.ps-observation-tabs button[aria-selected="true"] { color: var(--ps-text-strong, var(--text)); font-weight: 700; }
+.ps-observation-tabs button[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  right: 0.45rem;
+  bottom: -1px;
+  left: 0.45rem;
+  height: 2px;
+  border-radius: 2px;
+  background: #e3b928;
+}
+.ps-observation-panel[hidden] { display: none !important; }
+.ps-observation-section,
+.ps-observation-method {
+  margin: 0 0 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--ps-border, var(--border));
+  border-radius: 0.65rem;
+  background: var(--ps-surface-soft, #f8f9fa);
+}
+.ps-observation-section__heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  margin-bottom: 0.7rem;
+}
+.ps-observation-section__heading > div { min-width: 0; }
+.ps-observation-section__heading h3 { margin-bottom: 0.18rem; font-size: 1rem; }
+.ps-observation-section__heading p { margin-bottom: 0; color: var(--ps-muted, var(--muted)); font-size: 0.78rem; }
+.ps-observation-section__heading--action .ps-observation-link { margin-left: auto; }
+.ps-observation-section__icon { width: 21px; height: 21px; flex: 0 0 auto; color: #dfb52a; }
+.ps-observation-findings {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.65rem;
+}
+.ps-observation-finding {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  padding: 0.8rem 0.9rem;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, #dfb52a 70%, var(--ps-border, #ddd));
+  border-left: 3px solid #dfb52a;
+  border-radius: 0.55rem;
+  background: var(--ps-surface, #fff);
+}
+.ps-observation-finding__mark { color: #dfb52a; font-size: 1.35rem; }
+.ps-observation-finding__copy { display: grid; gap: 0.12rem; min-width: 0; }
+.ps-observation-finding__copy strong { font-size: 0.84rem; }
+.ps-observation-finding__copy > span:not(.ps-observation-finding__field) { font-size: 0.78rem; }
+.ps-observation-finding__field,
+.ps-observation-finding__copy small { color: var(--ps-muted, var(--muted)); font-size: 0.7rem; }
+.ps-observation-link {
+  flex: 0 0 auto;
+  padding: 0.3rem 0.35rem;
+  border: 0;
+  background: transparent;
+  color: var(--ps-accent-strong, #365a77);
+  font-size: 0.76rem;
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.ps-observation-link:hover { text-decoration: underline; }
+.ps-observation-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
+  margin: 0;
+}
+.ps-observation-metrics > div {
+  min-width: 0;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--ps-border-soft, var(--border));
+  border-radius: 0.5rem;
+  background: var(--ps-surface, #fff);
+}
+.ps-observation-metrics dt { color: var(--ps-muted, var(--muted)); font-size: 0.72rem; }
+.ps-observation-metrics dd { margin: 0.22rem 0 0; overflow-wrap: anywhere; font-size: 0.95rem; font-weight: 700; }
+.ps-observation-scroll { max-width: 100%; overflow-x: auto; }
+.ps-observation-field-table,
+.ps-observation-facts { width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; font-size: 0.78rem; }
+.ps-observation-field-table { overflow: hidden; border: 1px solid var(--ps-border-soft, var(--border)); border-radius: 0.5rem; }
+.ps-observation-field-table th,
+.ps-observation-field-table td,
+.ps-observation-facts th,
+.ps-observation-facts td { padding: 0.48rem 0.65rem; vertical-align: top; border-bottom: 1px solid var(--ps-border-soft, var(--border)); overflow-wrap: anywhere; }
+.ps-observation-field-table thead th { background: var(--ps-surface, #fff); font-size: 0.72rem; }
+.ps-observation-field-table tbody th { color: var(--ps-text-strong, var(--text)); font-weight: 650; }
+.ps-observation-field-table tr:last-child > *,
+.ps-observation-facts tr:last-child > * { border-bottom: 0; }
+.ps-observation-field-table tr.is-highlighted { background: var(--ps-history-bg, #fff8e8); }
+.ps-observation-change {
+  display: inline-block;
+  padding: 0.14rem 0.4rem;
+  border: 1px solid #9a7d18;
+  border-radius: 999px;
+  color: var(--ps-history-text, #5e4d22);
+  background: var(--ps-history-bg, #fff8e8);
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+.ps-observation-empty {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.8rem;
+  border: 1px dashed var(--ps-border, var(--border));
+  border-radius: 0.5rem;
+  color: var(--ps-muted, var(--muted));
+  font-size: 0.8rem;
+}
+.ps-observation-empty strong { color: var(--ps-text, var(--text)); }
+.ps-observation-method { padding: 0; overflow: hidden; }
+.ps-observation-method > summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.1rem 0.65rem;
+  padding: 0.75rem 0.9rem;
+  cursor: pointer;
+  font-weight: 650;
+  list-style-position: inside;
+}
+.ps-observation-method > summary small { grid-column: 2; color: var(--ps-muted, var(--muted)); font-weight: 400; }
+.ps-observation-method__body { padding: 0 1rem 1rem; color: var(--ps-muted, var(--muted)); font-size: 0.78rem; }
+.ps-observation-method__body h4 { margin: 1rem 0 0.4rem; color: var(--ps-text, var(--text)); }
+.ps-observation-method__scope { line-height: 1.5; }
+.ps-observation-method__examples { margin-top: 1rem; }
+.ps-observation-method__examples > p { font-size: 0.76rem; }
+.ps-observation-deeper-note,
+.ps-observation-scope { margin: 0.7rem 0; color: var(--ps-muted, var(--muted)); font-size: 0.76rem; line-height: 1.45; }
+.ps-observation-section--explorer { padding-bottom: 0.55rem; }
+.ps-observation .ps-table-topbar,
+.ps-observation .ps-table-topbar__right { flex-wrap: wrap; }
 .ps-observation .ps-table-topbar__right { flex: 1 1 100%; min-width: 0; }
-.ps-observation-suggestions { display: inline-flex; margin: .2rem .4rem; max-width: 100%; }
+.ps-observation-suggestions { display: inline-flex; margin: 0.2rem 0.4rem; max-width: 100%; }
 .ps-observation-suggestions select { max-width: min(22rem, 100%); }
-.ps-observation-scope { margin: .75rem 0; }
-.ps-observation .plotsrv-pre { max-height: 24rem; overflow: auto; }
-@media (max-width: 600px) {
-  .ps-observation-overview, .ps-observation-section { padding: .7rem; }
-  .ps-observation-metadata { gap: .75rem; }
-  .ps-observation-metadata > div { flex: 1 1 45%; }
+.ps-observation .plotsrv-pre { max-height: 22rem; overflow: auto; }
+
+@media (max-width: 760px) {
+  .ps-observation-header { align-items: stretch; }
+  .ps-observation-header__status { justify-items: start; }
+  .ps-observation-findings { grid-template-columns: 1fr; }
+  .ps-observation-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ps-observation-finding { grid-template-columns: auto minmax(0, 1fr); }
+  .ps-observation-finding .ps-observation-link { grid-column: 2; justify-self: start; padding-left: 0; }
+}
+@media (max-width: 520px) {
+  .ps-observation-header { flex-direction: column; gap: 0.8rem; padding: 0.8rem; }
+  .ps-observation-section { padding: 0.75rem; }
+  .ps-observation-tabs { padding-inline: 0; }
+  .ps-observation-tabs button { min-width: 4.7rem; padding-inline: 0.4rem; }
+  .ps-observation-section__heading--action { flex-wrap: wrap; }
+  .ps-observation-section__heading--action .ps-observation-link { margin-left: 1.8rem; }
+  .ps-observation-metrics { gap: 0.45rem; }
+  .ps-observation-metrics > div { padding: 0.6rem; }
+  .ps-observation-field-table th,
+  .ps-observation-field-table td { padding: 0.45rem; }
 }

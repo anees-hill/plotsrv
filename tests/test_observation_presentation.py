@@ -18,7 +18,11 @@ from plotsrv.observations.summary import build_summary
 from plotsrv.observations import history
 from plotsrv.observations.presentation import changes, project, compatibility
 from plotsrv.observations.receiver import receive_observation
-from plotsrv.observations.rendering import render_observation, MAX_BROWSER_BYTES
+from plotsrv.observations.rendering import (
+    MAX_BROWSER_BYTES,
+    _field_rows,
+    render_observation,
+)
 
 BUDGET = ObservationBudget(capture_ms=50)
 
@@ -72,11 +76,17 @@ def test_useful_scoped_overview_reuses_explorer_and_no_raw_json(source):
     accept(value)
     result = get_artifact(view="test")
     assert result["meta"]["observation"] is True
-    assert "Observation overview" in result["html"]
+    assert 'id="observation-title">Observation</h2>' in result["html"]
+    assert 'data-observation-tab="overview"' in result["html"]
+    assert 'data-observation-tab="evidence"' in result["html"]
+    assert "Things worth looking at" in result["html"]
+    assert "Dataset summary" in result["html"]
+    assert "Field snapshot" in result["html"]
     assert 'id="table-save-view-btn"' in result["html"]
-    assert "Capture details and provenance" in result["html"]
+    assert "How this observation was captured" in result["html"]
     assert "data-plotsrv-json" not in result["html"]
-    assert "Examples / sample" not in result["html"]
+    assert "Captured examples" not in result["html"]
+    assert next(v for v in store.list_views() if v.view_id == "test").icon_key == "observe"
     assert history.stats()["entries"] == 1
     assert set(store._VIEWS) == {"test"}
     assert (
@@ -92,7 +102,7 @@ def test_all_null_and_unknown_are_distinct_without_empty_charts():
     result = render_observation(value, view_id="test")
     data = project(value)
     assert data["distributions"] == 0
-    assert "only missing values" in result.html
+    assert "Only missing values" in result.html
     assert "No suitable observed distribution" in result.html
     null, unknown = data["rows"]
     assert null["inspected"] > 0 and null["missing_fraction"] == 1
@@ -101,7 +111,7 @@ def test_all_null_and_unknown_are_distinct_without_empty_charts():
 
 def test_examples_require_permission_and_are_not_stored_in_recent_history():
     value = summary(np.arange(100), options=ObservationOptions(include_examples=True))
-    assert "Examples / sample" in render_observation(value, view_id="test").html
+    assert "Captured examples" in render_observation(value, view_id="test").html
     accept(value)
     entries, _ = history.read(
         "test", revision=store.get_render_revision(view_id="test")
@@ -109,6 +119,32 @@ def test_examples_require_permission_and_are_not_stored_in_recent_history():
     raw = json.dumps(entries)
     assert "examples" not in raw and "histogram" not in raw
     assert len(project(value)["examples"]) <= 16
+
+
+def test_summary_field_language_omits_typical_arithmetic_for_identifiers():
+    value = summary(
+        pd.DataFrame(
+            {"course_id": np.arange(1000), "assessment_score": np.arange(1000)}
+        )
+    )
+    fields = {row["name"]: row for row in _field_rows(value, [])}
+    assert fields["course_id"]["typical"] == "—"
+    assert fields["course_id"]["range"] == "0 – 999"
+    assert fields["assessment_score"]["typical"] != "—"
+
+
+def test_compatible_changes_are_presented_as_conclusions_before_methodology():
+    old, new = summary({"rows": 100}, at=1), summary({"rows": 125}, at=2)
+    entries = [
+        dict(history.compact(old), received_at=1),
+        dict(history.compact(new), received_at=2),
+    ]
+    html = render_observation(new, view_id="test", entries=entries).html
+    assert "Observed value changed" in html
+    assert "rows: 100 → 125" in html
+    assert html.index("Things worth looking at") < html.index(
+        "How this observation was captured"
+    )
 
 
 def test_compatible_exact_metrics_and_shape_changes_no_cumulative_sum():
@@ -343,7 +379,7 @@ def test_authenticated_remote_observations_use_same_recent_evidence(
         assert response.status_code == 200
     result = client.get("/artifact", params={"view": "test"}).json()
     assert result["meta"]["recent_count"] == 2
-    assert "Supplied metric change: 2" in result["html"]
+    assert "Supplied value changed by 2" in result["html"]
     assert "private-test-key" not in result["html"]
 
 

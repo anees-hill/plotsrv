@@ -55,7 +55,13 @@ def mount(page, html):
 def test_overview_default_live_filter_and_keyboard_suggestion_save(page):
     mount(page, document())
     assert page.evaluate("document.body.scrollWidth <= window.innerWidth")
-    assert page.get_by_role("heading", name="Observation overview").is_visible()
+    assert page.get_by_role("heading", name="Observation", exact=True).is_visible()
+    assert page.get_by_role("tab", name="Overview").get_attribute("aria-selected") == "true"
+    assert page.get_by_text("Dataset summary", exact=True).is_visible()
+    assert page.locator("#observation-panel-evidence").is_hidden()
+    page.get_by_role("button", name="Explore field").click()
+    assert page.get_by_role("tab", name="Fields").get_attribute("aria-selected") == "true"
+    assert page.locator('[data-observation-field-row="missing"]:focus').count() == 1
     assert page.locator("#table-save-view-btn").is_disabled()
     assert (
         page.evaluate("PLOTSRV.state.tabulatorInstance.getData('active').length") == 2
@@ -63,6 +69,7 @@ def test_overview_default_live_filter_and_keyboard_suggestion_save(page):
     assert "table_filters" not in page.evaluate(
         "PLOTSRV.core.getAutomaticUpdateBlockers()"
     )
+    page.get_by_role("tab", name="Evidence").click()
     select = page.get_by_label("Suggested observation views")
     select.focus()
     page.keyboard.press("ArrowDown")
@@ -92,6 +99,7 @@ def test_overview_default_live_filter_and_keyboard_suggestion_save(page):
 
 def test_distribution_and_irregular_scalar_scatter_use_shared_plot(page):
     mount(page, document())
+    page.get_by_role("tab", name="Evidence").click()
     page.get_by_label("Suggested observation views").select_option("2")
     page.wait_for_function(
         "PLOTSRV.state.tablePlotLastResult && PLOTSRV.state.tablePlotLastResult.ok"
@@ -111,6 +119,7 @@ def test_distribution_and_irregular_scalar_scatter_use_shared_plot(page):
     )
     page.wait_for_function("PLOTSRV.state.tabulatorInstance.initialized")
     # Field overview, missingness, then the available scalar trend.
+    page.get_by_role("tab", name="Evidence").click()
     page.get_by_label("Suggested observation views").select_option("2")
     page.wait_for_function(
         "PLOTSRV.state.tablePlotLastResult && PLOTSRV.state.tablePlotLastResult.ok && PLOTSRV.state.tablePlotPreferences.type === 'scatter'"
@@ -161,8 +170,8 @@ def test_snapshot_no_examples_and_mobile_dark_layout(page):
     )
     assert "snapshot" in page.evaluate("PLOTSRV.core.getAutomaticUpdateBlockers()")
     assert "fixed historical evidence" in page.locator("#artifact-root").inner_text()
-    assert page.get_by_text("Examples / sample", exact=False).count() == 0
-    page.get_by_text("Capture details and provenance", exact=True).focus()
+    assert page.get_by_text("Captured examples", exact=False).count() == 0
+    page.locator(".ps-observation-method > summary").focus()
     page.keyboard.press("Enter")
     assert page.locator("details[open]").count() == 1
     assert page.evaluate("document.body.scrollWidth <= window.innerWidth")
@@ -170,6 +179,7 @@ def test_snapshot_no_examples_and_mobile_dark_layout(page):
 
 def test_distribution_binding_pauses_after_column_rename(page):
     mount(page, document())
+    page.get_by_role("tab", name="Evidence").click()
     page.get_by_label("Suggested observation views").select_option("2")
     page.wait_for_function(
         "PLOTSRV.state.tablePlotLastResult && PLOTSRV.state.tablePlotLastResult.ok"
