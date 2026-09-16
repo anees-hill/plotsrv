@@ -263,7 +263,6 @@
 }
 
 .ps-snapshots__selector[hidden],
-.ps-snapshots__info[hidden],
 .ps-snapshots__return[hidden] {
   display: none !important;
 }
@@ -287,26 +286,6 @@
   border-color: #d9d9d9;
   background: rgba(242, 243, 244, 0.82);
   color: #7d8388;
-}
-
-.ps-snapshots__info {
-  display: inline-grid;
-  width: 18px;
-  height: 18px;
-  border: 1px solid #b9bec2;
-  border-radius: 50%;
-  color: #70787e;
-  cursor: pointer;
-  font-family: Georgia, serif;
-  font-size: 0.72rem;
-  font-weight: 700;
-  line-height: 1;
-  place-items: center;
-}
-
-.ps-snapshots__info:focus-visible {
-  outline: 2px solid #617f9b;
-  outline-offset: 2px;
 }
 
 .ps-snapshots__return {

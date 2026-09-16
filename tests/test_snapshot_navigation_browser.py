@@ -110,12 +110,14 @@ def test_keyboard_boundaries_exact_and_ambiguous_latest(page):
     assert "UTC" in selected.get_attribute("title")
     assert "snapshot=1" in page.url
     assert page.evaluate("marked") == 0
+    assert page.locator("#snapshots-return-latest").is_visible()
     page.locator("#snapshot-newer").focus()
     page.keyboard.press("Space")
     settled(page)
     assert page.locator("#artifact-root").inner_text() == "Version latest"
     assert "snapshot=" not in page.url
     assert page.evaluate("bodyReads") == ["1", "latest"]
+    assert page.locator("#snapshots-return-latest").is_hidden()
     # Hide the duplicate stored latest until it is explicitly selected.
     page.evaluate("""async () => {
       const original=makeMeta;
@@ -223,7 +225,7 @@ def test_empty_and_unavailable_keep_disabled_selector_and_streams_do_not_fetch(p
     assert "browse saved versions" in page.locator("#snapshots-selector").get_attribute(
         "title"
     )
-    assert "Storage not admitted" in page.locator("#snapshots-info").get_attribute(
+    assert "Storage not admitted" in page.locator("#snapshots-selector").get_attribute(
         "title"
     )
     page.evaluate(

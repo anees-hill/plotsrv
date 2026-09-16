@@ -720,8 +720,7 @@ body.ps-settings-open {
 .ps-select,
 .view-select select,
 .ps-snapshots__selector,
-.ps-snapshots__selector select,
-.ps-snapshots__info {
+.ps-snapshots__selector select {
   border-color: var(--ps-border);
   background: var(--ps-surface-raised);
   color: var(--ps-text);

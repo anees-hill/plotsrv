@@ -90,10 +90,9 @@ def enter(page):
     )
 
 
-def test_normal_timeline_list_pin_collapse_restore_and_exit_preserve_controller(page):
+def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page):
     reads, captures = mount(page)
     page.evaluate("window.table=PLOTSRV.state.tabulatorInstance")
-    page.click("#bottom-pin")
     page.click("#bottom-collapse")
     assert page.locator(".ps-bottom-dock").is_hidden()
     assert page.locator("#bottom-restore").evaluate("e=>e===document.activeElement")
@@ -102,7 +101,6 @@ def test_normal_timeline_list_pin_collapse_restore_and_exit_preserve_controller(
     )
     page.click("#bottom-restore")
     enter(page)
-    assert page.evaluate("PLOTSRV.state.bottomBar.pinned")
     page.evaluate("PLOTSRV.core.compare.setDay('2026-09-09')")
     page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert page.locator("#compare-points button").count() == 100
@@ -113,9 +111,7 @@ def test_normal_timeline_list_pin_collapse_restore_and_exit_preserve_controller(
     assert page.locator("#compare-list").is_hidden()
     page.click("#bottom-restore")
     assert page.locator("#compare-list").is_visible()
-    assert page.evaluate("PLOTSRV.state.bottomBar.pinned")
-    page.click("#bottom-pin")
-    assert not page.evaluate("PLOTSRV.state.bottomBar.pinned")
+    assert page.locator("#bottom-pin").count() == 0
     assert page.evaluate("PLOTSRV.state.tabulatorInstance===table")
     assert captures == [1]
     page.screenshot(path="/tmp/plotsrv-17-list.png")
@@ -259,21 +255,18 @@ def test_explicit_utc_day_ignores_browser_dst_23_and_25_hour_days(page, day):
     assert result[1].endswith("T00:00:00.000Z")
 
 
-def test_normal_pin_collapse_survive_reload_and_expanded_handoff(page):
+def test_normal_collapse_survives_reload_and_expanded_handoff(page):
     mount(page)
-    page.click("#bottom-pin")
     page.click("#bottom-collapse")
     page.click("#expand-view")
     page.reload()
     page.wait_for_function("window.PLOTSRV && PLOTSRV.state.initialViewLoadComplete")
-    assert page.evaluate(
-        "PLOTSRV.state.bottomBar.pinned && PLOTSRV.state.bottomBar.collapsed"
-    )
+    assert page.evaluate("PLOTSRV.state.bottomBar.collapsed")
     assert page.locator("#bottom-restore").is_hidden()
     page.click("#expanded-exit")
     assert page.locator("#bottom-restore").is_visible()
     page.click("#bottom-restore")
-    assert page.locator("#bottom-pin").get_attribute("aria-pressed") == "true"
+    assert page.locator("#bottom-pin").count() == 0
 
 
 def test_captured_latest_can_be_released_after_exit_and_denied_storage(page):
@@ -285,7 +278,6 @@ def test_captured_latest_can_be_released_after_exit_and_denied_storage(page):
     page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
     assert page.evaluate("PLOTSRV.state.compareCapture") is None
     page.evaluate("() => {Storage.prototype.setItem=()=>{throw Error('denied');};}")
-    page.click("#bottom-pin")
     page.click("#bottom-collapse")
     page.click("#bottom-restore")
     assert page.locator(".ps-bottom-dock").is_visible()
@@ -299,7 +291,6 @@ def test_compare_presentation_changes_retain_plot_svg_and_release_space(page):
     page.evaluate(
         "window.svg=document.querySelector('.ps-table-plot__svg'); window.prefs=JSON.stringify(PLOTSRV.state.tablePlotPreferences)"
     )
-    page.click("#bottom-pin")
     page.click("#bottom-collapse")
     page.wait_for_function(
         "getComputedStyle(document.body).getPropertyValue('--ps-bottom-dock-clearance')==='0px'"
@@ -517,7 +508,6 @@ def test_latest_capture_across_supported_renderers_keeps_selected_content(page, 
     before = list(reads)
     page.click("#bottom-collapse")
     page.click("#bottom-restore")
-    page.click("#bottom-pin")
     assert page.evaluate(
         "selector=>capturedNode===document.querySelector(selector) && capturedNode.firstChild===capturedChild",
         selector,

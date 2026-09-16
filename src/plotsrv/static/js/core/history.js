@@ -150,11 +150,9 @@
       sel.value = state.currentSnapshot || "";
     }
 
-    const snapshotWrap = document.getElementById("snapshots-control");
     const unavailableReturn = document.getElementById("snapshots-return-latest");
     if (unavailableReturn) {
-      unavailableReturn.hidden =
-        !pinned && !navigation.error && (!isHistory || !snapshotWrap || snapshotWrap.dataset.state === "enabled");
+      unavailableReturn.hidden = !isHistory && !pinned && !navigation.error;
     }
 
     if (typeof core.setHeaderViewState === "function") {
@@ -182,10 +180,8 @@
   function setSnapshotControlState(capability, snapshots, failed) {
     const wrap = document.getElementById("snapshots-control");
     const selector = document.getElementById("snapshots-selector");
-    const info = document.getElementById("snapshots-info");
-    const returnLatest = document.getElementById("snapshots-return-latest");
     const sel = document.getElementById("history-select");
-    if (!wrap || !selector || !info || !sel) return;
+    if (!wrap || !selector || !sel) return;
 
     const usable = !failed && (!capability || capability.enabled === true);
     const hasSnapshots = usable && snapshots.length > 0;
@@ -202,7 +198,7 @@
 
     const reason = availabilityReason
       ? "Snapshots let you browse saved versions of this view. " + availabilityReason
-      : "";
+      : "Browse saved versions of this view.";
 
     wrap.dataset.state = failed
       ? "error"
@@ -212,13 +208,10 @@
           ? "empty"
           : "unavailable";
     selector.hidden = false;
+    wrap.title = reason;
     selector.title = reason;
     sel.title = reason;
     sel.setAttribute("aria-label", reason ? "Snapshots. " + reason : "Snapshots");
-    info.hidden = !reason;
-    info.title = reason;
-    info.setAttribute("aria-label", reason);
-    if (returnLatest) returnLatest.hidden = usable || !state.currentSnapshot;
     sel.disabled = !hasSnapshots;
   }
 
@@ -269,8 +262,8 @@
           // Latest follows the server; keep a stored latest entry only when selected.
           if ((snap.is_latest || snap.is_live_equivalent) && snap.snapshot_id !== state.currentSnapshot) continue;
           const ts = snapshotLabel(snap.created_at || snap.snapshot_id);
-          const label = (snap.is_latest ? "Newest stored · " : "") + ts +
-            (snap.is_live_equivalent ? " · Same revision as Live" : " · Stored version");
+          const label = (snap.is_latest ? "Newest · " : "") + ts +
+            (snap.is_live_equivalent ? " · Same revision as Live" : "");
 
           const kind = snap.kind ? " · " + core.escapeHtml(snap.kind) : "";
           
@@ -287,7 +280,7 @@
 
       sel.innerHTML = parts.join("");
       if (data.selected && !snapshots.some(x => x.snapshot_id === data.selected.snapshot_id)) {
-        const option = new Option(snapshotLabel(data.selected.created_at) + " · Stored version", data.selected.snapshot_id);
+        const option = new Option(snapshotLabel(data.selected.created_at), data.selected.snapshot_id);
         option.title = preciseTimestamp(data.selected.created_at);
         sel.append(option);
       }

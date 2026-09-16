@@ -71,7 +71,7 @@ def test_every_renderer_uses_the_persistent_bottom_dock(
             'id="history-select" class="ps-select" aria-label="Snapshots" disabled'
             in rendered
         )
-        assert 'id="snapshots-info"' in rendered
+        assert 'id="snapshots-info"' not in rendered
     assert 'id="snapshots-unavailable"' not in rendered
     assert "Last updated:" not in rendered
     assert 'id="status-error-wrap"' in rendered
@@ -80,6 +80,10 @@ def test_every_renderer_uses_the_persistent_bottom_dock(
     assert "Auto-refresh" not in rendered
     assert "Terminate plotsrv server" in rendered
     assert ">Stop server<" in rendered
+    assert 'id="bottom-pin"' not in rendered
+    assert rendered.rfind('id="bottom-collapse"') > rendered.rfind(
+        'class="ps-bottom-bar__terminate"'
+    )
 
 
 def test_rich_table_export_scopes_are_filtered_view_and_complete_publish() -> None:
@@ -154,7 +158,8 @@ def test_history_client_uses_explicit_capability_and_preserves_snapshot_urls() -
     assert "capability.enabled === true" in source
     assert "No snapshots yet" in source
     assert "Snapshot availability could not be loaded." in source
-    assert 'document.getElementById("snapshots-info")' in source
+    assert 'document.getElementById("snapshots-info")' not in source
+    assert "wrap.title = reason" in source
     assert "selector.title = reason" in source
     assert 'sel.setAttribute("aria-label", reason' in source
     assert "sel.disabled = !hasSnapshots" in source
@@ -162,6 +167,8 @@ def test_history_client_uses_explicit_capability_and_preserves_snapshot_urls() -
     assert 'url.searchParams.delete("snapshot")' in source
     assert "core.reloadCurrentView()" in source
     assert "Live (latest)" in source
+    assert "Stored version" not in source
+    assert "unavailableReturn.hidden = !isHistory && !pinned && !navigation.error" in source
 
 
 def test_export_client_keeps_filtered_complete_and_retained_meanings_distinct() -> None:
@@ -208,7 +215,22 @@ def test_dock_is_fixed_and_pages_reserve_mobile_and_desktop_space() -> None:
     assert "width: fit-content" in controls
     assert "background: rgba(255, 255, 255, 0.84)" in controls
     assert "padding: 0.3rem 0.38rem" in controls
-    assert ".ps-snapshots__info" in controls
+    assert ".ps-snapshots__info" not in controls
     assert "var(--ps-bottom-dock-height" in layout
     assert "window.ResizeObserver" in bar_source
     assert 'style.setProperty("--ps-bottom-dock-height"' in bar_source
+
+
+def test_normal_bottom_bar_is_shorter_and_gives_snapshots_the_removed_control_space() -> None:
+    compare = (STATIC / "css" / "compare.css").read_text(encoding="utf-8")
+    bar_source = (STATIC / "js" / "core" / "bottom_bar.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "padding: 0.22rem 0.7rem" in compare
+    assert "min-height: 32px" in compare
+    assert "width: 320px" in compare
+    assert "height: 32px" in compare
+    assert "#bottom-pin" not in compare
+    assert "ps-bar-pinned" not in compare
+    assert "pinned:" not in bar_source

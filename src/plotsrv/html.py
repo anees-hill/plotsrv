@@ -190,9 +190,6 @@ def render_index(
             <button id="snapshot-older" class="ps-snapshot-arrow" type="button" aria-label="Older snapshot" disabled hidden><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3 5 8 10 13" /></svg></button>
             <button id="snapshot-newer" class="ps-snapshot-arrow" type="button" aria-label="Newer snapshot or Latest" disabled hidden><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3 11 8 6 13" /></svg></button>
             <span id="snapshot-navigation-notice" class="ps-snapshot-notice" role="status" aria-live="polite"></span>
-            <span id="snapshots-info" class="ps-snapshots__info" role="img"
-                  tabindex="0" aria-label="Checking snapshot availability."
-                  title="Checking snapshot availability.">i</span>
             <button id="snapshots-return-latest" class="ps-snapshots__return" type="button" hidden>Return to latest</button>
           </div>
         """
@@ -603,10 +600,9 @@ def render_index(
                   <div class="ps-compare-summary"><span id="compare-count"></span><button id="compare-first" class="btn" type="button">First page</button><button id="compare-more" class="btn" type="button" hidden>Older on this day</button></div>
                   <div id="compare-message" role="status"></div>
                 </div>
-                <button id="bottom-pin" class="btn ps-bar-icon" type="button" aria-label="Pin bar to bottom" title="Pin bar to bottom" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M8 3h8l-1 8 4 4H5l4-4-1-8ZM12 15v7"/></svg></button>
-                <button id="bottom-collapse" class="btn ps-bar-icon" type="button" aria-label="Collapse bar" title="Collapse bar"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 5.5 8 10.5 13 5.5" /></svg></button>
                 {bottom_file_indicator_html}
                 {_terminate_button_html()}
+                <button id="bottom-collapse" class="btn ps-bar-icon" type="button" aria-label="Collapse bar" title="Collapse bar"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 5.5 8 10.5 13 5.5" /></svg></button>
               </div>
             </div>
           </div>

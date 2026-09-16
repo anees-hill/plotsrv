@@ -11,7 +11,7 @@
   const core = window.PLOTSRV.core;
   const state = window.PLOTSRV.state;
 
-  const bar = state.bottomBar = {pinned: false, collapsed: false};
+  const bar = state.bottomBar = {collapsed: false};
   const barKey = "plotsrv:bottom-bar:" + encodeURIComponent(window.PLOTSRV.config.dashboardName || "default") + ":" + location.pathname;
   let geometryFrame = null, barBound = false;
   function geometry() {
@@ -37,11 +37,7 @@
     const expanded = state.expandedView && state.expandedView.active;
     dock.hidden = bar.collapsed || !!expanded;
     document.getElementById("bottom-restore").hidden = !bar.collapsed || !!expanded;
-    document.body.classList.toggle("ps-bar-pinned", bar.pinned);
     document.body.classList.toggle("ps-bar-collapsed", bar.collapsed);
-    const pin = document.getElementById("bottom-pin");
-    const name = bar.pinned ? "Unpin bar" : "Pin bar to bottom";
-    pin.setAttribute("aria-label", name); pin.title = name; pin.setAttribute("aria-pressed", String(bar.pinned));
     if (barBound) {try {sessionStorage.setItem(barKey, JSON.stringify(bar));} catch (_) {}}
     geometry();
   }
@@ -158,13 +154,12 @@
 
   function bindBottomBar() {
     bindDockClearance();
-    const pin = document.getElementById("bottom-pin");
-    if (pin && !pin.dataset.bound) {
-      pin.dataset.bound = "1"; barBound = true;
+    const collapse = document.getElementById("bottom-collapse");
+    if (collapse && !collapse.dataset.bound) {
+      collapse.dataset.bound = "1"; barBound = true;
       try {const raw = sessionStorage.getItem(barKey); const saved = raw && raw.length < 128 ? JSON.parse(raw) : {};
-        bar.pinned = saved.pinned === true; bar.collapsed = saved.collapsed === true;} catch (_) {}
-      pin.addEventListener("click", () => {bar.pinned = !bar.pinned; presentBar();});
-      document.getElementById("bottom-collapse").addEventListener("click", () => setCollapsed(true));
+        bar.collapsed = saved.collapsed === true;} catch (_) {}
+      collapse.addEventListener("click", () => setCollapsed(true));
       document.getElementById("bottom-restore").addEventListener("click", () => setCollapsed(false));
       presentBar();
     }
