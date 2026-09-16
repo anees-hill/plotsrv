@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from importlib.metadata import version
 from typing import Any, Literal
 
+from .cli_help import COMMANDS, ROOT_DESCRIPTION, ROOT_EPILOG, command_help
+
 WatchReadMode = Literal["head", "tail"]
 WatchMaterializationOverride = Literal["auto", "memory", "file"]
 
@@ -96,10 +98,8 @@ class _WatchReadModeAction(argparse.Action):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="plotsrv",
-        description=(
-            "plotsrv - inspect data, files, and live outputs in your browser\n\n"
-            "Documentation: https://docs.plotsrv.com"
-        ),
+        description=ROOT_DESCRIPTION,
+        epilog=ROOT_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument(
@@ -109,16 +109,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="cmd")
 
-    serve_p = sub.add_parser("serve", help="Serve publisher data without discovering or executing application code")
+    serve_p = sub.add_parser("serve", **command_help('serve'), help=COMMANDS["serve"])
     serve_p.add_argument("--host", default=None, help="Bind host (server config, otherwise 127.0.0.1)")
     serve_p.add_argument("--port", type=int, default=None, help="Bind port (server config, otherwise 8000)")
-    serve_p.add_argument("--config", default=None, help="Server configuration file")
+    serve_p.add_argument("--config", default=None, help="Server config (default: PLOTSRV_CONFIG, then plotsrv.yml/plotsrv.yaml)")
     serve_p.add_argument("--name", default=None, help="Configuration instance name")
     serve_p.add_argument("--quiet", action="store_true", help="Reduce server logging")
 
     run_p = sub.add_parser(
-        "run",
-        help="Discover and serve views from a project; optionally execute targets",
+        "run", **command_help('run'),
+        help=COMMANDS["run"],
     )
 
     run_p.set_defaults(host_supplied=False, port_supplied=False)
@@ -132,10 +132,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     run_p.add_argument(
-        "--host", action=_ExplicitValueAction, default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
+        "--host", action=_ExplicitValueAction, default="127.0.0.1", help="Bind host (server config, otherwise 127.0.0.1)"
     )
     run_p.add_argument(
-        "--port", action=_ExplicitValueAction, type=int, default=8000, help="Port to bind (default: 8000)"
+        "--port", action=_ExplicitValueAction, type=int, default=8000, help="Bind port (server config, otherwise 8000)"
     )
     run_p.add_argument(
         "--quiet", action="store_true", help="Reduce server logs and suppress discovery progress"
@@ -148,7 +148,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--config",
         default=None,
-        help="Path to plotsrv.yml (or plotsrv.yaml). If omitted, uses ./plotsrv.yml or env PLOTSRV_CONFIG.",
+        help="Config file (default: PLOTSRV_CONFIG, then ./plotsrv.yml or ./plotsrv.yaml).",
     )
     run_p.add_argument(
         "--truncate",
@@ -305,22 +305,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Dedicated watch subcommand
-    publish_p = sub.add_parser("publish", help="Register a catalogue and publish configured watches to an existing server")
-    publish_p.add_argument("target", nargs="?", default=None, help="Optional static discovery target; otherwise configured target")
-    publish_p.add_argument("--config", default=None)
-    publish_p.add_argument("--name", default=None)
+    publish_p = sub.add_parser("publish", **command_help('publish'), help=COMMANDS["publish"])
+    publish_p.add_argument("target", nargs="?", default=None, help="Optional path, package or module[:function] for static discovery; otherwise configured target")
+    publish_p.add_argument("--config", default=None, help="Publisher config (default: PLOTSRV_CONFIG, then plotsrv.yml/plotsrv.yaml)")
+    publish_p.add_argument("--name", default=None, help="Configuration instance name")
     publish_p.add_argument("--destination", default=None, help="Existing server URL; never launches a server")
-    publish_p.add_argument("--bearer-token-env", default=None, help="Credential environment variable for explicit destination")
-    publish_p.add_argument("--no-discovery", action="store_true")
-    publish_p.add_argument("--no-watch", action="store_true")
+    publish_p.add_argument("--bearer-token-env", default=None, help="Name of the environment variable holding the bearer token (requires --destination)")
+    publish_p.add_argument("--no-discovery", action="store_true", help="Skip static discovery; retain configured watches and additional IDs")
+    publish_p.add_argument("--no-watch", action="store_true", help="Register the catalogue without starting configured file watches")
     publish_p.add_argument("--add-id", action="append", default=[], help="Reviewed dynamic ID; repeat for a complete multi-project union")
     publish_p.add_argument("--reviewed", action="store_true", help="Acknowledge unresolved discovery issues after review")
     publish_p.add_argument("--seal-catalogue", action="store_true", help="Explicitly initialise/seal the complete catalogue union")
     publish_p.add_argument("--every", type=float, default=1.0, help="Watch poll/debounce interval (at least 0.1s)")
-    publish_p.add_argument("--quiet", action="store_true")
+    publish_p.add_argument("--quiet", action="store_true", help="Suppress discovery progress and registration messages")
 
     watch_p = sub.add_parser(
-        "watch", help="Watch a file or directory and publish live updates as views"
+        "watch", **command_help('watch'), help=COMMANDS["watch"]
     )
     watch_p.add_argument(
         "path", help="File or directory to watch (directory discovery runs once)"
@@ -344,8 +344,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="GLOB",
         help="Directory filename or relative-path pattern; repeat to match any (quote globs)",
     )
-    watch_p.add_argument("--config", default=None)
-    watch_p.add_argument("--name", default=None)
+    watch_p.add_argument("--config", default=None, help="Config file (default: PLOTSRV_CONFIG, then plotsrv.yml/plotsrv.yaml)")
+    watch_p.add_argument("--name", default=None, help="Configuration instance name")
     watch_p.add_argument(
         "--destination",
         default=None,
@@ -354,11 +354,11 @@ def build_parser() -> argparse.ArgumentParser:
     watch_p.add_argument(
         "--bearer-token-env",
         default=None,
-        help="Credential environment variable for explicit destination",
+        help="Name of the environment variable holding the bearer token (requires --destination)",
     )
     watch_p.set_defaults(host_supplied=False, port_supplied=False)
-    watch_p.add_argument("--host", action=_ExplicitValueAction, default="127.0.0.1")
-    watch_p.add_argument("--port", action=_ExplicitValueAction, type=int, default=8000)
+    watch_p.add_argument("--host", action=_ExplicitValueAction, default="127.0.0.1", help="Local bind host (default: 127.0.0.1); use --destination for a remote server")
+    watch_p.add_argument("--port", action=_ExplicitValueAction, type=int, default=8000, help="Local bind port (default: 8000)")
     watch_p.add_argument(
         "--every", type=float, default=1.0, help="Poll interval seconds (default: 1.0)"
     )
@@ -374,9 +374,9 @@ def build_parser() -> argparse.ArgumentParser:
         default="watch",
         help="File section (default: watch); directory section prefix",
     )
-    watch_p.add_argument("--label", default=None, help="View label (default: filename)")
+    watch_p.add_argument("--label", default=None, help="Single file only: view label (default: filename)")
     watch_p.add_argument(
-        "--view-id", default=None, help="Explicit view_id (overrides section/label)"
+        "--view-id", default=None, help="Single file only: explicit view ID (overrides section/label)"
     )
     watch_p.add_argument(
         "--max-mb",
@@ -436,7 +436,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     store_p = sub.add_parser(
-        "store", help="Inspect or clear persisted plotsrv views, snapshots, and streams"
+        "store", **command_help('store'), help=COMMANDS["store"]
     )
     store_p.add_argument(
         "--name",
@@ -446,15 +446,15 @@ def build_parser() -> argparse.ArgumentParser:
     store_p.add_argument(
         "--config",
         default=None,
-        help="Path to plotsrv.yml (or plotsrv.yaml). If omitted, uses ./plotsrv.yml or env PLOTSRV_CONFIG.",
+        help="Config file (default: PLOTSRV_CONFIG, then ./plotsrv.yml or ./plotsrv.yaml).",
     )
 
     store_sub = store_p.add_subparsers(dest="store_cmd", required=True)
 
-    store_sub.add_parser("stats", help="Show storage statistics")
+    store_sub.add_parser("stats", **command_help('store stats'), help="Show storage statistics")
 
     store_list_p = store_sub.add_parser(
-        "list", help="List stored latest views, snapshots, and stream sessions"
+        "list", **command_help('store list'), help="List stored latest views, snapshots, and stream sessions"
     )
     store_list_p.add_argument(
         "--view",
@@ -463,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     store_clear_p = store_sub.add_parser(
-        "clear", help="Delete stored latest state, snapshots, and stream history"
+        "clear", **command_help('store clear'), help="Delete stored latest state, snapshots, and stream history"
     )
     store_clear_p.add_argument(
         "--view",
@@ -482,19 +482,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip confirmation prompt.",
     )
     config_p = sub.add_parser(
-        "config",
-        help="Open the configuration wizard, create configs or populate view settings",
+        "config", **command_help('config'),
+        help=COMMANDS["config"],
     )
     config_sub = config_p.add_subparsers(dest="config_cmd", required=True)
 
     config_init_p = config_sub.add_parser(
-        "init", help="Keyboard configuration wizard with reviewed, backed-up saving"
+        "init", **command_help('config init'), help="Keyboard configuration wizard with reviewed, backed-up saving"
     )
     config_init_p.add_argument(
         "target",
         nargs="?",
         default=None,
-        help="Optional package or path to focus discovery",
+        help="Optional path, package or module[:function] to focus static discovery",
     )
     config_init_p.add_argument(
         "--config",
@@ -506,7 +506,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     config_ui_p = config_sub.add_parser(
-        "ui", help="Temporary browser editor for server UI settings"
+        "ui", **command_help('config ui'), help="Temporary browser editor for server UI settings"
     )
     config_ui_p.add_argument(
         "--config",
@@ -544,7 +544,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     config_create_p = config_sub.add_parser(
-        "create",
+        "create", **command_help('config create'),
         help="Create a starter plotsrv.yml config file",
     )
     config_create_p.add_argument(
@@ -563,7 +563,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Include less-common storage queue and rendering settings",
     )
     config_populate_p = config_sub.add_parser(
-        "populate",
+        "populate", **command_help('config populate'),
         help="Populate config sections from discovered @view functions",
     )
     populate_sub = config_populate_p.add_subparsers(
@@ -572,39 +572,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     freshness_p = populate_sub.add_parser(
-        "freshness",
+        "freshness", **command_help('config populate freshness'),
         help="Populate freshness-settings.views",
     )
     freshness_p.add_argument("target", help="Path/module target to discover")
-    freshness_p.add_argument("--config", default="plotsrv.yml")
-    freshness_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    freshness_p.add_argument("--config", default="plotsrv.yml", help="Config file to update (default: plotsrv.yml)")
+    freshness_p.add_argument("--mode", choices=["merge", "replace"], default="merge", help="Add missing views or replace the per-view mapping (default: merge)")
     freshness_p.add_argument("--yes", action="store_true", help="Do not prompt")
-    freshness_p.add_argument("--expected-every", default="60s")
-    freshness_p.add_argument("--warn-after", default="90s")
-    freshness_p.add_argument("--overdue-after", default="180s")
+    freshness_p.add_argument("--expected-every", default="60s", help="Expected update interval, e.g. 5m (default: 60s)")
+    freshness_p.add_argument("--warn-after", default="90s", help="Age at which data becomes stale (default: 90s)")
+    freshness_p.add_argument("--overdue-after", default="180s", help="Age at which data becomes very stale (default: 180s)")
 
     storage_p = populate_sub.add_parser(
-        "storage",
+        "storage", **command_help('config populate storage'),
         help="Populate storage-settings.views",
     )
     storage_p.add_argument("target", help="Path/module target to discover")
-    storage_p.add_argument("--config", default="plotsrv.yml")
-    storage_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    storage_p.add_argument("--config", default="plotsrv.yml", help="Config file to update (default: plotsrv.yml)")
+    storage_p.add_argument("--mode", choices=["merge", "replace"], default="merge", help="Add missing views or replace the per-view mapping (default: merge)")
     storage_p.add_argument("--yes", action="store_true", help="Do not prompt")
-    storage_p.add_argument("--keep-last", type=int, default=2)
-    storage_p.add_argument("--min-store-interval", default=None)
-    storage_p.add_argument("--max-snapshot-size-mb", type=float, default=None)
+    storage_p.add_argument("--keep-last", type=int, default=2, help="Snapshots to retain per view (default: 2)")
+    storage_p.add_argument("--min-store-interval", default=None, help="Minimum interval between snapshots, e.g. 1m (default: inherit)")
+    storage_p.add_argument("--max-snapshot-size-mb", type=float, default=None, help="Maximum snapshot size in MB (default: inherit)")
 
     limits_p = populate_sub.add_parser(
-        "limits",
+        "limits", **command_help('config populate limits'),
         help="Populate per-view truncation limits",
     )
     limits_p.add_argument("target", help="Path/module target to discover")
-    limits_p.add_argument("--config", default="plotsrv.yml")
-    limits_p.add_argument("--mode", choices=["merge", "replace"], default="merge")
+    limits_p.add_argument("--config", default="plotsrv.yml", help="Config file to update (default: plotsrv.yml)")
+    limits_p.add_argument("--mode", choices=["merge", "replace"], default="merge", help="Add missing views or replace the per-view mapping (default: merge)")
     limits_p.add_argument("--yes", action="store_true", help="Do not prompt")
-    limits_p.add_argument("--text", default="1000000")
-    limits_p.add_argument("--html", default="off")
-    limits_p.add_argument("--markdown", default="off")
+    limits_p.add_argument("--text", default="1000000", help="Text character limit or off (default: 1000000)")
+    limits_p.add_argument("--html", default="off", help="HTML character limit or off (default: off)")
+    limits_p.add_argument("--markdown", default="off", help="Markdown character limit or off (default: off)")
 
     return p

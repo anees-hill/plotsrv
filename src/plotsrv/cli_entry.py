@@ -5,14 +5,14 @@ import sys
 from collections.abc import Sequence
 from importlib.metadata import version
 
+from .cli_help import COMMANDS, ROOT_DESCRIPTION, ROOT_EPILOG
+
 
 def _build_root_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="plotsrv",
-        description=(
-            "plotsrv - inspect data, files, and live outputs in your browser\n\n"
-            "Documentation: https://docs.plotsrv.com"
-        ),
+        description=ROOT_DESCRIPTION,
+        epilog=ROOT_EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         add_help=False,
     )
@@ -30,8 +30,8 @@ def _build_root_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("run", "watch", "store", "config"),
-        help="run, watch, store, or config",
+        choices=tuple(COMMANDS),
+        help="command to run (see below)",
     )
     return parser
 
@@ -39,14 +39,6 @@ def _build_root_parser() -> argparse.ArgumentParser:
 def _print_root_help() -> None:
     parser = _build_root_parser()
     parser.print_help()
-    print(
-        "\ncommands:\n"
-        "  run     Discover and serve project views; optionally execute targets\n"
-        "  watch   Watch a file and publish live updates as a view\n"
-        "  store   Inspect or clear persisted views and snapshots\n"
-        "  config  Open the configuration wizard, create configs or populate settings\n"
-        "\nRun 'plotsrv COMMAND --help' for command-specific options."
-    )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -58,6 +50,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args == ["--version"]:
         print(f"plotsrv {version('plotsrv')}")
+        return 0
+
+    # Help must exit before importing runtime, discovery, or either wizard.
+    option_args = args[:args.index("--")] if "--" in args else args
+    if any(arg in ("-h", "--help") for arg in option_args):
+        from .cli_parser import build_parser
+
+        build_parser().parse_args(args)
         return 0
 
     if args[:2] == ["config", "init"]:
