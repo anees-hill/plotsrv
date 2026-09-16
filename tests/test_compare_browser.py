@@ -1,4 +1,4 @@
-"""Real bundle/renderer Compare interactions with deterministic bounded HTTP fixtures."""
+"""Real bundle/renderer History interactions with deterministic bounded HTTP fixtures."""
 
 import json
 from urllib.parse import parse_qs, urlparse
@@ -106,11 +106,12 @@ def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page
     assert page.locator("#compare-points button").count() == 100
     assert page.locator("#snapshots-control").is_hidden()
     assert page.locator("#export-button").is_visible()
+    assert page.locator("#export-control").evaluate(
+        "e=>e.parentElement.id==='history-export-slot'"
+    )
     page.click("#compare-list-tab")
-    page.click("#bottom-collapse")
-    assert page.locator("#compare-list").is_hidden()
-    page.click("#bottom-restore")
     assert page.locator("#compare-list").is_visible()
+    assert page.locator("#bottom-collapse").is_hidden()
     assert page.locator("#bottom-pin").count() == 0
     assert page.evaluate("PLOTSRV.state.tabulatorInstance===table")
     assert captures == [1]
@@ -119,6 +120,9 @@ def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page
     page.screenshot(path="/tmp/plotsrv-17-timeline.png")
     page.click("#compare-exit")
     assert page.locator("#history-select").is_visible()
+    assert page.locator("#export-control").evaluate(
+        "e=>e.parentElement.classList.contains('ps-bottom-bar__controls')"
+    )
     assert not page.evaluate("PLOTSRV.state.compareActive")
     assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 1
     assert not page.evaluate("PLOTSRV.core.canApplyPendingUpdate({force:true})")
@@ -127,7 +131,10 @@ def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page
 def test_latest_freezes_payload_exact_timestamp_export_and_explicit_recapture(page):
     reads, captures = mount(page)
     enter(page)
-    assert "r1" in page.locator("#compare-selected").inner_text()
+    assert (
+        page.locator("#compare-selected").inner_text()
+        == "Latest · 9 Sep 2026, 12:00:01 UTC"
+    )
     assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
     page.evaluate("""() => {
       PLOTSRV.state.pendingBrowserUpdate={revision:99};
@@ -154,6 +161,7 @@ def test_calendar_empty_dates_pagination_same_time_ids_and_outside_day(page):
     enter(page)
     page.evaluate("PLOTSRV.core.compare.setDay('2026-09-09')")
     page.wait_for_function("!PLOTSRV.state.compare.loading")
+    stable_height = page.locator("#compare-dock").bounding_box()["height"]
     page.click("#compare-calendar-toggle")
     assert (
         page.locator('[data-day="2026-09-09"]').get_attribute("aria-label")
@@ -169,12 +177,20 @@ def test_calendar_empty_dates_pagination_same_time_ids_and_outside_day(page):
     page.click("#compare-list-tab")
     page.locator('#compare-list [data-snapshot="s124"]').click()
     page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert "s124" in page.locator("#compare-selected").inner_text()
+    assert (
+        page.locator("#compare-selected").inner_text()
+        == "9 Sep 2026, 12:00:00 UTC"
+    )
+    assert "s124" not in page.locator("#compare-selected").inner_text()
     page.click("#compare-older")
     page.wait_for_function(
         "!PLOTSRV.state.snapshotNavigation.pending && !PLOTSRV.state.snapshotNavigation.loading"
     )
-    assert "s123" in page.locator("#compare-selected").inner_text()
+    assert (
+        page.locator("#compare-selected").inner_text()
+        == "9 Sep 2026, 12:00:00 UTC"
+    )
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s123"
     page.click("#compare-more")
     page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert page.locator("#compare-list button").count() == 25
@@ -182,6 +198,9 @@ def test_calendar_empty_dates_pagination_same_time_ids_and_outside_day(page):
     page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert "No stored snapshots" in page.locator("#compare-list").inner_text()
     assert "outside" in page.locator("#compare-message").inner_text()
+    assert page.locator("#compare-dock").bounding_box()["height"] == pytest.approx(
+        stable_height, abs=1
+    )
     assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s123"
     page.click("#compare-exit")
     assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s123"
@@ -226,11 +245,14 @@ def test_keyboard_mobile_theme_layout_and_no_idle_metadata_work(page, viewport):
     page.wait_for_timeout(300)
     assert reads == before
     page.screenshot(path=f"/tmp/plotsrv-17-dark-{viewport}.png")
-    page.locator("#bottom-collapse").focus()
-    page.keyboard.press("Enter")
-    assert page.locator("#bottom-restore").evaluate("e=>e===document.activeElement")
-    page.keyboard.press("Enter")
-    assert page.locator("#compare-dock").is_visible()
+    header = page.locator(".ps-history-panel__header").bounding_box()
+    close = page.locator("#compare-exit").bounding_box()
+    assert close["x"] + close["width"] == pytest.approx(
+        header["x"] + header["width"], abs=1
+    )
+    page.click("#compare-exit")
+    assert page.locator("#compare-dock").is_hidden()
+    assert page.locator("#compare-enter").evaluate("e=>e===document.activeElement")
 
 
 def test_focus_handoff_and_source_change_exit_compare(page):
@@ -291,11 +313,8 @@ def test_compare_presentation_changes_retain_plot_svg_and_release_space(page):
     page.evaluate(
         "window.svg=document.querySelector('.ps-table-plot__svg'); window.prefs=JSON.stringify(PLOTSRV.state.tablePlotPreferences)"
     )
-    page.click("#bottom-collapse")
-    page.wait_for_function(
-        "getComputedStyle(document.body).getPropertyValue('--ps-bottom-dock-clearance')==='0px'"
-    )
-    page.click("#bottom-restore")
+    page.click("#compare-list-tab")
+    page.click("#compare-timeline-tab")
     assert page.evaluate(
         "document.querySelector('.ps-table-plot__svg')===svg && JSON.stringify(PLOTSRV.state.tablePlotPreferences)===prefs"
     )
@@ -356,7 +375,7 @@ def test_empty_month_and_calendar_open_close_are_bounded(page):
     page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert page.locator("#compare-calendar-days .has-snapshots").count() == 0
     assert page.locator("#compare-calendar-days button").count() == 31
-    assert page.locator("#compare-day").input_value() == "2026-09-09"
+    assert page.locator("#compare-day").inner_text() == "9 Sep 2026"
     page.screenshot(path="/tmp/plotsrv-17-calendar.png")
     before = list(reads)
     for _ in range(5):
@@ -445,7 +464,7 @@ def test_repeated_bar_presentations_have_no_dom_growth_requests_or_idle_redraws(
     assert result["nodeDelta"] == 0 and result["sameTable"] and result["sameRows"]
     assert page.evaluate("idleRedraws") == 0
     assert reads == before
-    print("Compare bar measurements:", result)
+    print("History bar measurements:", result)
 
 
 @pytest.mark.parametrize("kind", ["text", "json", "html", "image", "plot"])
@@ -506,8 +525,8 @@ def test_latest_capture_across_supported_renderers_keeps_selected_content(page, 
             "Unchanged on collapse"
         )
     before = list(reads)
-    page.click("#bottom-collapse")
-    page.click("#bottom-restore")
+    page.click("#compare-list-tab")
+    page.click("#compare-timeline-tab")
     assert page.evaluate(
         "selector=>capturedNode===document.querySelector(selector) && capturedNode.firstChild===capturedChild",
         selector,

@@ -1,11 +1,11 @@
 {
-  "css": "/static/dist/plotsrv-ui.77fa3f15af11.css",
+  "css": "/static/dist/plotsrv-ui.f88d31e7744e.css",
   "customiser_css": "/static/dist/plotsrv-customiser.dd3d37e6d6c4.css",
   "customiser_js": "/static/dist/plotsrv-customiser.b6cb52f88d4a.js",
-  "js": "/static/dist/plotsrv-ui.79d5fca9521e.js",
+  "js": "/static/dist/plotsrv-ui.0d7d48b2c122.js",
   "js_by_kind": {
-    "plot": "/static/dist/plotsrv-ui.54cab5c70e72.js",
-    "table": "/static/dist/plotsrv-ui.9842a5db48f7.js"
+    "plot": "/static/dist/plotsrv-ui.189edf3e69f4.js",
+    "table": "/static/dist/plotsrv-ui.0052adfe4924.js"
   },
   "tabulator_js": "/static/vendor/tabulator/5.5.0/tabulator.min.js",
   "tabulator_version": "5.5.0"

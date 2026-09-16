@@ -3,9 +3,22 @@
   const {core, state, config} = window.PLOTSRV;
   const ui = state.compare = {mode: "timeline", day: new Date().toISOString().slice(0, 10), month: "", rows: [], days: {}, next: null, count: 0, loading: false, error: ""};
   let metadataController = null, metadataRequest = 0, metadataTask = null, desiredMetadata = null;
+  let exportAnchor = null;
   const el = id => document.getElementById(id);
   const label = (id, text) => { if (el(id)) el(id).textContent = text; };
-  const stamp = value => String(value || "Unknown timestamp").replace("T", " ").replace(/(?:Z|\+00:00)$/, "") + " UTC";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function stamp(value) {
+    const date = new Date(value);
+    if (!Number.isFinite(+date)) return "Unknown time";
+    return date.getUTCDate() + " " + months[date.getUTCMonth()] + " " + date.getUTCFullYear() + ", " +
+      String(date.getUTCHours()).padStart(2, "0") + ":" +
+      String(date.getUTCMinutes()).padStart(2, "0") + ":" +
+      String(date.getUTCSeconds()).padStart(2, "0") + " UTC";
+  }
+  function dayLabel(value) {
+    const date = civil(value);
+    return date.getUTCDate() + " " + months[date.getUTCMonth()] + " " + date.getUTCFullYear();
+  }
   function civil(value) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw Error("Invalid UTC date");
     const d = new Date(value + "T00:00:00Z");
@@ -25,13 +38,13 @@
       while (true) {
         const item = await reader.read(); if (item.done) break;
         bytes += item.value.byteLength;
-        if (bytes > limit) throw Error("Compare response exceeds its read budget.");
+        if (bytes > limit) throw Error("History response exceeds its read budget.");
         chunks.push(item.value);
       }
       const all = new Uint8Array(bytes); let offset = 0;
       for (const chunk of chunks) { all.set(chunk, offset); offset += chunk.length; }
       const data = JSON.parse(new TextDecoder().decode(all));
-      if (!res.ok) throw Error(typeof data.detail === "string" ? data.detail.slice(0, 500) : "Compare request failed (" + res.status + "). Choose again to retry.");
+      if (!res.ok) throw Error(typeof data.detail === "string" ? data.detail.slice(0, 500) : "History request failed (" + res.status + "). Choose again to retry.");
       return data;
     } finally { await reader.cancel().catch(() => {}); }
   }
@@ -70,30 +83,46 @@
     if (!data) return Promise.reject(Error("This captured revision does not support that renderer."));
     return Promise.resolve({ok: true, json: async () => data});
   };
+  function moveExportIntoHistory() {
+    const control = el("export-control"), slot = el("history-export-slot");
+    if (!control || !slot || control.parentElement === slot) return;
+    exportAnchor = document.createComment("export control position");
+    control.before(exportAnchor);
+    slot.append(control);
+  }
+  function restoreExport() {
+    const control = el("export-control");
+    if (control && exportAnchor && exportAnchor.isConnected) exportAnchor.replaceWith(control);
+    exportAnchor = null;
+  }
   function sync() {
     if (!el("compare-enter")) return;
     const nav = state.snapshotNavigation, cap = state.snapshotCapability;
     el("compare-enter").hidden = !el("snapshots-control") || config.kind === "stream" || !cap || !cap.enabled;
     el("compare-enter").disabled = !nav.metadata || !(nav.metadata.count || (nav.metadata.snapshots || []).length);
-    el("compare-enter").title = el("compare-enter").disabled ? "Compare becomes available when stored snapshots exist." : "Inspect stored snapshots using Timeline or List";
+    el("compare-enter").title = el("compare-enter").disabled ? "History becomes available when stored snapshots exist." : "Browse stored snapshots using Timeline or List";
     if (!state.compareActive) return;
     const pinned = capture(), selected = core.currentHistoryMeta();
-    label("compare-selected", state.currentSnapshot ? stamp(selected && selected.created_at) + " · " + state.currentSnapshot : pinned ? "Latest captured · " + stamp(pinned.created_at) + " · r" + pinned.revision : "Latest — waiting for capture");
+    label("compare-selected", state.currentSnapshot
+      ? selected && selected.created_at ? stamp(selected.created_at) : "Loading snapshot…"
+      : pinned ? "Latest · " + stamp(pinned.created_at) : "Latest — waiting for capture");
     el("compare-selected").title = el("compare-selected").textContent + (pinned ? " · " + pinned.scope : "");
     for (const dir of ["older", "newer"]) {
       const source = el("snapshot-" + dir), target = el("compare-" + dir);
       target.disabled = !source || source.disabled;
       target.title = source ? source.title : "Unavailable";
     }
-    label("compare-message", nav.error || ui.error || (nav.loadingVisible ? "Loading selected version…" : ui.loading ? "Loading stored metadata…" : state.currentSnapshot && selected && selected.created_at.slice(0, 10) !== ui.day ? "Selected version is outside this displayed day." : pinned ? pinned.scope + ". Held for inspection; choose Latest again to capture current data." : ""));
-    el("compare-day").value = ui.day;
+    const message = nav.error || ui.error || (nav.loadingVisible ? "Loading selected version…" : ui.loading ? "Loading stored metadata…" : state.currentSnapshot && selected && selected.created_at.slice(0, 10) !== ui.day ? "Selected version is outside this displayed day." : pinned ? pinned.scope + ". Held for inspection; choose Latest again to capture current data." : "");
+    label("compare-message", message);
+    el("compare-message").title = message;
+    label("compare-day", dayLabel(ui.day));
     for (const mode of ["timeline", "list"]) {
       el("compare-" + mode + "-tab").setAttribute("aria-pressed", String(ui.mode === mode));
       el("compare-" + mode).hidden = ui.mode !== mode;
     }
     el("compare-more").hidden = !ui.next;
     el("compare-more").disabled = ui.loading;
-    label("compare-count", ui.count + " stored · " + ui.rows.length + " on this page · UTC");
+    label("compare-count", ui.count + (ui.count === 1 ? " snapshot" : " snapshots") + " · " + ui.rows.length + " shown · UTC");
     for (const button of el("compare-results").querySelectorAll("[data-snapshot]")) button.setAttribute("aria-pressed", String(button.dataset.snapshot === state.currentSnapshot));
   }
   function renderRows() {
@@ -103,7 +132,7 @@
     for (const row of ui.rows) {
       const button = document.createElement("button"); button.type = "button";
       button.dataset.snapshot = row.snapshot_id;
-      button.textContent = stamp(row.created_at) + " · " + row.snapshot_id + " · " + (row.kind || "");
+      button.textContent = stamp(row.created_at) + (row.kind ? " · " + row.kind : "");
       button.addEventListener("click", () => core.snapshotNavigation.select(row.snapshot_id));
       list.append(button);
       const point = button.cloneNode(false);
@@ -160,7 +189,7 @@
           const query = new URLSearchParams({view: wanted.view, limit: "100", start, end});
           if (wanted.before) query.set("before", wanted.before);
           const data = await readBounded(await fetch("/history/navigation?" + query, {signal: controller.signal}), 128 * 1024);
-          if (data.capability && !data.capability.enabled) throw Error(data.capability.message || "Snapshot comparison is unavailable for this view.");
+          if (data.capability && !data.capability.enabled) throw Error(data.capability.message || "History is unavailable for this view.");
           const month = await readBounded(await fetch("/history/month?" + new URLSearchParams({view: wanted.view, month: wanted.month}), {signal: controller.signal}), 16 * 1024);
           if (wanted.revision !== metadataRequest || wanted.view !== config.activeViewId || !state.compareActive) continue;
           if (month.capability && !month.capability.enabled) throw Error(month.capability.message || "Calendar availability is unavailable for this view.");
@@ -186,6 +215,7 @@
     core.expandedView.prepareForCompare(); state.compareActive = true;
     document.body.classList.add("ps-compare");
     el("compare-dock").hidden = false; el("compare-enter").hidden = true;
+    moveExportIntoHistory();
     core.bottomBar.setCollapsed(false);
     const selected = core.currentHistoryMeta(); if (selected) ui.day = selected.created_at.slice(0, 10);
     ui.month = ui.day.slice(0, 7); metadata(); sync();
@@ -193,11 +223,12 @@
     el("compare-latest").focus();
   }
   function exit() {
+    if (core.closeExportMenu) core.closeExportMenu();
     state.compareActive = false; document.body.classList.remove("ps-compare");
     el("compare-dock").hidden = true; metadataRequest++; desiredMetadata = null;
     if (metadataController) metadataController.abort(); ui.rows = []; ui.days = {}; ui.next = null;
     renderRows(); el("compare-calendar").hidden = true; el("compare-calendar-toggle").setAttribute("aria-expanded", "false");
-    core.bottomBar.setCollapsed(false); sync(); el("compare-enter").focus();
+    restoreExport(); core.bottomBar.setCollapsed(false); sync(); el("compare-enter").focus();
   }
   function bind() {
     if (!el("compare-enter")) return;
@@ -205,7 +236,6 @@
     for (const direction of ["older", "newer"]) el("compare-" + direction).addEventListener("click", () => core.snapshotNavigation.move(direction));
     el("compare-latest").addEventListener("click", () => core.snapshotNavigation.select(null));
     for (const mode of ["timeline", "list"]) el("compare-" + mode + "-tab").addEventListener("click", () => {ui.mode = mode; sync();});
-    el("compare-day").addEventListener("change", event => setDay(event.target.value));
     for (const [id, step] of [["compare-day-prev", -1], ["compare-day-next", 1]]) el(id).addEventListener("click", () => {const d = civil(ui.day); d.setUTCDate(d.getUTCDate() + step); setDay(d.toISOString().slice(0, 10));});
     for (const [id, step] of [["compare-month-prev", -1], ["compare-month-next", 1]]) el(id).addEventListener("click", () => {const d = civil(ui.month + "-01"); d.setUTCMonth(d.getUTCMonth() + step); ui.month = d.toISOString().slice(0, 7); metadata();});
     el("compare-calendar-toggle").addEventListener("click", () => {const calendar = el("compare-calendar"); calendar.hidden = !calendar.hidden; el("compare-calendar-toggle").setAttribute("aria-expanded", String(!calendar.hidden));});

@@ -573,20 +573,34 @@ def render_index(
               <div class="ps-bottom-bar__controls">
                 {_export_control_html(view_kind)}
                 {_history_controls_html()}
-                <button id="compare-enter" class="btn" type="button" hidden>Compare</button>
-                <div id="compare-dock" hidden>
+                <button id="compare-enter" class="btn" type="button" hidden>History</button>
+                <div id="compare-dock" class="ps-history-panel" aria-labelledby="history-panel-title" hidden>
+                  <header class="ps-history-panel__header">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/></svg>
+                    <div>
+                      <strong id="history-panel-title">History</strong>
+                      <span>Browse and explore previous snapshots</span>
+                    </div>
+                    <button id="compare-exit" class="btn ps-history-panel__close" type="button" aria-label="Close History" title="Close History">×</button>
+                  </header>
                   <div class="ps-compare-toolbar">
-                    <button id="compare-older" class="btn" type="button" aria-label="Previous snapshot">‹</button>
-                    <button id="compare-newer" class="btn" type="button" aria-label="Next snapshot">›</button>
-                    <span id="compare-selected" tabindex="0"></span>
-                    <button id="compare-latest" class="btn" type="button">Latest</button>
-                    <button id="compare-day-prev" class="btn" type="button" aria-label="Previous UTC day">‹</button>
-                    <input id="compare-day" type="date" aria-label="Displayed UTC date" />
-                    <button id="compare-day-next" class="btn" type="button" aria-label="Next UTC day">›</button>
-                    <button id="compare-calendar-toggle" class="btn" type="button" aria-label="Calendar" aria-expanded="false" aria-controls="compare-calendar">▦</button>
-                    <button id="compare-timeline-tab" class="btn" type="button" aria-pressed="true">Timeline</button>
-                    <button id="compare-list-tab" class="btn" type="button" aria-pressed="false">List</button>
-                    <button id="compare-exit" class="btn" type="button" aria-label="Exit Compare">×</button>
+                    <div id="history-export-slot" class="ps-history-export-slot"></div>
+                    <div class="ps-history-control-group" role="group" aria-label="UTC date navigation">
+                      <button id="compare-day-prev" class="btn" type="button" aria-label="Previous UTC day">‹</button>
+                      <span id="compare-day" tabindex="-1" aria-label="Displayed UTC date"></span>
+                      <button id="compare-day-next" class="btn" type="button" aria-label="Next UTC day">›</button>
+                    </div>
+                    <button id="compare-calendar-toggle" class="btn ps-history-calendar-button" type="button" aria-label="Open snapshot calendar" aria-expanded="false" aria-controls="compare-calendar"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18"/></svg></button>
+                    <div class="ps-history-control-group" role="group" aria-label="Snapshot navigation">
+                      <button id="compare-older" class="btn" type="button" aria-label="Previous snapshot">‹</button>
+                      <span id="compare-selected" tabindex="0"></span>
+                      <button id="compare-newer" class="btn" type="button" aria-label="Next snapshot">›</button>
+                    </div>
+                    <button id="compare-latest" class="btn ps-history-latest" type="button"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5"/></svg>Latest</button>
+                    <div class="ps-history-modes" role="group" aria-label="History display mode">
+                      <button id="compare-timeline-tab" class="btn" type="button" aria-pressed="true"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 14l4-4 3 2 4-6 5 3"/><circle cx="6" cy="10" r="1"/><circle cx="13" cy="6" r="1"/></svg>Timeline</button>
+                      <button id="compare-list-tab" class="btn" type="button" aria-pressed="false"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 5h11M7 10h11M7 15h11"/><circle cx="3" cy="5" r=".8" fill="currentColor"/><circle cx="3" cy="10" r=".8" fill="currentColor"/><circle cx="3" cy="15" r=".8" fill="currentColor"/></svg>List</button>
+                    </div>
                   </div>
                   <div id="compare-calendar" hidden role="region" aria-label="Stored snapshot calendar">
                     <div><button id="compare-month-prev" class="btn" type="button" aria-label="Previous month">‹</button><span id="compare-month-label"></span><button id="compare-month-next" class="btn" type="button" aria-label="Next month">›</button></div>
@@ -597,8 +611,10 @@ def render_index(
                     <div id="compare-timeline"><div id="compare-points"></div><div class="ps-timeline-axis"><span>00:00</span><span>06:00</span><span>12:00 UTC</span><span>18:00</span><span>24:00</span></div><span id="compare-timeline-empty"></span></div>
                     <div id="compare-list" hidden></div>
                   </div>
-                  <div class="ps-compare-summary"><span id="compare-count"></span><button id="compare-first" class="btn" type="button">First page</button><button id="compare-more" class="btn" type="button" hidden>Older on this day</button></div>
-                  <div id="compare-message" role="status"></div>
+                  <footer class="ps-history-panel__footer">
+                    <div class="ps-compare-summary"><span id="compare-count"></span><button id="compare-first" class="btn" type="button">First page</button><button id="compare-more" class="btn" type="button" hidden>Older on this day</button></div>
+                    <div id="compare-message" role="status"></div>
+                  </footer>
                 </div>
                 {bottom_file_indicator_html}
                 {_terminate_button_html()}

@@ -251,3 +251,33 @@ def test_snapshot_mode_banner_stays_in_flow_and_can_be_hidden_per_snapshot() -> 
     assert "if (snapshot !== bannerSnapshot)" in history
     assert 'bannerLatest.addEventListener("click", returnToLive)' in history
     assert "bannerDismissed = true" in history
+
+
+def test_history_panel_reuses_existing_browser_with_grouped_stable_controls() -> None:
+    rendered = _render("table")
+    compare_css = (STATIC / "css" / "compare.css").read_text(encoding="utf-8")
+    compare_js = (STATIC / "js" / "core" / "compare.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert (
+        'id="compare-enter" class="btn" type="button" hidden>History</button>'
+        in rendered
+    )
+    assert 'id="history-panel-title">History</strong>' in rendered
+    assert 'id="history-export-slot"' in rendered
+    assert 'aria-label="UTC date navigation"' in rendered
+    assert 'aria-label="Snapshot navigation"' in rendered
+    assert 'class="ps-history-modes" role="group"' in rendered
+    assert 'id="compare-day" type="date"' not in rendered
+    assert 'aria-label="Open snapshot calendar"' in rendered
+    assert 'aria-label="Close History"' in rendered
+    assert 'id="bottom-pin"' not in rendered
+    assert "grid-template-rows: auto auto 64px 28px" in compare_css
+    assert "height: 64px" in compare_css
+    assert "min-height: 28px" in compare_css
+    assert 'moveExportIntoHistory()' in compare_js
+    assert 'restoreExport()' in compare_js
+    assert 'months = ["Jan", "Feb", "Mar"' in compare_js
+    assert 'String(date.getUTCSeconds()).padStart(2, "0") + " UTC"' in compare_js
+    assert 'el("compare-day").addEventListener("change"' not in compare_js
