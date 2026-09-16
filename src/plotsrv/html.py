@@ -935,22 +935,24 @@ def render_index(
               </header>
 
               <div class="ps-status-modal__body">
-                <div id="status-modal-health" class="ps-status-modal__health" data-status-tone="neutral">
-                  <span class="ps-status-modal__health-dot" aria-hidden="true"></span>
-                  <div><strong id="status-modal-health-label">Checking status</strong><p id="status-modal-health-copy"></p></div>
+                <div id="status-modal-overview" class="ps-status-modal__overview" data-status-tone="neutral">
+                  <div id="status-modal-health" class="ps-status-modal__health" data-status-tone="neutral">
+                    <span class="ps-status-modal__health-dot" aria-hidden="true"></span>
+                    <div><strong id="status-modal-health-label">Checking status</strong><p id="status-modal-health-copy"></p></div>
+                  </div>
+                  <section class="ps-status-modal__summary" aria-label="Current status summary">
+                    <div class="ps-status-fact">
+                      <span id="status-modal-viewing-label" class="ps-status-fact__label">Viewing</span>
+                      <strong id="status-modal-viewing">Latest data</strong>
+                      <span id="status-modal-viewing-detail">This view follows live updates.</span>
+                    </div>
+                    <div class="ps-status-fact">
+                      <span id="status-modal-received-label" class="ps-status-fact__label">Last data received</span>
+                      <strong id="status-modal-received">Not yet</strong>
+                      <span id="status-modal-received-detail">No process-lifetime arrival recorded.</span>
+                    </div>
+                  </section>
                 </div>
-                <section class="ps-status-modal__summary" aria-label="Current status summary">
-                  <div class="ps-status-fact">
-                    <span id="status-modal-viewing-label" class="ps-status-fact__label">Viewing</span>
-                    <strong id="status-modal-viewing">Latest data</strong>
-                    <span id="status-modal-viewing-detail">This view follows live updates.</span>
-                  </div>
-                  <div class="ps-status-fact">
-                    <span id="status-modal-received-label" class="ps-status-fact__label">Last data received</span>
-                    <strong id="status-modal-received">Not yet</strong>
-                    <span id="status-modal-received-detail">No process-lifetime arrival recorded.</span>
-                  </div>
-                </section>
 
                 <section class="ps-status-modal__activity" aria-labelledby="status-modal-activity-title">
                   <div class="ps-status-modal__activity-header">

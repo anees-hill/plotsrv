@@ -33,6 +33,25 @@ def test_modal_markup_is_labelled_scrollable_and_shared_by_all_status_states() -
     assert "overflow: auto" in css_source
 
 
+def test_modal_status_header_is_flat_compact_and_uses_header_status_colours() -> None:
+    html_source = (ROOT / "src" / "plotsrv" / "html.py").read_text(encoding="utf-8")
+    css_source = _read("css/status.css")
+    js_source = _read("js/core/status_modal.js")
+
+    assert 'id="status-modal-overview"' in html_source
+    assert 'setAttribute("status-modal-overview", "data-status-tone", presentation.tone)' in js_source
+    assert 'presentation.label === "Live" ? "Up to date"' in js_source
+    assert "border-top: 3px solid var(--status-accent)" in css_source
+    assert '.ps-status-modal__overview[data-status-tone="live"]' in css_source
+    assert '.ps-status-modal__overview[data-status-tone="new-data"]' in css_source
+    assert "--status-accent: #54a63e" in css_source
+    assert "--status-accent: #f2c200" in css_source
+    assert "flex: 0 0 11px" in css_source
+    health_css = css_source.split(".ps-status-modal__health {", 1)[1].split("}", 1)[0]
+    assert "border: 0" in health_css
+    assert "background: transparent" in health_css
+
+
 def test_summary_has_two_facts_and_diagnostics_follow_activity() -> None:
     for kind in ("table", "stream"):
         rendered = html_mod.render_index(

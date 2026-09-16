@@ -329,37 +329,46 @@ body.ps-status-modal-open {
   padding: 0.35rem 1.5rem 1rem;
   overflow: auto;
 }
-.ps-status-modal__health {
+.ps-status-modal__overview {
   --status-accent: var(--muted);
-  display: flex;
-  align-items: center;
-  gap: 0.9rem;
-  overflow-wrap: anywhere;
-  padding: 0.9rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--status-accent) 22%, var(--ps-surface));
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--status-accent) 7%, var(--ps-surface));
+  border-top: 3px solid var(--status-accent);
 }
+.ps-status-modal__overview[data-status-tone="live"],
 .ps-status-modal__health[data-status-tone="live"] {
-  --status-accent: #159759;
+  --status-accent: #54a63e;
 }
+.ps-status-modal__overview[data-status-tone="warn"],
 .ps-status-modal__health[data-status-tone="warn"] {
-  --status-accent: #bc8a20;
+  --status-accent: #f2c200;
 }
+.ps-status-modal__overview[data-status-tone="error"],
 .ps-status-modal__health[data-status-tone="error"] {
   --status-accent: var(--danger-text);
 }
+.ps-status-modal__overview[data-status-tone="history"],
 .ps-status-modal__health[data-status-tone="history"] {
   --status-accent: #9b7bd2;
 }
+.ps-status-modal__overview[data-status-tone="new-data"],
 .ps-status-modal__health[data-status-tone="new-data"] {
-  --status-accent: #548bce;
+  --status-accent: #f2c200;
+}
+.ps-status-modal__health {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.65rem;
+  overflow-wrap: anywhere;
+  padding: 0.9rem 0.25rem 0.8rem;
+  border: 0;
+  background: transparent;
 }
 .ps-status-modal__health-dot {
-  flex: 0 0 22px;
-  height: 22px;
+  flex: 0 0 11px;
+  height: 11px;
+  margin-top: 0.3rem;
   border-radius: 50%;
   background: var(--status-accent);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08) inset;
 }
 .ps-status-modal__health strong {
   font-size: 1.12rem;
@@ -375,7 +384,9 @@ body.ps-status-modal-open {
 .ps-status-modal__summary {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 1.1rem 0;
+  margin: 0;
+  padding: 0.85rem 0 1rem;
+  border-top: 1px solid var(--ps-border-soft);
 }
 .ps-status-fact {
   min-width: 0;

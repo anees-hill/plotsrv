@@ -377,10 +377,11 @@
     setAttribute("status-modal", "aria-label", streamView ? "Stream status" : "Live data status");
     const presentation = core.deriveHeaderStatus ? core.deriveHeaderStatus(state.headerStatus) : null;
     if (presentation) {
+      setAttribute("status-modal-overview", "data-status-tone", presentation.tone);
       setAttribute("status-modal-health", "data-status-tone", presentation.tone);
-      setText("status-modal-health-label", presentation.label === "Live" ? "Live and up to date" : presentation.label);
+      setText("status-modal-health-label", presentation.label === "Live" ? "Up to date" : presentation.label);
       setText("status-modal-health-copy", presentation.label === "Live"
-        ? "Latest data is within its freshness policy." : presentation.copy);
+        ? "The latest data shown in this browser is within its freshness policy." : presentation.copy);
     }
     setAttribute(
       "status-modal-close-icon",

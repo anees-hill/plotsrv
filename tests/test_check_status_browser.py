@@ -492,7 +492,13 @@ def test_compact_status_hierarchy_empty_checks_and_disclosure_keyboard(page):
         data_activity: {events: [{received_at: now}], limit: 256}});
     }""")
     opened(page)
-    assert page.locator("#status-modal-health-label").inner_text() == "Live and up to date"
+    assert page.locator("#status-modal-health-label").inner_text() == "Up to date"
+    assert page.locator("#status-modal-overview").evaluate(
+        "e => getComputedStyle(e).borderTopColor"
+    ) == "rgb(84, 166, 62)"
+    assert page.locator(".ps-status-modal__health-dot").evaluate(
+        "e => [getComputedStyle(e).backgroundColor, e.getBoundingClientRect().width]"
+    ) == ["rgb(84, 166, 62)", 11]
     assert page.locator("#status-modal-received").inner_text() == "Just now"
     assert page.locator("#status-checks-context").is_hidden()
     assert page.locator("#status-checks-personal").is_hidden()
@@ -524,6 +530,15 @@ def test_compact_status_hierarchy_empty_checks_and_disclosure_keyboard(page):
         assert page.locator("#status-modal-health-label").inner_text() == label
     page.evaluate("PLOTSRV.core.setHeaderBrowserDataState('update_available')")
     assert page.locator("#status-modal-health-label").inner_text() == "New data available"
+    assert page.locator("#status-modal-health-copy").inner_text() == (
+        "The server has newer data than the version currently shown in this browser."
+    )
+    assert page.locator("#status-modal-overview").evaluate(
+        "e => getComputedStyle(e).borderTopColor"
+    ) == "rgb(242, 194, 0)"
+    assert page.locator(".ps-status-modal__health-dot").evaluate(
+        "e => getComputedStyle(e).backgroundColor"
+    ) == "rgb(242, 194, 0)"
     assert page.locator("#status-modal-update-now").is_visible()
     page.evaluate("""() => {
       PLOTSRV.state.currentSnapshot = 'stored';
