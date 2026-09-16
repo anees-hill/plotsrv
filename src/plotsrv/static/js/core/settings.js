@@ -65,9 +65,15 @@
   function syncSettingsHeaderHeight() {
     const header = document.getElementById("site-header");
     const page = document.getElementById("settings-page");
+    const trigger = document.getElementById("settings-button");
     if (header && page && !page.hidden) {
       page.style.setProperty("--ps-settings-header-height", header.getBoundingClientRect().height + "px");
       page.style.setProperty("--ps-settings-header-padding", window.getComputedStyle(header).padding);
+      if (trigger) {
+        const triggerRect = trigger.getBoundingClientRect();
+        page.style.setProperty("--ps-settings-close-top", triggerRect.top + "px");
+        page.style.setProperty("--ps-settings-close-right", (window.innerWidth - triggerRect.right) + "px");
+      }
     }
   }
 

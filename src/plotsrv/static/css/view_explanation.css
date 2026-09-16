@@ -1,6 +1,6 @@
 .ps-view-about { position: relative; flex: 0 0 auto; }
 #view-about[hidden] { display: none; }
-.ps-view-about > summary { list-style: none; font: italic bold 18px Georgia, serif; }
+.ps-view-about > summary { list-style: none; font: italic bold 16px Georgia, serif; }
 .ps-view-about > summary::-webkit-details-marker { display: none; }
 .ps-view-about__panel {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
@@ -14,7 +14,6 @@
 #view-about-scope { font-size: 12px; opacity: .8; }
 .ps-viewselect__description { display: block; font-size: 12px; font-weight: normal; opacity: .8; white-space: normal; overflow-wrap: anywhere; }
 @media (max-width: 900px) {
-  #site-header .header-right { grid-template-columns: auto auto auto minmax(0, 1fr); }
   .ps-view-about__panel { position: fixed; top: 60px; left: 12px; right: 12px; width: auto; }
   .ps-view-about__panel button { min-width: 44px; min-height: 44px; }
 }

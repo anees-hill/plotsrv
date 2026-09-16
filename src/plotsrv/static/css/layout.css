@@ -53,6 +53,13 @@
   margin-left: auto;
 }
 
+.ps-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+
 .header-logo {
   height: 39.6px;
   width: auto;

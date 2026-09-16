@@ -50,7 +50,7 @@ def _render(*, show_status: bool = True, **ui_kwargs: str) -> str:
     )
 
 
-def test_settings_trigger_uses_supplied_icon_and_precedes_freshness() -> None:
+def test_header_actions_follow_menus_with_settings_at_the_far_right() -> None:
     rendered = _render()
     header_right = rendered.split(
         '<div class="header-right ps-header__right">', 1
@@ -60,11 +60,46 @@ def test_settings_trigger_uses_supplied_icon_and_precedes_freshness() -> None:
     assert 'href="/static/ui-images/header-settings.png"' in header_right
     assert 'stroke-width="1.9"' in header_right
     assert 'aria-controls="settings-page"' in header_right
-    assert header_right.index('id="settings-button"') < header_right.index(
-        'id="header-status"'
-    )
+    status = header_right.index('id="header-status"')
+    view_selector = header_right.index('data-plotsrv-viewselect="1"')
+    fullscreen = header_right.index('id="expand-view"')
+    about = header_right.index('id="view-about"')
+    settings = header_right.index('id="settings-button"')
+    assert status < view_selector < fullscreen < about < settings
     assert (STATIC / "icons/header-settings.png").is_file()
     assert (STATIC / "icons/header-fullscreen.png").is_file()
+
+
+def test_header_icons_are_reduced_without_reducing_button_hit_areas() -> None:
+    rendered = _render()
+    themes = (STATIC / "css" / "themes.css").read_text(encoding="utf-8")
+    expanded = (STATIC / "css" / "expanded_view.css").read_text(encoding="utf-8")
+    explanation = (STATIC / "css" / "view_explanation.css").read_text(encoding="utf-8")
+    actions = rendered.split('<div class="ps-header-actions">', 1)[1].split("</header>", 1)[0]
+
+    assert actions.count('class="ps-header-control-icon"') == 2
+    assert actions.count('width="16" height="16"') == 2
+    assert "width: 16px;\n  height: 16px;" in themes
+    assert "width: 38px;\n  height: 38px;" in themes
+    assert ".ps-expand-button .ps-header-control-icon { width: 16px; height: 16px; }" in expanded
+    assert "font: italic bold 16px Georgia, serif" in explanation
+
+
+def test_settings_close_replaces_trigger_at_the_same_header_position() -> None:
+    themes = (STATIC / "css" / "themes.css").read_text(encoding="utf-8")
+    settings = (STATIC / "js" / "core" / "settings.js").read_text(encoding="utf-8")
+    trigger = themes.split(".ps-settings-trigger,", 1)[1].split("}", 1)[0]
+    settings_header = themes.split(".ps-settings-page__header {", 1)[1].split("}", 1)[0]
+    close = themes.split(".ps-settings-page__close {", 1)[1].split("}", 1)[0]
+
+    assert "width: 38px" in trigger and "height: 38px" in trigger
+    assert "align-items: center" in settings_header
+    assert "padding: var(--ps-settings-header-padding, 0.5rem 1rem)" in settings_header
+    assert "width: 38px" in close and "height: 38px" in close
+    assert "top: var(--ps-settings-close-top, 0.5rem)" in close
+    assert "right: var(--ps-settings-close-right, 1rem)" in close
+    assert 'page.style.setProperty("--ps-settings-close-top", triggerRect.top + "px")' in settings
+    assert 'page.style.setProperty("--ps-settings-close-right", (window.innerWidth - triggerRect.right) + "px")' in settings
 
 
 def test_settings_remains_available_when_freshness_is_disabled() -> None:
