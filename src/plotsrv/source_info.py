@@ -2,6 +2,14 @@
 
 from pathlib import PurePath
 
+# Filename recognition is explicit, separate from configuration/format aliases.
+CODE_EXTENSIONS = {
+    ".py": "python", ".pyi": "python", ".r": "r", ".sql": "sql",
+    ".sh": "bash", ".bash": "bash", ".zsh": "bash",
+    ".js": "javascript", ".ts": "typescript", ".css": "css",
+    ".c": "c", ".h": "c", ".cpp": "cpp", ".go": "go", ".rs": "rust",
+}
+
 LANGUAGES = {
     "py": "python",
     "pyi": "python",
@@ -75,7 +83,7 @@ def for_file(path, *, anchor="head", partial=False):
         dict(
             basename=name,
             format=fmt,
-            language=LANGUAGES.get(fmt),
+            language=CODE_EXTENSIONS.get(PurePath(name).suffix.lower()) or LANGUAGES.get(fmt),
             anchor=anchor,
             partial=partial,
         )

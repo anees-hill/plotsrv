@@ -13,6 +13,7 @@ IconKey = Literal[
     "text",
     "json",
     "python",
+    "code",
     "markdown",
     "image",
     "html",
@@ -34,3 +35,4 @@ class ViewMeta:
 
     icon_key: IconKey = "unknown"
     description: str | None = None
+    code_language: str | None = None

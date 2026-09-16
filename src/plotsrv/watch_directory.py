@@ -17,7 +17,6 @@ DEFAULT_VIEWS = 32
 MAX_DEPTH = 16
 MAX_VIEWS = MAX_WATCHES
 MAX_ENTRIES = 10_000
-TEXT_SUFFIXES = {".txt", ".text", ".log"}
 
 
 def discover_directory(
@@ -70,10 +69,7 @@ def discover_directory(
                 continue
             if not entry.is_file(follow_symlinks=False):
                 continue
-            if (
-                infer_file_kind(path) == "unknown"
-                and path.suffix.lower() not in TEXT_SUFFIXES
-            ):
+            if infer_file_kind(path) == "unknown":
                 continue
             relative = path.relative_to(root)
             if patterns and not any(

@@ -25,11 +25,12 @@ def install(page, source, kind="python", name="source.py"):
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])
-def test_python_multiline_copy_controls_and_snapshot_remount(page, theme):
+@pytest.mark.parametrize("kind", ["python", "code"])
+def test_python_multiline_copy_controls_and_snapshot_remount(page, theme, kind):
     base_mount(page, "artifacts:text")
     page.evaluate("theme=>document.documentElement.dataset.theme=theme", theme)
     raw = 'value = """first\n<script>still a string</script>\nlast"""\r\nprint(value)\n'
-    install(page, raw)
+    install(page, raw, kind)
     assert page.locator(".ps-code-line").count() == 4
     assert (
         page.locator(".ps-code-line").nth(1).locator(".ps-code-token--string").count()
@@ -46,7 +47,7 @@ def test_python_multiline_copy_controls_and_snapshot_remount(page, theme):
     assert page.locator(".ps-code-pre--wrap.ps-code-pre--no-lines").count() == 1
     page.click('[data-plotsrv-code-action="highlight"]')
     assert page.locator(".ps-code-token").count() == 0
-    install(page, raw)  # Same view, different rendered revision/snapshot.
+    install(page, raw, kind)  # Same view, different rendered revision/snapshot.
     assert page.locator(".ps-code-token").count() == 0
     assert page.locator(".ps-code-pre--wrap.ps-code-pre--no-lines").count() == 1
     page.click('[data-plotsrv-code-action="highlight"]')
@@ -104,3 +105,20 @@ def test_json_raw_switch_preserves_server_tokens_and_tree(page):
     page.click('[data-json-mode="text"]')
     assert pre.locator(".ps-code-token").count()
     assert page.locator("#artifact-root script").count() == 0
+
+
+@pytest.mark.parametrize("theme,width", [("light", 1200), ("dark", 390)])
+def test_code_badge_matches_theme_and_fits_mobile(page, theme, width):
+    base_mount(page, "artifacts:text")
+    page.set_viewport_size({"width": width, "height": 800})
+    page.evaluate("""theme => {
+        document.documentElement.dataset.theme = theme;
+        const icon = PLOTSRV.core.makeViewIcon({icon_key:'code', code_language:'sql'}, 'ps-viewselect__icon');
+        document.querySelector('.ps-viewselect__icon').replaceWith(icon);
+    }""", theme)
+    icon = page.locator('.ps-viewselect__icon')
+    assert icon.inner_text() == 'SQL'
+    assert icon.locator('.ps-code-view-icon__glyph').evaluate("e => getComputedStyle(e).maskImage.includes('code.svg')")
+    assert icon.bounding_box()['width'] <= 40
+    page.evaluate("PLOTSRV.core.updateViewIcon(document.querySelector('.ps-viewselect__icon'), {icon_key:'code', code_language:'r'})")
+    assert page.locator('.ps-viewselect__icon').inner_text() == 'R'

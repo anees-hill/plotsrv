@@ -515,10 +515,10 @@ def _serialise_payload(*, kind: str, obj: Any) -> dict[str, Any]:
             "format": "text",
         }
 
-    if k == "python":
+    if k in ("python", "code"):
         return {
             "data": str(obj).encode("utf-8"),
-            "suffix": "py",
+            "suffix": "py" if k == "python" else "txt",
             "format": "text",
         }
 

@@ -68,9 +68,17 @@ Quote patterns so your shell does not expand them. Repeat `--include` to match
 any of several patterns. A pattern without `/` matches filenames; a pattern with
 `/` matches the complete relative path (`*` can span folders).
 
-Supported formats are Markdown, HTML, CSV, JSON, YAML, TOML, INI/CFG, Python,
-the supported image formats, and `.txt`, `.text`, and `.log` files. Hidden files
-and folders, symlinks, special files, and unknown extensions are skipped.
+Supported formats are Markdown, HTML, CSV, JSON, YAML, TOML, INI/CFG,
+the supported image formats, and `.txt`, `.text`, and `.log` files.
+Code files (`.py`, `.pyi`, `.r`, `.sql`, `.sh`, `.bash`, `.zsh`, `.js`, `.ts`,
+`.css`, `.c`, `.h`, `.cpp`, `.go`, `.rs`) open in the Code renderer with bounded
+syntax highlighting, copy, wrapping and line-number controls. Extensions are
+case-insensitive, so `.R` works too. Code is displayed, never executed. The view
+selector shows a code icon with a language badge, such as PY, R or SQL. Existing
+Python artifacts and snapshots remain supported. Specialised formats such as
+HTML, Markdown, CSV and JSON keep their existing renderers.
+
+Hidden files and folders, symlinks, special files, and unknown extensions are skipped.
 An include pattern narrows these formats; it does not enable arbitrary files.
 
 Depth is configurable from 0 to 16, and the view limit from 1 to 64. Discovery

@@ -10,6 +10,7 @@ from .image import ImageRenderer
 from .html import HtmlRenderer
 from .markdown import MarkdownRenderer
 from .python import PythonRenderer
+from .code import CodeRenderer
 from .traceback import TracebackRenderer
 
 
@@ -20,6 +21,7 @@ def register_default_renderers() -> None:
     register_renderer(MarkdownRenderer())
     register_renderer(JsonTreeRenderer())
     register_renderer(PythonRenderer())
+    register_renderer(CodeRenderer())
     register_renderer(TracebackRenderer())
     register_renderer(TextRenderer())
     register_renderer(ErrorTextRenderer(kind="watch_error"))

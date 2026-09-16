@@ -269,9 +269,9 @@ def prepare(raw: bytes, source: dict) -> Preparation:
                     limitation = "Isolated HTML; relative assets are not uploaded."
             else:
                 limitation = "Incomplete or oversized markup; showing bounded raw text."
-        if fk == "python":
-            payload["artifact_kind"] = "python"
-        if payload.get("artifact_kind") in ("text", "python"):
+        if fk == "code":
+            payload["artifact_kind"] = "code"
+        if payload.get("artifact_kind") in ("text", "python", "code"):
             from .runtime import get_watch_render_limit
 
             configured = get_watch_render_limit("text")

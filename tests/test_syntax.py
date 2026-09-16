@@ -28,11 +28,11 @@ class Text(HTMLParser):
 @pytest.mark.parametrize(
     "name,source,kind,language",
     [
-        ("script.py", 'print("<script>danger</script>")\n', "python", "python"),
-        ("types.pyi", "def work(x: int) -> str: ...\n", "python", "python"),
-        ("analysis.R", "x <- 42\n", "text", "r"),
-        ("query.sql", "SELECT * FROM orders;\n", "text", "sql"),
-        ("run.sh", 'echo "$HOME"\n', "text", "bash"),
+        ("script.py", 'print("<script>danger</script>")\n', "code", "python"),
+        ("types.pyi", "def work(x: int) -> str: ...\n", "code", "python"),
+        ("analysis.R", "x <- 42\n", "code", "r"),
+        ("query.sql", "SELECT * FROM orders;\n", "code", "sql"),
+        ("run.sh", 'echo "$HOME"\n', "code", "bash"),
         ("file.unknown", "plain source\n", "text", None),
     ],
 )
@@ -246,7 +246,7 @@ def test_same_revision_reuses_highlighting(client, monkeypatch):
     assert client.get("/artifact", params={"view": "watch:exact:é"}).status_code == 200
 
 
-@pytest.mark.parametrize("requested,expected", [("auto", "python"), ("text", "text")])
+@pytest.mark.parametrize("requested,expected", [("auto", "code"), ("text", "text")])
 def test_file_backed_python_respects_explicit_text_override(
     client, tmp_path, monkeypatch, requested, expected
 ):
@@ -310,3 +310,71 @@ def test_watch_metadata_is_given_to_existing_storage_queue(client, monkeypatch):
     post(client, envelope(session, b"SELECT 1;", name="query.sql"))
     assert tasks[0]["extra"]["source_info"]["language"] == "sql"
     assert tasks[0]["obj"] == "SELECT 1;"
+
+
+@pytest.mark.parametrize("extension,language", source_info.CODE_EXTENSIONS.items())
+def test_all_code_extensions_are_inert_and_preserve_language(client, tmp_path, extension, language):
+    from plotsrv import server, publisher
+    from plotsrv.file_kinds import infer_file_kind
+    from plotsrv.watch_directory import discover_directory
+    name = "source" + extension.upper()
+    path = tmp_path / name
+    raw = "raise RuntimeError('must never execute')\n"
+    path.write_text(raw)
+    assert infer_file_kind(path) == "code"
+    assert any(w.path == path for w in discover_directory(runtime.WatchConfig(path=tmp_path)))
+    server.refresh_view(path, view_id="direct", launch_server=False)
+    artifact = store.get_artifact(view_id="direct")
+    assert artifact.kind == "code" and artifact.obj == raw
+    assert artifact.source_info["language"] == language
+    metadata = next(v for v in store.list_views() if v.view_id == "direct")
+    assert metadata.icon_key == "code" and metadata.code_language == language
+    payload = publisher._to_publish_payload(raw, kind="artifact", artifact_kind="code",
+        label=None, section=None, update_limit_s=None, force=False)
+    assert payload["artifact"] == raw
+    session = register(client)
+    post(client, envelope(session, raw.encode(), name=name))
+    reply = client.get("/artifact", params={"view": "watch:exact:é"}).json()
+    assert reply["kind"] == "code"
+    assert reply["meta"]["source_info"]["language"] == language
+    assert 'data-plotsrv-code-action="copy"' in reply["html"]
+
+
+@pytest.mark.parametrize("kind,name", [("code", "query.sql"), ("python", "old.py")])
+def test_code_and_legacy_python_snapshot_roundtrip(client, tmp_path, monkeypatch, kind, name):
+    from plotsrv.storage.backend import write_snapshot
+    monkeypatch.setattr(config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(config, "get_storage_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_storage_view_enabled", lambda *a, **kw: True)
+    raw = "SELECT count(*) FROM orders;" if kind == "code" else "print(42)"
+    snapshot = write_snapshot(root_dir=tmp_path, view_id="v", kind=kind, obj=raw,
+        extra={"source_info": source_info.for_file(name)})
+    reply = client.get("/artifact", params={"view": "v", "snapshot": snapshot.snapshot_id})
+    assert reply.status_code == 200
+    assert reply.json()["kind"] == kind
+    assert reply.json()["meta"]["source_info"]["basename"] == name
+    assert 'data-plotsrv-code-action="copy"' in reply.json()["html"]
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_path_publish_preserves_source_hints(client, tmp_path, monkeypatch, local):
+    from plotsrv import publisher, server
+    from plotsrv.publishing import transport
+    source = tmp_path / "private.sql"
+    source.write_text("SELECT 42;\n")
+    monkeypatch.setattr(transport, "handshake", lambda *a, **kw: None)
+    monkeypatch.setattr(server, "start_server", lambda **kw: None)
+    monkeypatch.setattr(server, "_ensure_server_running", lambda *a, **kw: None)
+    captured = []
+    def post_payload(**kwargs):
+        captured.append(kwargs["payload"])
+        reply = client.post("/publish", json=kwargs["payload"])
+        assert reply.status_code == 200, reply.text
+        return True
+    monkeypatch.setattr(publisher, "_post_publish_payload", post_payload)
+    publisher.publish_view(source, launch_server=local, view_id="code-path", async_=False)
+    artifact = store.get_artifact(view_id="code-path")
+    assert artifact.kind == "code" and artifact.obj == source.read_text()
+    assert artifact.source_info == source_info.for_file(source)
+    if not local:
+        assert str(tmp_path) not in str(captured)

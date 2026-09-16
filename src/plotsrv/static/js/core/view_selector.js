@@ -27,6 +27,32 @@
   if (core.uiImageUrl) {
     Object.keys(ICONS).forEach(key => { ICONS[key] = core.uiImageUrl(ICONS[key]); });
   }
+  const CODE_LABELS = {python:"PY", r:"R", sql:"SQL", bash:"SH", javascript:"JS",
+    typescript:"TS", css:"CSS", c:"C", cpp:"C++", go:"GO", rust:"RS"};
+
+  function makeViewIcon(view, className) {
+    let icon;
+    if (view.icon_key === "code") {
+      icon = element("span", className + " ps-code-view-icon");
+      icon.setAttribute("aria-hidden", "true");
+      icon.appendChild(element("span", "ps-code-view-icon__glyph"));
+      icon.appendChild(element("span", "ps-code-view-icon__language",
+        Object.prototype.hasOwnProperty.call(CODE_LABELS, view.code_language) ? CODE_LABELS[view.code_language] : "CODE"));
+    } else {
+      icon = element("img", className);
+      icon.src = iconUrl(view);
+      icon.alt = "";
+    }
+    icon.dataset.iconSignature = JSON.stringify([view.icon_key, view.code_language || ""]);
+    return icon;
+  }
+  core.makeViewIcon = makeViewIcon;
+  core.updateViewIcon = function (icon, view) {
+    if (!icon || icon.dataset.iconSignature === JSON.stringify([view.icon_key, view.code_language || ""])) return;
+    const className = icon.classList.contains("ps-viewselect__itemicon")
+      ? "ps-viewselect__itemicon" : "ps-viewselect__icon";
+    icon.replaceWith(makeViewIcon(view, className));
+  };
   let activeController = null;
 
   function cleanText(value, fallback) {
@@ -49,6 +75,7 @@
         section: cleanText(raw.section, "default"),
         kind: cleanText(raw.kind, "none").toLowerCase(),
         icon_key: cleanText(raw.icon_key, "unknown").toLowerCase(),
+        code_language: cleanText(raw.code_language, "").toLowerCase(),
         description: typeof raw.description === "string" ? raw.description.slice(0, 512) : "",
         freshness:
           raw.freshness && typeof raw.freshness === "object"
@@ -83,6 +110,7 @@
       markdown: "Markdown",
       json: "JSON",
       python: "Python object",
+      code: "Code" + (view.code_language ? " · " + view.code_language : ""),
       traceback: "Traceback",
       exception: "Exception",
       text: "Text",
@@ -326,10 +354,7 @@
 
     button.appendChild(freshness);
     if (!compact) {
-      const image = element("img", "ps-viewselect__itemicon");
-      image.src = iconUrl(view);
-      image.alt = "";
-      button.appendChild(image);
+      button.appendChild(makeViewIcon(view, "ps-viewselect__itemicon"));
     }
     button.appendChild(copy);
     const check = element("span", "ps-viewselect__check", "✓");
@@ -341,10 +366,7 @@
 
   function makeFeatureFallback(view) {
     const fallback = element("span", "ps-viewselect__feature-fallback");
-    const image = element("img");
-    image.src = iconUrl(view);
-    image.alt = "";
-    fallback.appendChild(image);
+    fallback.appendChild(makeViewIcon(view, "ps-viewselect__itemicon"));
     return fallback;
   }
 
@@ -489,10 +511,7 @@
           open.setAttribute("data-selected", current ? "true" : "false");
           if (current) open.setAttribute("aria-current", "page");
           open.disabled = !known.has(item.spec.sourceId);
-          const image = element("img", "ps-viewselect__itemicon");
-          image.src = iconUrl(known.get(item.spec.sourceId) || {icon_key: "unknown"});
-          image.alt = "";
-          open.appendChild(image);
+          open.appendChild(makeViewIcon(known.get(item.spec.sourceId) || {icon_key: "unknown"}, "ps-viewselect__itemicon"));
           const copy = element("span", "ps-viewselect__itemcopy");
           copy.appendChild(element("span", "ps-viewselect__itemlabel", item.spec.name));
           copy.appendChild(element("span", "ps-viewselect__itemmeta", (known.has(item.spec.sourceId) ? item.spec.caption || known.get(item.spec.sourceId).description || item.spec.sourceId : "Source unavailable — " + item.spec.sourceId)));

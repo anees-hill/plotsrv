@@ -395,7 +395,7 @@ def _to_publish_payload(
         kind2 = requested_kind or _infer_artifact_kind(obj)
         payload["artifact_kind"] = kind2
 
-        if kind2 == "text":
+        if kind2 in ("text", "code"):
             if isinstance(obj, (bytes, bytearray)):
                 payload["artifact"] = bytes(obj).decode("utf-8", errors="replace")
             else:
@@ -544,6 +544,17 @@ def _try_publish_pathlike_view(
             )
             return True
 
+        if ak == "code":
+            from .source_info import for_file
+            _publish_view_now(
+                coerced.obj, launch=launch_server, host=host, port=port,
+                label=label, section=section, view_id=view_id,
+                update_limit_s=update_limit_s, force=force, kind="artifact",
+                artifact_kind="code", debug=debug, target=destination,
+                description=description, _source_info=for_file(path),
+            )
+            return True
+
         publish_view(
             coerced.obj,
             launch_server=launch_server,
@@ -614,6 +625,7 @@ def _publish_view_local(
     kind: str | None,
     artifact_kind: str | None,
     description: str | None = None,
+    _source_info: dict[str, Any] | None = None,
 ) -> None:
     """
     Publish directly into the in-process plotsrv server/store.
@@ -639,6 +651,7 @@ def _publish_view_local(
         view_id=view_id,
         kind=kind,
         artifact_kind=artifact_kind,
+        **({"_source_info": _source_info} if _source_info is not None else {}),
     )
 
     if description is not None:
@@ -736,6 +749,7 @@ def _publish_view_now(
     debug: bool,
     target: PublishTarget | None = None,
     description: str | None = None,
+    _source_info: dict[str, Any] | None = None,
 ) -> bool:
     from .descriptions import source_description
 
@@ -788,6 +802,7 @@ def _publish_view_now(
                 kind=kind,
                 artifact_kind=artifact_kind,
                 description=description,
+                **({"_source_info": _source_info} if _source_info is not None else {}),
             )
             return True
         except RuntimeError as exc:
@@ -827,6 +842,8 @@ def _publish_view_now(
             raise
         return False
 
+    if _source_info is not None:
+        payload["source_info"] = _source_info
     if description is not None:
         payload["description"] = description
     return _post_publish_payload(

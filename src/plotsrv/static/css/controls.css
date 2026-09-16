@@ -982,3 +982,29 @@
   .ps-snapshots__selector > span { display: none; }
   .ps-snapshots__selector select { min-width: 64px; max-width: 30vw; }
 }
+
+/* A single inert SVG mask, with readable language markers in either theme. */
+.ps-code-view-icon.ps-viewselect__icon,
+.ps-code-view-icon.ps-viewselect__itemicon {
+  display: inline-flex;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 30px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+.ps-code-view-icon__glyph {
+  display: block;
+  width: 20px;
+  height: 20px;
+  background: currentColor;
+  mask: url("/static/icons/code.svg") center / contain no-repeat;
+  -webkit-mask: url("/static/icons/code.svg") center / contain no-repeat;
+}
+.ps-code-view-icon__language {
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 10px;
+}

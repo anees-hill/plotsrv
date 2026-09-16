@@ -545,6 +545,7 @@ def _set_artifact_for_refresh(
     label: str | None,
     section: str | None,
     view_id: str | None,
+    source_info: dict[str, Any] | None = None,
 ) -> tuple[str, Any]:
     kind = (artifact_kind or "").strip().lower() or _infer_artifact_kind_for_refresh(
         obj
@@ -556,7 +557,7 @@ def _set_artifact_for_refresh(
     if kind == "json":
         obj = _json_artifact_for_refresh(obj)
 
-    elif kind == "text":
+    elif kind in ("text", "code"):
         if isinstance(obj, (bytes, bytearray)):
             obj = bytes(obj).decode("utf-8", errors="replace")
         else:
@@ -574,6 +575,7 @@ def _set_artifact_for_refresh(
         label=label,
         section=section,
         view_id=view_id,
+        source_info=source_info,
     )
 
     return kind, obj
@@ -593,6 +595,7 @@ def refresh_view(
     force_plotnine: bool = False,
     update_status: bool = True,
     launch_server: bool = True,
+    _source_info: dict[str, Any] | None = None,
 ) -> None:
     """
     Update an in-process plotsrv view directly.
@@ -667,6 +670,8 @@ def refresh_view(
 
         ak = artifact_kind or coerced.artifact_kind or "text"
         obj_to_store = coerced.obj
+        from .source_info import for_file
+        _source_info = for_file(path)
 
         _register_refresh_view_if_named(
             resolved_view_id=resolved_view_id,
@@ -681,6 +686,7 @@ def refresh_view(
             label=label,
             section=section,
             view_id=resolved_view_id,
+            source_info=_source_info,
         )
 
         if update_status:
@@ -690,6 +696,7 @@ def refresh_view(
             resolved_view_id=resolved_view_id,
             kind=stored_kind,
             obj=stored_obj,
+            extra={"source_info": _source_info} if _source_info else None,
             section=section,
             label=label,
         )
@@ -778,6 +785,7 @@ def refresh_view(
             label=label,
             section=section,
             view_id=resolved_view_id,
+            source_info=_source_info,
         )
 
         if update_status:
@@ -787,6 +795,7 @@ def refresh_view(
             resolved_view_id=resolved_view_id,
             kind=stored_kind,
             obj=stored_obj,
+            extra={"source_info": _source_info} if _source_info else None,
             section=section,
             label=label,
         )

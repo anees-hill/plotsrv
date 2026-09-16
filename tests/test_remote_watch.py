@@ -93,7 +93,7 @@ def post(client, body):
 @pytest.mark.parametrize(
     "name,raw,kind",
     [
-        ("example.py", b"print('safe')", "python"),
+        ("example.py", b"print('safe')", "code"),
         ("small.json", b'{"a": [1,2]}', "json"),
         ("settings.toml", b"x=1\n", "json"),
         ("config.yml", b"x: 1\n", "json"),

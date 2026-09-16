@@ -288,6 +288,17 @@ def render_index(
             )
         )
 
+    def _view_icon(v: ViewMeta | None, css_class: str) -> str:
+        if v is not None and v.icon_key == "code":
+            labels = {"python": "PY", "r": "R", "sql": "SQL", "bash": "SH",
+                      "javascript": "JS", "typescript": "TS", "css": "CSS",
+                      "c": "C", "cpp": "C++", "go": "GO", "rust": "RS"}
+            label = labels.get(v.code_language, "CODE")
+            return (f'<span class="{css_class} ps-code-view-icon" aria-hidden="true">'
+                    '<span class="ps-code-view-icon__glyph"></span>'
+                    f'<span class="ps-code-view-icon__language">{label}</span></span>')
+        return f'<img class="{css_class}" src="{_safe_url_attr(_icon_url(v))}" alt="" />'
+
     def _freshness_class(v: ViewMeta) -> str:
         freshness = view_freshness.get(v.view_id)
         if not isinstance(freshness, dict):
@@ -332,6 +343,7 @@ def render_index(
             "markdown": "Markdown",
             "json": "JSON",
             "python": "Python object",
+            "code": "Code" + (f" · {v.code_language}" if v.code_language else ""),
             "traceback": "Traceback",
             "exception": "Exception",
             "text": "Text",
@@ -347,7 +359,6 @@ def render_index(
         compact: bool = False,
     ) -> str:
         view_id_attr = _escape_attr(v.view_id)
-        icon = _safe_url_attr(_icon_url(v))
         label_html = _escape_html(compact_title or v.label)
         section = v.section or "default"
         type_label = _view_type_label(v)
@@ -362,7 +373,7 @@ def render_index(
         icon_html = (
             ""
             if compact
-            else f'<img class="ps-viewselect__itemicon" src="{icon}" alt="" />'
+            else _view_icon(v, "ps-viewselect__itemicon")
         )
 
         return f"""
@@ -417,8 +428,8 @@ def render_index(
         else:
             visual = (
                 '<span class="ps-viewselect__feature-fallback">'
-                f'<img src="{_safe_url_attr(_icon_url(view))}" alt="" />'
-                "</span>"
+                + _view_icon(view, "ps-viewselect__itemicon")
+                + "</span>"
             )
         caption_html = (
             f'<span class="ps-viewselect__feature-caption">{_escape_html(caption)}</span>'
@@ -465,7 +476,6 @@ def render_index(
         active_label = _escape_html(
             active_meta.label if active_meta else (active_view_id if views else "Views")
         )
-        active_icon = _safe_url_attr(_icon_url(active_meta))
 
         initial_mode = "grouped"
         menu_parts: list[str] = []
@@ -530,7 +540,7 @@ def render_index(
                     aria-controls="view-selector-menu"
                     aria-expanded="false"
                     aria-label="Choose view; current view is {active_label}">
-              <img class="ps-viewselect__icon" src="{active_icon}" alt="" />
+              {_view_icon(active_meta, "ps-viewselect__icon")}
               <span class="ps-viewselect__label">{active_label}</span>
               <svg class="ps-viewselect__chev" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 8 10.5 13 5.5" /></svg>
             </button>
@@ -1138,6 +1148,7 @@ def render_index(
             "label": v.label,
             "kind": v.kind,
             "icon_key": v.icon_key,
+            "code_language": v.code_language,
             "description": v.description,
             "freshness": view_freshness.get(v.view_id),
         }

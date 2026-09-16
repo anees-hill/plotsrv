@@ -11,6 +11,7 @@ ArtifactKind = Literal[
     "text",
     "json",
     "python",
+    "code",
     "markdown",
     "image",
     "html",

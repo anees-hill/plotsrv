@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 from .json_model import build_json_document
+from .source_info import CODE_EXTENSIONS
 
 FileKind = Literal[
     "text",
@@ -19,6 +20,7 @@ FileKind = Literal[
     "html",
     "unknown",
     "python",
+    "code",
 ]
 
 PublishKind = Literal["artifact", "table"]
@@ -27,6 +29,7 @@ ArtifactKind = Literal[
     "text",
     "json",
     "python",
+    "code",
     "markdown",
     "image",
     "html",
@@ -50,8 +53,10 @@ class FileCoerceResult:
 def infer_file_kind(path: Path) -> FileKind:
     suf = path.suffix.lower()
 
-    if suf in (".py", ".pyi"):
-        return "python"
+    if suf in CODE_EXTENSIONS:
+        return "code"
+    if suf in (".txt", ".text", ".log"):
+        return "text"
     if suf == ".json":
         return "json"
     if suf in (".ini", ".cfg"):
@@ -120,7 +125,8 @@ def coerce_file_to_publishable(
     - markdown -> artifact(markdown) with text
     - csv -> publish as table using pandas DataFrame (CAPPED rows)
     - image -> artifact(image) with {mime, data_b64}
-    - unknown -> artifact(text) with text
+    - recognised code extensions -> artifact(code) with inert source text
+    - text/unknown -> artifact(text) with text
     """
     fk = infer_file_kind(path)
 
@@ -320,7 +326,7 @@ def coerce_file_to_publishable(
     txt = raw.decode(encoding, errors="replace")
     return FileCoerceResult(
         publish_kind="artifact",
-        artifact_kind="python" if fk == "python" else "text",
+        artifact_kind="code" if fk == "code" else "text",
         obj=txt,
         file_kind=fk,
         source_format=fk,

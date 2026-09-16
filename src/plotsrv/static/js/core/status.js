@@ -229,7 +229,8 @@
 
         const iconKey = meta.icon_key || "unknown";
         const img = btn.querySelector(".ps-viewselect__itemicon");
-        if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
+        if (core.updateViewIcon) core.updateViewIcon(img, meta);
+        else if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
           img.setAttribute("src", ICONS[iconKey]);
         }
 
@@ -241,7 +242,8 @@
         const iconKey = activeMeta.icon_key || "unknown";
         const img = wrap.querySelector(".ps-viewselect__icon");
         const label = wrap.querySelector(".ps-viewselect__label");
-        if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
+        if (core.updateViewIcon) core.updateViewIcon(img, activeMeta);
+        else if (img && ICONS[iconKey] && img.getAttribute("src") !== ICONS[iconKey]) {
           img.setAttribute("src", ICONS[iconKey]);
         }
         if (label) label.textContent = String(activeMeta.label || activeMeta.view_id);

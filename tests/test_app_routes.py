@@ -198,7 +198,7 @@ def test_status_includes_file_backed_watch_metadata(
     assert watched["materialization"] == "file"
     assert "path" not in watched
     assert "last_error" not in watched
-    assert watched["file_kind"] == "unknown"
+    assert watched["file_kind"] == "text"
     assert watched["read_mode"] == "tail"
     assert watched["encoding"] == "utf-8"
     assert watched["size_bytes"] == len("hello\n".encode("utf-8"))
@@ -1265,7 +1265,7 @@ def test_views_file_backed_csv_watch_uses_table_icon(
     assert item["icon_key"] == "table"
 
 
-def test_views_file_backed_unknown_watch_uses_text_icon(
+def test_views_file_backed_text_watch_uses_text_icon(
     client: TestClient,
     tmp_path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1298,7 +1298,7 @@ def test_views_file_backed_unknown_watch_uses_text_icon(
 
     assert item["is_watched_file"] is True
     assert item["materialization"] == "file"
-    assert item["watched_file"]["file_kind"] == "unknown"
+    assert item["watched_file"]["file_kind"] == "text"
     assert item["icon_key"] == "text"
 
 

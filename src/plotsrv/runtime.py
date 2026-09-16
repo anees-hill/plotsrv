@@ -1324,7 +1324,7 @@ def truncate_watch_text_like_artifact(
     if ak in {"watch_error", "publish_error"}:
         return artifact
 
-    if ak not in {"text", "python", "markdown", "html"}:
+    if ak not in {"text", "python", "code", "markdown", "html"}:
         return artifact
 
     if not isinstance(artifact, str):

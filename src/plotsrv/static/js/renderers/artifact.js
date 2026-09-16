@@ -242,7 +242,7 @@
             "ps-has-markdown-artifact",
             data.kind === "markdown"
           );
-          document.body.classList.toggle("ps-has-code-artifact", data.kind === "python");
+          document.body.classList.toggle("ps-has-code-artifact", (data.kind === "python" || data.kind === "code"));
         }
       
       const kindEl = document.getElementById("artifact-kind");

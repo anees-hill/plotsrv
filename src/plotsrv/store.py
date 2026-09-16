@@ -100,7 +100,9 @@ def _icon_for_view_kind(
     if k == "artifact":
         ak = (artifact_kind or "python").strip().lower()
 
-        if ak in ("text", "json", "python", "markdown", "image", "html"):
+        if ak in ("python", "code"):
+            return "code"
+        if ak in ("text", "json", "markdown", "image", "html"):
             return ak  # type: ignore[return-value]
 
         if ak in ("traceback", "exception"):
@@ -117,8 +119,8 @@ def _icon_for_view_kind(
 def _icon_for_watched_file_kind(file_kind: str) -> IconKey:
     fk = (file_kind or "unknown").strip().lower()
 
-    if fk == "python":
-        return "python"
+    if fk in ("python", "code"):
+        return "code"
 
     if fk == "csv":
         return "table"
@@ -136,6 +138,22 @@ def _icon_for_watched_file_kind(file_kind: str) -> IconKey:
         return "image"
 
     return "text"
+
+
+def _code_language(st: ViewState) -> str | None:
+    if st.icon_key != "code":
+        return None
+    from .source_info import LANGUAGES, for_file
+
+    if st.artifact and st.artifact.kind in ("python", "code"):
+        hints = st.artifact.source_info or {}
+        language = hints.get("language") or hints.get("format")
+        return LANGUAGES.get(str(language).lower()) or (
+            "python" if st.artifact.kind == "python" else None
+        )
+    if st.watched_file:
+        return for_file(st.watched_file.path).get("language")
+    return None
 
 
 # Global store: multi-view
@@ -286,6 +304,7 @@ def register_view(
             else (previous_meta.section if previous_meta else None)
         ),
         icon_key=st.icon_key,
+        code_language=_code_language(st),
         description=(
             description
             if description is not None
@@ -407,6 +426,7 @@ def set_watched_file_meta(meta: WatchedFileMeta) -> None:
             label=existing.label,
             section=existing.section,
             icon_key=st.icon_key,
+            code_language=_code_language(st),
             description=existing.description,
         )
         _VIEW_META[meta.view_id] = next_meta

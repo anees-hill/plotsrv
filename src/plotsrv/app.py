@@ -1553,7 +1553,7 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
 
     elif kind == "artifact":
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
-        if artifact_kind not in ("text", "json", "html", "markdown", "image", "python", "traceback", "watch_error", "publish_error", "exception"):
+        if artifact_kind not in ("text", "json", "html", "markdown", "image", "python", "code", "traceback", "watch_error", "publish_error", "exception"):
             raise IngestionError("invalid_request", 422, "unsupported_artifact_kind")
         artifact_obj = payload.get("artifact")
         # Apply the policy to the actual renderer too: malformed hints must not
@@ -1902,6 +1902,7 @@ def get_views(request: Request) -> list[dict[str, Any]]:
                 "label": v.label,
                 "kind": v.kind,
                 "icon_key": v.icon_key,
+                "code_language": v.code_language,
                 "description": source_description(
                     v.view_id, v.description, policy=description_policy
                 ),

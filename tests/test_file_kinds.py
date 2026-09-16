@@ -32,7 +32,7 @@ import plotsrv.file_kinds as fk
         ("a.svg", "image"),
         ("a.html", "html"),
         ("a.htm", "html"),
-        ("a.txt", "unknown"),
+        ("a.txt", "text"),
         ("a", "unknown"),
     ],
 )
@@ -231,7 +231,7 @@ def test_coerce_image_payload(tmp_path: Path) -> None:
 
 
 def test_coerce_unknown_defaults_to_text(tmp_path: Path) -> None:
-    p = tmp_path / "x.txt"
+    p = tmp_path / "x.unknown"
     p.write_text("hello", encoding="utf-8")
 
     out = fk.coerce_file_to_publishable(p)
