@@ -307,6 +307,18 @@
     const status = document.getElementById("status");
     const inline = document.getElementById("table-status-inline");
 
+    if (config.kind === "stream" && inline &&
+        typeof core.renderStreamFeedStatus === "function") {
+      core.renderStreamFeedStatus(inline, activeCount, filtering);
+      if (status) {
+        status.textContent = Array.from(inline.children)
+          .map(element => element.textContent)
+          .filter(Boolean)
+          .join(" · ");
+      }
+      return;
+    }
+
     const targetEls = [status, inline].filter(Boolean);
     if (!targetEls.length) return;
 
@@ -777,7 +789,13 @@
     const btn = document.getElementById("table-filters-toggle-btn");
     if (!btn) return;
 
-    btn.classList.toggle("is-active", hasActiveFilters());
+    const count = getCompleteFilters().length;
+    btn.classList.toggle("is-active", count > 0);
+    btn.textContent = count ? "Filters · " + count : "Filters";
+    btn.setAttribute(
+      "aria-label",
+      count ? "Filters, " + count + " active" : "Filters"
+    );
   }
 
   function syncColumnsButtonUi() {
@@ -1855,7 +1873,9 @@
       hiddenColumns:p.hidden.slice(), filtersOpen:!!p.filters.length
     });
     const table = state.tabulatorInstance;
-    const defs = buildColumnDefs(state.tableFields);
+    const defs = config.kind === "stream" && typeof core.buildStreamColumns === "function"
+      ? core.buildStreamColumns(state.tableFields)
+      : buildColumnDefs(state.tableFields);
     const ordered = p.columns.map(field => defs.find(d => d.field === field)).filter(Boolean);
     defs.forEach(d => { if (!ordered.includes(d)) ordered.push(d); });
     return Promise.resolve(table.setColumns(ordered)).then(function () {

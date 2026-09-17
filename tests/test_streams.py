@@ -181,7 +181,7 @@ def test_stream_page_uses_bundled_live_grid_and_exposes_ordered_records(
     assert page.status_code == 200
     assert 'data-kind="stream"' in page.text
     assert 'data-view-icon="stream"' in page.text
-    assert 'src="/static/logo_stream.png"' in page.text
+    assert 'src="/static/ui-images/logo_stream.png"' in page.text
     assert 'id="stream-grid"' in page.text
     assert 'ps-table--rich ps-stream-grid' in page.text
     assert 'id="stream-lifecycle-badge"' not in page.text

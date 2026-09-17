@@ -225,6 +225,33 @@ def test_control_panes_share_a_neutral_theme_safe_grey_surface() -> None:
     assert "background: var(--ps-surface-soft)" in shared
 
 
+def test_default_stream_surface_is_a_readable_neutral_feed() -> None:
+    source = (STATIC / "js" / "renderers" / "stream.js").read_text(
+        encoding="utf-8"
+    )
+    table = (STATIC / "js" / "renderers" / "table.js").read_text(
+        encoding="utf-8"
+    )
+    css = (STATIC / "css" / "renderers" / "stream.css").read_text(
+        encoding="utf-8"
+    )
+    html = (ROOT / "src" / "plotsrv" / "html.py").read_text(encoding="utf-8")
+
+    assert "function buildFeedPresentation(fields, rows)" in source
+    assert '["time", "method", "path", "status"]' in source
+    assert '"message", "msg", "text", "log", "description", "detail"' in source
+    assert "STREAM_PREVIEW_CHARS = 320" in source
+    assert "defaultHidden: streamDefaultHidden(fields)" in source
+    assert "rowFormatter: prepareStreamRow" in source
+    assert 'on("rowClick"' in source
+    assert 'heading.textContent = "Complete record"' in source
+    assert "core.buildStreamColumns = buildColumns" in source
+    assert 'btn.textContent = count ? "Filters · " + count : "Filters"' in table
+    assert ".ps-stream-feed-status" in css
+    assert ".ps-stream-record-detail" in css
+    assert 'search_placeholder="Search logs…"' in html
+
+
 def test_drawer_source_restores_focus_and_supports_keyboard_tabs() -> None:
     source = (STATIC / "js" / "renderers" / "stream.js").read_text(
         encoding="utf-8"

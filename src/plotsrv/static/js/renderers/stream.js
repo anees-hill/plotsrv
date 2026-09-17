@@ -31,6 +31,9 @@
   const INSIGHTS_TABS = ["since", "noteworthy", "history"];
   const STREAM_DATA_REQUEST_TIMEOUT_MS = 15000;
   const STREAM_CONTROLS_PREFERENCE_PREFIX = "plotsrv:v1:stream_controls:";
+  const STREAM_RECORD_META = new WeakMap();
+  const STREAM_SOURCE_RECORDS = new WeakMap();
+  const STREAM_PREVIEW_CHARS = 320;
 
   function streamControlsPreferenceKey() {
     return STREAM_CONTROLS_PREFERENCE_PREFIX + String(config.activeViewId || "default");
@@ -239,8 +242,197 @@
     return element;
   }
 
+  function scalar(value) {
+    return value == null || ["string", "number", "boolean"].includes(typeof value);
+  }
+
+  function shortened(value, limit) {
+    const text = String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+    return text.length > limit ? text.slice(0, Math.max(0, limit - 1)) + "…" : text;
+  }
+
+  function previewValue(value) {
+    if (value && typeof value === "object" && !Array.isArray(value) &&
+        typeof value.text === "string") {
+      return shortened(value.text, STREAM_PREVIEW_CHARS);
+    }
+    return shortened(
+      scalar(value) ? value : stableJson(value),
+      STREAM_PREVIEW_CHARS
+    );
+  }
+
+  function clockTime(value) {
+    const parsed = typeof value === "string" || typeof value === "number"
+      ? new Date(value)
+      : null;
+    if (!parsed || !Number.isFinite(parsed.getTime())) return "";
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    }).format(parsed);
+  }
+
+  function nestedTime(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+    for (const key of ["source_timestamp", "timestamp", "time", "publisher_observed_at"]) {
+      const formatted = clockTime(value[key]);
+      if (formatted) return formatted;
+    }
+    return "";
+  }
+
+  function fieldLookup(fields) {
+    const result = new Map();
+    for (const field of fields) {
+      const key = String(field).toLowerCase();
+      if (!result.has(key)) result.set(key, String(field));
+    }
+    return result;
+  }
+
+  function firstNamedField(lookup, names) {
+    for (const name of names) {
+      if (lookup.has(name)) return lookup.get(name);
+    }
+    return null;
+  }
+
+  function sampledValue(rows, field, predicate) {
+    for (const row of rows.slice(0, 40)) {
+      if (!row || !Object.prototype.hasOwnProperty.call(row, field)) continue;
+      const value = row[field];
+      if (!predicate || predicate(value)) return value;
+    }
+    return undefined;
+  }
+
+  function buildFeedPresentation(fields, rows) {
+    const profile = state.httpProfile;
+    const http = profile && profile.fields;
+    if (http && ["time", "method", "path", "status"].every(role => http[role])) {
+      return {
+        visible: [http.time, http.method, http.path, http.status],
+        roles: {
+          [http.time]: "time", [http.method]: "method",
+          [http.path]: "message", [http.status]: "status",
+        },
+        labels: {
+          [http.time]: "Time", [http.method]: "Method",
+          [http.path]: "Path", [http.status]: "Status",
+        },
+        observedInPreview: false,
+      };
+    }
+
+    const lookup = fieldLookup(fields);
+    let time = firstNamedField(lookup, [
+      "timestamp", "@timestamp", "time", "datetime", "event_time",
+      "logged_at", "created_at",
+    ]);
+    if (time && sampledValue(rows, time, value => !!clockTime(value)) === undefined) {
+      time = null;
+    }
+    if (!time) {
+      const event = firstNamedField(lookup, ["event"]);
+      if (event && sampledValue(rows, event, value => !!nestedTime(value)) !== undefined) {
+        time = event;
+      }
+    }
+
+    let level = firstNamedField(lookup, [
+      "level", "severity", "log_level", "loglevel", "priority",
+    ]);
+    let source = firstNamedField(lookup, [
+      "source", "component", "logger", "service", "module",
+    ]);
+    if (level && sampledValue(rows, level, scalar) === undefined) level = null;
+    if (source && sampledValue(rows, source, scalar) === undefined) source = null;
+    let message = firstNamedField(lookup, [
+      "message", "msg", "text", "log", "description", "detail",
+    ]);
+    if (message && sampledValue(rows, message, scalar) === undefined) message = null;
+    if (!message) {
+      const raw = firstNamedField(lookup, ["raw"]);
+      if (raw && sampledValue(rows, raw, value =>
+        typeof value === "string" ||
+        (value && typeof value === "object" && typeof value.text === "string")
+      ) !== undefined) message = raw;
+    }
+    if (!message) {
+      message = fields.find(field => {
+        const lower = String(field).toLowerCase();
+        if (["log_schema_version", "schema_version", "version", "id"].includes(lower)) {
+          return false;
+        }
+        return sampledValue(rows, String(field), scalar) !== undefined;
+      }) || fields.find(field => ![
+        "log_schema_version", "schema_version", "version", "id",
+      ].includes(String(field).toLowerCase())) || fields[0] || null;
+    }
+    if (message === time && fields.length === 1) {
+      time = null;
+    }
+
+    const visible = [];
+    const roles = {};
+    const labels = {};
+    for (const [field, role, label] of [
+      [time, "time", "Time"], [level, "level", "Level"],
+      [source, "source", "Source"], [message, "message", "Message"],
+    ]) {
+      if (!field || visible.includes(field)) continue;
+      visible.push(field);
+      roles[field] = role;
+      labels[field] = label;
+    }
+    return {
+      visible: visible,
+      roles: roles,
+      labels: labels,
+      observedInPreview: !time,
+    };
+  }
+
+  function feedCellFormatter(field, role) {
+    return function (cell) {
+      const value = cell.getValue();
+      const row = cell.getRow && cell.getRow();
+      const data = row && row.getData ? row.getData() : null;
+      const meta = data && STREAM_RECORD_META.get(data);
+      const element = document.createElement("span");
+      element.className = "ps-stream-feed-cell ps-stream-feed-cell--" + role;
+
+      if (role === "time") {
+        element.textContent = clockTime(value) || nestedTime(value) || "—";
+      } else if (role === "message") {
+        if (state.streamFeedPresentation && state.streamFeedPresentation.observedInPreview) {
+          const time = document.createElement("time");
+          time.className = "ps-stream-feed-cell__time";
+          time.textContent = clockTime(meta && meta.observedAt) || "—";
+          element.appendChild(time);
+        }
+        const content = document.createElement("span");
+        content.className = "ps-stream-feed-cell__content";
+        content.textContent = previewValue(value) || "Empty record";
+        element.appendChild(content);
+      } else {
+        element.textContent = shortened(value, 120) || "—";
+      }
+      return element;
+    };
+  }
+
+  function feedLabel(field) {
+    const presentation = state.streamFeedPresentation;
+    return presentation && presentation.labels[field]
+      ? presentation.labels[field]
+      : core.tableFieldLabel ? core.tableFieldLabel(field) : field;
+  }
+
   function buildColumn(field) {
     const name = String(field);
+    const presentation = state.streamFeedPresentation;
+    const role = presentation && presentation.roles[name];
     return {
       // Tabulator assigns plain string titles through innerHTML. Stream field
       // names are logfile-controlled, so hand it an inert title and return a
@@ -248,17 +440,96 @@
       title: "",
       titleFormatter: function () {
         const element = document.createElement("span");
-        element.textContent = core.tableFieldLabel ? core.tableFieldLabel(name) : name;
+        element.textContent = feedLabel(name);
         return element;
       },
       field: name,
-      visible: !Object.prototype.hasOwnProperty.call((state.httpProfile && state.httpProfile.labels) || {}, name),
-      formatter: textFormatter,
+      visible: !presentation || presentation.visible.includes(name),
+      formatter: role ? feedCellFormatter(name, role) : textFormatter,
+      ...(role === "time" ? {width: 108, minWidth: 96} : {}),
+      ...(role === "level" || role === "method" || role === "status"
+        ? {width: 100, minWidth: 82} : {}),
+      ...(role === "message" ? {minWidth: 120, widthGrow: 3} : {}),
     };
   }
 
   function buildColumns(columns) {
-    return (Array.isArray(columns) ? columns : []).map(buildColumn);
+    const fields = Array.isArray(columns) ? columns.map(String) : [];
+    const visible = (state.streamFeedPresentation && state.streamFeedPresentation.visible) || [];
+    return visible.concat(fields.filter(field => !visible.includes(field))).map(buildColumn);
+  }
+
+  function streamDefaultHidden(fields) {
+    const visible = new Set(
+      (state.streamFeedPresentation && state.streamFeedPresentation.visible) || []
+    );
+    return fields.filter(field => !visible.has(field));
+  }
+
+  function appendRecordDetails(row) {
+    if (!row || typeof row.getElement !== "function" || typeof row.getData !== "function") return;
+    const rowElement = row.getElement();
+    const data = row.getData();
+    const existing = rowElement.querySelector && rowElement.querySelector(".ps-stream-record-detail");
+    if (existing) existing.remove();
+    rowElement.classList.toggle("ps-stream-row--expanded", !!rowElement._plotsrvExpanded);
+    rowElement.setAttribute("aria-expanded", rowElement._plotsrvExpanded ? "true" : "false");
+    if (!rowElement._plotsrvExpanded) {
+      if (typeof row.normalizeHeight === "function") row.normalizeHeight();
+      return;
+    }
+
+    const meta = STREAM_RECORD_META.get(data) || {};
+    const source = meta.source && typeof meta.source === "object" ? meta.source : data;
+    const detail = document.createElement("section");
+    detail.className = "ps-stream-record-detail";
+    const heading = document.createElement("h3");
+    heading.textContent = "Complete record";
+    detail.appendChild(heading);
+    const capture = document.createElement("p");
+    capture.className = "ps-stream-record-detail__capture";
+    capture.textContent = [
+      meta.sequence ? "Record " + meta.sequence : "",
+      meta.observedAt ? "Received " + new Date(meta.observedAt).toLocaleString() : "",
+    ].filter(Boolean).join(" · ");
+    if (capture.textContent) detail.appendChild(capture);
+    const list = document.createElement("dl");
+    for (const key of Object.keys(source)) {
+      const term = document.createElement("dt");
+      term.textContent = key;
+      const description = document.createElement("dd");
+      const value = document.createElement("pre");
+      value.textContent = stableJson(source[key]);
+      description.appendChild(value);
+      list.append(term, description);
+    }
+    detail.appendChild(list);
+    rowElement.appendChild(detail);
+    if (typeof row.normalizeHeight === "function") row.normalizeHeight();
+  }
+
+  function toggleRecordDetails(row) {
+    if (!row || typeof row.getElement !== "function") return;
+    const element = row.getElement();
+    element._plotsrvExpanded = !element._plotsrvExpanded;
+    appendRecordDetails(row);
+  }
+
+  function prepareStreamRow(row) {
+    if (!row || typeof row.getElement !== "function") return;
+    const element = row.getElement();
+    element.tabIndex = 0;
+    element.setAttribute("aria-label", "Stream record; press Enter for complete details");
+    element.setAttribute("aria-expanded", element._plotsrvExpanded ? "true" : "false");
+    if (!element._plotsrvDetailBound) {
+      element.addEventListener("keydown", function (event) {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        toggleRecordDetails(row);
+      });
+      element._plotsrvDetailBound = true;
+    }
+    if (element._plotsrvExpanded) appendRecordDetails(row);
   }
 
   function normaliseRecords(records) {
@@ -281,6 +552,11 @@
         // particular, a producer may legitimately have a field called
         // browser_sequence without affecting the server-owned cursor.
         data: data,
+      });
+      STREAM_RECORD_META.set(data, {
+        sequence: Number.isSafeInteger(sequence) && sequence >= 1 ? sequence : null,
+        observedAt: typeof record.observed_at === "string" ? record.observed_at : null,
+        source: STREAM_SOURCE_RECORDS.get(record) || data,
       });
       return result;
     }, []);
@@ -525,7 +801,7 @@
       rows: rows,
       fields: fields,
       fieldTypes: (state.httpProfile && state.httpProfile.types) || {},
-      defaultHidden: Object.values((state.httpProfile && state.httpProfile.fields) || {}),
+      defaultHidden: streamDefaultHidden(fields),
       columnDefs: buildColumns(fields),
       plotCapabilities: {
         sources: ["table", "summary"],
@@ -538,6 +814,56 @@
           "Stream source: currently loaded derived summary windows with their displayed aggregate bounds.",
       },
     });
+  }
+
+  function latestObservedAt() {
+    const rows = streamRowsFromState();
+    for (let index = rows.length - 1; index >= 0; index -= 1) {
+      const meta = STREAM_RECORD_META.get(rows[index]);
+      if (meta && meta.observedAt) return meta.observedAt;
+    }
+    return null;
+  }
+
+  function relativeLatest(value) {
+    const time = Date.parse(value || "");
+    if (!Number.isFinite(time)) return "Latest time unavailable";
+    const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
+    if (seconds < 2) return "Latest just now";
+    if (seconds < 60) return "Latest " + seconds + "s ago";
+    if (seconds < 3600) return "Latest " + Math.floor(seconds / 60) + "m ago";
+    return "Latest " + Math.floor(seconds / 3600) + "h ago";
+  }
+
+  function renderStreamFeedStatus(target, activeCount, filtering) {
+    if (!target) return;
+    const data = state.streamLatestPayload || {};
+    const lifecycle = String(data.lifecycle || "live").toLowerCase();
+    const label = data.historical === true
+      ? "Stored stream"
+      : lifecycle === "live" ? "Stream active"
+        : lifecycle === "retrying" ? "Stream retrying"
+          : lifecycle === "ended" ? "Stream ended"
+            : "Stream " + lifecycle;
+    const received = Number(data.accepted_records || 0);
+    target.replaceChildren();
+    target.classList.add("ps-stream-feed-status");
+    target.dataset.lifecycle = lifecycle;
+    const dot = document.createElement("span");
+    dot.className = "ps-stream-feed-status__dot";
+    dot.setAttribute("aria-hidden", "true");
+    const status = document.createElement("strong");
+    status.textContent = label;
+    const count = document.createElement("span");
+    count.textContent = received + " record" + (received === 1 ? "" : "s") + " received";
+    const latest = document.createElement("span");
+    latest.textContent = relativeLatest(latestObservedAt());
+    target.append(dot, status, count, latest);
+    if (filtering) {
+      const matching = document.createElement("span");
+      matching.textContent = activeCount + " matching current filters";
+      target.appendChild(matching);
+    }
   }
 
   function safeNonNegativeInteger(value) {
@@ -1996,6 +2322,8 @@
     state.streamSummaryScopeKey = null;
     state.streamColumnsSignature = null;
     state.streamRowsBySequence = Object.create(null);
+    state.streamFeedPresentation = null;
+    state.streamLatestPayload = null;
     state.streamForceTableReplace = true;
     state.streamPauseAvailable = false;
     syncStreamPauseControl();
@@ -2284,6 +2612,12 @@
         typeof data.session_id === "string" && data.session_id) {
       state.streamHistoricalSessionId = data.session_id;
     }
+    for (const record of data.records) {
+      if (record && typeof record === "object" && record.data &&
+          typeof record.data === "object" && !Array.isArray(record.data)) {
+        STREAM_SOURCE_RECORDS.set(record, record.data);
+      }
+    }
     if (core.prepareHttpSuggestions) core.prepareHttpSuggestions(data);
     const records = normaliseRecords(data.records);
     const columns = Array.isArray(data.columns) ? data.columns : [];
@@ -2302,6 +2636,7 @@
     }
     if (data.historical !== true) renderVisitComparison(visitComparison, data);
     renderNoteworthy(data.noteworthy, data.cumulative);
+    state.streamLatestPayload = data;
     setInlineStatus(data);
     // Keep selection aligned immediately when a return-to-current action
     // originates outside the selector, without rebuilding an open dropdown.
@@ -2324,16 +2659,24 @@
       state.streamForceTableReplace === true;
     const firstAvailable = firstAvailableSequence(data);
     const currentSchemaSignature = schemaSignature(columns);
+    const fields = explorerFields(columns);
+    if (sessionChanged) state.streamFeedPresentation = null;
+    if (!state.streamFeedPresentation) {
+      state.streamFeedPresentation = buildFeedPresentation(
+        fields,
+        records.map(record => record.data)
+      );
+    }
 
     if (!state.streamTabulatorInstance) {
       const rows = replaceStreamRows(records);
-      const fields = explorerFields(columns);
       state.streamTabulatorInstance = new Tabulator("#stream-grid", {
         data: rows,
         columns: buildColumns(fields),
         height: "72vh",
         layout: "fitDataStretch",
         movableColumns: true,
+        rowFormatter: prepareStreamRow,
         // The server already bounds this recent window to 200 rows. Rendering
         // that complete window keeps newly appended records visibly advancing
         // instead of leaving a viewer on a stale first pagination page.
@@ -2342,6 +2685,15 @@
         nestedFieldSeparator: false,
         placeholder: "Waiting for appended JSON objects…",
       });
+      if (typeof state.streamTabulatorInstance.on === "function") {
+        state.streamTabulatorInstance.on("rowClick", function (event, row) {
+          if (event && event.target && event.target.closest &&
+              event.target.closest(
+                "button, a, input, select, textarea, summary, .ps-stream-record-detail"
+              )) return;
+          toggleRecordDetails(row);
+        });
+      }
       configureExplorer(state.streamTabulatorInstance, data, rows, fields);
       state.streamSchemaRevision = Number.isInteger(data.schema_revision)
         ? data.schema_revision
@@ -2395,7 +2747,6 @@
       }
     }
 
-    const fields = explorerFields(columns);
     configureExplorer(table, data, rows, fields);
     state.streamSchemaRevision = Number.isInteger(data.schema_revision)
       ? data.schema_revision
@@ -2423,6 +2774,9 @@
   core.scheduleStreamHistoryCatalogueRefresh = scheduleStreamHistoryCatalogueRefresh;
   core.setStreamPaused = setStreamPaused;
   core.renderStreamVisitComparison = renderVisitComparison;
+  core.buildStreamColumns = buildColumns;
+  core.buildStreamFeedPresentation = buildFeedPresentation;
+  core.renderStreamFeedStatus = renderStreamFeedStatus;
   core.renderHistoricalStreamVisitNotice = renderHistoricalVisitNotice;
   core.renderStreamNoteworthy = renderNoteworthy;
   core.renderStreamSummary = renderSummary;

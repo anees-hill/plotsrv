@@ -730,7 +730,7 @@ def render_index(
                     '<div id="stream-grid" '
                     'class="table-grid ps-tablegrid ps-table--rich ps-stream-grid"></div>'
                 ),
-                search_placeholder="Search retained rows…",
+                search_placeholder="Search logs…",
                 leading_html=stream_controls_html,
             )}
 

@@ -61,9 +61,21 @@ def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
         {"message": "Traceback: synthetic error"},
     ]
     mount(page, records)
-    assert not page.evaluate(
-        "PLOTSRV.state.tabulatorInstance.getColumns().some(c => c.getField().startsWith('__plotsrv_http_') && c.isVisible())"
+    visible = page.evaluate(
+        "PLOTSRV.state.tabulatorInstance.getColumns().filter(c => c.isVisible()).map(c => c.getField())"
     )
+    profile_fields = page.evaluate("PLOTSRV.state.httpProfile.fields")
+    assert visible == [
+        profile_fields["time"], profile_fields["method"],
+        profile_fields["path"], profile_fields["status"],
+    ]
+    assert page.locator("#http-suggestions-select").input_value() == ""
+    assert page.locator("#table-filter-panel").is_hidden()
+    assert page.locator("#table-columns-panel").is_hidden()
+    page.locator("#stream-grid .tabulator-row").first.click()
+    detail = page.locator(".ps-stream-record-detail")
+    assert detail.is_visible()
+    assert "method" in detail.inner_text() and "/item/123" in detail.inner_text()
     page.locator("#http-suggestions-select").focus()
     page.keyboard.press("ArrowDown")
     page.keyboard.press("Enter")
@@ -72,6 +84,8 @@ def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
         "PLOTSRV.state.tabulatorInstance.getData('active').length === 2"
     )
     assert page.locator("#table-mode-table-btn").get_attribute("aria-pressed") == "true"
+    assert page.locator("#table-filters-toggle-btn").inner_text() == "Filters · 2"
+    assert "2 matching current filters" in page.locator(".ps-stream-feed-status").inner_text()
     page.click("#table-save-view-btn")
     assert (
         page.get_by_label("Caption", exact=True)
@@ -90,7 +104,7 @@ def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
     page.wait_for_function(
         "PLOTSRV.state.tabulatorInstance.getData('active').length === 4"
     )
-    assert page.get_by_text("Traceback: synthetic error", exact=True).is_visible()
+    assert page.get_by_text("Traceback: synthetic error", exact=False).is_visible()
     page.evaluate(
         "PLOTSRV.core.applyPersonalView(PLOTSRV.core.viewSpec.read().items[0])"
     )
@@ -174,6 +188,34 @@ def test_incremental_projection_expiry_removes_old_eligibility(page):
     assert (
         page.evaluate("PLOTSRV.state.tabulatorInstance.getData('active').length") == 3
     )
+
+
+@pytest.mark.parametrize(
+    "records,expected_fields,expected_text",
+    [
+        ([{"timestamp": "2026-09-17T09:38:52Z", "level": "INFO", "message": "Worker started"}],
+         ["timestamp", "level", "message"], "Worker started"),
+        ([{"time": "2026-09-17T09:38:52Z", "component": "billing", "msg": "Invoice queued", "context": {"id": 7}}],
+         ["time", "component", "msg"], "Invoice queued"),
+        ([{"event": {"publisher_observed_at": "2026-09-17T09:38:52Z"},
+           "raw": {"text": "WARN Retry 2/5 for upstream request"}}],
+         ["event", "raw"], "Retry 2/5 for upstream request"),
+        ([{"opaque": {"phase": "unknown", "value": 7}, "log_schema_version": 9}],
+         ["opaque"], '"phase":"unknown"'),
+    ],
+)
+def test_neutral_feed_selects_readable_fields_and_falls_back_conservatively(
+    page, records, expected_fields, expected_text
+):
+    mount(page, records)
+
+    visible = page.evaluate(
+        "PLOTSRV.state.tabulatorInstance.getColumns().filter(c => c.isVisible()).map(c => c.getField())"
+    )
+    assert visible == expected_fields
+    assert expected_text in page.locator("#stream-grid").inner_text()
+    assert page.locator("#http-suggestions-select").input_value() == ""
+    assert page.evaluate("PLOTSRV.state.tabulatorInstance.getData('active').length") == len(records)
 
 
 def test_buckets_boundaries_negative_time_large_span_and_invalid_values(page):

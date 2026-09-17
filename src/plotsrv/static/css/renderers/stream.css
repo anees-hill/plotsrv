@@ -195,6 +195,159 @@
   min-height: 16rem;
 }
 
+.ps-stream-feed-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.8rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.ps-stream-feed-status strong {
+  color: var(--text);
+  font-size: inherit;
+}
+
+.ps-stream-feed-status__dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: #54a63e;
+}
+
+.ps-stream-feed-status[data-lifecycle="retrying"] .ps-stream-feed-status__dot,
+.ps-stream-feed-status[data-lifecycle="incomplete"] .ps-stream-feed-status__dot {
+  background: #f2c200;
+}
+
+.ps-stream-feed-status[data-lifecycle="disconnected"] .ps-stream-feed-status__dot {
+  background: #d55970;
+}
+
+.ps-stream-feed-status[data-lifecycle="ended"] .ps-stream-feed-status__dot {
+  background: var(--muted);
+}
+
+.ps-stream-feed-cell {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.ps-stream-feed-cell--time,
+.ps-stream-feed-cell--method,
+.ps-stream-feed-cell--level,
+.ps-stream-feed-cell--status,
+.ps-stream-feed-cell__time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ps-stream-feed-cell--method,
+.ps-stream-feed-cell--level {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.025em;
+  text-transform: uppercase;
+}
+
+.ps-stream-feed-cell--status {
+  font-weight: 700;
+}
+
+.ps-stream-feed-cell__time {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.ps-stream-feed-cell__content {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#stream-grid .tabulator-row {
+  cursor: pointer;
+}
+
+#stream-grid .tabulator-row:focus-visible {
+  z-index: 2;
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+#stream-grid .tabulator-row.ps-stream-row--expanded {
+  white-space: normal;
+}
+
+.ps-stream-record-detail {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.75rem 1rem 0.9rem;
+  border-top: 1px solid var(--border);
+  background: var(--ps-surface-soft, var(--button-bg));
+  color: var(--text);
+  cursor: default;
+  white-space: normal;
+}
+
+.ps-stream-record-detail h3,
+.ps-stream-record-detail__capture {
+  margin: 0;
+}
+
+.ps-stream-record-detail h3 {
+  font-size: 0.84rem;
+}
+
+.ps-stream-record-detail__capture {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.ps-stream-record-detail dl {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.28fr) minmax(0, 1fr);
+  gap: 0;
+  margin: 0.65rem 0 0;
+  border: 1px solid var(--border);
+  border-bottom: 0;
+}
+
+.ps-stream-record-detail dt,
+.ps-stream-record-detail dd {
+  min-width: 0;
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.ps-stream-record-detail dt {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.ps-stream-record-detail pre {
+  max-height: 12rem;
+  margin: 0;
+  overflow: auto;
+  color: inherit;
+  font: 0.75rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* Non-modal companion drawer: no blocking backdrop, so the table stays context. */
 .ps-stream-insights {
   position: fixed;
@@ -816,6 +969,10 @@
     padding: 0.7rem 0.65rem 1rem;
   }
 
+  .ps-stream-record-detail dl {
+    grid-template-columns: 1fr;
+  }
+
   .ps-stream-summary__overview-facts div,
   .ps-stream-technical__facts div {
     grid-template-columns: 1fr;
@@ -825,7 +982,16 @@
 
 .ps-http-suggestions { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
 .ps-http-suggestions select { max-width: 16rem; }
-.ps-http-scope { color: var(--ps-muted); font-size: .8rem; margin: .4rem 0; flex-basis: 100%; }
+.ps-http-scope {
+  flex: 1 1 16rem;
+  max-width: 30rem;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ps-muted);
+  font-size: .76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .ps-http-topbar { flex-wrap: wrap; align-items: flex-start; }
 .ps-http-topbar .ps-table-topbar__left { flex: 1 0 100%; }

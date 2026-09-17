@@ -124,7 +124,9 @@
         await open(spec);
       });
       area.append(select, raw);
-      save.parentElement.before(area);
+      const filters = document.getElementById("table-filters-toggle-btn");
+      if (filters) filters.before(area);
+      else save.parentElement.before(area);
       const note = document.createElement("p");
       note.id = "http-suggestions-scope";
       note.className = "ps-http-scope";
@@ -163,5 +165,6 @@
       : "No HTTP suggestions available from this server.";
     const note = document.getElementById("http-suggestions-scope");
     if (note.textContent !== message) note.textContent = message;
+    note.title = message;
   };
 })();
