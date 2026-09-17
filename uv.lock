@@ -1194,6 +1194,7 @@ dependencies = [
 
 [package.optional-dependencies]
 config = [
+    { name = "rich" },
     { name = "textual" },
 ]
 
@@ -1228,6 +1229,7 @@ requires-dist = [
     { name = "pygments", specifier = ">=2.19,<3" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "requests", specifier = ">=2.31,<3" },
+    { name = "rich", marker = "extra == 'config'", specifier = ">=14.2,<16" },
     { name = "textual", marker = "extra == 'config'", specifier = ">=8.2.8,<9" },
     { name = "uvicorn", specifier = ">=0.30,<1" },
 ]

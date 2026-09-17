@@ -17,11 +17,14 @@ def launch(args) -> int:
     try:
         from .tui import ConfigWizard
     except ModuleNotFoundError as error:
-        if error.name != "textual" and not (error.name or "").startswith("textual."):
+        missing_root = (error.name or "").split(".", 1)[0]
+        if missing_root not in {"rich", "textual"}:
             raise
         print(
             "The configuration wizard needs the optional extra: "
-            "pip install 'plotsrv[config]'. Nothing was installed or changed. "
+            "uv pip install 'plotsrv[config]' (or use pip). "
+            "For a local wheel use: uv pip install '/path/to/plotsrv.whl[config]'. "
+            "Nothing was installed or changed. "
             "Noninteractive commands: plotsrv config create/populate --help.",
             file=sys.stderr,
         )

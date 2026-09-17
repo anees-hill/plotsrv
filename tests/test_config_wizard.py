@@ -79,19 +79,24 @@ def test_parser_and_non_tty_do_not_load_ui(monkeypatch, capsys):
     assert "interactive terminal" in capsys.readouterr().err
 
 
-def test_optional_dependency_absent(monkeypatch, capsys):
+@pytest.mark.parametrize("missing", ["rich", "textual"])
+def test_optional_dependency_absent(monkeypatch, capsys, missing):
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
     monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
     real_import = builtins.__import__
 
     def absent(name, *args, **kwargs):
-        if name == "tui" or name.startswith("textual"):
+        if missing == "textual" and (name == "tui" or name.startswith("textual")):
             raise ModuleNotFoundError("absent", name="textual")
+        if missing == "rich" and (name == "rich" or name.startswith("rich.")):
+            raise ModuleNotFoundError("absent", name="rich")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", absent)
     assert launch(SimpleNamespace(config=None, name=None, target=None)) == 2
-    assert "plotsrv[config]" in capsys.readouterr().err
+    error = capsys.readouterr().err
+    assert "plotsrv[config]" in error
+    assert "Traceback" not in error
 
 
 def test_core_and_cli_have_no_textual_import():

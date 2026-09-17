@@ -224,6 +224,9 @@ plotsrv config init
 plotsrv config init ./src --config plotsrv.yml --name etl
 ```
 
+For a locally built wheel, append `[config]` to the wheel path when installing
+it, for example `uv pip install './plotsrv-0.8.0-py3-none-any.whl[config]'`.
+
 Choose **Everything on this machine**, **Send data to another plotsrv server**,
 or **Host a plotsrv server**. Local setup proceeds through sources, storage and
 freshness, then offers Review and save or Advanced. Local setup starts with your
