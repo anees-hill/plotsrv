@@ -1515,6 +1515,11 @@
     if (!state.tableUiState) {
       loadTableUiState();
     }
+    if (config.kind === "stream" && !state.streamInitialPanelsCollapsed) {
+      state.tableUiState.filtersOpen = false;
+      state.tableUiState.columnsOpen = false;
+      state.streamInitialPanelsCollapsed = true;
+    }
 
     const previousFields = new Set(state.tableFields || []);
     const newlyHidden = state.tableDefaultHidden.filter(field => !previousFields.has(field));

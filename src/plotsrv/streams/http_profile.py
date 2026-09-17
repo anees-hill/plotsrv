@@ -185,7 +185,7 @@ class HttpProfile:
             # Uninspected keys must never impersonate a derived field, including
             # in rows accepted before recognition starts. Fail only the profile.
             self.disabled = True
-            self.error = "HTTP interpretation stopped: a record exceeds the 32-field inspection bound. Raw stream remains available."
+            self.error = "HTTP interpretation stopped: a record exceeds the 32-field inspection bound. Original records remain available."
             self.clear()
             return
         elif any(key.startswith(PREFIX) for key in data):
@@ -204,7 +204,7 @@ class HttpProfile:
         cost = projection_cost(projection)
         if self.budget is not None and not self.budget.acquire(cost):
             self.disabled = True
-            self.error = "HTTP interpretation stopped: the shared server projection memory budget is full. Raw stream remains available; a new publisher session can retry when capacity is available."
+            self.error = "HTTP interpretation stopped: the shared server projection memory budget is full. Original records remain available; a new publisher session can retry when capacity is available."
             self.clear()
             return
         self.retained_cost += cost

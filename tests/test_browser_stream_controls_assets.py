@@ -250,6 +250,7 @@ def test_default_stream_surface_is_a_readable_neutral_feed() -> None:
     assert ".ps-stream-feed-status" in css
     assert ".ps-stream-record-detail" in css
     assert ".ps-stream-interpretation" in css
+    assert ".ps-stream-secondary-controls" in css
     assert "core.applyStreamInterpretation = applyStreamInterpretation" in source
     assert 'search_placeholder="Search logs…"' in html
 

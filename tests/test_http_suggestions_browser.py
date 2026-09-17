@@ -53,7 +53,7 @@ def mount(page, records):
     page.wait_for_function("PLOTSRV.state.streamTabulatorInstance.initialized")
 
 
-def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
+def test_recipes_keyboard_errors_save_and_customise(page):
     records = [
         event(status=200, duration_ms=5),
         event(status=404, duration_ms=10),
@@ -79,7 +79,22 @@ def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
         page.locator("#http-suggestions-select optgroup").get_attribute("label")
         == "Based on HTTP access log"
     )
+    assert page.locator("#http-suggestions-select").get_attribute("title") is None
     assert "is-available" in page.locator("#http-suggestions").get_attribute("class")
+    assert page.locator("#http-raw-view").count() == 0
+    assert page.locator("#http-suggestions-scope").count() == 0
+    assert page.evaluate(
+        "Array.from(document.querySelector('#stream-secondary-controls').children).map(x => x.id || x.className)"
+    ) == [
+        "stream-interpretation-host", "http-suggestions",
+        "table-filters-toggle-btn", "table-columns-toggle-btn", "ps-my-view-actions",
+    ]
+    heights = page.evaluate("""() => [
+      '#stream-interpretation-host summary', '#http-suggestions-select',
+      '#table-filters-toggle-btn', '#table-columns-toggle-btn',
+      '#table-save-view-btn', '#table-reset-btn'
+    ].map(selector => document.querySelector(selector).getBoundingClientRect().height)""")
+    assert all(31.5 <= height <= 32.5 for height in heights)
     assert page.locator("#table-filter-panel").is_hidden()
     assert page.locator("#table-columns-panel").is_hidden()
     page.locator("#stream-grid .tabulator-row").first.click()
@@ -95,6 +110,7 @@ def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
     )
     assert page.locator("#table-mode-table-btn").get_attribute("aria-pressed") == "true"
     assert page.locator("#table-filters-toggle-btn").inner_text() == "Filters · 2"
+    assert page.locator("#table-filter-panel").is_visible()
     assert "2 matching current filters" in page.locator(".ps-stream-feed-status").inner_text()
     page.click("#table-save-view-btn")
     assert (
@@ -110,17 +126,6 @@ def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
     saved = page.evaluate("PLOTSRV.core.viewSpec.read().items[0]")
     assert saved["spec"]["sourceId"] == "test:layout"
     assert "secret" not in str(saved)
-    page.click("#http-raw-view")
-    page.wait_for_function(
-        "PLOTSRV.state.tabulatorInstance.getData('active').length === 4"
-    )
-    assert page.get_by_text("Traceback: synthetic error", exact=False).is_visible()
-    page.evaluate(
-        "PLOTSRV.core.applyPersonalView(PLOTSRV.core.viewSpec.read().items[0])"
-    )
-    page.wait_for_function(
-        "PLOTSRV.state.tabulatorInstance.getData('active').length === 2"
-    )
 
 
 def test_stream_interpretation_can_be_overridden_and_returned_to_auto(page):
@@ -205,7 +210,7 @@ def test_no_suggestion_mobile_and_schema_loss_pauses_without_switching(page):
     assert page.locator(".ps-stream-interpretation").count() == 0
     assert page.locator("#http-suggestions-select").is_disabled()
     assert "is-available" not in page.locator("#http-suggestions").get_attribute("class")
-    assert "No validated HTTP" in page.locator("#http-suggestions-scope").inner_text()
+    assert page.locator("#http-suggestions-scope").count() == 0
     first = payload([event(duration_ms=5)])
     first["reset_required"] = True
     page.evaluate(
@@ -222,7 +227,7 @@ def test_no_suggestion_mobile_and_schema_loss_pauses_without_switching(page):
     )
     assert page.evaluate("PLOTSRV.state.myViewBlocked")
     assert page.locator(".ps-table-plot__svg").count() == 0
-    page.click("#http-raw-view")
+    page.click("#table-reset-btn")
     assert not page.evaluate("PLOTSRV.state.myViewBlocked")
     assert (
         page.evaluate("PLOTSRV.state.tabulatorInstance.getData('active').length") == 1
@@ -241,10 +246,25 @@ def test_incremental_projection_expiry_removes_old_eligibility(page):
     page.wait_for_function(
         "PLOTSRV.state.tabulatorInstance.getData('active').length === 2"
     )
-    page.click("#http-raw-view")
+    page.click("#table-reset-btn")
     assert (
         page.evaluate("PLOTSRV.state.tabulatorInstance.getData('active').length") == 3
     )
+
+
+def test_initial_stream_mount_collapses_remembered_filter_and_column_panels(page):
+    page.evaluate("""() => {
+      PLOTSRV.state.tableUiState.filtersOpen = true;
+      PLOTSRV.state.tableUiState.columnsOpen = true;
+      document.querySelector('#table-filter-panel').hidden = false;
+      document.querySelector('#table-columns-panel').hidden = false;
+    }""")
+    mount(page, [{"message": "fresh stream"}])
+
+    assert page.locator("#table-filter-panel").is_hidden()
+    assert page.locator("#table-columns-panel").is_hidden()
+    assert page.locator("#table-filters-toggle-btn").get_attribute("aria-expanded") == "false"
+    assert page.locator("#table-columns-toggle-btn").get_attribute("aria-expanded") == "false"
 
 
 @pytest.mark.parametrize(

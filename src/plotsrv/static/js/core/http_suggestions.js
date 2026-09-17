@@ -1,7 +1,7 @@
 /* Optional server-generated presentations of the existing stream source. */
 (function () {
   "use strict";
-  const { core, state, config } = window.PLOTSRV;
+  const { core, state } = window.PLOTSRV;
   const derived = new WeakMap();
   let profile = null,
     rawColumns = [],
@@ -30,8 +30,9 @@
 
   core.mountStreamInterpretationControl = function (target) {
     if (!target) return;
+    const host = document.getElementById("stream-interpretation-host") || target;
     const model = interpretationModel();
-    const existing = target.querySelector(":scope > .ps-stream-interpretation");
+    const existing = host.querySelector(":scope > .ps-stream-interpretation");
     if (!model.available) {
       if (existing) existing.remove();
       return;
@@ -105,7 +106,7 @@
     details.appendChild(list);
     wrapper.append(prefix, details);
     if (existing) existing.replaceWith(wrapper);
-    else target.appendChild(wrapper);
+    else host.appendChild(wrapper);
   };
 
   core.getStreamInterpretation = interpretationModel;
@@ -129,9 +130,9 @@
       opening = false;
       core.mountHttpSuggestions();
     }
-    if (errorMessage)
-      document.getElementById("http-suggestions-scope").textContent =
-        errorMessage;
+    if (errorMessage && typeof core.setStatusMessage === "function") {
+      core.setStatusMessage(errorMessage);
+    }
   }
   core.clearHttpSuggestionSelection = function () {
     selectedName = null;
@@ -184,7 +185,8 @@
     if (!save) return;
     let area = document.getElementById("http-suggestions");
     if (!area) {
-      save.closest(".ps-table-topbar")?.classList.add("ps-http-topbar");
+      const topbar = save.closest(".ps-table-topbar");
+      topbar?.classList.add("ps-http-topbar");
       area = document.createElement("span");
       area.id = "http-suggestions";
       area.className = "ps-http-suggestions";
@@ -199,41 +201,21 @@
         ];
         if (chosen) await open(chosen, chosen.name);
       });
-      const raw = document.createElement("button");
-      raw.type = "button";
-      raw.className = "ps-btn";
-      raw.id = "http-raw-view";
-      raw.textContent = "Raw stream";
-      raw.addEventListener("click", async function () {
-        const spec = {
-          version: 1,
-          sourceId: config.activeViewId,
-          name: "Raw stream",
-          caption:
-            "Original accepted records, including unknown text and tracebacks.",
-          presentation: {
-            search: "",
-            filters: [],
-            sort: [],
-            group: "",
-            columns: [],
-            hidden: Object.values((profile && profile.fields) || {}),
-            mode: "table",
-            plot: { type: "bar", source: "table" },
-          },
-          requirements: { fields: [], plotFields: [], plotSource: "table" },
-        };
-        await open(spec);
-      });
-      area.append(select, raw);
+      area.appendChild(select);
       const filters = document.getElementById("table-filters-toggle-btn");
-      if (filters) filters.before(area);
-      else save.parentElement.before(area);
-      const note = document.createElement("p");
-      note.id = "http-suggestions-scope";
-      note.className = "ps-http-scope";
-      save.closest(".ps-table-toolbar")?.append(note);
-      if (!note.parentElement) area.parentElement.after(note);
+      const columns = document.getElementById("table-columns-toggle-btn");
+      const actions = save.closest(".ps-my-view-actions");
+      const row = document.createElement("div");
+      row.id = "stream-secondary-controls";
+      row.className = "ps-stream-secondary-controls";
+      const interpretation = document.createElement("span");
+      interpretation.id = "stream-interpretation-host";
+      interpretation.className = "ps-stream-interpretation-host";
+      row.append(interpretation, area);
+      if (filters) row.appendChild(filters);
+      if (columns) row.appendChild(columns);
+      if (actions) row.appendChild(actions);
+      topbar?.appendChild(row);
     }
     const recipes = (profile && profile.recipes) || [];
     const select = area.querySelector("select");
@@ -262,18 +244,6 @@
       if (select.value !== value) select.value = value;
     }
     select.disabled = opening || !recipes.length;
-    area.querySelector("button").disabled = opening;
-    select.title = recipes.length
-      ? "Choose a starting presentation; its name stays selected when you customise the settings"
-      : (profile && profile.unavailable) || "No HTTP suggestions available";
-    const message = profile
-      ? recipes.length
-        ? profile.scope +
-          " Endpoint activity shares one plot; filter an endpoint to focus. Time buckets use half-open UTC intervals."
-        : profile.unavailable
-      : "No HTTP suggestions available from this server.";
-    const note = document.getElementById("http-suggestions-scope");
-    if (note.textContent !== message) note.textContent = message;
-    note.title = message;
+    select.removeAttribute("title");
   };
 })();
