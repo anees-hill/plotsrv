@@ -233,7 +233,7 @@ def render_table_explorer(
         {leading_html}
         <div class="ps-table-topbar">
           <div class="ps-table-topbar__left">
-            <p id="table-status-inline" class="ps-table-status" role="status" aria-live="polite"></p>
+            <div id="table-status-inline" class="ps-table-status"></div>
           </div>
           <div class="ps-table-topbar__right">
             <div class="ps-table-toolbar">

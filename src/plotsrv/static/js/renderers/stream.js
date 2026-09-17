@@ -307,7 +307,8 @@
   }
 
   function buildFeedPresentation(fields, rows) {
-    const profile = state.httpProfile;
+    const useAutomaticInterpretation = state.streamInterpretationOverride !== "default";
+    const profile = useAutomaticInterpretation ? state.httpProfile : null;
     const http = profile && profile.fields;
     if (http && ["time", "method", "path", "status"].every(role => http[role])) {
       return {
@@ -324,7 +325,11 @@
       };
     }
 
-    const lookup = fieldLookup(fields);
+    const httpFields = new Set(Object.values((state.httpProfile && state.httpProfile.fields) || {}));
+    const presentationFields = useAutomaticInterpretation
+      ? fields
+      : fields.filter(field => !httpFields.has(field));
+    const lookup = fieldLookup(presentationFields);
     let time = firstNamedField(lookup, [
       "timestamp", "@timestamp", "time", "datetime", "event_time",
       "logged_at", "created_at",
@@ -359,17 +364,17 @@
       ) !== undefined) message = raw;
     }
     if (!message) {
-      message = fields.find(field => {
+      message = presentationFields.find(field => {
         const lower = String(field).toLowerCase();
         if (["log_schema_version", "schema_version", "version", "id"].includes(lower)) {
           return false;
         }
         return sampledValue(rows, String(field), scalar) !== undefined;
-      }) || fields.find(field => ![
+      }) || presentationFields.find(field => ![
         "log_schema_version", "schema_version", "version", "id",
-      ].includes(String(field).toLowerCase())) || fields[0] || null;
+      ].includes(String(field).toLowerCase())) || presentationFields[0] || null;
     }
-    if (message === time && fields.length === 1) {
+    if (message === time && presentationFields.length === 1) {
       time = null;
     }
 
@@ -846,7 +851,15 @@
           : lifecycle === "ended" ? "Stream ended"
             : "Stream " + lifecycle;
     const received = Number(data.accepted_records || 0);
-    target.replaceChildren();
+    let message = target.querySelector(":scope > .ps-stream-feed-status__message");
+    if (!message) {
+      message = document.createElement("span");
+      message.className = "ps-stream-feed-status__message";
+      message.setAttribute("role", "status");
+      message.setAttribute("aria-live", "polite");
+      target.prepend(message);
+    }
+    message.replaceChildren();
     target.classList.add("ps-stream-feed-status");
     target.dataset.lifecycle = lifecycle;
     const dot = document.createElement("span");
@@ -858,11 +871,50 @@
     count.textContent = received + " record" + (received === 1 ? "" : "s") + " received";
     const latest = document.createElement("span");
     latest.textContent = relativeLatest(latestObservedAt());
-    target.append(dot, status, count, latest);
+    message.append(dot, status, count, latest);
     if (filtering) {
       const matching = document.createElement("span");
       matching.textContent = activeCount + " matching current filters";
-      target.appendChild(matching);
+      message.appendChild(matching);
+    }
+    if (typeof core.mountStreamInterpretationControl === "function") {
+      core.mountStreamInterpretationControl(target);
+    }
+    target.dataset.statusText = [
+      label,
+      count.textContent,
+      latest.textContent,
+      filtering ? activeCount + " matching current filters" : "",
+    ].filter(Boolean).join(" · ");
+  }
+
+  async function applyStreamInterpretation(mode) {
+    state.streamInterpretationOverride = mode === "default" ? "default" : null;
+    const table = state.streamTabulatorInstance;
+    const fields = Array.isArray(state.tableFields) ? state.tableFields.slice() : [];
+    const rows = Array.isArray(state.tableRows) ? state.tableRows : [];
+    state.streamFeedPresentation = buildFeedPresentation(fields, rows);
+    state.tableDefaultHidden = streamDefaultHidden(fields);
+
+    if (table && typeof core.extractTablePresentation === "function" &&
+        typeof core.applyTablePresentation === "function") {
+      const presentation = core.extractTablePresentation();
+      presentation.columns = state.streamFeedPresentation.visible.concat(
+        fields.filter(field => !state.streamFeedPresentation.visible.includes(field))
+      );
+      presentation.hidden = state.tableDefaultHidden.slice();
+      await core.applyTablePresentation(presentation);
+    }
+    if (typeof core.clearHttpSuggestionSelection === "function") {
+      core.clearHttpSuggestionSelection();
+    }
+    const status = document.getElementById("table-status-inline");
+    if (status) {
+      renderStreamFeedStatus(
+        status,
+        table && typeof table.getDataCount === "function" ? table.getDataCount("active") : rows.length,
+        typeof core.hasActiveTableFiltering === "function" && core.hasActiveTableFiltering()
+      );
     }
   }
 
@@ -2777,6 +2829,7 @@
   core.buildStreamColumns = buildColumns;
   core.buildStreamFeedPresentation = buildFeedPresentation;
   core.renderStreamFeedStatus = renderStreamFeedStatus;
+  core.applyStreamInterpretation = applyStreamInterpretation;
   core.renderHistoricalStreamVisitNotice = renderHistoricalVisitNotice;
   core.renderStreamNoteworthy = renderNoteworthy;
   core.renderStreamSummary = renderSummary;

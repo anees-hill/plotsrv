@@ -69,7 +69,17 @@ def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
         profile_fields["time"], profile_fields["method"],
         profile_fields["path"], profile_fields["status"],
     ]
+    interpretation = page.locator(".ps-stream-interpretation")
+    assert interpretation.is_visible()
+    assert "Detected as" in interpretation.inner_text()
+    assert "HTTP access log" in interpretation.inner_text()
     assert page.locator("#http-suggestions-select").input_value() == ""
+    assert "✦ Suggested views 8" in page.locator("#http-suggestions-select").inner_text()
+    assert (
+        page.locator("#http-suggestions-select optgroup").get_attribute("label")
+        == "Based on HTTP access log"
+    )
+    assert "is-available" in page.locator("#http-suggestions").get_attribute("class")
     assert page.locator("#table-filter-panel").is_hidden()
     assert page.locator("#table-columns-panel").is_hidden()
     page.locator("#stream-grid .tabulator-row").first.click()
@@ -113,6 +123,51 @@ def test_recipes_keyboard_errors_save_customise_and_raw_return(page):
     )
 
 
+def test_stream_interpretation_can_be_overridden_and_returned_to_auto(page):
+    mount(page, [event(timestamp="2026-09-17T09:38:52Z"), event(status=503)])
+    profile_fields = page.evaluate("PLOTSRV.state.httpProfile.fields")
+    assert page.evaluate(
+        "PLOTSRV.state.tabulatorInstance.getColumns().filter(c => c.isVisible()).map(c => c.getField())"
+    ) == [
+        profile_fields["time"], profile_fields["method"],
+        profile_fields["path"], profile_fields["status"],
+    ]
+
+    page.locator(".ps-stream-interpretation summary").click()
+    page.evaluate(
+        "document.querySelector('.ps-stream-interpretation').dataset.liveProbe = 'stable'"
+    )
+    update = payload([
+        event(timestamp="2026-09-17T09:38:52Z"),
+        event(status=503),
+        event(path="/new-live-record"),
+    ])
+    page.evaluate("data => {responseData=data; return PLOTSRV.core.loadStream();}", update)
+    assert page.locator(".ps-stream-interpretation__menu").get_attribute("open") == ""
+    assert (
+        page.locator(".ps-stream-interpretation").get_attribute("data-live-probe")
+        == "stable"
+    )
+    page.get_by_role("menuitemradio", name="Default stream").click()
+    page.wait_for_function("PLOTSRV.state.streamInterpretationOverride === 'default'")
+    assert "Chosen as" in page.locator(".ps-stream-interpretation").inner_text()
+    assert page.evaluate(
+        "PLOTSRV.state.tabulatorInstance.getColumns().filter(c => c.isVisible()).map(c => c.getField())"
+    ) == ["timestamp", "method"]
+    assert page.evaluate("responseData.records[0].data.path") == "/item/123?token=secret"
+
+    page.locator(".ps-stream-interpretation summary").click()
+    page.get_by_role("menuitemradio", name="Return to auto", exact=False).click()
+    page.wait_for_function("PLOTSRV.state.streamInterpretationOverride == null")
+    assert "Detected as" in page.locator(".ps-stream-interpretation").inner_text()
+    assert page.evaluate(
+        "PLOTSRV.state.tabulatorInstance.getColumns().filter(c => c.isVisible()).map(c => c.getField())"
+    ) == [
+        profile_fields["time"], profile_fields["method"],
+        profile_fields["path"], profile_fields["status"],
+    ]
+
+
 @pytest.mark.parametrize("recipe", [2, 3, 4, 5, 6, 7])
 def test_every_plot_recipe_uses_real_shared_renderer(page, recipe):
     mount(
@@ -147,7 +202,9 @@ def test_every_plot_recipe_uses_real_shared_renderer(page, recipe):
 def test_no_suggestion_mobile_and_schema_loss_pauses_without_switching(page):
     page.set_viewport_size({"width": 390, "height": 844})
     mount(page, [{"message": "unknown"}])
+    assert page.locator(".ps-stream-interpretation").count() == 0
     assert page.locator("#http-suggestions-select").is_disabled()
+    assert "is-available" not in page.locator("#http-suggestions").get_attribute("class")
     assert "No validated HTTP" in page.locator("#http-suggestions-scope").inner_text()
     first = payload([event(duration_ms=5)])
     first["reset_required"] = True

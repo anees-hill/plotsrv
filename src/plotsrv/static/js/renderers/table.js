@@ -311,10 +311,7 @@
         typeof core.renderStreamFeedStatus === "function") {
       core.renderStreamFeedStatus(inline, activeCount, filtering);
       if (status) {
-        status.textContent = Array.from(inline.children)
-          .map(element => element.textContent)
-          .filter(Boolean)
-          .join(" · ");
+        status.textContent = inline.dataset.statusText || "";
       }
       return;
     }

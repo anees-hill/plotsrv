@@ -210,6 +210,13 @@
   font-size: inherit;
 }
 
+.ps-stream-feed-status__message {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.8rem;
+}
+
 .ps-stream-feed-status__dot {
   width: 8px;
   height: 8px;
@@ -229,6 +236,120 @@
 
 .ps-stream-feed-status[data-lifecycle="ended"] .ps-stream-feed-status__dot {
   background: var(--muted);
+}
+
+.ps-stream-interpretation {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+.ps-stream-interpretation__prefix {
+  white-space: nowrap;
+}
+
+.ps-stream-interpretation__menu {
+  position: relative;
+}
+
+.ps-stream-interpretation__menu summary {
+  display: inline-flex;
+  min-height: 28px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 0.38rem;
+  padding: 0.24rem 0.5rem;
+  border: 1px solid var(--ps-border, var(--border));
+  border-radius: 6px;
+  background: var(--ps-surface-raised, var(--button-bg));
+  color: var(--ps-text, var(--text));
+  cursor: pointer;
+  font-weight: 650;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.ps-stream-interpretation__menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.ps-stream-interpretation__menu summary:hover {
+  background: var(--ps-surface-hover, var(--button-bg));
+}
+
+.ps-stream-interpretation__menu summary:focus-visible {
+  outline: 2px solid var(--ps-focus, var(--focus));
+  outline-offset: 1px;
+}
+
+.ps-stream-interpretation__menu summary svg {
+  width: 0.9rem;
+  height: 0.9rem;
+  flex: 0 0 auto;
+  color: var(--ps-accent-strong, var(--text));
+}
+
+.ps-stream-interpretation__chevron {
+  width: 0.38rem;
+  height: 0.38rem;
+  margin-left: 0.15rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg) translateY(-1px);
+  transition: transform 120ms ease;
+}
+
+.ps-stream-interpretation__menu[open] .ps-stream-interpretation__chevron {
+  transform: rotate(225deg) translate(-1px, -1px);
+}
+
+.ps-stream-interpretation__options {
+  position: absolute;
+  z-index: 25;
+  top: calc(100% + 0.3rem);
+  right: 0;
+  display: grid;
+  width: max-content;
+  min-width: 15rem;
+  padding: 0.3rem;
+  border: 1px solid var(--ps-border, var(--border));
+  border-radius: 7px;
+  background: var(--ps-surface-raised, var(--button-bg));
+  box-shadow: 0 10px 24px rgba(20, 33, 45, 0.16);
+}
+
+.ps-stream-interpretation__option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.48rem 0.55rem;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--ps-text, var(--text));
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.ps-stream-interpretation__option:hover,
+.ps-stream-interpretation__option:focus-visible,
+.ps-stream-interpretation__option[aria-checked="true"] {
+  background: var(--ps-accent-soft, var(--button-bg));
+}
+
+.ps-stream-interpretation__option:focus-visible {
+  outline: 2px solid var(--ps-focus, var(--focus));
+  outline-offset: -1px;
+}
+
+.ps-stream-interpretation__check {
+  width: 1rem;
+  color: var(--ps-accent-strong, var(--text));
+  font-weight: 800;
+  text-align: center;
 }
 
 .ps-stream-feed-cell {
@@ -982,6 +1103,12 @@
 
 .ps-http-suggestions { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
 .ps-http-suggestions select { max-width: 16rem; }
+.ps-http-suggestions.is-available select {
+  border-color: color-mix(in srgb, var(--ps-accent, var(--focus)) 58%, var(--ps-border, var(--border)));
+  background: color-mix(in srgb, var(--ps-accent-soft, var(--button-bg)) 72%, var(--ps-surface-raised, var(--button-bg)));
+  color: var(--ps-accent-strong, var(--text));
+  font-weight: 650;
+}
 .ps-http-scope {
   flex: 1 1 16rem;
   max-width: 30rem;
@@ -997,3 +1124,17 @@
 .ps-http-topbar .ps-table-topbar__left { flex: 1 0 100%; }
 .ps-http-topbar .ps-table-topbar__right { flex: 1 1 100%; min-width: 0; }
 .ps-http-topbar .ps-table-toolbar { display: flex; width: 100%; }
+
+@media (max-width: 700px) {
+  .ps-stream-interpretation {
+    width: 100%;
+    margin-left: 0;
+    padding-left: 1.15rem;
+  }
+
+  .ps-stream-interpretation__options {
+    right: auto;
+    left: 0;
+    min-width: min(15rem, calc(100vw - 2rem));
+  }
+}
