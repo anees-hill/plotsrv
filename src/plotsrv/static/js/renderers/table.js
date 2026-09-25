@@ -1169,6 +1169,23 @@
     applyColumnVisibilityState();
   }
 
+  function resetColumnWidths() {
+    const table = state.tabulatorInstance;
+    if (!table || table.initialized === false || typeof table.getColumns !== "function") return;
+
+    // Tabulator's true width reset remeasures the header and cells. Columns
+    // with an explicit default width (used by stream roles) keep that default.
+    // fitDataStretch then fills the remaining space as on first open.
+    table.getColumns().forEach(function (column) {
+      if (!column || typeof column.setWidth !== "function") return;
+      const definition = column.getDefinition();
+      column.setWidth(definition && definition.width != null ? definition.width : true);
+    });
+    // Reapply fitDataStretch after all columns have their natural widths. A
+    // per-column reset alone leaves the last column narrow until a later draw.
+    table.redraw();
+  }
+
   function bindTableToolbar() {
     const input = document.getElementById("table-search-input");
     const groupBySelect = document.getElementById("table-group-by-select");
@@ -1178,6 +1195,7 @@
     const columnsToggleBtn = document.getElementById("table-columns-toggle-btn");
     const addFilterBtn = document.getElementById("table-filter-add-btn");
     const showAllColumnsBtn = document.getElementById("table-columns-show-all-btn");
+    const resetColumnWidthsBtn = document.getElementById("table-columns-reset-widths-btn");
     const filterRows = document.getElementById("table-filter-rows");
     const columnsList = document.getElementById("table-columns-list");
     const activeFilters = document.getElementById("table-active-filters");
@@ -1327,6 +1345,11 @@
       });
 
       showAllColumnsBtn.dataset.plotsrvBound = "1";
+    }
+
+    if (resetColumnWidthsBtn && !resetColumnWidthsBtn.dataset.plotsrvBound) {
+      resetColumnWidthsBtn.addEventListener("click", resetColumnWidths);
+      resetColumnWidthsBtn.dataset.plotsrvBound = "1";
     }
 
     if (addFilterBtn) {

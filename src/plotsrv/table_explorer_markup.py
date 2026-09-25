@@ -294,6 +294,9 @@ def render_table_explorer(
           <div class="ps-table-columns-panel__header">
             <div class="ps-table-columns-panel__title">Columns</div>
             <div class="ps-table-columns-panel__actions">
+              <button id="table-columns-reset-widths-btn" type="button" class="ps-btn">
+                Reset column widths
+              </button>
               <button id="table-columns-show-all-btn" type="button" class="ps-btn">
                 Show all
               </button>
