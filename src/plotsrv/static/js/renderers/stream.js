@@ -2783,7 +2783,7 @@
         // JSONL object keys are flat field names. In particular, a legal key
         // such as "http.status" must not be interpreted as a nested lookup.
         nestedFieldSeparator: false,
-        placeholder: "No JSON objects are available for this run.",
+        placeholder: "No data — no JSON objects are available for this run.",
       });
       if (typeof state.streamTabulatorInstance.on === "function") {
         state.streamTabulatorInstance.on("rowClick", function (event, row) {

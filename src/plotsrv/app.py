@@ -1784,6 +1784,7 @@ def index(view: str | None = None) -> HTMLResponse:
             kind = "artifact"
 
     table_html_simple = None
+    table_has_no_rows = False
     if (
         kind == "table"
         and config.get_table_view_mode() == "simple"
@@ -1791,6 +1792,7 @@ def index(view: str | None = None) -> HTMLResponse:
     ):
         try:
             table_html_simple = store.get_table_html_simple(view_id=active_view)
+            table_has_no_rows = len(store.get_table_df(view_id=active_view).index) == 0
         except LookupError:
             table_html_simple = None
 
@@ -1804,6 +1806,7 @@ def index(view: str | None = None) -> HTMLResponse:
         kind=kind,
         table_view_mode=config.get_table_view_mode(),
         table_html_simple=table_html_simple,
+        table_has_no_rows=table_has_no_rows,
         max_table_rows_simple=config.get_max_table_rows_simple(),
         max_table_rows_rich=config.get_table_truncate_rows()
         or config.get_max_table_rows_rich(),

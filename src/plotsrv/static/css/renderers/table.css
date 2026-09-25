@@ -381,10 +381,25 @@
 }
 
 .ps-table--rich .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents {
-  padding: 1.1rem;
-  color: var(--muted, #66717a);
-  font-size: 0.88rem;
-  font-weight: 500;
+  padding: 1.5rem;
+  color: var(--text);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.ps-table--rich .tabulator-tableholder .tabulator-placeholder {
+  min-height: 40vh;
+}
+
+.ps-table-empty {
+  display: flex;
+  min-height: 40vh;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  color: var(--text);
+  font-size: 1.2rem;
+  font-weight: 700;
 }
 
 .ps-table--rich .tabulator-footer {

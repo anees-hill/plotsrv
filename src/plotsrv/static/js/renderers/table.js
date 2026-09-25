@@ -1655,6 +1655,7 @@
       paginationSize: 100,
       paginationSizeSelector: [20, 50, 100, 200],
       movableColumns: true,
+      placeholder: "No data",
       // JSON object and table column names are flat keys. In particular,
       // "http.status" is a literal field rather than a nested lookup.
       nestedFieldSeparator: false,
@@ -1761,7 +1762,14 @@
             tr.insertCell().textContent = row[field] == null ? "" : String(row[field]);
           });
         });
-        simple.replaceChildren(table);
+        if (data.rows && data.rows.length) {
+          simple.replaceChildren(table);
+        } else {
+          const empty = document.createElement("div");
+          empty.className = "ps-table-empty";
+          empty.textContent = "No data";
+          simple.replaceChildren(empty);
+        }
         return true;
       }
       let columns = buildColumnDefs(data.columns || []);
@@ -1809,6 +1817,7 @@
         paginationSize: 100,
         paginationSizeSelector: [20, 50, 100, 200],
         movableColumns: true,
+        placeholder: "No data",
         // Preserve literal dotted names for ordinary and embedded table data.
         nestedFieldSeparator: false,
       });

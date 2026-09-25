@@ -100,6 +100,7 @@ def render_index(
     table_html_simple: str | None,
     max_table_rows_simple: int,
     max_table_rows_rich: int,
+    table_has_no_rows: bool = False,
     ui_settings: UISettings | None = None,
     views: list[ViewMeta] | None = None,
     view_freshness: dict[str, dict[str, object]] | None = None,
@@ -632,6 +633,10 @@ def render_index(
 
     if kind == "table":
         if table_view_mode == "simple" and table_html_simple is not None:
+            simple_content = (
+                '<div class="ps-table-empty">No data</div>'
+                if table_has_no_rows else table_html_simple
+            )
             content_html = f"""
               <div class="ps-table-simple-view">
                 <p class="ps-table-simple-view__notice">
@@ -640,7 +645,7 @@ def render_index(
                 </p>
                 <div class="plot-frame ps-frame ps-frame--table plot-frame--table">
                   <div id="simple-table-root" class="table-scroll ps-table-scroll ps-table--simple">
-                    {table_html_simple}
+                    {simple_content}
                   </div>
                 </div>
               </div>

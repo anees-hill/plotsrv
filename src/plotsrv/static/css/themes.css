@@ -976,7 +976,7 @@ body.ps-settings-open {
 }
 
 .ps-table--rich .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents {
-  color: var(--ps-muted);
+  color: var(--ps-text);
 }
 
 .ps-table--rich .tabulator-footer,

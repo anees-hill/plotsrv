@@ -110,6 +110,18 @@ def test_index_table_simple_embeds_table_html(client: TestClient) -> None:
     assert "/static/vendor/tabulator/5.5.0/tabulator.min.js" not in text
 
 
+def test_index_empty_simple_table_shows_no_data(client: TestClient) -> None:
+    config.set_table_view_mode("simple")
+    store.set_table(
+        pd.DataFrame({"a": pd.Series(dtype="int64")}),
+        html_simple="<table><thead><tr><th>a</th></tr></thead><tbody></tbody></table>",
+    )
+
+    text = client.get("/").text
+    assert '<div class="ps-table-empty">No data</div>' in text
+    assert "<tbody></tbody>" not in text
+
+
 def test_index_table_rich_has_table_grid_div(client: TestClient) -> None:
     config.set_table_view_mode("rich")
     store.set_table(pd.DataFrame({"a": [1]}), html_simple=None)

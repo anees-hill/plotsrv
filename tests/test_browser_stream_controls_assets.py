@@ -131,7 +131,7 @@ def test_compact_only_stored_run_has_a_truthful_raw_table_notice() -> None:
     assert 'id="stream-raw-history-notice"' in rendered
     assert "No original log rows are available for this stored run." in source
     assert "Check Insights for any retained summaries or noteworthy history" in source
-    assert 'placeholder: "No JSON objects are available for this run."' in source
+    assert 'placeholder: "No data — no JSON objects are available for this run."' in source
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
