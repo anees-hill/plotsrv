@@ -7,7 +7,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from .. import config
+from .. import config, store
 from .backend import list_snapshots, write_snapshot_and_prune
 from .latest import FileLatestStateBackend
 from .policy import (
@@ -27,6 +27,7 @@ class StorageTask:
     extra: dict[str, Any] | None = None
     source: str | None = None
     estimated_bytes: int = 0
+    activity_revision: int | None = None
 
 
 class StorageWorker:
@@ -126,6 +127,7 @@ class StorageWorker:
             extra=extra,
             source=source,
             estimated_bytes=_estimate_storage_task_bytes(obj),
+            activity_revision=store.snapshot_activity_revision(view_id=view_id, obj=obj),
         )
 
         estimate = max(1, task.estimated_bytes)
@@ -231,7 +233,7 @@ class StorageWorker:
         if not decision.accepted:
             return
 
-        write_snapshot_and_prune(
+        written, pruned = write_snapshot_and_prune(
             root_dir=root_dir,
             view_id=task.view_id,
             kind=task.kind,
@@ -241,6 +243,13 @@ class StorageWorker:
             label=task.label,
             extra=task.extra,
         )
+        if task.activity_revision is not None or pruned:
+            store.link_snapshot_activity(
+                view_id=task.view_id,
+                revision=task.activity_revision,
+                snapshot_id=written.snapshot_id,
+                pruned_ids={item.snapshot_id for item in pruned},
+            )
 
 
 _WORKER: StorageWorker | None = None

@@ -60,6 +60,7 @@
           receivedAt: event && event.received_at,
           count: Number.isSafeInteger(count) && count > 0 ? count : 1,
           source: event && event.source,
+          snapshotId: event && typeof event.snapshot_id === "string" ? event.snapshot_id : null,
         };
       })
       .filter(function (event) {
@@ -233,23 +234,44 @@
           : "";
       }
     } else {
+      let snapshotCount = 0;
       visible.forEach(function (event, index) {
-        const dot = document.createElement("span");
+        const stored = !!event.snapshotId && typeof core.snapshotNavigation?.select === "function";
+        const dot = document.createElement(stored ? "button" : "span");
         const position = Math.max(1.5, Math.min(98.5, ((event.time - start) / (now - start)) * 100));
         const size = Math.min(13, 6 + Math.log2(event.count));
         dot.className = "ps-arrival-chart__dot";
-        dot.style.left = position + "%";
-        dot.style.width = size + "px";
-        dot.style.height = size + "px";
-        dot.style.bottom = 13 + (index % 3) * 9 + "px";
-        dot.title = "Published update · " + core.fmtLocalTime(event.receivedAt);
-        dot.setAttribute("aria-hidden", "true");
+        dot.style.left = stored
+          ? "clamp(14px, " + position + "%, calc(100% - 14px))"
+          : position + "%";
+        dot.style.setProperty("--dot-size", size + "px");
+        dot.style.bottom = 13 + (index % 3) * 9 - (stored ? (28 - size) / 2 : 0) + "px";
+        if (stored) {
+          snapshotCount += 1;
+          dot.classList.add("ps-arrival-chart__dot--snapshot");
+          dot.type = "button";
+          dot.title = "Snapshot available — click to open · " + core.fmtLocalTime(event.receivedAt);
+          dot.setAttribute("aria-label", dot.title);
+          dot.addEventListener("click", function () {
+            core.closeStatusModal();
+            core.snapshotNavigation.select(event.snapshotId);
+          });
+        } else {
+          dot.title = "Published update · " + core.fmtLocalTime(event.receivedAt);
+          dot.setAttribute("aria-hidden", "true");
+        }
         track.appendChild(dot);
       });
+      const legend = document.getElementById("status-modal-snapshot-legend");
+      if (legend) legend.hidden = snapshotCount === 0;
       if (detail) {
         detail.hidden = true;
         detail.textContent = "";
       }
+    }
+    if (config.kind === "stream") {
+      const legend = document.getElementById("status-modal-snapshot-legend");
+      if (legend) legend.hidden = true;
     }
 
     empty.hidden = visible.length !== 0;

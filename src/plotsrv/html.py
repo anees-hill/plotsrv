@@ -981,6 +981,7 @@ def render_index(
                       <span id="status-modal-range-end">Now</span>
                     </div>
                   </div>
+                  <p id="status-modal-snapshot-legend" class="ps-arrival-chart__legend" hidden><span class="ps-arrival-chart__legend-marker" aria-hidden="true"></span> Snapshot available — click a ringed point to open</p>
                   <p id="status-modal-activity-hover" class="ps-arrival-chart__detail" aria-live="polite" hidden></p>
                   <p id="status-modal-activity-empty" class="ps-arrival-chart__empty" hidden>No arrivals in this range.</p>
                 </section>

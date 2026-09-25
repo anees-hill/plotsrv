@@ -510,6 +510,8 @@ def set_plot(
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
     _touch_render_revision(st)
+    if record_arrival:
+        st.data_activity[-1]["render_revision"] = st.render_revision
 
     register_view(
         view_id=vid, kind="plot", icon_key=st.icon_key, activate_if_first=False
@@ -579,6 +581,8 @@ def set_table(
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
     _touch_render_revision(st)
+    if record_arrival:
+        st.data_activity[-1]["render_revision"] = st.render_revision
 
     register_view(
         view_id=vid, kind="table", icon_key=st.icon_key, activate_if_first=False
@@ -645,6 +649,8 @@ def set_artifact(
     st.status["publish_source"] = _normalize_publish_source(publish_source)
     _clear_restored_status(st)
     _touch_render_revision(st)
+    if record_arrival:
+        st.data_activity[-1]["render_revision"] = st.render_revision
 
     register_view(
         view_id=vid, kind="artifact", icon_key=st.icon_key, activate_if_first=False
@@ -737,7 +743,10 @@ def record_data_arrival(
 
 def get_data_activity(*, view_id: str | None = None) -> dict[str, Any]:
     st = get_view_state(view_id)
-    events = [dict(event) for event in st.data_activity]
+    events = [
+        {key: value for key, value in event.items() if key != "render_revision"}
+        for event in st.data_activity
+    ]
     return {
         "scope": "process_lifetime",
         "bounded": True,
@@ -746,6 +755,33 @@ def get_data_activity(*, view_id: str | None = None) -> dict[str, Any]:
         "represented_item_count": sum(int(event["count"]) for event in events),
         "events": events,
     }
+
+
+def snapshot_activity_revision(*, view_id: str, obj: Any) -> int | None:
+    """Identify the arrival for the exact object queued for persistence."""
+    st = get_view_state(view_id)
+    current = (
+        st.plot_png if st.kind == "plot" else
+        st.table_df if st.kind == "table" else
+        st.artifact.obj if st.artifact is not None else None
+    )
+    if current is not obj or not st.data_activity:
+        return None
+    event = st.data_activity[-1]
+    revision = event.get("render_revision")
+    return revision if revision == st.render_revision else None
+
+
+def link_snapshot_activity(
+    *, view_id: str, revision: int | None, snapshot_id: str, pruned_ids: set[str]
+) -> None:
+    """Expose only completed, still-retained snapshot writes on live activity."""
+    st = get_view_state(view_id)
+    for event in st.data_activity:
+        if event.get("snapshot_id") in pruned_ids:
+            event.pop("snapshot_id", None)
+        if revision is not None and event.get("render_revision") == revision:
+            event["snapshot_id"] = snapshot_id
 
 
 def mark_error(message: str, *, view_id: str | None = None) -> None:
@@ -1100,6 +1136,8 @@ for _store_api_name in (
     "mark_success",
     "record_data_arrival",
     "get_data_activity",
+    "snapshot_activity_revision",
+    "link_snapshot_activity",
     "mark_error",
     "mark_restored",
     "get_status",

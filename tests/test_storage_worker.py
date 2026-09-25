@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 import plotsrv.storage.worker as worker_mod
+from plotsrv import store
 from plotsrv.storage.models import SnapshotMeta
 
 
@@ -37,6 +38,51 @@ def test_submit_returns_false_when_storage_disabled(
 
     ok = w.submit(view_id="v1", kind="text", obj="x")
     assert ok is False
+
+
+def test_activity_links_only_completed_retained_writes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    view_id = "worker:activity-link"
+    store.reset()
+    monkeypatch.setattr(worker_mod.config, "get_storage_enabled", lambda: True)
+    monkeypatch.setattr(worker_mod.config, "get_storage_latest_enabled", lambda: False)
+    monkeypatch.setattr(worker_mod.config, "get_storage_root_dir", lambda: tmp_path)
+    admitted = {"value": True}
+
+    class Decision:
+        keep_last = 1
+
+        @property
+        def accepted(self) -> bool:
+            return admitted["value"]
+
+    monkeypatch.setattr(worker_mod, "should_store_snapshot", lambda **_kwargs: Decision())
+    worker = worker_mod.StorageWorker()
+    monkeypatch.setattr(worker, "start", lambda: None)
+
+    def submit_and_process(value: str) -> None:
+        store.set_artifact(obj=value, kind="text", view_id=view_id)
+        assert worker.submit(view_id=view_id, kind="text", obj=value)
+        task = worker._queue.get_nowait()
+        assert isinstance(task, worker_mod.StorageTask)
+        assert store.get_data_activity(view_id=view_id)["events"][-1].get("snapshot_id") is None
+        worker._process_task(task)
+
+    try:
+        submit_and_process("first")
+        first_id = store.get_data_activity(view_id=view_id)["events"][0]["snapshot_id"]
+        admitted["value"] = False
+        submit_and_process("rejected")
+        events = store.get_data_activity(view_id=view_id)["events"]
+        assert [event.get("snapshot_id") for event in events] == [first_id, None]
+        admitted["value"] = True
+        submit_and_process("retained")
+        events = store.get_data_activity(view_id=view_id)["events"]
+        assert [event.get("snapshot_id") for event in events[:2]] == [None, None]
+        assert events[2]["snapshot_id"] != first_id
+    finally:
+        store.reset()
 
 
 def test_submit_starts_worker_and_queues_task(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,11 +235,11 @@ def test_process_task_skips_file_backed_watch_before_latest_or_snapshot(
     monkeypatch.setattr(worker_mod, "FileLatestStateBackend", FakeLatestBackend)
 
     snapshot_calls: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        worker_mod,
-        "write_snapshot_and_prune",
-        lambda **kwargs: snapshot_calls.append(kwargs),
-    )
+    def fake_write_snapshot_and_prune(**kwargs: Any) -> tuple[Any, list[Any]]:
+        snapshot_calls.append(kwargs)
+        return object(), []
+
+    monkeypatch.setattr(worker_mod, "write_snapshot_and_prune", fake_write_snapshot_and_prune)
 
     list_calls = {"n": 0}
 
@@ -245,11 +291,11 @@ def test_process_task_does_not_skip_memory_backed_watch(
     )
 
     snapshot_calls: list[dict[str, Any]] = []
-    monkeypatch.setattr(
-        worker_mod,
-        "write_snapshot_and_prune",
-        lambda **kwargs: snapshot_calls.append(kwargs),
-    )
+    def fake_write_snapshot_and_prune(**kwargs: Any) -> tuple[Any, list[Any]]:
+        snapshot_calls.append(kwargs)
+        return object(), []
+
+    monkeypatch.setattr(worker_mod, "write_snapshot_and_prune", fake_write_snapshot_and_prune)
 
     task = worker_mod.StorageTask(
         view_id="watch:data",

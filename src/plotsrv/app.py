@@ -745,6 +745,20 @@ def status(request: Request, view: str | None = None) -> dict[str, object]:
 
     kind = store.get_kind(vid)
     activity = store.get_data_activity(view_id=vid)
+    # Activity is process-local. A marker becomes a link only after the storage
+    # worker has completed its write, and only while that snapshot is retained.
+    if kind != "stream":
+        from .storage.backend import _view_dir
+
+        snapshots_enabled = _snapshot_capability(vid)["enabled"]
+        view_dir = _view_dir(_storage_root(), vid) if snapshots_enabled else None
+        for event in activity["events"]:
+            snapshot_id = event.get("snapshot_id")
+            if snapshot_id and (
+                view_dir is None
+                or not (view_dir / (snapshot_id + "__meta.json")).is_file()
+            ):
+                event.pop("snapshot_id", None)
     activity["represents"] = (
         "accepted_stream_records" if kind == "stream" else "published_updates"
     )

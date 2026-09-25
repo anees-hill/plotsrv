@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 import pandas as pd
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 from plotsrv import app as app_module
 from plotsrv import config, http_streams, store
 from plotsrv.app import app
+from plotsrv.storage.backend import write_snapshot
 from plotsrv.streams.models import STREAM_PROTOCOL_VERSION
 from plotsrv.streams.server_state import StreamRegistry
 
@@ -89,6 +91,37 @@ def test_status_exposes_activity_scope_source_and_last_arrival() -> None:
         "label": "Python/API publish",
     }
     assert payload["stream_status"] is None
+
+
+def test_status_links_only_retained_snapshots_when_storage_is_enabled(
+    monkeypatch: pytest.MonkeyPatch, tmp_path,
+) -> None:
+    view_id = "demo:snapshot-activity"
+    first = "first"
+    store.set_artifact(obj=first, kind="text", view_id=view_id)
+    first_revision = store.snapshot_activity_revision(view_id=view_id, obj=first)
+    saved = write_snapshot(root_dir=tmp_path, view_id=view_id, kind="text", obj=first)
+    store.link_snapshot_activity(
+        view_id=view_id, revision=first_revision, snapshot_id=saved.snapshot_id,
+        pruned_ids=set(),
+    )
+    store.set_artifact(obj="second", kind="text", view_id=view_id)
+    monkeypatch.setattr(config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(config, "get_storage_enabled", lambda: True)
+    monkeypatch.setattr(config, "get_storage_view_enabled", lambda *_a, **_kw: True)
+    client = TestClient(app, client=("127.0.0.1", 50000))
+
+    events = client.get("/status", params={"view": view_id}).json()["data_activity"]["events"]
+    assert [event.get("snapshot_id") for event in events] == [saved.snapshot_id, None]
+
+    monkeypatch.setattr(config, "get_storage_enabled", lambda: False)
+    events = client.get("/status", params={"view": view_id}).json()["data_activity"]["events"]
+    assert all("snapshot_id" not in event for event in events)
+
+    monkeypatch.setattr(config, "get_storage_enabled", lambda: True)
+    Path(saved.path_meta).unlink()
+    events = client.get("/status", params={"view": view_id}).json()["data_activity"]["events"]
+    assert all("snapshot_id" not in event for event in events)
 
 
 def test_stream_activity_counts_records_but_excludes_heartbeats_and_retries() -> None:
