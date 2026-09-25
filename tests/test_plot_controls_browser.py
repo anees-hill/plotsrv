@@ -48,6 +48,35 @@ def preferences(page):
     return page.evaluate("JSON.stringify(PLOTSRV.state.tablePlotPreferences)")
 
 
+def test_supporting_table_toggle_hides_and_restores_table_without_changing_plot(page):
+    toggle = page.locator("#table-supporting-data-toggle")
+    surface = page.locator("#table-data-surface")
+    plot = page.locator("#table-plot-output")
+    initial_plot = plot.locator("svg").evaluate("element => element.outerHTML")
+    initial_preferences = preferences(page)
+    initial_rows = page.evaluate("PLOTSRV.state.tabulatorInstance.getData()")
+
+    assert surface.is_visible()
+    assert toggle.inner_text() == "Hide table"
+    assert toggle.get_attribute("aria-expanded") == "true"
+
+    toggle.click()
+    assert not surface.is_visible()
+    assert toggle.inner_text() == "Show table"
+    assert toggle.get_attribute("aria-expanded") == "false"
+    assert plot.locator("svg").evaluate("element => element.outerHTML") == initial_plot
+    assert preferences(page) == initial_preferences
+    assert page.evaluate("PLOTSRV.state.tabulatorInstance.getData()") == initial_rows
+
+    toggle.click()
+    assert surface.is_visible()
+    assert toggle.inner_text() == "Hide table"
+    assert toggle.get_attribute("aria-expanded") == "true"
+    assert plot.locator("svg").evaluate("element => element.outerHTML") == initial_plot
+    assert preferences(page) == initial_preferences
+    assert page.evaluate("PLOTSRV.state.tabulatorInstance.getData()") == initial_rows
+
+
 @pytest.mark.parametrize("plot_type", ["bar", "line", "scatter"])
 def test_series_recovery_preserves_live_notice_and_table(page, plot_type):
     page.evaluate("""() => {

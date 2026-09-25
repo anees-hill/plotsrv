@@ -554,6 +554,10 @@
   border-radius: 0 0 8px 8px;
 }
 
+#table-data-surface[hidden] {
+  display: none;
+}
+
 .ps-table-supporting-data.is-collapsed {
   border-radius: 8px;
 }
