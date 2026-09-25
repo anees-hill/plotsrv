@@ -81,6 +81,30 @@ def test_preview_is_actual_inert_dashboard_and_routes_are_isolated(tmp_path):
     assert not draft.path.exists()
 
 
+def test_logo_link_can_be_edited_and_preview_remains_inert(tmp_path):
+    draft, client = setup(tmp_path)
+    state = client.get("/api/state", headers=HEADERS).json()
+    assert state["values"]["icon_url"] == ""
+    assert state["fields"]["icon_url"]["region"] == "branding"
+
+    response = post(client, "/api/draft", {"icon_url": "https://example.com/operations"})
+    assert response.status_code == 200, response.text
+    assert 'href="https://example.com/operations"' not in client.get(
+        "/api/preview", headers=HEADERS
+    ).text
+    assert post(client, "/api/review").status_code == 200
+    result = post(client, "/api/save", {"review_id": draft.review_id})
+    assert result.status_code == 200, result.text
+    assert yaml.safe_load(draft.path.read_text())["ui-settings"]["icon_url"] == "https://example.com/operations"
+
+
+@pytest.mark.parametrize("value", ["javascript:alert(1)", "//evil.example", "https:///missing-host"])
+def test_logo_link_editor_rejects_unsafe_url(tmp_path, value):
+    draft, client = setup(tmp_path)
+    assert post(client, "/api/draft", {"icon_url": value}).status_code == 400
+    assert draft.values["icon_url"] == ""
+
+
 @pytest.mark.parametrize(
     "headers",
     [

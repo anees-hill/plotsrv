@@ -28,6 +28,7 @@ def test_load_ui_settings_defaults_when_no_config(monkeypatch, tmp_path: Path) -
     assert ui.header_fill_colour == ui_config.DEFAULT_HEADER_FILL
     assert ui.page_title == ui_config.DEFAULT_PAGE_TITLE
     assert ui.favicon_url == ui_config.DEFAULT_FAVICON_URL
+    assert ui.icon_url == ""
     assert ui.show_view_selector is True
     assert ui.featured_views == ()
     assert ui.compact_views == ()
@@ -46,6 +47,7 @@ ui-settings:
   default:
     page_title: "My YAML Title"
     favicon: "/assets/my.ico"
+    icon_url: "https://example.com/monitor"
 """.strip(),
         encoding="utf-8",
     )
@@ -56,3 +58,27 @@ ui-settings:
 
     assert ui.page_title == "My YAML Title"
     assert ui.favicon_url == "/assets/my.ico"
+    assert ui.icon_url == "https://example.com/monitor"
+
+
+def test_icon_url_accepts_web_links_and_ignores_unsafe_values() -> None:
+    for value in (
+        "https://example.com/home?view=1",
+        "http://localhost:8000/",
+        "/dashboard",
+    ):
+        assert ui_config.load_ui_settings(section={"icon_url": value}).icon_url == value
+
+    for value in (
+        "",
+        "javascript:alert(1)",
+        "data:text/html,hello",
+        "//example.com",
+        "https:///missing-host",
+        "https://user@example.com",
+        "https://example.com:bad/",
+        "https://example.com/has space",
+        "https://example.com/\nheader",
+        123,
+    ):
+        assert ui_config.load_ui_settings(section={"icon_url": value}).icon_url == ""

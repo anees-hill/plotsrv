@@ -13,6 +13,7 @@ Common UI customisations include:
 - page title
 - header text
 - logo
+- optional logo link
 - favicon
 - header colour
 - optional UI controls
@@ -52,10 +53,16 @@ A logo and favicon can be configured with local file paths.
 ```yaml title="plotsrv.yaml"
 ui-settings:
   logo: "assets/logo.png"
+  icon_url: "https://example.com/operations"
   favicon: "assets/favicon.png"
 ```
 
-Paths are resolved relative to the config file.
+Logo and favicon paths are resolved relative to the config file.
+
+`icon_url` makes the header logo a link to the configured HTTP(S) URL or a path
+on the same server, such as `/operations`. Leave it unset to keep the logo
+non-clickable, including when using the built-in plotsrv logo. The favicon is
+still only the browser tab icon.
 
 For example:
 
@@ -85,6 +92,7 @@ ui-settings:
   page_title: "Operations monitor"
   header_text: "Operations monitor"
   logo: "assets/logo.png"
+  icon_url: "https://example.com/operations"
   favicon: "assets/favicon.png"
   header_fill_colour: "#ffffff"
 ```

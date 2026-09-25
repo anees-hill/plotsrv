@@ -10,7 +10,12 @@ import secrets
 import yaml
 
 from .. import settings
-from ..ui_config import load_ui_settings, DEFAULT_LOGO_URL, DEFAULT_FAVICON_URL
+from ..ui_config import (
+    load_ui_settings,
+    _icon_link_url,
+    DEFAULT_LOGO_URL,
+    DEFAULT_FAVICON_URL,
+)
 from ..config_wizard.draft import _load_bounded
 from ..config_wizard.saving import (
     Review,
@@ -30,6 +35,11 @@ FIELDS = {
     "logo": (
         "Logo",
         "One image is used in both light and dark appearance.",
+        "branding",
+    ),
+    "icon_url": (
+        "Logo link URL",
+        "Optional HTTP(S) URL or path on this server. Leave blank for no link.",
         "branding",
     ),
     "favicon": (
@@ -67,7 +77,7 @@ FIELDS = {
     "show_help_note": ("Help note", "Show the view help note.", "footer"),
 }
 IMAGE_FIELDS = {"logo", "favicon"}
-TEXT_FIELDS = {"page_title", "header_text"}
+TEXT_FIELDS = {"page_title", "header_text", "icon_url"}
 
 
 class Draft:
@@ -143,6 +153,8 @@ class Draft:
                     or any(ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in value)
                 ):
                     raise SaveError("Use at most 512 printable characters.")
+                if key == "icon_url" and value and not _icon_link_url(value):
+                    raise SaveError("Logo link must be an HTTP(S) URL or a path on this server.")
             elif type(value) is not bool:
                 raise SaveError("Choose an on/off value.")
         self.values.update(values)

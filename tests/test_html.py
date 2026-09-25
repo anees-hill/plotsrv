@@ -6,6 +6,7 @@ from dataclasses import replace
 import pytest
 
 from plotsrv.ui_config import CompactView, FeaturedView, UISettings
+from plotsrv.ui_config import load_ui_settings
 from plotsrv.store import ViewMeta
 import plotsrv.html as html_mod
 
@@ -111,6 +112,38 @@ def test_render_index_includes_view_dropdown_and_selected_option_with_title_and_
     # New custom selector exists
     assert 'data-plotsrv-viewselect="1"' in html
     assert 'data-plotsrv-view="etl-1:metrics"' in html
+
+
+def test_header_logo_link_is_explicit_and_keeps_other_branding() -> None:
+    base = load_ui_settings(section={
+        "page_title": "Operations monitor",
+        "header_text": "Operations",
+        "logo": "/assets/operations.png",
+        "favicon": "/assets/operations.ico",
+    })
+
+    def render(ui: UISettings) -> str:
+        return html_mod.render_index(
+            kind="none", table_view_mode="simple", table_html_simple=None,
+            max_table_rows_simple=200, max_table_rows_rich=1000,
+            ui_settings=ui,
+        )
+
+    plain = render(base)
+    assert 'src="/assets/operations.png"' in plain
+    assert '<title>Operations monitor</title>' in plain
+    assert 'rel="icon" href="/assets/operations.ico"' in plain
+    assert '<a href="https://example.com/home"' not in plain
+    assert '<a href=' not in plain.split('class="header-left ps-header__left">', 1)[1].split('</div>', 1)[0]
+
+    linked = render(replace(base, icon_url="https://example.com/home?x=1&y=2"))
+    assert linked.count('<a href="https://example.com/home?x=1&amp;y=2">') == 2
+    assert '<a href="https://example.com/home?x=1&amp;y=2"><img src="/assets/operations.png"' in linked
+    assert 'rel="icon" href="/assets/operations.ico"' in linked
+
+    default_logo = render(load_ui_settings(section={}))
+    assert '<a href=' not in default_logo.split('class="header-left ps-header__left">', 1)[1].split('</div>', 1)[0]
+    assert 'href="javascript:' not in render(replace(base, icon_url="javascript:alert(1)"))
 
 
 def test_render_index_escapes_view_labels_and_header_text() -> None:

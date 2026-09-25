@@ -12,6 +12,7 @@ from .ui_assets import get_ui_assets
 from .ui_images import UI_IMAGE_URLS, ui_image_url
 from .ui_config import (
     UISettings,
+    _icon_link_url,
     get_ui_settings,
 )
 
@@ -906,6 +907,10 @@ def render_index(
     logo_url = _safe_url_attr(
         ui.logo_url or "/static/plotsrv_icon_title_colour_swash_logo.png"
     )
+    logo_html = f'<img src="{logo_url}" alt="plotsrv logo" class="header-logo ps-header__logo" />'
+    icon_url = _icon_link_url(ui.icon_url)
+    if icon_url and not static_preview:
+        logo_html = f'<a href="{_escape_attr(icon_url)}">{logo_html}</a>'
     header_status_html = ""
     status_modal_html = ""
     if ui.show_freshness or ui.show_history_banner:
@@ -1075,7 +1080,7 @@ def render_index(
         hidden>
         <header class="header ps-header ps-settings-page__header" style="--ps-configured-header-fill:{header_fill};">
           <div class="header-left ps-header__left">
-            <img src="{logo_url}" alt="plotsrv logo" class="header-logo ps-header__logo" />
+            {logo_html}
             <div class="header-title ps-header__title">{header_text}</div>
           </div>
           <button
@@ -1285,7 +1290,7 @@ def render_index(
           data-table-mode="{table_view_mode}">
       <header id="site-header" class="header ps-header" style="--ps-configured-header-fill:{header_fill};">
         <div class="header-left ps-header__left">
-          <img src="{logo_url}" alt="plotsrv logo" class="header-logo ps-header__logo" />
+          {logo_html}
           <div class="header-title ps-header__title">{header_text}</div>
         </div>
 

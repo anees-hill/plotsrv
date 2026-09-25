@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from . import settings
 from .descriptions import clean as clean_description
@@ -62,6 +63,9 @@ class UISettings:
     show_statusline: bool
     show_help_note: bool
 
+    # Explicit opt-in navigation target for the header logo.
+    icon_url: str = ""
+
     # Serving explicitly configured user assets
     assets_dir: Path | None = None
 
@@ -90,6 +94,34 @@ def _strip_quotes(s: str) -> str:
     if len(t) >= 2 and ((t[0] == t[-1] == "'") or (t[0] == t[-1] == '"')):
         return t[1:-1].strip()
     return t
+
+
+def _icon_link_url(raw: Any) -> str:
+    """Allow only ordinary web links, including paths on this server."""
+    if not isinstance(raw, str):
+        return ""
+    url = _strip_quotes(raw)
+    if not url or any(
+        c.isspace() or ord(c) < 32 or c in {"<", ">", '"', "'", "\\"}
+        for c in url
+    ):
+        return ""
+    if url.startswith("/") and not url.startswith("//"):
+        return url
+    try:
+        parts = urlsplit(url)
+        if (
+            parts.scheme.lower() in ("http", "https")
+            and parts.netloc
+            and parts.hostname
+            and parts.username is None
+            and parts.password is None
+        ):
+            parts.port  # Reject malformed ports.
+            return url
+    except ValueError:
+        pass
+    return ""
 
 
 def _resolve_asset_url(
@@ -219,6 +251,7 @@ def load_ui_settings(
     favicon_url = DEFAULT_FAVICON_URL
 
     logo_url = DEFAULT_LOGO_URL
+    icon_url = ""
     header_text = DEFAULT_HEADER_TEXT
     header_fill = DEFAULT_HEADER_FILL
 
@@ -280,6 +313,8 @@ def load_ui_settings(
             assets_dir = ad
             asset_files.append(ad)
 
+    icon_url = _icon_link_url(ui.get("icon_url"))
+
     if isinstance(ui.get("favicon"), str):
         favicon_url, ad2 = _resolve_asset_url(
             ui["favicon"],
@@ -302,6 +337,7 @@ def load_ui_settings(
         page_title=page_title,
         favicon_url=favicon_url,
         logo_url=logo_url,
+        icon_url=icon_url,
         header_text=header_text,
         header_fill_colour=header_fill,
         show_view_selector=show_view_selector,
