@@ -28,6 +28,63 @@
   letter-spacing: 0.08em;
 }
 .ps-observation-header h2 { margin-bottom: 0.25rem; font-size: 1.35rem; }
+.ps-observation-title-row { display: flex; align-items: center; gap: 0.55rem; }
+.ps-observation-help {
+  display: inline-grid;
+  place-items: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  margin-bottom: 0.25rem;
+  padding: 0;
+  border: 1px solid var(--ps-border);
+  border-radius: 50%;
+  background: var(--ps-surface);
+  color: var(--ps-accent-strong);
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.ps-observation-help:hover,
+.ps-observation-help-dialog__close:hover { background: var(--ps-surface-hover); }
+.ps-observation-help:focus-visible,
+.ps-observation-help-dialog__close:focus-visible { outline: 2px solid var(--ps-focus); outline-offset: 2px; }
+.ps-observation-help-dialog {
+  width: min(440px, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: auto;
+  border: 1px solid var(--ps-border);
+  border-radius: 0.7rem;
+  background: var(--ps-surface);
+  color: var(--ps-text);
+  box-shadow: var(--ps-shadow);
+}
+.ps-observation-help-dialog::backdrop { background: var(--ps-overlay); }
+.ps-observation-help-dialog__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem 0.35rem;
+}
+.ps-observation-help-dialog__header h3 { margin: 0; font-size: 1rem; }
+.ps-observation-help-dialog__close {
+  flex: 0 0 auto;
+  width: 1.9rem;
+  height: 1.9rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.4rem;
+  background: transparent;
+  color: var(--ps-muted);
+  font-size: 1.35rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.ps-observation-help-dialog__body { padding: 0.15rem 1rem 1rem; font-size: 0.86rem; line-height: 1.5; }
+.ps-observation-help-dialog__body p { margin: 0.6rem 0 0; }
+.ps-observation-help-dialog__body strong { color: var(--ps-text-strong); }
 .ps-observation-size { margin-bottom: 0.65rem; color: var(--ps-muted, var(--muted)); font-size: 0.86rem; }
 .ps-observation-description { margin-bottom: 0.45rem; color: var(--ps-muted, var(--muted)); font-size: 0.86rem; }
 .ps-observation-conclusion { margin-bottom: 0; font-size: 0.95rem; }

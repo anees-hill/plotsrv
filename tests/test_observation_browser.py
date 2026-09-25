@@ -79,6 +79,52 @@ def test_observation_labels_do_not_expose_payload_types(page):
     assert page.locator("#artifact-kind").inner_text() == "Kind: json"
 
 
+def test_observation_help_dialog_is_readable_and_keyboard_accessible(page):
+    mount(page, document())
+    help_button = page.get_by_role("button", name="About Observation")
+    assert help_button.is_visible()
+    assert help_button.evaluate("button => button.previousElementSibling.id") == "observation-title"
+    help_button.focus()
+    page.keyboard.press("Enter")
+    dialog = page.get_by_role("dialog", name="About this observation")
+    assert dialog.is_visible()
+    text = dialog.inner_text()
+    for phrase in (
+        "sampled observation",
+        "Overview",
+        "Fields",
+        "Changes",
+        "Evidence",
+        "Missing values",
+        "changed values",
+        "unusual ranges",
+        "entire dataset",
+    ):
+        assert phrase in text
+    page.keyboard.press("Escape")
+    assert dialog.is_hidden()
+    assert help_button.evaluate("button => document.activeElement === button")
+
+    for theme in ("light", "dark"):
+        page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
+        help_button.click()
+        assert dialog.is_visible()
+        assert dialog.evaluate("dialog => getComputedStyle(dialog).backgroundColor") == (
+            "rgb(255, 255, 255)" if theme == "light" else "rgb(24, 32, 39)"
+        )
+        dialog.get_by_role("button", name="Close help").click()
+        assert dialog.is_hidden()
+        assert help_button.evaluate("button => document.activeElement === button")
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    help_button.click()
+    assert dialog.bounding_box()["width"] <= 390
+    assert page.evaluate("document.body.scrollWidth <= window.innerWidth")
+    page.mouse.click(1, 1)
+    assert dialog.is_hidden()
+    assert help_button.evaluate("button => document.activeElement === button")
+
+
 def test_overview_default_live_filter_and_keyboard_suggestion_save(page):
     mount(page, document())
     assert page.evaluate("document.body.scrollWidth <= window.innerWidth")

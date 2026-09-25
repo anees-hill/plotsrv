@@ -501,7 +501,7 @@ def _render_observation(
       </section>"""
     html = f"""<div data-plotsrv-observation="1" class="ps-observation">
       <header class="ps-observation-header" aria-labelledby="observation-title">
-        <div class="ps-observation-header__copy"><span class="ps-observation-eyebrow">Observed values</span><h2 id="observation-title">Observation</h2><p class="ps-observation-size">{escape(size_label)} · {escape(field_label)}</p>{description_html}<p class="ps-observation-conclusion">{escape(conclusion)}</p></div>
+        <div class="ps-observation-header__copy"><span class="ps-observation-eyebrow">Observed values</span><div class="ps-observation-title-row"><h2 id="observation-title">Observation</h2><button type="button" class="ps-observation-help" data-observation-help aria-label="About Observation" aria-haspopup="dialog" aria-controls="observation-help-dialog" title="About Observation">?</button></div><p class="ps-observation-size">{escape(size_label)} · {escape(field_label)}</p>{description_html}<p class="ps-observation-conclusion">{escape(conclusion)}</p></div>
         <div class="ps-observation-header__status"><span>{escape(status)}</span><time>{escape(_captured_time(summary))}</time><button type="button" class="ps-observation-history" data-observation-history hidden>View history</button></div>
       </header>
       <nav class="ps-observation-tabs" role="tablist" aria-label="Observation sections">
@@ -520,6 +520,14 @@ def _render_observation(
       <section id="observation-panel-evidence" class="ps-observation-panel" role="tabpanel" aria-labelledby="observation-tab-evidence" aria-label="Detailed evidence" hidden>
         <section class="ps-observation-section ps-observation-section--explorer"><div class="ps-observation-section__heading">{_section_icon('evidence')}<div><h3>Evidence explorer</h3><p>Filter, group, plot and save views of the bounded evidence behind this observation.</p></div></div>{explorer}</section>
       </section>
+      <dialog id="observation-help-dialog" class="ps-observation-help-dialog" data-observation-help-dialog aria-labelledby="observation-help-title">
+        <div class="ps-observation-help-dialog__header"><h3 id="observation-help-title">About this observation</h3><button type="button" class="ps-observation-help-dialog__close" data-observation-help-close aria-label="Close help">×</button></div>
+        <div class="ps-observation-help-dialog__body">
+          <p>This view shows a sampled observation of the function's output.</p>
+          <p><strong>Overview</strong> highlights findings and summarizes what was inspected. <strong>Fields</strong> shows missing values and observed ranges. <strong>Changes</strong> compares with an earlier observation when available. <strong>Evidence</strong> lets you explore the inspected values.</p>
+          <p>Missing values, changed values, and unusual ranges are clues to investigate. An oddity in this sample does not tell you how often it occurs in the entire dataset.</p>
+        </div>
+      </dialog>
       <div hidden data-observation-data="1">{escape(encoded)}</div>
     </div>"""
     return RenderResult(

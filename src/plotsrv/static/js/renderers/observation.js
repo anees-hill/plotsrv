@@ -5,6 +5,22 @@
   renderers.initObservation = function (root) {
     const surface = root.querySelector('[data-plotsrv-observation="1"]');
     if (!surface) return;
+    const helpButton = surface.querySelector("[data-observation-help]");
+    const helpDialog = surface.querySelector("[data-observation-help-dialog]");
+    if (helpButton && helpDialog && !helpButton.dataset.observationHelpBound) {
+      helpButton.dataset.observationHelpBound = "1";
+      helpButton.addEventListener("click", () => helpDialog.showModal());
+      helpDialog.querySelector("[data-observation-help-close]").addEventListener("click", () => helpDialog.close());
+      helpDialog.addEventListener("close", () => {
+        if (helpButton.isConnected) helpButton.focus();
+      });
+      helpDialog.addEventListener("click", event => {
+        if (event.target !== helpDialog) return;
+        const bounds = helpDialog.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right ||
+            event.clientY < bounds.top || event.clientY > bounds.bottom) helpDialog.close();
+      });
+    }
     const payload = surface.querySelector('[data-observation-data="1"]');
     if (!payload || payload.textContent.length > 192 * 1024) return;
     let data;
