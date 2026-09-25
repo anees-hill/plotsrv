@@ -345,7 +345,12 @@
 }
 
 .ps-table-plot-advanced {
-  display: contents;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+
+.ps-table-plot-advanced[open] {
+  flex: 1 0 100%;
 }
 
 .ps-table-plot-advanced summary {
@@ -354,19 +359,20 @@
   font-size: 0.84rem;
   font-weight: 600;
   cursor: pointer;
-  align-self: end;
   padding: 0.4rem 0;
 }
 
 .ps-table-plot-advanced__fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 15rem));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr));
   align-items: end;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  padding-top: 0.5rem;
+  gap: 0.65rem 0.55rem;
+  padding: 0.65rem 0 0.2rem;
   border-top: 1px solid var(--border);
-  flex: 1 0 100%;
+}
+
+.ps-table-plot-advanced__fields > .ps-table-plot-control {
+  max-width: none;
 }
 
 .ps-table-plot-advanced:not([open]) > .ps-table-plot-advanced__fields {
@@ -480,7 +486,7 @@
     max-width: none;
   }
   .is-sidebar .ps-table-plot-advanced__fields {
-    flex: 0 0 auto;
+    width: 100%;
   }
   .is-sidebar .ps-table-plot-controls__summary {
     white-space: normal;

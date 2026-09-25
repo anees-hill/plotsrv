@@ -192,3 +192,42 @@ def test_responsive_toolbar_and_sidebar(page, width):
         assert page.locator("#table-plot-x").is_visible()
         assert not page.locator("#table-plot-bins").is_visible()
         page.select_option("#table-plot-type", "bar")
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_advanced_fields_fill_available_controls_width(page, theme):
+    page.evaluate("theme => document.documentElement.setAttribute('data-theme', theme)", theme)
+    page.locator("#table-plot-advanced > summary").click()
+    for width, pinned, layout in (
+        (1366, False, "toolbar"),
+        (1366, True, "toolbar"),
+        (1366, True, "sidebar"),
+        (600, True, "sidebar"),
+    ):
+        page.set_viewport_size({"width": width, "height": 900})
+        if pinned != (page.locator("#table-plot-controls-pin").get_attribute("aria-pressed") == "true"):
+            page.click("#table-plot-controls-pin")
+        if pinned:
+            page.select_option("#table-plot-layout", layout)
+        bounds = page.evaluate("""() => {
+          const rect = selector => document.querySelector(selector).getBoundingClientRect();
+          const secondary = rect('.ps-table-plot-controls__fields--secondary');
+          const advanced = rect('#table-plot-advanced');
+          const fields = rect('.ps-table-plot-advanced__fields');
+          const first = rect('#table-plot-source-control');
+          const palette = rect('.ps-table-plot-palette-control');
+          return {
+            secondary: {left: secondary.left, right: secondary.right},
+            advanced: {left: advanced.left, right: advanced.right, top: advanced.top},
+            fields: {left: fields.left, right: fields.right},
+            first: {left: first.left, right: first.right},
+            paletteBottom: palette.bottom,
+            scrollWidth: document.documentElement.scrollWidth,
+          };
+        }""")
+        assert bounds["advanced"]["top"] >= bounds["paletteBottom"] - 1
+        assert abs(bounds["advanced"]["left"] - bounds["secondary"]["left"]) <= 1
+        assert abs(bounds["advanced"]["right"] - bounds["secondary"]["right"]) <= 1
+        assert abs(bounds["first"]["left"] - bounds["fields"]["left"]) <= 1
+        assert bounds["first"]["right"] <= bounds["fields"]["right"]
+        assert bounds["scrollWidth"] <= width
