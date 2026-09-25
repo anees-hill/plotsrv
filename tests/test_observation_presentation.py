@@ -77,6 +77,8 @@ def test_useful_scoped_overview_reuses_explorer_and_no_raw_json(source):
     result = get_artifact(view="test")
     assert result["meta"]["observation"] is True
     assert 'id="observation-title">Observation</h2>' in result["html"]
+    assert '<span class="ps-observation-eyebrow">Observed values</span>' in result["html"]
+    assert '"source_type"' not in result["html"]
     assert 'data-observation-tab="overview"' in result["html"]
     assert 'data-observation-tab="evidence"' in result["html"]
     assert "Things worth looking at" in result["html"]

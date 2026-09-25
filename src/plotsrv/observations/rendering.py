@@ -387,7 +387,6 @@ def _render_observation(
     technical = {
         key: summary[key]
         for key in (
-            "source_type",
             "captured_at_unix_s",
             "provenance",
             "sampling",
@@ -502,7 +501,7 @@ def _render_observation(
       </section>"""
     html = f"""<div data-plotsrv-observation="1" class="ps-observation">
       <header class="ps-observation-header" aria-labelledby="observation-title">
-        <div class="ps-observation-header__copy"><span class="ps-observation-eyebrow">{escape(summary['source_type'])}</span><h2 id="observation-title">Observation</h2><p class="ps-observation-size">{escape(size_label)} · {escape(field_label)}</p>{description_html}<p class="ps-observation-conclusion">{escape(conclusion)}</p></div>
+        <div class="ps-observation-header__copy"><span class="ps-observation-eyebrow">Observed values</span><h2 id="observation-title">Observation</h2><p class="ps-observation-size">{escape(size_label)} · {escape(field_label)}</p>{description_html}<p class="ps-observation-conclusion">{escape(conclusion)}</p></div>
         <div class="ps-observation-header__status"><span>{escape(status)}</span><time>{escape(_captured_time(summary))}</time><button type="button" class="ps-observation-history" data-observation-history hidden>View history</button></div>
       </header>
       <nav class="ps-observation-tabs" role="tablist" aria-label="Observation sections">

@@ -52,6 +52,33 @@ def mount(page, html):
     page.wait_for_function("!PLOTSRV.state.tableUiState.filtersOpen")
 
 
+def test_observation_labels_do_not_expose_payload_types(page):
+    observed_html = document({"batch_number": 2})
+    mount(page, observed_html)
+    page.evaluate("""() => {
+      document.body.insertAdjacentHTML('afterbegin', '<span id="artifact-kind"></span>');
+      PLOTSRV.core.refreshStatus = () => Promise.resolve();
+    }""")
+    page.add_script_tag(path=str(STATIC / "js/renderers/artifact.js"))
+    page.evaluate("""async html => {
+      PLOTSRV.core.fetchView = async () => ({ok:true, json:async () => ({
+        kind:'json', meta:{observation:true}, html
+      })});
+      await PLOTSRV.core.loadArtifact();
+    }""", observed_html)
+    assert page.locator("#artifact-kind").inner_text() == "Observed output"
+    assert page.locator(".ps-observation-eyebrow").text_content() == "Observed values"
+    assert "dict" not in page.locator("#artifact-root").inner_text().lower()
+
+    page.evaluate("""async () => {
+      PLOTSRV.core.fetchView = async () => ({ok:true, json:async () => ({
+        kind:'json', meta:{}, html:'<p>Ordinary JSON artifact</p>'
+      })});
+      await PLOTSRV.core.loadArtifact();
+    }""")
+    assert page.locator("#artifact-kind").inner_text() == "Kind: json"
+
+
 def test_overview_default_live_filter_and_keyboard_suggestion_save(page):
     mount(page, document())
     assert page.evaluate("document.body.scrollWidth <= window.innerWidth")
@@ -169,7 +196,7 @@ def test_snapshot_no_examples_and_mobile_dark_layout(page):
         "document.documentElement.dataset.theme='dark'; PLOTSRV.core.isHistoryMode=() => true"
     )
     assert "snapshot" in page.evaluate("PLOTSRV.core.getAutomaticUpdateBlockers()")
-    assert "fixed historical evidence" in page.locator("#artifact-root").inner_text()
+    assert "fixed historical evidence" in page.locator(".ps-observation-method__scope").text_content()
     assert page.get_by_text("Captured examples", exact=False).count() == 0
     page.locator(".ps-observation-method > summary").focus()
     page.keyboard.press("Enter")

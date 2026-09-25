@@ -247,7 +247,9 @@
       
       const kindEl = document.getElementById("artifact-kind");
       if (kindEl) {
-        kindEl.textContent = data.kind ? "Kind: " + data.kind : "";
+        kindEl.textContent = data.meta && data.meta.observation
+          ? "Observed output"
+          : data.kind ? "Kind: " + data.kind : "";
       }
       
       if (core.restoreExpandedContentControls) core.restoreExpandedContentControls();
