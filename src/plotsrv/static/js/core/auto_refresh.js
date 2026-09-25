@@ -67,6 +67,11 @@
     }
   }
 
+  function continuousUpdatesEnabled() {
+    return typeof core.loadPref === "function" &&
+      core.loadPref(core.storageKeys.continuousUpdates, "0") === "1";
+  }
+
   // The single policy boundary for every renderer. Explicit application
   // bypasses interaction blockers, but never changes historical selections.
   function getAutomaticUpdateBlockers() {
@@ -85,6 +90,8 @@
     // interaction blockers needed for wholesale ordinary-table replacement
     // would only freeze the stream. Hidden tabs and history remain bounded.
     if (config.kind === "stream") return blockers;
+
+    if (continuousUpdatesEnabled()) return blockers;
 
     const ui = state.tableUiState || {};
     if (String(ui.searchQuery || "").trim()) blockers.push("table_search");
@@ -431,6 +438,7 @@
   }
 
   core.getAutomaticUpdateBlockers = getAutomaticUpdateBlockers;
+  core.continuousUpdatesEnabled = continuousUpdatesEnabled;
   core.canApplyPendingUpdate = canApplyPendingUpdate;
   core.applyPendingUpdate = applyPendingUpdate;
   core.receiveBrowserUpdate = receiveBrowserUpdate;

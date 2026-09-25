@@ -169,6 +169,8 @@
 /* Shared latest/snapshot status in the page header. */
 .ps-header-status {
   position: relative;
+  display: inline-flex;
+  align-items: center;
   min-width: 0;
   max-width: 100%;
 }
@@ -181,6 +183,34 @@
   display: inline-grid;
   grid-template-columns: auto auto minmax(0, auto);
   grid-auto-flow: column;
+}
+
+.ps-header-status__update {
+  flex: 0 0 auto;
+  margin-left: -1px;
+  padding: 0.38rem 0.65rem;
+  min-height: 36px;
+  border: 1px solid #e5c35a;
+  border-radius: 12px;
+  background: #fff2bd;
+  color: #48370d;
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ps-header-status__update:hover { background: #ffe89a; }
+.ps-header-status__update:focus-visible { outline: 2px solid #617f9b; outline-offset: 2px; }
+.ps-header-status__update:disabled { opacity: 0.6; cursor: wait; }
+.ps-header-status__update[hidden] { display: none; }
+
+.ps-header-status[data-quick-update] .ps-header-status__button {
+  border-radius: 12px 0 0 12px;
+}
+
+.ps-header-status[data-quick-update] .ps-header-status__update {
+  border-radius: 0 12px 12px 0;
 }
 
 .ps-header-status__dot {
@@ -610,6 +640,8 @@ body.ps-status-modal-open {
   .ps-header-status__button {
     width: 100%;
   }
+
+  .ps-header-status__button { min-width: 0; }
 
   .ps-status-modal-backdrop {
     align-items: end;

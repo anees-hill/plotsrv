@@ -87,6 +87,8 @@
     updateThemeControls(normalizeTheme(
       document.documentElement.getAttribute("data-theme") || currentTheme()
     ));
+    const continuousUpdates = document.getElementById("settings-continuous-updates");
+    if (continuousUpdates) continuousUpdates.checked = core.continuousUpdatesEnabled();
     page.hidden = false;
     syncSettingsHeaderHeight();
     if (document.body) document.body.classList.add("ps-settings-open");
@@ -129,6 +131,16 @@
         applyTheme(button.getAttribute("data-theme-option"));
       });
     });
+    const continuousUpdates = document.getElementById("settings-continuous-updates");
+    if (continuousUpdates) {
+      continuousUpdates.checked = core.continuousUpdatesEnabled();
+      continuousUpdates.addEventListener("change", function () {
+        core.savePref(core.storageKeys.continuousUpdates, continuousUpdates.checked ? "1" : "0");
+        if (continuousUpdates.checked && typeof core.notifyUpdateEligibilityChanged === "function") {
+          core.notifyUpdateEligibilityChanged();
+        }
+      });
+    }
 
     page.addEventListener("keydown", function (event) {
       if (event.key === "Escape") {

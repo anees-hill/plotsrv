@@ -326,6 +326,30 @@ body.ps-settings-open {
   line-height: 1.5;
 }
 
+.ps-settings-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--ps-border);
+  border-radius: 9px;
+  background: var(--ps-surface-soft);
+  color: var(--ps-text);
+  cursor: pointer;
+}
+
+.ps-settings-toggle input {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.1rem 0 0;
+  accent-color: var(--ps-focus);
+  flex: 0 0 auto;
+}
+
+.ps-settings-toggle > span { display: grid; gap: 0.35rem; }
+.ps-settings-toggle strong { font-size: 0.9rem; }
+.ps-settings-toggle > span > span { color: var(--ps-muted); font-size: 0.82rem; line-height: 1.5; }
+
 .ps-theme-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -629,6 +653,15 @@ body.ps-settings-open {
 .ps-viewselect__tab:focus-visible {
   outline-color: var(--ps-focus);
 }
+
+.ps-header-status__update {
+  border-color: var(--ps-border);
+  background: var(--ps-accent-soft);
+  color: var(--ps-text-strong);
+}
+
+.ps-header-status__update:hover { background: var(--ps-surface-hover); }
+.ps-header-status__update:focus-visible { outline-color: var(--ps-focus); }
 
 .ps-viewselect__tools,
 .ps-viewselect__group + .ps-viewselect__group,

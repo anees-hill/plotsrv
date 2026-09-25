@@ -914,6 +914,7 @@ def render_index(
               <span id="header-check-attention" class="ps-check-attention" aria-label="Unseen check activity" hidden>!</span>
               <svg class="ps-header-status__chevron" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 8 10.5 13 5.5" /></svg>
             </button>
+            <button id="header-update-now" type="button" class="ps-header-status__update" hidden>Update now</button>
             <span id="header-check-announcement" class="ps-visually-hidden" role="status" aria-live="polite"></span>
           </div>
         """
@@ -1125,6 +1126,20 @@ def render_index(
               Themes change plotsrv controls and readable text surfaces. Plot pixels,
               images, and embedded HTML reports keep their original colours.
             </p>
+          </section>
+
+          <section class="ps-settings-section" aria-labelledby="settings-updates-title">
+            <div class="ps-settings-section__intro">
+              <h2 id="settings-updates-title">Live updates</h2>
+              <p>Choose when new data appears in this browser.</p>
+            </div>
+            <label class="ps-settings-toggle">
+              <input id="settings-continuous-updates" type="checkbox">
+              <span>
+                <strong>Update continuously while interacting</strong>
+                <span>New data may replace the visible table or plot while you filter, sort, or use its controls. Leave off to keep updates pending until you choose Update now or clear those controls.</span>
+              </span>
+            </label>
           </section>
 
           <section class="ps-settings-section" aria-labelledby="settings-about-title">

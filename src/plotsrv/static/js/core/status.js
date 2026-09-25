@@ -522,6 +522,13 @@
     }
     const button = document.getElementById("header-status-button");
     if (button) button.setAttribute("aria-label", presentation.title);
+    const updateNow = document.getElementById("header-update-now");
+    if (updateNow) {
+      updateNow.hidden = presentation.tone !== "new-data" ||
+        state.headerStatus.viewMode !== "latest" ||
+        (config.kind === "stream" && state.streamPaused);
+      wrap.toggleAttribute("data-quick-update", !updateNow.hidden);
+    }
     if (typeof core.renderCheckAttention === "function") core.renderCheckAttention();
     if (typeof core.renderStatusModal === "function") core.renderStatusModal();
   }
@@ -662,6 +669,14 @@
     renderHeaderStatus();
     button.addEventListener("click", function () {
       if (typeof core.openStatusModal === "function") core.openStatusModal();
+    });
+    const updateNow = document.getElementById("header-update-now");
+    if (updateNow) updateNow.addEventListener("click", function () {
+      if (typeof core.applyPendingUpdate !== "function") return;
+      updateNow.disabled = true;
+      Promise.resolve(core.applyPendingUpdate({force: true})).finally(function () {
+        updateNow.disabled = false;
+      });
     });
     if (config.kind !== "stream" && state.headerFreshnessTimer == null) {
       state.headerFreshnessTimer = window.setInterval(refreshLocalFreshness, 10000);

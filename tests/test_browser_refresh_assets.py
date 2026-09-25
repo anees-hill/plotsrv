@@ -91,6 +91,65 @@ def test_updates_are_event_driven_coalesced_and_visibility_aware() -> None:
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_continuous_updates_preference_changes_only_interaction_blockers() -> None:
+    script = r'''
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const memory = new Map();
+let reloads = 0;
+const state = {
+  observedUpdateRevision: 0, appliedUpdateRevision: 0,
+  initialViewLoadComplete: true, browserUpdateApplying: false,
+  tableUiState: {searchQuery:'pot', filters:[{field:'pot',op:'eq',value:'A'}], groupBy:'pot'},
+  tablePlotMode: 'plot', tabulatorInstance: {getSorters:()=>[{field:'pot',dir:'asc'}]},
+};
+const document = {
+  hidden:false, activeElement:null, addEventListener(){},
+  querySelector:()=>null,
+};
+const window = {PLOTSRV:{core:{
+  reloadCurrentView:()=>{reloads++;return Promise.resolve(true);},
+  setHeaderBrowserDataState:()=>{}, markBrowserViewApplied:()=>{},
+},state,config:{kind:'table',activeViewId:'pot'}},setTimeout};
+const localStorage = {getItem:key=>memory.get(key) ?? null,
+  setItem:(key,value)=>memory.set(key,value)};
+for(const file of process.argv.slice(1)) vm.runInNewContext(fs.readFileSync(file,'utf8'),
+  {window,document,localStorage,Promise});
+const core = window.PLOTSRV.core;
+const event = revision=>({revision,view_id:'pot',kind:'table',change_type:'data'});
+(async()=>{
+  assert.equal(core.continuousUpdatesEnabled(),false);
+  core.receiveBrowserUpdate(event(1));
+  assert.equal(reloads,0);
+  assert.equal(state.pendingBrowserUpdate.revision,1);
+  core.savePref(core.storageKeys.continuousUpdates,'1');
+  assert.equal(core.continuousUpdatesEnabled(),true);
+  await core.applyPendingUpdate();
+  assert.equal(reloads,1);
+  assert.equal(state.pendingBrowserUpdate,null);
+  core.receiveBrowserUpdate(event(2));
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(reloads,2);
+  state.snapshotNavigation={pending:true};
+  core.receiveBrowserUpdate(event(3));
+  assert.equal(reloads,2);
+  await core.applyPendingUpdate({force:true});
+  assert.equal(reloads,2);
+  state.snapshotNavigation=null;
+  core.savePref(core.storageKeys.continuousUpdates,'0');
+  await core.applyPendingUpdate();
+  assert.equal(reloads,2);
+  await core.applyPendingUpdate({force:true});
+  assert.equal(reloads,3);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+'''
+    subprocess.run(
+        ["node", "-e", script, str(_STATIC_JS / "core/storage.js"),
+         str(_STATIC_JS / "core/auto_refresh.js")],
+        check=True, capture_output=True, text=True,
+    )
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
 def test_stream_update_connection_replaces_only_after_missed_heartbeats() -> None:
     script = r'''
 const fs = require("fs");

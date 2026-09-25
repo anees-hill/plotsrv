@@ -110,6 +110,19 @@ def test_settings_remains_available_when_freshness_is_disabled() -> None:
     assert 'id="header-status"' not in rendered
 
 
+def test_quick_update_and_continuous_updates_setting_are_accessible() -> None:
+    rendered = _render()
+    assert 'id="header-update-now" type="button"' in rendered
+    assert 'id="settings-continuous-updates" type="checkbox"' in rendered
+    assert 'Update continuously while interacting' in rendered
+    assert 'New data may replace the visible table or plot' in rendered
+    status = (STATIC / "js/core/status.js").read_text(encoding="utf-8")
+    settings = (STATIC / "js/core/settings.js").read_text(encoding="utf-8")
+    assert 'core.applyPendingUpdate({force: true})' in status
+    assert 'core.savePref(core.storageKeys.continuousUpdates' in settings
+    assert 'core.notifyUpdateEligibilityChanged()' in settings
+
+
 def test_settings_page_is_full_page_accessible_and_offers_three_modes() -> None:
     rendered = _render()
 
@@ -217,7 +230,7 @@ def test_dark_theme_overrides_snapshot_and_json_pinned_hover_surfaces() -> None:
 
     shared_controls = source.split(".ps-btn,", 1)[1].split("{", 1)[0]
     assert ".ps-snapshots__selector," in shared_controls
-    assert ".ps-snapshots__selector select," in shared_controls
+    assert ".ps-snapshots__selector select" in shared_controls
     disabled_snapshot = source.split(
         ".ps-snapshots__selector select:disabled", 1
     )[1].split("}", 1)[0]
