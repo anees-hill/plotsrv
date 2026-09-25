@@ -1282,9 +1282,6 @@ def render_index(
           {header_status_html}
           {dropdown_html}
           <div class="ps-header-actions">
-            <button id="expand-view" class="ps-expand-button" type="button" aria-label="Expand view" title="Expand view">
-              <svg class="ps-header-control-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#666463" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7.5 1H1v6.5M16.5 1H23v6.5M1 16.5V23h6.5M23 16.5V23h-6.5" /></svg>
-            </button>
             <details id="view-about" class="ps-view-about" hidden>
               <summary class="ps-expand-button" aria-label="About this view" title="About this view">i</summary>
               <div class="ps-view-about__panel" role="dialog" aria-label="About this view">
@@ -1294,6 +1291,9 @@ def render_index(
                 <p id="view-about-scope"></p>
               </div>
             </details>
+            <button id="expand-view" class="ps-expand-button" type="button" aria-label="Expand view" title="Expand view">
+              <svg class="ps-header-control-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#666463" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M7.5 1H1v6.5M16.5 1H23v6.5M1 16.5V23h6.5M23 16.5V23h-6.5" /></svg>
+            </button>
             <button
               id="settings-button"
               class="ps-settings-trigger"
