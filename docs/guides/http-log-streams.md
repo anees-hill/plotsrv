@@ -42,6 +42,11 @@ below so parsing does not share the observed application’s Python process.
   recognition, preserving anything else as text. This is not universal format
   inference or a JSON parser for arbitrary application output.
 
+The server also recognises common Python application logs after ingestion.
+`format="text"` is suitable for the text shapes below; JSONL remains the
+appropriate transport for structured logging. Both keep the original
+records available in the generic stream view.
+
 Access recognition supports the default shape, including ANSI-coloured INFO:
 
 ```text
@@ -285,6 +290,33 @@ with over 100 raw columns, names over 256 characters, or more than 3,000 total n
 characters do not get recipes, keeping ViewSpecs within their existing size cap.
 A source key starting with the reserved `__plotsrv_http_` presentation namespace
 disables interpretation for that session instead of overwriting source data.
+
+## Python application-log suggestions
+
+PlotSrv recognises these complete shapes without a custom field mapping:
+
+```text
+INFO:worker.tasks:Job started
+2026-09-09 12:00:02,000 - worker.db - ERROR - Connection failed
+```
+
+The first is Python logging's default `LEVEL:logger:message` format. The second
+uses a date/time, logger, level and message separated by ` - `. For structured
+JSONL, the accepted keys are `timestamp`, `level`, `logger`, `message`, or the
+equivalent `asctime`, `levelname`, `name`, `message`. Structured timestamps must
+be valid ISO date/time strings. Levels must be `DEBUG`, `INFO`, `WARNING`,
+`ERROR` or `CRITICAL`; logger names must use Python identifier components.
+Incomplete, ambiguous, truncated or partial lines remain generic stream records.
+
+These logs offer **Recent log events** and **Warnings and errors** tables,
+plus **Events by level over time** and **Busiest loggers** plots with their
+supporting data. The first recognised event fixes the format and clock for the
+session. A timezone-aware source time becomes the plot clock; otherwise the
+server's received time is used throughout that session. Later records from a
+different format stay in the raw stream. If an event-time session later lacks
+a valid source time, that row stays out of time plots rather than changing
+clocks. The same 512-record retention window and shared projection memory
+budget used for HTTP suggestions apply here.
 
 ### Reproducible mixed-traffic demo
 

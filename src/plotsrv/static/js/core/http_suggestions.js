@@ -8,19 +8,25 @@
     opening = false,
     selectedName = null;
 
-  function supportsHttpInterpretation() {
+  function supportsInterpretation() {
     const fields = profile && profile.fields;
-    return !!fields && ["time", "method", "path", "status"].every(role => fields[role]);
+    return !!fields && (profile.label
+      ? ["time", "level", "logger", "message"].every(role => fields[role])
+      : ["time", "method", "path", "status"].every(role => fields[role]));
+  }
+
+  function profileLabel() {
+    return (profile && profile.label) || "HTTP access log";
   }
 
   function interpretationModel() {
-    const available = supportsHttpInterpretation();
+    const available = supportsInterpretation();
     const manual = available && state.streamInterpretationOverride === "default";
     return {
       available: available,
       mode: manual ? "default" : "auto",
       manual: manual,
-      label: manual ? "Default stream" : "HTTP access log",
+      label: manual ? "Default stream" : profileLabel(),
     };
   }
 
@@ -77,7 +83,7 @@
     list.className = "ps-stream-interpretation__options";
     list.setAttribute("role", "menu");
     const choices = [
-      {mode: "auto", label: model.manual ? "Return to auto — HTTP access log" : "Auto — HTTP access log"},
+      {mode: "auto", label: (model.manual ? "Return to auto — " : "Auto — ") + profileLabel()},
       {mode: "default", label: "Default stream"},
     ];
     for (const choice of choices) {
@@ -140,24 +146,28 @@
   };
   core.prepareHttpSuggestions = function (data) {
     rawColumns = data.columns.slice();
-    profile =
-      data.http_profile && data.http_profile.version === 1
-        ? data.http_profile
-        : null;
+    const http = data.http_profile && data.http_profile.version === 1 &&
+      data.http_profile.recipes.length ? data.http_profile : null;
+    const log = data.log_profile && data.log_profile.version === 1 &&
+      data.log_profile.recipes.length ? data.log_profile : null;
+    profile = http || log || (data.http_profile && data.http_profile.version === 1
+      ? data.http_profile : null);
     state.httpProfile = profile;
+    const projectionKey = profile === log ? "log_projection" : "http_projection";
     const fields = Object.values((profile && profile.fields) || {});
     const allowed = new Set(fields);
     data.columns = rawColumns.concat(fields);
     for (const record of data.records) {
-      if (!record.http_projection || !fields.length) continue;
+      const projection = record[projectionKey];
+      if (!projection || !fields.length) continue;
       const row = Object.assign(Object.create(null), record.data),
         keys = [];
       for (const [role, key] of Object.entries(profile.fields)) {
         if (
-          Object.prototype.hasOwnProperty.call(record.http_projection, role) &&
+          Object.prototype.hasOwnProperty.call(projection, role) &&
           !Object.prototype.hasOwnProperty.call(row, key)
         ) {
-          row[key] = record.http_projection[role];
+          row[key] = projection[role];
           keys.push(key);
         }
       }
@@ -219,7 +229,7 @@
     }
     const recipes = (profile && profile.recipes) || [];
     const select = area.querySelector("select");
-    const signature = JSON.stringify(recipes.map((r) => r.name));
+    const signature = JSON.stringify([profileLabel(), ...recipes.map((r) => r.name)]);
     // Keep keyboard focus/open native menus stable across ordinary appends.
     if (select.dataset.signature !== signature) {
       select.replaceChildren(new Option(
@@ -228,7 +238,7 @@
       ));
       select.options[0].disabled = true;
       const group = document.createElement("optgroup");
-      group.label = "Based on HTTP access log";
+      group.label = "Based on " + profileLabel();
       recipes.forEach((recipe, index) =>
         group.appendChild(new Option(recipe.name, String(index))),
       );

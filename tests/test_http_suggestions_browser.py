@@ -3,6 +3,8 @@
 import pytest
 from tests.test_plot_controls_browser import page, STATIC
 from tests.test_http_profile import describe, event
+from plotsrv.streams.log_profile import LogProfile
+from tests.test_log_profile import NOW, structured, text_records
 
 
 def payload(records):
@@ -28,6 +30,10 @@ def payload(records):
 
 
 def mount(page, records):
+    mount_payload(page, payload(records))
+
+
+def mount_payload(page, data):
     page.click("#table-mode-table-btn")
     for name in (
         "core/storage",
@@ -48,9 +54,63 @@ def mount(page, records):
       window.fetch = async url => ({ok:true,json:async () => JSON.parse(JSON.stringify(responseData))});
       return PLOTSRV.core.loadStream();
     }""",
-        payload(records),
+        data,
     )
     page.wait_for_function("PLOTSRV.state.streamTabulatorInstance.initialized")
+
+
+@pytest.mark.parametrize("records", [structured(), text_records()])
+def test_python_log_interpretation_and_suggested_views(page, records):
+    profile = LogProfile()
+    for sequence, record in enumerate(records, 1):
+        profile.add(sequence, record, NOW)
+    columns = list(dict.fromkeys(key for record in records for key in record))
+    data = {
+        "columns": columns,
+        "http_profile": {"version": 1, "recipes": []},
+        "log_profile": profile.describe("test:layout", columns),
+        "session_id": "session",
+        "schema_revision": 1,
+        "records": [
+            {
+                "browser_sequence": sequence,
+                "data": record,
+                "log_projection": profile.projection(sequence),
+            }
+            for sequence, record in enumerate(records, 1)
+        ],
+        "raw_window": {
+            "first_browser_sequence": 1,
+            "last_browser_sequence": len(records),
+            "record_count": len(records),
+            "max_record_count": 512,
+        },
+    }
+    mount_payload(page, data)
+    fields = data["log_profile"]["fields"]
+    assert page.evaluate(
+        "PLOTSRV.state.tabulatorInstance.getColumns().filter(c => c.isVisible()).map(c => c.getField())"
+    ) == [fields[key] for key in ("time", "level", "logger", "message")]
+    assert "Python application log" in page.locator(
+        ".ps-stream-interpretation"
+    ).inner_text()
+    assert (
+        page.locator("#http-suggestions-select optgroup").get_attribute("label")
+        == "Based on Python application log"
+    )
+    page.select_option("#http-suggestions-select", "1")
+    page.wait_for_function(
+        "PLOTSRV.state.tabulatorInstance.getData('active').length === 2"
+    )
+    for index in (2, 3):
+        page.select_option("#http-suggestions-select", str(index))
+        page.wait_for_function(
+            "PLOTSRV.state.tablePlotLastResult && PLOTSRV.state.tablePlotLastResult.ok"
+        )
+        assert page.locator(".ps-table-plot__svg").count() == 1
+    page.locator(".ps-stream-interpretation summary").click()
+    page.get_by_role("menuitemradio", name="Default stream").click()
+    assert page.evaluate("PLOTSRV.state.streamInterpretationOverride") == "default"
 
 
 def test_recipes_keyboard_errors_save_and_customise(page):

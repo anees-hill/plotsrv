@@ -1,0 +1,3 @@
+INFO:worker.tasks:Job started
+WARNING:worker.tasks:Retry scheduled
+2026-09-09 12:00:02,000 - worker.db - ERROR - Connection failed

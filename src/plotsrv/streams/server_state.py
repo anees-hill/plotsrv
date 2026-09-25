@@ -37,6 +37,7 @@ from .models import (
     validate_stream_record,
 )
 from .http_profile import HttpProfile, ProfileBudget
+from .log_profile import LogProfile
 from .summaries import SummaryLimits, SummaryWindow
 
 
@@ -321,6 +322,7 @@ class StreamViewState:
     records: deque[StreamRecord] = field(default_factory=deque)
     raw_record_bytes: int = 0
     http_profile: HttpProfile = field(default_factory=HttpProfile)
+    log_profile: LogProfile = field(default_factory=LogProfile)
     schema: StreamSchema = field(default_factory=StreamSchema)
     # The resolution is part of the key so a live configuration change cannot
     # accidentally coalesce windows that have different fixed boundaries.
@@ -527,11 +529,13 @@ class StreamRegistry:
 
             if current is not None:
                 current.http_profile.clear()
+                current.log_profile.clear()
             state = StreamViewState(
                 http_profile=HttpProfile(
                     get_stream_http_profile(registration.view_id),
                     budget=self._http_profile_budget,
                 ),
+                log_profile=LogProfile(budget=self._http_profile_budget),
                 registration=registration,
                 last_heartbeat_monotonic=now_monotonic,
             )
@@ -613,6 +617,7 @@ class StreamRegistry:
                     encoded_bytes=stream_record_size(data),
                 )
                 state.http_profile.add(row.browser_sequence, row.data, row.observed_at)
+                state.log_profile.add(row.browser_sequence, row.data, row.observed_at)
                 state.records.append(row)
                 accepted_raw_records.append(row)
                 state.raw_record_bytes += row.encoded_bytes
@@ -935,6 +940,9 @@ class StreamRegistry:
             "http_profile": state.http_profile.describe(
                 view_id, list(state.schema.columns), historical=state.historical
             ),
+            "log_profile": state.log_profile.describe(
+                view_id, list(state.schema.columns), historical=state.historical
+            ),
             "schema_revision": state.schema.revision,
             "summary_revision": state.summary_revision,
             "cumulative": state.cumulative.as_browser_dict(),
@@ -952,6 +960,11 @@ class StreamRegistry:
                             )
                         )
                         is not None
+                        else {}
+                    ),
+                    **(
+                        {"log_projection": projection}
+                        if (projection := state.log_profile.projection(row.browser_sequence)) is not None
                         else {}
                     ),
                     "observed_at": row.observed_at.isoformat(),
@@ -1551,6 +1564,7 @@ class StreamRegistry:
         with self._lock:
             for state in self._streams.values():
                 state.http_profile.clear()
+                state.log_profile.clear()
             self._streams.clear()
             self._historical_streams.clear()
             self._history_catalogue_revisions.clear()
@@ -1701,6 +1715,7 @@ class StreamRegistry:
             evicted = state.records.popleft()
             state.raw_record_bytes -= evicted.encoded_bytes
             state.http_profile.evict(evicted.browser_sequence)
+            state.log_profile.evict(evicted.browser_sequence)
             self._add_to_fine_window(state, evicted)
         self._refresh_schema(state)
 

@@ -324,6 +324,20 @@
         observedInPreview: false,
       };
     }
+    if (http && ["time", "level", "logger", "message"].every(role => http[role])) {
+      return {
+        visible: [http.time, http.level, http.logger, http.message],
+        roles: {
+          [http.time]: "time", [http.level]: "level",
+          [http.logger]: "source", [http.message]: "message",
+        },
+        labels: {
+          [http.time]: "Time", [http.level]: "Level",
+          [http.logger]: "Logger", [http.message]: "Message",
+        },
+        observedInPreview: false,
+      };
+    }
 
     const httpFields = new Set(Object.values((state.httpProfile && state.httpProfile.fields) || {}));
     const presentationFields = useAutomaticInterpretation
