@@ -2834,6 +2834,13 @@
     }
 
     configureExplorer(table, data, rows, fields);
+    // A sparse or empty stored run can stretch a surviving column across the
+    // grid. Once the new run's rows and columns are in place, measure widths
+    // again so that stretch does not carry into the newly selected run.
+    if ((sessionChanged || state.streamForceTableReplace) &&
+        typeof core.resetTableColumnWidths === "function") {
+      core.resetTableColumnWidths();
+    }
     state.streamSchemaRevision = Number.isInteger(data.schema_revision)
       ? data.schema_revision
       : null;

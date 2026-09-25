@@ -1186,6 +1186,8 @@
     table.redraw();
   }
 
+  core.resetTableColumnWidths = resetColumnWidths;
+
   function bindTableToolbar() {
     const input = document.getElementById("table-search-input");
     const groupBySelect = document.getElementById("table-group-by-select");
