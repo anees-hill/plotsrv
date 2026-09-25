@@ -980,7 +980,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: inherit;
+  color: var(--ps-subtle);
 }
 .ps-code-view-icon.ps-viewselect__icon {
   flex: 0 0 14px;
