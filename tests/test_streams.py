@@ -1894,8 +1894,8 @@ const context = {
     }
     if (url.includes("/stream/history?") && !url.includes("session_id=")) {
       return {ok: true, json: async () => ({sessions: [
-        {session_id: "stored-one", updated_at: "2026-01-01T00:00:00+00:00", durable_history: {state: "complete"}},
-        {session_id: "stored-two", updated_at: "2026-01-02T00:00:00+00:00", durable_history: {state: "complete"}},
+        {session_id: "stored-one", updated_at: "2026-01-01T00:00:00+00:00", durable_history: {state: "complete"}, available: true, raw_record_count: 1},
+        {session_id: "stored-two", updated_at: "2026-01-02T00:00:00+00:00", durable_history: {state: "complete"}, available: true, raw_record_count: 1},
       ]})};
     }
     if (url.includes("session_id=stored-one")) {

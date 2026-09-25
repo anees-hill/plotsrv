@@ -984,6 +984,9 @@ class StreamRegistry:
     @staticmethod
     def _historical_session_dict(state: StreamViewState) -> dict[str, Any]:
         """Return intentionally non-live menu metadata for one restored state."""
+        raw_count = len(state.records)
+        summary_count = len(state.restored_summary_windows)
+        noteworthy_count = len(state.restored_noteworthy_items)
         return {
             "view_id": state.registration.view_id,
             "session_id": state.registration.session_id,
@@ -993,7 +996,10 @@ class StreamRegistry:
             "lifecycle": state.lifecycle,
             "historical": True,
             "durable_history": state.durable_history.as_browser_dict(),
-            "raw_record_count": len(state.records),
+            "raw_record_count": raw_count,
+            "summary_window_count": summary_count,
+            "noteworthy_item_count": noteworthy_count,
+            "available": raw_count + summary_count + noteworthy_count > 0,
         }
 
     def summary(self, *, view_id: str) -> dict[str, Any]:

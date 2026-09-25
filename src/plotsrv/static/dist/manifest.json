@@ -2,7 +2,7 @@
   "css": "/static/dist/plotsrv-ui.72f58776e806.css",
   "customiser_css": "/static/dist/plotsrv-customiser.dd3d37e6d6c4.css",
   "customiser_js": "/static/dist/plotsrv-customiser.b6cb52f88d4a.js",
-  "js": "/static/dist/plotsrv-ui.259fd4ad4600.js",
+  "js": "/static/dist/plotsrv-ui.18d0074ef4a9.js",
   "js_by_kind": {
     "plot": "/static/dist/plotsrv-ui.2ffb4de295e4.js",
     "table": "/static/dist/plotsrv-ui.e8f570360718.js"

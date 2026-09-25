@@ -2215,7 +2215,14 @@
     const incomplete = session && session.durable_history && session.durable_history.state === "incomplete"
       ? " — incomplete"
       : "";
-    return "Past run — " + updated + incomplete;
+    const available = session && session.available === true;
+    const rows = Number(session && session.raw_record_count) || 0;
+    const content = !available
+      ? " — unavailable (no retained content)"
+      : rows === 0
+        ? " — insights only (no retained rows)"
+        : " — " + rows + " retained row" + (rows === 1 ? "" : "s");
+    return "Past run — " + updated + incomplete + content;
   }
 
   function selectedHistoricalSessionId() {
@@ -2415,6 +2422,9 @@
         typeof data.session_id === "string" && data.session_id) {
       state.streamHistoricalSessionId = data.session_id;
     }
+    const selectedSession = items.find(function (session) {
+      return session.session_id === state.streamHistoricalSessionId;
+    });
     const durable = data && data.durable_history;
     const enabled = capability && typeof capability.enabled === "boolean"
       ? capability.enabled
@@ -2436,6 +2446,8 @@
       const option = document.createElement("option");
       option.value = session.session_id;
       option.textContent = historicalSessionLabel(session);
+      option.disabled = session.available !== true;
+      if (option.disabled) option.title = "No retained rows or insights are available for this run.";
       select.appendChild(option);
     }
     select.value = state.streamHistoricalSessionId || "";
@@ -2449,14 +2461,24 @@
     }
     if (status) {
       status.textContent = unavailableReason || (showingHistorical
-        ? "Viewing a stored run. Stored runs are not live producers."
+        ? selectedSession && selectedSession.available !== true
+          ? "This stored run has no retained content and cannot be reopened."
+          : "Viewing a stored run. Stored runs are not live producers."
         : items.length
-          ? items.length + " past run" + (items.length === 1 ? " is" : "s are") + " available to inspect."
+          ? items.filter(function (session) { return session.available === true; }).length +
+            " of " + items.length + " past runs can be inspected. " +
+            "Runs without retained content cannot be opened."
           : "Current run. No past runs have been saved yet.");
     }
     select.onchange = async function () {
       const next = select.value || null;
       if (next === state.streamHistoricalSessionId) return;
+      if (next && !items.some(function (session) {
+        return session.session_id === next && session.available === true;
+      })) {
+        select.value = state.streamHistoricalSessionId || "";
+        return;
+      }
       state.streamHistoricalSessionId = next;
       select.disabled = true;
       if (typeof select.setAttribute === "function") {
@@ -2475,9 +2497,21 @@
           core.notifyUpdateEligibilityChanged();
         }
       } catch (error) {
-        showStreamError();
+        // Retention may remove a run between catalogue and data requests.
+        // Return to a usable current view instead of leaving an empty table
+        // selected as though the stored run were still loading.
+        state.streamHistoricalSessionId = null;
+        select.value = "";
+        try {
+          await resetStreamSessionPresentation();
+          await loadStream();
+        } catch (currentError) {
+          showStreamError();
+        }
+        if (status) status.textContent = "The selected stored run is unavailable. Showing the current run.";
+        loadHistoryCatalogue(state.streamHistoryControlData, {force: true}).catch(function () {});
       } finally {
-        select.disabled = false;
+        select.disabled = !enabled;
         if (typeof select.removeAttribute === "function") {
           select.removeAttribute("aria-busy");
         }
@@ -2492,7 +2526,7 @@
       (!Array.isArray(records) || records.length === 0);
     notice.hidden = !unavailable;
     notice.textContent = unavailable
-      ? "No original log rows are available for this stored run. Its compact summaries and noteworthy history remain available in Insights."
+      ? "No original log rows are available for this stored run. Check Insights for any retained summaries or noteworthy history."
       : "";
   }
 
@@ -2735,7 +2769,7 @@
         // JSONL object keys are flat field names. In particular, a legal key
         // such as "http.status" must not be interpreted as a nested lookup.
         nestedFieldSeparator: false,
-        placeholder: "Waiting for appended JSON objects…",
+        placeholder: "No JSON objects are available for this run.",
       });
       if (typeof state.streamTabulatorInstance.on === "function") {
         state.streamTabulatorInstance.on("rowClick", function (event, row) {

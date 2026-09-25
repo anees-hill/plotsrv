@@ -116,9 +116,10 @@ def test_run_control_has_truthful_disabled_empty_and_stored_states() -> None:
     assert 'document.getElementById("stream-history-info")' not in source
     assert "plotsrv disk storage is disabled in configuration" in source
     assert "No past runs have been saved yet." in source
-    assert 'return "Past run — " + updated + incomplete' in source
+    assert 'return "Past run — " + updated + incomplete + content' in source
+    assert 'option.disabled = session.available !== true' in source
     assert 'select.disabled = true' in source
-    assert 'select.disabled = false' in source
+    assert 'select.disabled = !enabled' in source
 
 
 def test_compact_only_stored_run_has_a_truthful_raw_table_notice() -> None:
@@ -129,7 +130,80 @@ def test_compact_only_stored_run_has_a_truthful_raw_table_notice() -> None:
 
     assert 'id="stream-raw-history-notice"' in rendered
     assert "No original log rows are available for this stored run." in source
-    assert "compact summaries and noteworthy history remain available" in source
+    assert "Check Insights for any retained summaries or noteworthy history" in source
+    assert 'placeholder: "No JSON objects are available for this run."' in source
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="Node.js is not installed")
+def test_run_picker_disables_metadata_only_runs_and_explains_compact_runs() -> None:
+    script = r'''
+const fs = require("fs");
+const vm = require("vm");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const picker = {dataset: {}};
+const status = {textContent: ""};
+const select = {
+  options: [], value: "", disabled: true, attributes: {},
+  replaceChildren() { this.options = []; },
+  appendChild(option) { this.options.push(option); },
+  setAttribute(name, value) { this.attributes[name] = value; },
+};
+const elements = {
+  "stream-history-picker": picker,
+  "stream-history-session-select": select,
+  "stream-history-picker-status": status,
+};
+const state = {};
+const core = {};
+let response = {
+  capability: {enabled: true},
+  sessions: [
+    {session_id: "raw", available: true, raw_record_count: 2},
+    {session_id: "compact", available: true, raw_record_count: 0},
+    {session_id: "marker", available: false, raw_record_count: 0},
+  ],
+};
+const context = {
+  window: {PLOTSRV: {core, state, config: {activeViewId: "logs:test"}}},
+  document: {
+    getElementById(id) { return elements[id] || null; },
+    createElement() { return {disabled: false}; },
+  },
+  fetch() { return Promise.resolve({ok: true, json: () => Promise.resolve(response)}); },
+};
+vm.runInNewContext(source, context, {filename: "stream.js"});
+(async () => {
+  await core.loadStreamHistoryCatalogue({historical: false});
+  if (select.options.length !== 4 || select.options[1].disabled ||
+      select.options[2].disabled || !select.options[3].disabled) {
+    throw new Error("run availability does not match retained content");
+  }
+  if (!select.options[2].textContent.includes("insights only") ||
+      !select.options[3].textContent.includes("unavailable") ||
+      !status.textContent.includes("2 of 3")) {
+    throw new Error("run picker does not explain available content");
+  }
+  select.value = "marker";
+  await select.onchange();
+  if (select.value !== "" || state.streamHistoricalSessionId) {
+    throw new Error("unavailable run was selected");
+  }
+  response = {
+    capability: {enabled: false, message: "Disk storage is disabled."},
+    sessions: [],
+  };
+  await core.loadStreamHistoryCatalogue({historical: false});
+  if (!select.disabled || !status.textContent.includes("Disk storage is disabled")) {
+    throw new Error("disabled storage was not explained");
+  }
+})().catch(error => { console.error(error); process.exitCode = 1; });
+'''
+    subprocess.run(
+        ["node", "-e", script, str(STATIC / "js" / "renderers" / "stream.js")],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_drawer_css_is_substantial_without_a_blocking_backdrop_and_mobile_safe() -> None:

@@ -165,6 +165,10 @@ reflects the current transport session after reconnection.
 Raw source rows remain opt-in. They can be retained only with a finite raw
 block policy; the history view shows those explicitly retained segments, not a
 source-log replay.
+The Run selector labels runs with retained rows and runs with only compact
+insights. A compact-only run opens with an empty table and its retained insights;
+a run with only a persistence-gap marker is shown as unavailable. With stream
+storage disabled, past runs cannot be reopened.
 
 ```yaml title="plotsrv.yaml"
 storage-settings:

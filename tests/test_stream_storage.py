@@ -539,6 +539,9 @@ def test_marker_only_gap_is_restored_as_visible_incomplete_history(
     assert sessions[0]["lifecycle"] == "incomplete"
     assert sessions[0]["durable_history"]["state"] == "incomplete"
     assert sessions[0]["raw_record_count"] == 0
+    assert sessions[0]["summary_window_count"] == 0
+    assert sessions[0]["noteworthy_item_count"] == 0
+    assert sessions[0]["available"] is False
     historical = client.get(
         "/stream/history", params={"view": view_id, "session_id": session_id}
     )
@@ -1016,6 +1019,8 @@ def test_restore_exposes_each_session_through_history_without_reviving_them(
         "session-two",
     }
     assert all(session["historical"] is True for session in sessions)
+    assert all(session["available"] is True for session in sessions)
+    assert all(session["raw_record_count"] == 0 for session in sessions)
 
     first = client.get(
         "/stream/history",
@@ -1106,6 +1111,7 @@ def test_restore_history_exposes_explicitly_retained_raw_segments(
     )
     restored_registry = StreamRegistry()
     monkeypatch.setattr(server_mod, "stream_registry", restored_registry)
+    monkeypatch.setattr(http_streams, "stream_registry", restored_registry)
 
     assert server_mod.restore_streams_from_storage() == 1
     historical = restored_registry.historical_data(
@@ -1120,6 +1126,17 @@ def test_restore_history_exposes_explicitly_retained_raw_segments(
             "data": {"level": "warning", "value": 20},
         }
     ]
+    client = TestClient(app, client=("127.0.0.1", 50000))
+    catalogue = client.get("/stream/history", params={"view": "logs:restored"})
+    assert catalogue.status_code == 200
+    assert catalogue.json()["sessions"][0]["available"] is True
+    assert catalogue.json()["sessions"][0]["raw_record_count"] == 1
+    selected = client.get(
+        "/stream/history",
+        params={"view": "logs:restored", "session_id": "restore-session"},
+    )
+    assert selected.status_code == 200
+    assert selected.json()["data"]["records"] == historical["records"]
 
 
 def test_restore_marks_damaged_retained_raw_history_incomplete(
