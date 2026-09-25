@@ -124,6 +124,10 @@ localStorage.setItem("plotsrv:v1:view_selector_pinned", JSON.stringify(["missing
 if (core.loadPinnedViews(views).join(",") !== "ops:zulu") {
   throw new Error("stale pinned view IDs were not removed");
 }
+localStorage.setItem("plotsrv:v1:view_selector_pinned", JSON.stringify(["ops:zulu", "ops:zulu"]));
+if (core.loadPinnedViews(views).join(",") !== "ops:zulu") {
+  throw new Error("duplicate pinned view IDs were not removed");
+}
 core.saveViewSelectorMode("az");
 if (core.initialViewSelectorMode(true) !== "az" || core.initialViewSelectorMode(false) !== "az") {
   throw new Error("browse mode preference did not persist");

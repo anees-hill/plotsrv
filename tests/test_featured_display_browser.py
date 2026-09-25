@@ -81,3 +81,36 @@ def test_featured_can_switch_to_regular_entries_and_back_with_saved_preference()
         assert page.evaluate("localStorage.getItem('plotsrv:v1:featured_display')") == "expanded"
         assert errors == []
         browser.close()
+
+
+def test_pinned_view_remains_in_its_section_and_unpin_removes_only_shortcut():
+    with playwright.sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.route("http://plotsrv.test/**", lambda route: route.fulfill(
+            body="<html><body></body></html>", content_type="text/html"))
+        page.goto("http://plotsrv.test/")
+        _mount(page)
+
+        original = page.locator('.ps-viewselect__group[aria-label="Operations"]')
+        shortcut = page.locator('.ps-viewselect__group[aria-label="Pinned views"]')
+        original_pin = original.locator('[data-pin-view="ops:health"]')
+        assert original.locator('[data-plotsrv-view="ops:health"]').count() == 1
+        assert shortcut.count() == 0
+
+        original_pin.click()
+        assert original.locator('[data-plotsrv-view="ops:health"]').count() == 1
+        assert shortcut.locator('[data-plotsrv-view="ops:health"]').count() == 1
+        assert page.locator('[data-plotsrv-view="ops:health"]').count() == 2
+        assert original_pin.get_attribute("aria-pressed") == "true"
+        assert shortcut.locator('[data-pin-view="ops:health"]').get_attribute("aria-pressed") == "true"
+
+        shortcut.locator('[data-pin-view="ops:health"]').click()
+        assert shortcut.count() == 0
+        assert original.locator('[data-plotsrv-view="ops:health"]').count() == 1
+        assert original_pin.get_attribute("aria-pressed") == "false"
+
+        original_pin.click()
+        assert shortcut.locator('[data-plotsrv-view="ops:health"]').count() == 1
+        assert page.evaluate("JSON.parse(localStorage.getItem('plotsrv:v1:view_selector_pinned'))") == ["ops:health"]
+        browser.close()

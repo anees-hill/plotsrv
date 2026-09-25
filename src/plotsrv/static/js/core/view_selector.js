@@ -617,7 +617,7 @@
 
         const groups = new Map();
         for (const view of controller.catalogue) {
-          if (featuredIds.has(view.view_id) || pinnedIds.has(view.view_id)) continue;
+          if (featuredIds.has(view.view_id)) continue;
           if (!groups.has(view.section)) groups.set(view.section, []);
           groups.get(view.section).push(view);
         }
