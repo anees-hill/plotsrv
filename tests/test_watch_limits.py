@@ -6,11 +6,47 @@ from types import SimpleNamespace
 
 import pytest
 
+from plotsrv import settings
 from plotsrv.runtime import (
     WatchConfig,
     build_watch_publish_payload,
+    read_watch_file_bytes,
+    resolve_watch_max_bytes,
     truncate_watch_text_like_artifact,
 )
+
+
+def test_local_watch_reads_past_legacy_five_mb_and_honours_configured_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The v0.5.0 500 MiB default must reach the local read path."""
+    monkeypatch.setattr(settings, "_CTX", settings.RuntimeContext())
+    monkeypatch.setattr(settings, "_CONFIG_CACHE", {})
+    source = tmp_path / "large.log"
+    source.write_bytes(b"line\n" * 1_200_000)
+    config_file = tmp_path / "plotsrv.yml"
+    config_file.write_text("", encoding="utf-8")
+    settings.set_runtime_context(config_path=config_file)
+
+    spec = WatchConfig(path=source, kind="text")
+    default_cap = resolve_watch_max_bytes(spec, view_id="watch:large")
+    assert default_cap == 500 * 1024 * 1024
+    assert len(
+        read_watch_file_bytes(
+            source, read_mode="head", max_bytes=default_cap, watch_config=spec
+        )
+    ) == source.stat().st_size
+
+    limited_config = tmp_path / "limited.yml"
+    limited_config.write_text("limits:\n  watched_files:\n    max_mb: 1\n", encoding="utf-8")
+    settings.set_runtime_context(config_path=limited_config)
+    configured_cap = resolve_watch_max_bytes(spec, view_id="watch:large")
+    assert configured_cap == 1024 * 1024
+    preview = read_watch_file_bytes(
+        source, read_mode="head", max_bytes=configured_cap, watch_config=spec
+    )
+    assert 0 < len(preview) <= configured_cap
 
 
 def test_truncate_watch_text_like_artifact_text(

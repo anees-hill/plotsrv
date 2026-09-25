@@ -171,6 +171,10 @@ plotsrv also chooses sensible defaults based on the file type.
 ## Limit large files
 
 Large watched files can be limited in megabytes with `--max-mb`.
+For local watches, the default is 500 MiB (500 × 1,048,576 bytes), as in
+v0.5.0. This is a cap on bytes read for a preview, not a maximum file size:
+larger text and CSV files can still provide a bounded head or tail preview.
+Display limits may shorten the result further.
 
 ```bash
 plotsrv watch ./logs/job.log --max-mb 25
@@ -198,6 +202,13 @@ limits:
     max_mb: 500
 ```
 
+Remote watches selected with `--destination` or a configured publisher
+destination use a separate transport. Each capture reads at most 256 KiB,
+even when `--max-mb` is higher or `off`; larger text and CSV files provide
+bounded previews. This fixed cap limits the bytes sent to the receiver.
+Complete formats such as images must fit the remote capture bound. See
+[remote watched-file limits](../guides/publisher-agent.md#resource-and-ordering-limits).
+
 Watched CSV files also use table preparation limits:
 
 ```yaml title="plotsrv.yaml"
@@ -220,6 +231,13 @@ Watched files can be represented in two ways.
 The default is `auto`.
 
 In `auto` mode, small watched files behave like normal published objects. Larger files become file-backed views, so plotsrv does not keep the full file content in server memory.
+The configured automatic threshold is 10 MiB by default. It was 20 MiB in
+v0.5.0; later performance tuning moved it earlier to reduce memory held by
+local watches. Automatic mode switches no later than the 8 MiB publish request
+cap, avoiding a gap where a file could be read but not sent. This does not
+lower the 500 MiB preview read cap. File-backed views load previews on demand
+and can briefly return a busy response when
+their concurrent load slots are occupied.
 
 Force file-backed mode:
 

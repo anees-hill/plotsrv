@@ -296,11 +296,10 @@ def test_sparse_bounds_giant_csv_lines_and_multiline_records(tmp_path):
         file.seek(1024**3)
         file.write(b"end")
     for mode in ("head", "tail"):
-        result = capture(source, read_mode=mode)
-        assert (
-            result.bytes_read <= MAX_SOURCE_BYTES
-            and len(result.raw) <= MAX_SOURCE_BYTES
-        )
+        # A larger local/configured read cap cannot expand remote transfer.
+        result = capture(source, read_mode=mode, maximum=500 * 1024 * 1024)
+        assert result.bytes_read == MAX_SOURCE_BYTES
+        assert len(result.raw) == MAX_SOURCE_BYTES
         assert result.source["complete"] is False
     source = tmp_path / "data.csv"
     source.write_bytes(b'a,b\n1,"two\nlines"\n3,four\n')

@@ -151,6 +151,10 @@ limits:
 ```
 
 `max_bytes` is still accepted as a legacy alias, but new configs should use `max_mb`.
+The default 500 MiB local read cap matches v0.5.0. It bounds preview bytes,
+not the size of a file that can be watched. Remote publisher watches also have
+a fixed 256 KiB capture cap, independent of this setting; see
+[remote watched-file limits](publisher-agent.md#resource-and-ordering-limits).
 
 The equivalent CLI option is:
 
@@ -171,6 +175,12 @@ Watched files can be memory-backed or file-backed.
 | `auto` | uses `file_threshold_mb` to choose between `memory` and `file` |
 
 In `auto` mode, files at or above `file_threshold_mb` become file-backed.
+The default was 20 MiB in v0.5.0 and was deliberately reduced to 10 MiB
+during later resource tuning so large local watches switch to on-demand
+previews sooner. Automatic mode also switches at the 8 MiB publish request
+cap if that is lower than the configured threshold. This chooses a
+representation; it is not a file size rejection limit and does not change
+`limits.watched_files.max_mb`.
 
 ```yaml
 watch-settings:

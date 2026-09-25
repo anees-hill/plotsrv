@@ -488,7 +488,7 @@ def test_build_watched_file_meta_from_registered_view(tmp_path: Path) -> None:
 
     assert meta.view_id == "logs:api"
     assert meta.path == str(p.resolve())
-    assert meta.file_kind == "unknown"
+    assert meta.file_kind == "text"
     assert meta.read_mode == "tail"
     assert meta.encoding == "utf-8"
     assert meta.materialization == "file"
@@ -525,7 +525,7 @@ def test_build_watched_file_meta_records_stat_error(tmp_path: Path) -> None:
 
     assert meta.view_id == "logs:missing"
     assert meta.path == str(p.resolve())
-    assert meta.file_kind == "unknown"
+    assert meta.file_kind == "text"
     assert meta.size_bytes is None
     assert meta.mtime_ns is None
     assert meta.last_error is not None
@@ -597,6 +597,26 @@ def test_resolve_watch_materialization_auto_large_file_uses_file(
     )
 
     assert resolve_watch_materialization(p, requested="auto") == "file"
+
+
+def test_auto_watch_uses_file_backing_before_publish_request_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from plotsrv.ingestion import MAX_PUBLISH_REQUEST_BYTES
+
+    monkeypatch.setattr(
+        "plotsrv.runtime.config.get_watch_file_threshold_bytes",
+        lambda: 10 * 1024 * 1024,
+    )
+    p = tmp_path / "report.html"
+    with p.open("wb") as stream:
+        stream.seek(MAX_PUBLISH_REQUEST_BYTES)
+        stream.write(b"x")
+
+    assert resolve_watch_materialization(p, requested="auto") == "file"
+    # Explicit memory mode remains an intentional override.
+    assert resolve_watch_materialization(p, requested="memory") == "memory"
 
 
 def test_resolve_watch_materialization_auto_missing_path_uses_memory(

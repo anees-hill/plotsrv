@@ -240,8 +240,8 @@ def resolve_watch_materialization(
     Rules:
       - memory -> memory
       - file   -> file
-      - auto   -> file if file size is at/above the configured threshold,
-                  otherwise memory
+      - auto   -> file if file size reaches the configured threshold or the
+                  publish request cap, whichever is lower; otherwise memory
 
     If file size cannot be checked in auto mode, fall back to memory so existing
     watch behaviour remains conservative and backwards-compatible.
@@ -254,7 +254,12 @@ def resolve_watch_materialization(
     if mode == "file":
         return "file"
 
-    threshold = config.get_watch_file_threshold_bytes()
+    # Memory-backed watches publish through /publish. A configured materialization
+    # threshold above its request cap leaves an interval of files that can be
+    # read but cannot be delivered (the default was 10 MiB versus 8 MiB).
+    from .ingestion import MAX_PUBLISH_REQUEST_BYTES
+
+    threshold = min(config.get_watch_file_threshold_bytes(), MAX_PUBLISH_REQUEST_BYTES)
 
     try:
         size = Path(path).expanduser().resolve().stat().st_size
