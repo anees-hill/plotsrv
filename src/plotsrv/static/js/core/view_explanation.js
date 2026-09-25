@@ -12,7 +12,7 @@
       : text(featured && featured.caption) || text(source && source.description);
     const origin = presentation && text(presentation.caption) ? presentation.origin
       : !presentation && text(featured && featured.caption) ? "Featured presentation" : "Source description";
-    const historical = state.currentSnapshot || state.compareCapture || state.streamHistoricalSessionId;
+    const historical = state.currentSnapshot || state.streamHistoricalSessionId;
     const scope = historical ? "Current description and presentation settings; not stored with the inspected version." : origin;
     if (!caption) {
       if (about.contains(document.activeElement)) {

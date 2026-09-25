@@ -285,12 +285,6 @@
   }
 
   function deriveHeaderStatus(model) {
-    if (model.viewMode === "captured") {
-      return {visible: config.showHeaderHistory, tone: "history", label: "Latest captured",
-        context: model.browserData === "update_available" ? "New data available" : "Held for inspection",
-        title: "Captured Latest; open live source status",
-        copy: "Viewing one captured Latest revision. Choose Latest explicitly to capture newer data. Status and checks describe the live source."};
-    }
     if (model.viewMode === "snapshot") {
       const createdAt = model.snapshot && model.snapshot.createdAt;
       return {
@@ -534,7 +528,7 @@
   }
 
   function setHeaderViewState(viewMode, snapshot) {
-    state.headerStatus.viewMode = viewMode === "snapshot" ? "snapshot" : viewMode === "captured" ? "captured" : "latest";
+    state.headerStatus.viewMode = viewMode === "snapshot" ? "snapshot" : "latest";
     state.headerStatus.snapshot = state.headerStatus.viewMode !== "latest"
       ? snapshot || { id: state.currentSnapshot, createdAt: null }
       : null;

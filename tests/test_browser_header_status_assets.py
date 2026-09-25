@@ -26,8 +26,8 @@ def test_snapshot_presentation_overrides_age_and_new_data_presentation() -> None
     status_source = _read("core/status.js")
 
     snapshot_branch = status_source.index('model.viewMode === "snapshot"')
-    # Captured Latest and paused streams have separate notices. Locate the
-    # ordinary Live branch without confusing their conditions with its priority.
+    # Paused streams have separate notices. Locate the ordinary Live branch
+    # without confusing its priority with the snapshot condition.
     new_data_branch = status_source.index(
         'if (model.browserData === "update_available")'
     )

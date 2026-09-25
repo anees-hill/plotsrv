@@ -194,13 +194,13 @@
         snapshotQuery +
         "&_ts=" +
         Date.now();
-      let res = await (core.fetchView || fetch)(url, {signal: signal});
+      let res = await fetch(url, {signal: signal});
       for (let attempt = 0; res.status === 503 && attempt < 2; attempt += 1) {
         await new Promise(function (resolve) {
           window.setTimeout(resolve, 250 * (attempt + 1));
         });
         if (!isCurrent()) return false;
-        res = await (core.fetchView || fetch)(url, {signal: signal});
+        res = await fetch(url, {signal: signal});
       }
       if (!isCurrent()) return false;
 

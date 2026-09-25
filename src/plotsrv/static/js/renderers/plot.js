@@ -55,7 +55,7 @@
       {current: () => true, finish: () => {}, signal: undefined};
     let candidateUrl = null;
     try {
-      const res = await (core.fetchView || fetch)(url, {signal: load.signal});
+      const res = await fetch(url, {signal: load.signal});
       if (!load.current()) return false;
       if (!res.ok) {
         if (
@@ -104,10 +104,6 @@
   }
 
   function exportImage() {
-    if (core.inspectionCapture && core.inspectionCapture()) {
-      const a = document.createElement("a"); a.href = state.plotObjectUrl;
-      a.download = "plotsrv-captured-plot.png"; a.click(); return true;
-    }
     const snapshotQuery =
       typeof core.snapshotQuery === "function" ? core.snapshotQuery() : "";
 

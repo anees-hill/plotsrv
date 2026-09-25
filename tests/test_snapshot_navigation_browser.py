@@ -17,7 +17,8 @@ def mount(page, kind="artifact"):
     page.evaluate(
         """markup => {
       const doc = new DOMParser().parseFromString(markup, 'text/html');
-      document.body.innerHTML = '<main id="view-content"><div id="artifact-root">Coherent initial content</div></main>' +
+      document.body.innerHTML = doc.querySelector('#snapshot-mode-banner').outerHTML +
+        '<main id="view-content"><div id="artifact-root">Coherent initial content</div></main>' +
         doc.querySelector('.ps-bottom-dock').outerHTML;
       PLOTSRV.state.currentSnapshot = null;
       PLOTSRV.config.kind = 'text';
@@ -154,6 +155,8 @@ def test_bounded_pages_pin_selection_and_never_load_unselected_bodies(page):
 
 def test_snapshot_reminder_reserves_space_and_resets_for_each_selection(page):
     mount(page)
+    page.select_option("#history-select", "__older_page__")
+    page.wait_for_function("PLOTSRV.state.historyItems.length === 31")
     page.select_option("#history-select", "2")
     settled(page)
     banner = page.locator("#snapshot-mode-banner")
@@ -163,7 +166,7 @@ def test_snapshot_reminder_reserves_space_and_resets_for_each_selection(page):
     assert banner.evaluate("e => getComputedStyle(e).position") == "relative"
     page.click("#snapshot-mode-dismiss")
     assert banner.is_hidden()
-    page.select_option("#history-select", "1")
+    page.select_option("#history-select", "80")
     settled(page)
     assert banner.is_visible()
     page.click("#snapshot-mode-return-latest")

@@ -76,7 +76,6 @@
   // bypasses interaction blockers, but never changes historical selections.
   function getAutomaticUpdateBlockers() {
     const blockers = [];
-    if (state.compareActive || state.compareCapture) blockers.push("compare_inspection");
     if (document.hidden) blockers.push("hidden_tab");
     if (state.snapshotNavigation && (state.snapshotNavigation.pending || state.snapshotNavigation.error)) blockers.push("snapshot_navigation");
     if (typeof core.isHistoryMode === "function" && core.isHistoryMode()) {
@@ -115,7 +114,7 @@
   }
 
   function historicalBlocker(blocker) {
-    return blocker === "compare_inspection" || blocker === "snapshot" || blocker === "historical_stream_session" ||
+    return blocker === "snapshot" || blocker === "historical_stream_session" ||
       blocker === "stream_paused";
   }
 

@@ -10,7 +10,6 @@ from tests.test_expanded_view_browser import page, mount as base_mount
 
 def mount(page):
     reads = base_mount(page)
-    captures = []
     rows = [
         {
             "snapshot_id": f"s{i:03}",
@@ -24,26 +23,7 @@ def mount(page):
         url = urlparse(route.request.url)
         query = parse_qs(url.query)
         reads.append(url.path)
-        if url.path == "/compare/latest":
-            revision = len(captures) + 1
-            captures.append(revision)
-            payload = {
-                "version": 1,
-                "server_instance_id": "testserver",
-                "view_id": "tables:main",
-                "revision": revision,
-                "kind": "table",
-                "created_at": f"2026-09-09T12:00:0{revision}+00:00",
-                "status": {"last_updated": f"2026-09-09T12:00:0{revision}+00:00"},
-                "scope": "Published table preview: 1 of 1 hosted rows",
-                "table": {
-                    "columns": ["group", "value"],
-                    "rows": [{"group": "A", "value": revision}],
-                    "total_rows": 1,
-                    "returned_rows": 1,
-                },
-            }
-        elif url.path == "/history/month":
+        if url.path == "/history/month":
             payload = {
                 "days": (
                     {"2026-09-09": 125} if query.get("month") == ["2026-09"] else {}
@@ -77,10 +57,10 @@ def mount(page):
             }
         route.fulfill(body=json.dumps(payload), content_type="application/json")
 
-    for path in ("compare/latest", "history/month", "history/navigation"):
+    for path in ("history/month", "history/navigation"):
         page.route("**/" + path + "?**", route)
     page.evaluate("PLOTSRV.core.snapshotNavigation.loadMetadata()")
-    return reads, captures
+    return reads
 
 
 def enter(page):
@@ -91,7 +71,7 @@ def enter(page):
 
 
 def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page):
-    reads, captures = mount(page)
+    reads = mount(page)
     page.evaluate("window.table=PLOTSRV.state.tabulatorInstance")
     page.click("#bottom-collapse")
     assert page.locator(".ps-bottom-dock").is_hidden()
@@ -114,7 +94,7 @@ def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page
     assert page.locator("#bottom-collapse").is_hidden()
     assert page.locator("#bottom-pin").count() == 0
     assert page.evaluate("PLOTSRV.state.tabulatorInstance===table")
-    assert captures == [1]
+    assert "/compare/latest" not in reads
     page.screenshot(path="/tmp/plotsrv-17-list.png")
     page.click("#compare-timeline-tab")
     page.screenshot(path="/tmp/plotsrv-17-timeline.png")
@@ -124,40 +104,79 @@ def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page
         "e=>e.parentElement.classList.contains('ps-bottom-bar__controls')"
     )
     assert not page.evaluate("PLOTSRV.state.compareActive")
-    assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 1
-    assert not page.evaluate("PLOTSRV.core.canApplyPendingUpdate({force:true})")
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") is None
+    assert page.evaluate("PLOTSRV.core.canApplyPendingUpdate({force:true})")
 
 
-def test_latest_freezes_payload_exact_timestamp_export_and_explicit_recapture(page):
-    reads, captures = mount(page)
-    enter(page)
-    assert (
-        page.locator("#compare-selected").inner_text()
-        == "Latest · 9 Sep 2026, 12:00:01 UTC"
+def test_latest_returns_from_snapshot_to_live_view_and_green_freshness(page):
+    reads = mount(page)
+    page.route(
+        "**/table/data?**",
+        lambda route: route.fulfill(
+            body=json.dumps({"columns": ["group", "value"], "rows": [{"group": "A", "value": 999}],
+                             "total_rows": 1, "returned_rows": 1}),
+            content_type="application/json",
+        ) if "snapshot=" in route.request.url else route.fallback(),
     )
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
-    page.evaluate("""() => {
-      PLOTSRV.state.pendingBrowserUpdate={revision:99};
-      PLOTSRV.core.applyPendingUpdate({force:true});
-    }""")
-    before = list(reads)
-    page.wait_for_timeout(200)
-    assert reads == before
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
+    page.route(
+        "**/status?**",
+        lambda route: route.fulfill(
+            body=json.dumps({"view_id": "tables:main", "kind": "table",
+                             "last_updated": "2026-09-09T12:00:00Z",
+                             "freshness": {"enabled": True, "state": "ok", "label": "Fresh", "age_s": 1}}),
+            content_type="application/json",
+        ),
+    )
+    enter(page)
+    assert page.locator("#compare-selected").inner_text() == "Live view"
+    page.click("#compare-older")
+    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s124"
+    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 999
+    assert page.locator("#header-status-label").inner_text() == "Snapshot"
     page.click("#compare-latest")
     page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert captures == [1, 2]
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 2
-    assert "12:00:02" in page.locator("#compare-selected").inner_text()
-    page.click("#export-button")
-    with page.expect_download() as download:
-        page.click('[data-export-scope="complete"]')
-    assert download.value.suggested_filename == "plotsrv-captured-preview.csv"
-    assert reads.count("/table/export") == 0
+    page.wait_for_function("document.querySelector('#header-status-label').textContent === 'Live'")
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") is None
+    assert page.evaluate("PLOTSRV.state.tableRows.length") == 100
+    assert page.locator("#compare-selected").inner_text() == "Live view"
+    assert page.locator("#header-status").get_attribute("data-status-tone") == "live"
+    assert "snapshot=" not in page.url
+    assert "/compare/latest" not in reads
+
+
+def test_live_updates_continue_while_history_is_open(page):
+    reads = mount(page)
+    enter(page)
+    before = reads.count("/table/data")
+    page.evaluate("""() => {
+      PLOTSRV.core.receiveBrowserUpdate({view_id:'tables:main',revision:100,
+        render_revision:2,server_instance_id:'testserver',change_type:'ordinary'});
+    }""")
+    page.wait_for_function("PLOTSRV.state.appliedUpdateRevision === 100")
+    assert reads.count("/table/data") > before
+    assert page.locator("#compare-selected").inner_text() == "Live view"
+    assert page.evaluate("PLOTSRV.state.pendingBrowserUpdate") is None
+
+
+def test_latest_applies_a_waiting_live_update_in_history(page):
+    mount(page)
+    enter(page)
+    page.fill("#table-search-input", "A")
+    page.evaluate("""() => {
+      PLOTSRV.core.receiveBrowserUpdate({view_id:'tables:main',revision:101,
+        render_revision:2,server_instance_id:'testserver',change_type:'ordinary'});
+    }""")
+    assert page.evaluate("PLOTSRV.state.pendingBrowserUpdate.revision") == 101
+    assert page.locator("#header-status").get_attribute("data-status-tone") == "new-data"
+    page.click("#compare-latest")
+    page.wait_for_function("PLOTSRV.state.appliedUpdateRevision === 101")
+    assert page.evaluate("PLOTSRV.state.pendingBrowserUpdate") is None
+    assert page.locator("#compare-selected").inner_text() == "Live view"
 
 
 def test_calendar_empty_dates_pagination_same_time_ids_and_outside_day(page):
-    reads, _ = mount(page)
+    reads = mount(page)
     enter(page)
     page.evaluate("PLOTSRV.core.compare.setDay('2026-09-09')")
     page.wait_for_function("!PLOTSRV.state.compare.loading")
@@ -206,29 +225,9 @@ def test_calendar_empty_dates_pagination_same_time_ids_and_outside_day(page):
     assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s123"
 
 
-def test_failed_latest_keeps_coherent_body_and_explicit_retry(page):
-    mount(page)
-    enter(page)
-    page.route(
-        "**/compare/latest?**",
-        lambda r: r.fulfill(
-            status=409,
-            body=json.dumps(
-                {"detail": "Latest changed during capture. Choose Latest again."}
-            ),
-            content_type="application/json",
-        ),
-    )
-    page.click("#compare-latest")
-    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert "changed" in page.locator("#compare-message").inner_text()
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
-    assert page.locator("#export-button").is_disabled()
-
-
 @pytest.mark.parametrize("viewport", [375, 1366])
 def test_keyboard_mobile_theme_layout_and_no_idle_metadata_work(page, viewport):
-    reads, _ = mount(page)
+    reads = mount(page)
     page.set_viewport_size({"width": viewport, "height": 900})
     page.emulate_media(color_scheme="dark", reduced_motion="reduce")
     page.evaluate("PLOTSRV.core.applyTheme('dark')")
@@ -266,7 +265,6 @@ def test_focus_handoff_and_source_change_exit_compare(page):
     page.click('[data-plotsrv-view="tables:other"]')
     page.wait_for_function("window.PLOTSRV && PLOTSRV.state.initialViewLoadComplete")
     assert not page.evaluate("!!PLOTSRV.state.compareActive")
-    assert not page.evaluate("!!PLOTSRV.state.compareCapture")
 
 
 @pytest.mark.parametrize("day", ["2026-03-29", "2026-10-25"])
@@ -291,14 +289,12 @@ def test_normal_collapse_survives_reload_and_expanded_handoff(page):
     assert page.locator("#bottom-pin").count() == 0
 
 
-def test_captured_latest_can_be_released_after_exit_and_denied_storage(page):
+def test_closing_history_keeps_live_view_and_denied_storage_is_tolerated(page):
     mount(page)
     enter(page)
     page.click("#compare-exit")
-    assert page.locator("#snapshots-return-latest").is_visible()
-    page.click("#snapshots-return-latest")
-    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert page.evaluate("PLOTSRV.state.compareCapture") is None
+    assert page.locator("#snapshots-return-latest").is_hidden()
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") is None
     page.evaluate("() => {Storage.prototype.setItem=()=>{throw Error('denied');};}")
     page.click("#bottom-collapse")
     page.click("#bottom-restore")
@@ -330,7 +326,7 @@ def test_selected_body_eviction_keeps_render_and_never_jumps_to_live(page):
     page.click("#compare-older")
     page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
     assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s124"
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
+    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 0
     assert "unavailable" in page.locator("#compare-message").inner_text()
     assert page.locator("#export-button").is_disabled()
 
@@ -366,7 +362,7 @@ def test_normal_clearance_and_compare_clearance_leave_last_table_rows_reachable(
 
 
 def test_empty_month_and_calendar_open_close_are_bounded(page):
-    reads, _ = mount(page)
+    reads = mount(page)
     enter(page)
     page.evaluate("PLOTSRV.core.compare.setDay('2026-09-09')")
     page.wait_for_function("!PLOTSRV.state.compare.loading")
@@ -408,42 +404,12 @@ def test_rapid_date_intents_keep_one_request_and_one_replacement(page):
     )
     page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert page.evaluate("dayRequests.length") == 2
-    assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 1
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") is None
     assert page.locator("#compare-list button").count() == 0
 
 
-def test_rapid_latest_intents_coalesce_and_late_capture_cannot_replace_selection(page):
-    mount(page)
-    enter(page)
-    page.evaluate("""() => {
-      const real=window.fetch; window.latestRequests=[];
-      window.fetch=(url, options)=>String(url).includes('/compare/latest?')
-        ? new Promise(resolve=>latestRequests.push(resolve)) : real(url, options);
-      PLOTSRV.core.snapshotNavigation.select(null);
-      for(let i=0;i<100;i++) PLOTSRV.core.snapshotNavigation.select(null);
-    }""")
-    assert page.evaluate("latestRequests.length") == 1
-    page.evaluate(
-        "() => {latestRequests[0](new Response(JSON.stringify(PLOTSRV.state.compareCapture),{status:200}));}"
-    )
-    page.wait_for_function("latestRequests.length===2")
-    page.evaluate(
-        "() => {const data={...PLOTSRV.state.compareCapture, revision:5}; data.table={...data.table,rows:[{group:'A',value:5}]}; latestRequests[1](new Response(JSON.stringify(data),{status:200}));}"
-    )
-    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 5
-    assert page.evaluate("latestRequests.length") == 2
-    page.evaluate(
-        "() => {PLOTSRV.core.snapshotNavigation.select(null); PLOTSRV.core.snapshotNavigation.select('s123'); latestRequests[2](new Response(JSON.stringify(PLOTSRV.state.compareCapture),{status:200}));}"
-    )
-    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s123"
-    assert page.evaluate("PLOTSRV.state.compareCapture") is None
-    assert page.evaluate("PLOTSRV.state.tableRows.length") == 100
-
-
 def test_repeated_bar_presentations_have_no_dom_growth_requests_or_idle_redraws(page):
-    reads, _ = mount(page)
+    reads = mount(page)
     enter(page)
     page.wait_for_timeout(100)
     before = list(reads)
@@ -468,98 +434,30 @@ def test_repeated_bar_presentations_have_no_dom_growth_requests_or_idle_redraws(
 
 
 @pytest.mark.parametrize("kind", ["text", "json", "html", "image", "plot"])
-def test_latest_capture_across_supported_renderers_keeps_selected_content(page, kind):
-    import base64
-    import io
-    from PIL import Image
-    from plotsrv.renderers.registry import render_any
-
+def test_open_history_preserves_live_renderer_content(page, kind):
     vid = "plots:figure" if kind == "plot" else "artifacts:" + kind
     reads = base_mount(page, vid)
-    png = io.BytesIO()
-    Image.new("RGB", (20, 20), "teal").save(png, format="PNG")
-    objects = {
-        "text": "Captured text",
-        "json": {"frozen": 1},
-        "html": "<h1>Captured report</h1><input aria-label='Note' value='Keep'>",
-        "image": {
-            "mime": "image/png",
-            "data_b64": base64.b64encode(png.getvalue()).decode(),
-        },
-    }
-    payload = {
-        "version": 1,
-        "view_id": vid,
-        "revision": 7,
-        "created_at": "2026-09-09T12:00:00Z",
-        "scope": "Published representation",
-        "status": {"last_updated": "2026-09-09T12:00:00Z"},
-    }
-    if kind == "plot":
-        payload["plot"] = base64.b64encode(png.getvalue()).decode()
-    else:
-        result = render_any(objects[kind], view_id=vid, kind_hint=kind)
-        payload["artifact"] = {
-            "kind": result.kind,
-            "html": result.html,
-            "meta": result.meta,
-        }
-    page.route(
-        "**/compare/latest?**",
-        lambda r: r.fulfill(body=json.dumps(payload), content_type="application/json"),
-    )
     page.route(
         "**/history/month?**",
-        lambda r: r.fulfill(body='{"days":{}}', content_type="application/json"),
+        lambda route: route.fulfill(body='{"days":{}}', content_type="application/json"),
     )
-    enter(page)
-    assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 7
-    assert not page.evaluate("PLOTSRV.state.snapshotNavigation.error")
+    before = list(reads)
+    page.click("#compare-enter")
+    page.wait_for_function("!PLOTSRV.state.compare.loading")
     selector = "#plot" if kind == "plot" else "#artifact-root"
     page.evaluate(
-        "selector=>{window.capturedNode=document.querySelector(selector);window.capturedChild=capturedNode.firstChild;}",
+        "selector=>{window.liveNode=document.querySelector(selector);window.liveChild=liveNode.firstChild;}",
         selector,
     )
-    if kind == "html":
-        page.frame_locator("#artifact-root iframe").get_by_label("Note").fill(
-            "Unchanged on collapse"
-        )
-    before = list(reads)
     page.click("#compare-list-tab")
     page.click("#compare-timeline-tab")
     assert page.evaluate(
-        "selector=>capturedNode===document.querySelector(selector) && capturedNode.firstChild===capturedChild",
+        "selector=>liveNode===document.querySelector(selector) && liveNode.firstChild===liveChild",
         selector,
     )
-    assert reads == before
-    if kind == "html":
-        assert (
-            page.frame_locator("#artifact-root iframe")
-            .get_by_label("Note")
-            .input_value()
-            == "Unchanged on collapse"
-        )
-
-
-def test_failed_capture_releases_busy_state_for_historical_navigation(page):
-    mount(page)
-    enter(page)
-    page.route(
-        "**/compare/latest?**",
-        lambda r: r.fulfill(
-            status=413,
-            body='{"detail":"Inspection too large"}',
-            content_type="application/json",
-        ),
-    )
-    page.click("#compare-latest")
-    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert not page.evaluate("PLOTSRV.state.snapshotNavigation.loading")
-    assert page.locator("#compare-older").is_enabled()
-    page.click("#compare-older")
-    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s124"
-    assert page.locator("#export-button").is_enabled()
+    assert "/compare/latest" not in reads
+    path = "/plot" if kind == "plot" else "/artifact"
+    assert reads.count(path) == before.count(path)
 
 
 def test_revoked_capability_is_not_presented_as_an_empty_day(page):
@@ -575,69 +473,4 @@ def test_revoked_capability_is_not_presented_as_an_empty_day(page):
     page.click("#compare-day-next")
     page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert "Storage is disabled" in page.locator("#compare-message").inner_text()
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
-
-
-def test_new_source_revision_is_announced_and_recapture_acknowledges_only_that_server(
-    page,
-):
-    mount(page)
-    enter(page)
-    page.evaluate(
-        "PLOTSRV.core.receiveBrowserUpdate({view_id:'tables:main',revision:100,render_revision:2,server_instance_id:'testserver',change_type:'ordinary'})"
-    )
-    assert "New data available" in page.locator("#header-status").inner_text()
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
-    page.click("#compare-latest")
-    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 2
-    assert page.evaluate("PLOTSRV.state.pendingBrowserUpdate") is None
-    page.evaluate(
-        "PLOTSRV.core.receiveBrowserUpdate({view_id:'tables:main',revision:1,render_revision:1,server_instance_id:'newserver',change_type:'ordinary'})"
-    )
-    assert "New data available" in page.locator("#header-status").inner_text()
-    page.click("#expand-view")
-    assert page.evaluate("PLOTSRV.state.expandedView.active")
-    assert not page.evaluate("PLOTSRV.state.compareActive")
-    assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 2
-
-
-@pytest.mark.parametrize("action", ["exit", "pagehide", "bfcache"])
-def test_inflight_latest_exit_and_page_lifecycle_keep_coherent_body(page, action):
-    mount(page)
-    enter(page)
-    page.evaluate("""() => {
-      const real=window.fetch;
-      window.delayedCapture={...PLOTSRV.state.compareCapture, revision:2,
-        table:{...PLOTSRV.state.compareCapture.table,rows:[{group:'A',value:2}]}};
-      window.fetch=(url,options)=>String(url).includes('/compare/latest?')
-        ? new Promise(resolve=>{window.finishCapture=resolve; window.captureSignal=options.signal;}) : real(url,options);
-      PLOTSRV.core.snapshotNavigation.select(null);
-    }""")
-    if action == "exit":
-        page.click("#compare-exit")
-    else:
-        page.evaluate(
-            "persisted=>window.dispatchEvent(new PageTransitionEvent('pagehide',{persisted}))",
-            action == "bfcache",
-        )
-        assert page.evaluate("captureSignal.aborted")
-    page.evaluate(
-        "() => {finishCapture(new Response(JSON.stringify(delayedCapture),{status:200}));}"
-    )
-    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
-    assert page.evaluate("PLOTSRV.state.compareCandidate") is None
-    if action == "exit":
-        assert not page.evaluate("PLOTSRV.state.compareActive")
-        assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 2
-        assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 2
-        assert not page.evaluate("PLOTSRV.core.canApplyPendingUpdate({force:true})")
-    else:
-        assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 1
-        if action == "bfcache":
-            assert page.evaluate("PLOTSRV.state.compareCapture.revision") == 1
-            page.evaluate(
-                "window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))"
-            )
-        else:
-            assert page.evaluate("PLOTSRV.state.compareCapture") is None
+    assert page.evaluate("PLOTSRV.state.tableRows[0].value") == 0

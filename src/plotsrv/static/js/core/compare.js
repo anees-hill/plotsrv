@@ -30,7 +30,6 @@
     end.setUTCDate(end.getUTCDate() + 1);
     return [start.toISOString(), end.toISOString()];
   }
-  function capture() { return !state.currentSnapshot && (state.compareCandidate || state.compareCapture); }
   async function readBounded(res, limit) {
     if (!res.ok) limit = Math.min(limit, 16 * 1024);
     const reader = res.body.getReader(), chunks = []; let bytes = 0;
@@ -48,41 +47,6 @@
       return data;
     } finally { await reader.cancel().catch(() => {}); }
   }
-  core.prepareComparedSelection = async function () {
-    state.compareCandidate = null;
-    if (!state.compareActive || state.currentSnapshot) return;
-    const load = core.beginSnapshotLoad("compare");
-    try {
-      const data = await readBounded(await fetch("/compare/latest?view=" + encodeURIComponent(config.activeViewId), {signal: load.signal}), 4 * 1024 * 1024);
-      if (!load.current() || load.signal.aborted) throw Error("Latest selection was superseded.");
-      if (data.version !== 1 || data.view_id !== config.activeViewId || !Number.isSafeInteger(data.revision)) throw Error("Unsupported Latest inspection response.");
-      state.compareCandidate = data;
-    } finally { load.finish(); }
-  };
-  core.completeComparedSelection = function () {
-    if (!state.currentSnapshot && state.compareCandidate) state.compareCapture = state.compareCandidate;
-    else state.compareCapture = null;
-    state.compareCandidate = null;
-    const pending = state.pendingBrowserUpdate, pinned = state.compareCapture;
-    if (pending && pinned && typeof pinned.server_instance_id === "string" && pending.server_instance_id === pinned.server_instance_id &&
-        Number.isSafeInteger(pending.render_revision) && pending.render_revision <= pinned.revision) {
-      state.appliedUpdateRevision = Math.max(state.appliedUpdateRevision, pending.revision);
-      state.pendingBrowserUpdate = null;
-      if (core.setHeaderBrowserDataState) core.setHeaderBrowserDataState("current");
-    }
-  };
-  core.fetchView = function (url, options) {
-    const pinned = capture();
-    if (!pinned) return fetch(url, options);
-    const path = new URL(url, window.location.href).pathname;
-    if (path === "/plot" && pinned.plot) {
-      const bytes = Uint8Array.from(atob(pinned.plot), c => c.charCodeAt(0));
-      return Promise.resolve({ok: true, blob: async () => new Blob([bytes], {type: "image/png"})});
-    }
-    const data = path === "/artifact" ? pinned.artifact : path === "/table/data" ? pinned.table : null;
-    if (!data) return Promise.reject(Error("This captured revision does not support that renderer."));
-    return Promise.resolve({ok: true, json: async () => data});
-  };
   function moveExportIntoHistory() {
     const control = el("export-control"), slot = el("history-export-slot");
     if (!control || !slot || control.parentElement === slot) return;
@@ -102,17 +66,17 @@
     el("compare-enter").disabled = !nav.metadata || !(nav.metadata.count || (nav.metadata.snapshots || []).length);
     el("compare-enter").title = el("compare-enter").disabled ? "History becomes available when stored snapshots exist." : "Browse stored snapshots using Timeline or List";
     if (!state.compareActive) return;
-    const pinned = capture(), selected = core.currentHistoryMeta();
+    const selected = core.currentHistoryMeta();
     label("compare-selected", state.currentSnapshot
       ? selected && selected.created_at ? stamp(selected.created_at) : "Loading snapshot…"
-      : pinned ? "Latest · " + stamp(pinned.created_at) : "Latest — waiting for capture");
-    el("compare-selected").title = el("compare-selected").textContent + (pinned ? " · " + pinned.scope : "");
+      : "Live view");
+    el("compare-selected").title = el("compare-selected").textContent;
     for (const dir of ["older", "newer"]) {
       const source = el("snapshot-" + dir), target = el("compare-" + dir);
       target.disabled = !source || source.disabled;
       target.title = source ? source.title : "Unavailable";
     }
-    const message = nav.error || ui.error || (nav.loadingVisible ? "Loading selected version…" : ui.loading ? "Loading stored metadata…" : state.currentSnapshot && selected && selected.created_at.slice(0, 10) !== ui.day ? "Selected version is outside this displayed day." : pinned ? pinned.scope + ". Held for inspection; choose Latest again to capture current data." : "");
+    const message = nav.error || ui.error || (nav.loadingVisible ? "Loading selected version…" : ui.loading ? "Loading stored metadata…" : state.currentSnapshot && selected && selected.created_at.slice(0, 10) !== ui.day ? "Selected version is outside this displayed day." : "");
     label("compare-message", message);
     el("compare-message").title = message;
     label("compare-day", dayLabel(ui.day));
@@ -219,7 +183,6 @@
     core.bottomBar.setCollapsed(false);
     const selected = core.currentHistoryMeta(); if (selected) ui.day = selected.created_at.slice(0, 10);
     ui.month = ui.day.slice(0, 7); metadata(); sync();
-    if (!state.currentSnapshot) core.snapshotNavigation.select(null);
     el("compare-latest").focus();
   }
   function exit() {
@@ -234,7 +197,10 @@
     if (!el("compare-enter")) return;
     el("compare-enter").addEventListener("click", enter); el("compare-exit").addEventListener("click", exit);
     for (const direction of ["older", "newer"]) el("compare-" + direction).addEventListener("click", () => core.snapshotNavigation.move(direction));
-    el("compare-latest").addEventListener("click", () => core.snapshotNavigation.select(null));
+    el("compare-latest").addEventListener("click", () => {
+      if (state.currentSnapshot || state.snapshotNavigation.error) core.returnToLive();
+      else if (state.pendingBrowserUpdate && core.applyPendingUpdate) core.applyPendingUpdate({force: true});
+    });
     for (const mode of ["timeline", "list"]) el("compare-" + mode + "-tab").addEventListener("click", () => {ui.mode = mode; sync();});
     for (const [id, step] of [["compare-day-prev", -1], ["compare-day-next", 1]]) el(id).addEventListener("click", () => {const d = civil(ui.day); d.setUTCDate(d.getUTCDate() + step); setDay(d.toISOString().slice(0, 10));});
     for (const [id, step] of [["compare-month-prev", -1], ["compare-month-next", 1]]) el(id).addEventListener("click", () => {const d = civil(ui.month + "-01"); d.setUTCMonth(d.getUTCMonth() + step); ui.month = d.toISOString().slice(0, 7); metadata();});
@@ -242,10 +208,9 @@
     el("compare-more").addEventListener("click", () => metadata(ui.next));
     el("compare-first").addEventListener("click", () => metadata());
     el("compare-calendar").addEventListener("keydown", event => {if (event.key === "Escape") {event.preventDefault(); el("compare-calendar").hidden = true; el("compare-calendar-toggle").setAttribute("aria-expanded", "false"); el("compare-calendar-toggle").focus();}});
-    window.addEventListener("pagehide", event => {metadataRequest++; desiredMetadata = null; if (metadataController) metadataController.abort(); if (!event.persisted) state.compareCapture = state.compareCandidate = null;});
+    window.addEventListener("pagehide", () => {metadataRequest++; desiredMetadata = null; if (metadataController) metadataController.abort();});
     sync();
   }
   core.compare = {state: ui, enter, exit, setDay, bounds, sync};
-  core.inspectionCapture = capture;
   core.syncCompare = sync; core.bindCompare = bind;
 })();

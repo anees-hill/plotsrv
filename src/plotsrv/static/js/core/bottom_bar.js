@@ -133,8 +133,7 @@
         state.tableLastPayload.meta.source_download_url;
       const isHistory =
         typeof core.isHistoryMode === "function" ? core.isHistoryMode() : false;
-      complete.textContent = core.inspectionCapture && core.inspectionCapture() ? "Captured table preview" :
-        !isHistory && typeof sourceDownload === "string" && sourceDownload
+      complete.textContent = !isHistory && typeof sourceDownload === "string" && sourceDownload
           ? "Complete source CSV file"
           : (!isHistory && state.tableLastPayload && state.tableLastPayload.meta &&
               state.tableLastPayload.meta.materialization === "remote"
