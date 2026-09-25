@@ -225,6 +225,43 @@ def test_calendar_empty_dates_pagination_same_time_ids_and_outside_day(page):
     assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s123"
 
 
+@pytest.mark.parametrize("width,height", [(1366, 480), (1366, 650), (1366, 900), (375, 600), (375, 900)])
+def test_empty_history_day_keeps_timeline_message_and_footer_visible(page, width, height):
+    page.set_viewport_size({"width": width, "height": height})
+    mount(page)
+    enter(page)
+    page.click("#compare-older")
+    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
+    page.evaluate("PLOTSRV.core.compare.setDay('2026-09-10')")
+    page.wait_for_function("!PLOTSRV.state.compare.loading")
+    assert "No stored snapshots" in page.locator("#compare-timeline-empty").inner_text()
+    assert "outside this displayed day" in page.locator("#compare-message").inner_text()
+
+    bounds = page.evaluate("""() => {
+      const rect = selector => {
+        const {top, bottom} = document.querySelector(selector).getBoundingClientRect();
+        return {top, bottom};
+      };
+      const textRect = selector => {
+        const range = document.createRange();
+        range.selectNodeContents(document.querySelector(selector));
+        const {top, bottom} = range.getBoundingClientRect();
+        return {top, bottom};
+      };
+      return {empty: textRect('#compare-timeline-empty'),
+        message: textRect('#compare-message'), results: rect('#compare-results'),
+        footer: rect('.ps-history-panel__footer'), dock: rect('.ps-bottom-dock'),
+        viewport: innerHeight};
+    }""")
+    assert bounds["empty"]["top"] >= bounds["results"]["top"]
+    assert bounds["empty"]["bottom"] <= bounds["results"]["bottom"]
+    assert bounds["empty"]["bottom"] <= bounds["footer"]["top"]
+    assert bounds["message"]["top"] >= bounds["footer"]["top"]
+    assert bounds["message"]["bottom"] <= bounds["footer"]["bottom"]
+    assert bounds["dock"]["top"] >= 0
+    assert bounds["dock"]["bottom"] <= bounds["viewport"]
+
+
 @pytest.mark.parametrize("viewport", [375, 1366])
 def test_keyboard_mobile_theme_layout_and_no_idle_metadata_work(page, viewport):
     reads = mount(page)
