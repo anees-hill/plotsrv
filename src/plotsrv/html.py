@@ -860,6 +860,11 @@ def render_index(
 
     elif kind == "plot":
         content_html = f"""
+          <div id="plot-size-controls" class="ps-plot-size-controls" role="group" aria-label="Plot size" hidden>
+            <button id="plot-size-fit" class="ps-btn" type="button">Fit</button>
+            <button id="plot-size-increase" class="ps-btn" type="button" aria-label="Increase plot size" title="Increase plot size">+</button>
+            <button id="plot-size-decrease" class="ps-btn" type="button" aria-label="Decrease plot size" title="Decrease plot size">−</button>
+          </div>
           <div class="plot-frame ps-frame ps-frame--plot plot-frame--plot">
             <img id="plot" class="ps-plot" {'src="/plot?view=' + active_view_id_attr + '"' if static_preview else 'hidden'} alt="Current plot" />
           </div>

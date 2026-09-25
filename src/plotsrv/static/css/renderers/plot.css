@@ -1,16 +1,34 @@
 #plot,
 .ps-plot {
-  max-width: 100%;
+  max-width: none;
   height: auto;
   display: block;
+  margin-inline: auto;
 }
+
+#plot:not(.ps-plot--sized) { max-width: 100%; }
 
 .plot-frame--plot {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
-  align-items: center;
-  justify-content: center;
+  min-height: 0;
+  display: block;
+  overflow: auto;
 }
 
 #plot[hidden] { display: none; }
+
+.ps-plot-size-controls {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+
+.ps-plot-size-controls[hidden] { display: none; }
+
+.ps-plot-size-controls .ps-btn {
+  min-width: 2.25rem;
+  padding: 0.3rem 0.55rem;
+}

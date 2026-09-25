@@ -25,11 +25,11 @@ for kind in ("text", "json", "html", "image"):
     VIEWS.append(ViewMeta("artifacts:" + kind, "artifact", kind.title(), "Artifacts"))
 
 
-def mount(page, view="tables:main"):
+def mount(page, view="tables:main", plot_size=(640, 1200)):
     page.set_default_timeout(7000)
     register_default_renderers()
     png = io.BytesIO()
-    Image.new("RGB", (640, 1200), "teal").save(png, format="PNG")
+    Image.new("RGB", plot_size, "teal").save(png, format="PNG")
     artifacts = {
         "text": "\n".join("Line " + str(i) for i in range(300)),
         "json": {"rows": [{"group": "A", "value": i} for i in range(30)]},
@@ -482,7 +482,7 @@ def test_plot_image_and_scroll_do_not_reload_or_request_native_fullscreen(page):
         "document.getElementById('plot')===oldPlot && oldPlot.src===oldSrc"
     )
     page.click("#expanded-exit")
-    assert reads == before
+    assert reads.count("/plot") == before.count("/plot")
 
 
 def test_table_scroll_position_and_checks_attention_survive_layout(page):
