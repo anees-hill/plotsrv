@@ -522,6 +522,35 @@
   padding: 0.55rem 0.55rem 0.35rem;
 }
 
+.ps-viewselect__group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ps-viewselect__featured-toggle {
+  margin: 0 0.55rem;
+  padding: 0.25rem 0.1rem;
+  border: 0;
+  background: transparent;
+  color: var(--ps-muted, #737b82);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.ps-viewselect__featured-toggle:hover {
+  color: var(--ps-text, #333);
+}
+
+.ps-viewselect__featured-toggle:focus-visible {
+  outline: 2px solid var(--ps-focus, #617f9b);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .ps-viewselect__group-items {
   display: flex;
   flex-direction: column;

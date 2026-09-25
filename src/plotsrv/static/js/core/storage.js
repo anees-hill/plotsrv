@@ -20,6 +20,7 @@
    jsonPrefsPrefix: "plotsrv:v2:json_prefs:",
    textPrefsPrefix: "plotsrv:v2:text_prefs:",
    viewSelectorMode: "plotsrv:v1:view_selector_mode",
+   featuredDisplay: "plotsrv:v1:featured_display",
    viewSelectorPinned: "plotsrv:v1:view_selector_pinned",
    theme: "plotsrv:v1:theme",
    continuousUpdates: "plotsrv:v1:continuous_updates",

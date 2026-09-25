@@ -427,6 +427,7 @@ def test_view_browser_puts_featured_at_top_of_grouped_and_escapes_copy() -> None
     assert 'data-view-mode="featured"' not in rendered
     assert 'data-view-mode="grouped"' in rendered
     assert ">Featured</h3>" in rendered
+    assert 'data-featured-display-toggle aria-label="Show featured views as a list"' in rendered
     assert 'class="ps-viewselect__feature-fallback"' in rendered
     assert rendered.index(">Featured</h3>") < rendered.index(">Operations</h3>")
     assert rendered.count('data-plotsrv-view="reports:daily"') == 1

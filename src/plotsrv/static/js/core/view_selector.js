@@ -237,6 +237,35 @@
     return "grouped";
   }
 
+  function loadFeaturedDisplay() {
+    const key = storageKey("featuredDisplay", "plotsrv:v1:featured_display");
+    const stored = typeof core.loadPref === "function"
+      ? core.loadPref(key, "expanded")
+      : loadLocalPreference(key, "expanded");
+    return stored === "compact" ? "compact" : "expanded";
+  }
+
+  function loadLocalPreference(key, fallback) {
+    try {
+      return localStorage.getItem(key) || fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
+  function saveFeaturedDisplay(display) {
+    const key = storageKey("featuredDisplay", "plotsrv:v1:featured_display");
+    if (typeof core.savePref === "function") {
+      core.savePref(key, display);
+      return;
+    }
+    try {
+      localStorage.setItem(key, display);
+    } catch (e) {
+      // Browser storage can be unavailable in private/restricted contexts.
+    }
+  }
+
   function pinnedStorageKey() {
     return storageKey("viewSelectorPinned", "plotsrv:v1:view_selector_pinned");
   }
@@ -458,6 +487,7 @@
       mode: "grouped",
       query: "",
       pinned: [],
+      featuredDisplay: loadFeaturedDisplay(),
       renderFrame: null,
     };
     controller.mode = initialViewSelectorMode();
@@ -549,14 +579,28 @@
             "ps-viewselect__group ps-viewselect__group--featured"
           );
           featuredGroup.setAttribute("aria-label", "Featured");
-          featuredGroup.appendChild(
-            element("h3", "ps-viewselect__group-label", "Featured")
+          const heading = element("div", "ps-viewselect__group-heading");
+          heading.appendChild(element("h3", "ps-viewselect__group-label", "Featured"));
+          const toggle = element(
+            "button",
+            "ps-viewselect__featured-toggle",
+            controller.featuredDisplay === "compact" ? "Show cards" : "Show as list"
           );
-          const featureList = element("div", "ps-viewselect__features");
+          toggle.type = "button";
+          toggle.setAttribute("data-featured-display-toggle", "");
+          toggle.setAttribute("aria-label", controller.featuredDisplay === "compact"
+            ? "Show featured views as cards" : "Show featured views as a list");
+          heading.appendChild(toggle);
+          featuredGroup.appendChild(heading);
+          const compact = controller.featuredDisplay === "compact";
+          const featureList = element("div", compact
+            ? "ps-viewselect__group-items" : "ps-viewselect__features");
           featureList.setAttribute("role", "list");
           for (const feature of features) {
             featureList.appendChild(
-              makeFeatureItem(feature, pinnedIds.has(feature.view.view_id))
+              compact
+                ? makeViewItem(feature.view, false, pinnedIds.has(feature.view.view_id), null)
+                : makeFeatureItem(feature, pinnedIds.has(feature.view.view_id))
             );
           }
           featuredGroup.appendChild(featureList);
@@ -714,6 +758,15 @@
     });
     window.addEventListener("plotsrv-my-views-changed", scheduleRender);
     results.addEventListener("click", async function (event) {
+      const displayToggle = event.target.closest && event.target.closest("[data-featured-display-toggle]");
+      if (displayToggle) {
+        event.preventDefault();
+        controller.featuredDisplay = controller.featuredDisplay === "compact" ? "expanded" : "compact";
+        saveFeaturedDisplay(controller.featuredDisplay);
+        render();
+        results.querySelector("[data-featured-display-toggle]").focus();
+        return;
+      }
       const personal = event.target.closest && event.target.closest("[data-personal-view], [data-personal-delete]");
       if (personal) {
         event.preventDefault(); event.stopPropagation();

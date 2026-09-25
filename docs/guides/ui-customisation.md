@@ -134,6 +134,11 @@ Missing or malformed references are ignored. When no configured references
 match an available view, the Featured area is omitted. Featured views only
 change presentation in the selector; they do not create or copy views.
 
+Use **Show as list** beside the Featured heading to display those views as
+ordinary entries instead of large cards. **Show cards** restores the expanded
+presentation. This choice is saved in the browser and does not change the
+configured featured views.
+
 Anyone using the page can also pin views from the selector. Pinned view IDs are
 kept in that browser's local storage and appear in a **Pinned views** section in
 Grouped mode. Pins do not change server configuration, are not sent with HTTP

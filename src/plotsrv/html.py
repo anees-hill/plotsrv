@@ -483,7 +483,7 @@ def render_index(
             menu_parts.extend(
                 [
                     '<section class="ps-viewselect__group ps-viewselect__group--featured" aria-labelledby="view-selector-featured">',
-                    '<h3 id="view-selector-featured" class="ps-viewselect__group-label">Featured</h3>',
+                    '<div class="ps-viewselect__group-heading"><h3 id="view-selector-featured" class="ps-viewselect__group-label">Featured</h3><button type="button" class="ps-viewselect__featured-toggle" data-featured-display-toggle aria-label="Show featured views as a list">Show as list</button></div>',
                     '<div class="ps-viewselect__features" role="list">',
                     *(
                         _featured_item_html(feature, view)
