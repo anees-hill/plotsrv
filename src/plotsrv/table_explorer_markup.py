@@ -271,7 +271,10 @@ def render_table_explorer(
               </button>
 
               <div class="ps-my-view-actions" role="group" aria-label="Presentation settings">
-                <button id="table-save-view-btn" type="button" class="ps-btn" disabled>Save view</button>
+                <button id="table-save-view-btn" type="button" class="ps-btn" disabled>
+                  <svg aria-hidden="true" focusable="false" viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10" /></svg>
+                  Save view
+                </button>
                 <button id="table-reset-btn" type="button" class="ps-btn">Reset view</button>
               </div>
             </div>

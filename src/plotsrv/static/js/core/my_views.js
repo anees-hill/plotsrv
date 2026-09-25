@@ -119,7 +119,6 @@
     try {
       button.disabled =
         state.myViewBlocked || meaningful(capture()) === meaningful(baseline);
-      button.textContent = "Save view";
       button.title = button.disabled
         ? "Change table or plot settings to save a presentation"
         : "Save presentation settings on this browser";

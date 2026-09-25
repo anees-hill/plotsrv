@@ -918,6 +918,8 @@
 /* Personal presentations occupy the existing Reset action slot. */
 .ps-my-view-actions { display: inline-flex; align-items: stretch; }
 .ps-my-view-actions .ps-btn { margin: 0; border-radius: 0; }
+.ps-my-view-actions #table-save-view-btn { display: inline-flex; align-items: center; gap: 0.35rem; }
+.ps-my-view-actions #table-save-view-btn svg { flex: 0 0 auto; }
 .ps-my-view-actions .ps-btn:first-child { border-radius: 6px 0 0 6px; }
 .ps-my-view-actions .ps-btn:last-child { border-radius: 0 6px 6px 0; margin-left: -1px; }
 .ps-my-view-actions .ps-btn:disabled { opacity: .45; cursor: default; }
