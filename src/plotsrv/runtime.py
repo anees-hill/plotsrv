@@ -906,26 +906,23 @@ def _coerce_csv_rows(
     return columns, output, total_columns, visible_width
 
 
-def _read_csv_header(path: Path, *, encoding: str) -> list[str]:
-    with open_regular_file(path) as raw:
-        text = io.TextIOWrapper(raw, encoding=encoding, errors="replace", newline="")
-        try:
-            return next(csv.reader(text), [])
-        finally:
-            text.detach()
+def _read_csv_header(raw, *, encoding: str, max_bytes: int) -> list[str]:
+    """Read one logical header with a byte cap, including quoted newlines."""
+    start = raw.tell()
 
+    def lines():
+        while True:
+            remaining = max_bytes - (raw.tell() - start)
+            if remaining <= 0:
+                raise ValueError("CSV header exceeds the preview byte limit")
+            line = raw.readline(remaining)
+            if not line:
+                return
+            if len(line) == remaining and not line.endswith(b"\n") and raw.tell() < os.fstat(raw.fileno()).st_size:
+                raise ValueError("CSV header exceeds the preview byte limit")
+            yield line.decode(encoding, errors="replace")
 
-def _discard_partial_tail_row(raw: io.BufferedReader) -> None:
-    """Advance to the next line without ever materialising an unbounded line."""
-    while True:
-        start = raw.tell()
-        chunk = raw.read(64 * 1024)
-        if not chunk:
-            return
-        newline = chunk.find(b"\n")
-        if newline >= 0:
-            raw.seek(start + newline + 1)
-            return
+    return next(csv.reader(lines(), strict=True), [])
 
 
 def _read_csv_head_rows(
@@ -938,7 +935,9 @@ def _read_csv_head_rows(
 ) -> tuple[list[str], list[list[str | None]], int, bool]:
     """Read at most the requested head rows and byte window from a CSV."""
     with open_regular_file(path) as raw:
-        limited = _LimitedBinaryReader(raw, max_bytes)
+        size = os.fstat(raw.fileno()).st_size
+        budget = size if max_bytes is None else min(size, max_bytes)
+        limited = _LimitedBinaryReader(raw, budget)
         buffered = io.BufferedReader(limited)
         text = io.TextIOWrapper(buffered, encoding=encoding, errors="replace", newline="")
         try:
@@ -972,14 +971,6 @@ def _read_csv_tail_rows(
     max_columns: int | None,
 ) -> tuple[list[str], list[list[str | None]], int, bool]:
     """Scan a tail window while retaining only the newest configured row window."""
-    header = _read_csv_header(path, encoding=encoding)
-    width = len(header)
-    if max_columns is not None:
-        width = min(width, max(1, int(max_columns)))
-
-    size_bytes = path.stat().st_size
-    start = 0 if max_bytes is None else max(0, size_bytes - max(1, int(max_bytes)))
-
     # deque(maxlen=N) is the key memory bound for tail mode: all selected input
     # may be scanned, but no more than N rows are retained before DataFrame
     # construction. An explicit table_rows: off remains an intentional opt-out.
@@ -989,16 +980,30 @@ def _read_csv_tail_rows(
     has_more_rows = False
 
     with open_regular_file(path) as raw:
+        size_bytes = os.fstat(raw.fileno()).st_size
+        budget = size_bytes if max_bytes is None else min(size_bytes, max(1, int(max_bytes)))
+        header = _read_csv_header(raw, encoding=encoding, max_bytes=max(1, min(64 * 1024, budget)))
+        header_bytes = raw.tell()
+        width = len(header)
+        if max_columns is not None:
+            width = min(width, max(1, int(max_columns)))
+        # Account for header work as part of the same budget. Freeze the end
+        # offset so a producer appending while we read cannot extend the scan.
+        start = max(header_bytes, size_bytes - max(0, budget - header_bytes))
         raw.seek(start)
-        if start > 0:
-            _discard_partial_tail_row(raw)
+        limited = _LimitedBinaryReader(raw, size_bytes - start)
+        buffered = io.BufferedReader(limited)
+        if start > header_bytes:
+            # readline(size) bounds allocation; repeat only inside the frozen
+            # byte window, including a file containing one enormous line.
+            while True:
+                part = buffered.readline(64 * 1024)
+                if not part or part.endswith(b"\n"):
+                    break
 
-        text = io.TextIOWrapper(raw, encoding=encoding, errors="replace", newline="")
+        text = io.TextIOWrapper(buffered, encoding=encoding, errors="replace", newline="")
         try:
             reader = csv.reader(text)
-            if start == 0:
-                next(reader, None)
-
             for row in reader:
                 if max_rows is not None and len(retained) >= max_rows:
                     has_more_rows = True
@@ -1006,7 +1011,7 @@ def _read_csv_tail_rows(
         finally:
             text.detach()
 
-    return header, list(retained), max(0, size_bytes - start), has_more_rows
+    return header, list(retained), header_bytes + limited.bytes_read, has_more_rows
 
 
 def read_file_backed_csv_preview(
