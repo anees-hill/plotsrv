@@ -1713,11 +1713,17 @@ context.window.PLOTSRV.core.loadStream().then(() => {
   if (options.nestedFieldSeparator !== false) {
     throw new Error("dotted stream fields were not configured as flat");
   }
-  const unsafeColumn = options.columns[0];
+  const unsafeColumn = options.columns.find(column => column.field === unsafeName);
+  if (!unsafeColumn) {
+    throw new Error("logfile-controlled column was not present");
+  }
   if (unsafeColumn.title !== "") {
     throw new Error("logfile-controlled header was passed as a string title");
   }
+  const presentation = context.window.PLOTSRV.state.streamFeedPresentation;
+  context.window.PLOTSRV.state.streamFeedPresentation = null;
   const title = unsafeColumn.titleFormatter();
+  context.window.PLOTSRV.state.streamFeedPresentation = presentation;
   if (title.textContent !== unsafeName) {
     throw new Error("header was not rendered through textContent");
   }
@@ -1754,7 +1760,8 @@ context.window.PLOTSRV.core.loadStream().then(() => {
   if (noteworthyItems.children[1].children[1].textContent !== "Continuity may have been interrupted") {
     throw new Error("plotsrv system notices were not visibly distinguished");
   }
-  const nested = options.columns[2].formatter({getValue: () => options.data[0].nested});
+  const nestedColumn = options.columns.find(column => column.field === "nested");
+  const nested = nestedColumn.formatter({getValue: () => options.data[0].nested});
   if (nested.textContent !== '{"items":["a","b"],"v":"null"}') {
     throw new Error("nested JSON display did not preserve scalar types");
   }
