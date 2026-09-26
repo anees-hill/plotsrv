@@ -27,7 +27,7 @@ from .renderers.registry import render_any
 from .render_cache import cache_rendered_artifact, get_cached_rendered_artifact
 from .storage.worker import enqueue_snapshot, get_storage_queue_stats
 from .storage.stream_worker import get_stream_storage_queue_stats
-from .storage.backend import list_snapshots
+from .storage.backend import read_snapshot_meta
 from .publishing.worker import get_publish_queue_stats
 from .http_publish import (
     _publish_source_label,
@@ -972,38 +972,29 @@ def get_compare_latest(request: Request, view: str | None = None):
 
 
 @app.get("/history")
-def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
-    if config.get_history_local_only():
-        require_local_request(request)
-
+def get_history(request: Request, view: str | None = None, before: str | None = None, limit: int = 100) -> dict[str, Any]:
+    # The compatibility endpoint shares the bounded metadata scan and cursor
+    # policy with the UI, including checking capability before disk access.
     vid = view or store.get_active_view_id()
-    snaps = list_snapshots(root_dir=_storage_root(), view_id=vid)
-
+    page = get_history_navigation(request, view=vid, before=before, limit=limit)
     snapshots_out: list[dict[str, Any]] = []
-    for i, snap in enumerate(snaps):
-        is_latest = i == 0
+    for row in page["snapshots"]:
+        try:
+            snap = read_snapshot_meta(root_dir=_storage_root(), view_id=vid, snapshot_id=row["snapshot_id"])
+        except (OSError, ValueError, LookupError):
+            continue  # Retention may remove metadata between scan and response.
         snapshots_out.append(
             _snapshot_summary_dict(
-                snap,
-                is_latest=is_latest,
-                is_live_equivalent=(
-                    is_latest
-                    and _latest_snapshot_is_live_equivalent(view_id=vid, snap=snap)
-                ),
+                snap, is_latest=row["is_latest"], is_live_equivalent=False,
             )
         )
-
-    capability = _snapshot_capability(vid)
-    result = "unavailable" if not capability["enabled"] else (
-        "available" if snapshots_out else "empty"
-    )
-
     return {
         "view_id": vid,
-        "count": len(snaps),
+        "count": page["count"],
         "snapshots": snapshots_out,
-        "capability": capability,
-        "result": result,
+        "capability": page["capability"],
+        "result": page["result"],
+        "next_cursor": page.get("next_cursor"),
     }
 
 

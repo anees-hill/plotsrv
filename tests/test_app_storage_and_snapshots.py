@@ -19,6 +19,7 @@ def reset_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     store.reset()
     config.set_table_view_mode("simple")
     monkeypatch.setattr(app_mod.config, "get_storage_root_dir", lambda: tmp_path)
+    monkeypatch.setattr(app_mod.config, "get_storage_enabled", lambda: True)
     monkeypatch.setattr(app_mod.config, "get_control_local_only", lambda: False)
     monkeypatch.setattr(app_mod.config, "get_internal_read_local_only", lambda: False)
     yield
@@ -213,6 +214,28 @@ def test_history_returns_empty_when_no_snapshots(client: TestClient) -> None:
     assert data["view_id"] == "v1"
     assert data["count"] == 0
     assert data["snapshots"] == []
+
+
+def test_legacy_history_is_paginated_without_losing_older_items(client, tmp_path):
+    for value in ["first", "second", "third"]:
+        write_snapshot(root_dir=tmp_path, view_id="v1", kind="text", obj=value)
+    first = client.get("/history", params={"view": "v1", "limit": 2}).json()
+    assert first["count"] == 3
+    assert len(first["snapshots"]) == 2
+    assert first["next_cursor"]
+    second = client.get("/history", params={"view": "v1", "limit": 2, "before": first["next_cursor"]}).json()
+    assert len(second["snapshots"]) == 1
+    assert second["next_cursor"] is None
+    assert len({s["snapshot_id"] for s in first["snapshots"] + second["snapshots"]}) == 3
+    assert client.get("/history", params={"view": "v1", "limit": 101}).status_code == 400
+
+
+def test_disabled_history_does_not_scan_disk(client, monkeypatch):
+    monkeypatch.setattr(app_mod.config, "get_storage_enabled", lambda: False)
+    monkeypatch.setattr(app_mod, "_storage_root", lambda: pytest.fail("disabled history touched storage"))
+    response = client.get("/history", params={"view": "v1"})
+    assert response.status_code == 200
+    assert response.json()["snapshots"] == []
 
 
 def test_history_reports_enabled_but_empty_snapshot_storage(

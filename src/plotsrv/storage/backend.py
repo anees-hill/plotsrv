@@ -145,7 +145,7 @@ def list_snapshots(*, root_dir: Path, view_id: str) -> list[SnapshotMeta]:
     return out
 
 
-def load_snapshot(*, root_dir: Path, view_id: str, snapshot_id: str) -> LoadedSnapshot:
+def read_snapshot_meta(*, root_dir: Path, view_id: str, snapshot_id: str) -> SnapshotMeta:
     _validate_snapshot_id(snapshot_id)
     root = ensure_storage_root(root_dir)
     meta_path = _find_snapshot_metadata(root, view_id, snapshot_id)
@@ -154,7 +154,11 @@ def load_snapshot(*, root_dir: Path, view_id: str, snapshot_id: str) -> LoadedSn
         raise LookupError(f"Snapshot not found: {snapshot_id}")
 
     raw = _read_bound_metadata(meta_path, view_id=view_id)
-    meta = _meta_from_dict(raw)
+    return _meta_from_dict(raw)
+
+
+def load_snapshot(*, root_dir: Path, view_id: str, snapshot_id: str) -> LoadedSnapshot:
+    meta = read_snapshot_meta(root_dir=root_dir, view_id=view_id, snapshot_id=snapshot_id)
     payload_path = Path(meta.path_payload)
 
     if not payload_path.exists():
