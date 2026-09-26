@@ -32,3 +32,24 @@ def require_local_request(request: Request) -> None:
     host = _client_ip(request)
     if not _is_loopback_ip(host):
         raise HTTPException(status_code=403, detail="Local access only")
+
+
+def require_history_read(request: Request) -> None:
+    from . import config
+
+    if config.get_history_local_only():
+        require_local_request(request)
+
+
+def require_snapshot_read(request: Request) -> None:
+    # Protect the payload as well as the history catalogue. Snapshot IDs are
+    # identifiers, not credentials, and can be learned from earlier visits.
+    if request.query_params.get("snapshot"):
+        require_history_read(request)
+
+
+def require_status_read(request: Request) -> None:
+    from . import config
+
+    if config.get_status_local_only():
+        require_local_request(request)

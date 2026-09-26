@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import Response, HTMLResponse, FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -35,7 +35,7 @@ from .http_publish import (
     _record_publish_rejection_artifact,
     _validate_artifact_size,
 )
-from .http_security import require_local_request
+from .http_security import require_local_request, require_snapshot_read
 from .http_responses import OwnedStreamingResponse
 from .ingestion import (IngestionError, IngestionMiddleware, ingestion_lifespan,
     read_payload, require_admitted, MAX_PUBLISH_REQUEST_BYTES, router as ingestion_router)
@@ -945,7 +945,7 @@ def get_history(request: Request, view: str | None = None) -> dict[str, Any]:
     }
 
 
-@app.get("/plot")
+@app.get("/plot", dependencies=[Depends(require_snapshot_read)])
 def get_plot(
     download: bool = False,
     view: str | None = None,
@@ -1259,7 +1259,7 @@ def _stream_file_backed_table_json(
         release()
 
 
-@app.get("/table/data")
+@app.get("/table/data", dependencies=[Depends(require_snapshot_read)])
 def get_table_data(
     limit: int | None = Query(default=None, ge=1),
     view: str | None = None,
@@ -1329,7 +1329,7 @@ def get_table_data(
     )
 
 
-@app.get("/table/export")
+@app.get("/table/export", dependencies=[Depends(require_snapshot_read)])
 def export_table(
     request: Request,
     format: str = "csv",
@@ -1826,7 +1826,7 @@ def index(view: str | None = None) -> HTMLResponse:
     return HTMLResponse(content=html_str)
 
 
-@app.get("/artifact")
+@app.get("/artifact", dependencies=[Depends(require_snapshot_read)])
 def get_artifact(
     view: str | None = None,
     snapshot: str | None = None,

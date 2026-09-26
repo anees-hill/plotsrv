@@ -5,11 +5,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from . import config, store
 from .browser_updates import browser_update_hub
-from .http_security import require_local_request
+from .http_security import require_local_request, require_history_read, require_status_read
 from .storage.streams import FileStreamStorageBackend
 from .storage.stream_worker import (
     get_stream_storage_worker,
@@ -614,6 +614,7 @@ async def close_stream(request: Request) -> dict[str, Any]:
 
 @router.get("/stream/data")
 def get_stream_data(
+    request: Request = None,
     view: str = Query(min_length=1),
     after: int | None = Query(default=None, ge=0),
     session_id: str | None = Query(default=None, min_length=1),
@@ -630,10 +631,12 @@ def get_stream_data(
         )
     except StreamStateError as error:
         _raise_state_error(error)
+    if request is not None and data.get("historical"):
+        require_history_read(request)
     return {"protocol_version": STREAM_PROTOCOL_VERSION, **data}
 
 
-@router.get("/stream/history")
+@router.get("/stream/history", dependencies=[Depends(require_history_read)])
 def get_stream_history(
     view: str = Query(min_length=1),
     session_id: str | None = Query(default=None, min_length=1),
@@ -691,7 +694,7 @@ def get_stream_history(
     }
 
 
-@router.get("/stream/status")
+@router.get("/stream/status", dependencies=[Depends(require_status_read)])
 def get_stream_status(view: str = Query(min_length=1)) -> dict[str, Any]:
     """Return lifecycle status for a stream observer, never app-process status."""
     _configure_heartbeat_timeout()
@@ -703,11 +706,13 @@ def get_stream_status(view: str = Query(min_length=1)) -> dict[str, Any]:
 
 
 @router.get("/stream/summary")
-def get_stream_summary(view: str = Query(min_length=1)) -> dict[str, Any]:
+def get_stream_summary(view: str = Query(min_length=1), request: Request = None) -> dict[str, Any]:
     """Expose derived compact history separately from recent source rows."""
     _configure_heartbeat_timeout()
     try:
         summary = stream_registry.summary(view_id=view)
     except StreamStateError as error:
         _raise_state_error(error)
+    if request is not None and summary.get("historical"):
+        require_history_read(request)
     return {"protocol_version": STREAM_PROTOCOL_VERSION, **summary}
