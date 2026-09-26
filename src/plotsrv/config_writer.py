@@ -39,7 +39,9 @@ storage-settings:
   streams:
     # Storage keeps compact stream insights, not source log lines, by default.
     enabled: true
+    compact_min_interval_s: 10
     max_bytes_per_view_mb: 16
+    max_total_mb: 256
     # Replace null with {max_blocks: 16, max_bytes_mb: 4} to opt into raw rows.
     raw_retention: null
 
@@ -145,6 +147,7 @@ storage-settings:
     noteworthy_keep_last: 64
     keep_last_sessions: 8
     max_bytes_per_view_mb: 16
+    max_total_mb: 256
     # Replace null with {max_blocks: 16, max_bytes_mb: 4} to opt into raw rows.
     raw_retention: null
 

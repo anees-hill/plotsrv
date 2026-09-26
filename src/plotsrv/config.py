@@ -211,6 +211,7 @@ _DEFAULTS: dict[str, Any] = {
             "noteworthy_keep_last": 64,
             "keep_last_sessions": 8,
             "max_bytes_per_view_mb": 16.0,
+            "max_total_mb": 256.0,
         },
         "views": {},
     },
@@ -1657,6 +1658,15 @@ def get_storage_stream_max_bytes_per_view(view_id: str | None = None) -> int:
     value = _parse_mb_to_bytes(
         _storage_stream_settings(view_id).get("max_bytes_per_view_mb"),
         default_mb,
+    )
+    return max(1, int(default_mb * _MB) if value is None else value)
+
+
+def get_storage_stream_max_total_bytes() -> int:
+    """Hard byte ceiling for the entire generated stream-storage tree."""
+    default_mb = float(_DEFAULTS["storage-settings"]["streams"]["max_total_mb"])
+    value = _parse_mb_to_bytes(
+        _storage_stream_settings().get("max_total_mb"), default_mb
     )
     return max(1, int(default_mb * _MB) if value is None else value)
 

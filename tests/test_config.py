@@ -224,6 +224,8 @@ def test_stream_storage_defaults_to_compact_history_only_when_storage_is_enabled
     assert config.get_storage_stream_noteworthy_keep_last("logs:worker") == 64
     assert config.get_storage_stream_keep_last_sessions("logs:worker") == 8
     assert config.get_storage_stream_max_bytes_per_view("logs:worker") == 16 * 1024 * 1024
+    assert config.get_storage_stream_max_total_bytes() == 256 * 1024 * 1024
+    assert config.get_storage_stream_compact_min_interval_s("logs:worker") == 10.0
     assert config.get_storage_stream_raw_retention("logs:worker") is None
     assert config.get_storage_stream_raw_enabled("logs:worker") is False
 
@@ -261,6 +263,8 @@ storage-settings:
     noteworthy_keep_last: 8
     keep_last_sessions: 7
     max_bytes_per_view_mb: 2
+    max_total_mb: 24
+    compact_min_interval_s: 2.5
     raw_retention:
       max_age_s: 60
       max_blocks: 3
@@ -283,6 +287,8 @@ storage-settings:
     assert config.get_storage_stream_enabled("logs:worker") is False
     assert config.get_storage_stream_enabled("logs:raw-worker") is True
     assert config.get_storage_stream_summary_retention("logs:raw-worker") == 4
+    assert config.get_storage_stream_max_total_bytes() == 24 * 1024 * 1024
+    assert config.get_storage_stream_compact_min_interval_s("logs:raw-worker") == 2.5
     assert config.get_storage_stream_noteworthy_keep_last("logs:raw-worker") == 8
     assert config.get_storage_stream_raw_enabled("logs:raw-worker") is True
     assert config.get_storage_stream_raw_retention("logs:raw-worker") == {

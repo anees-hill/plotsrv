@@ -460,6 +460,7 @@ class StreamStorageWorker:
                 records=task.raw_records,
                 raw_policy=raw_policy,
                 storage_policy=storage_policy,
+                max_total_bytes=config.get_storage_stream_max_total_bytes(),
             )
 
         metadata = deepcopy(task.metadata)
@@ -482,6 +483,7 @@ class StreamStorageWorker:
             summary_windows=task.summary_windows,
             noteworthy_items=task.noteworthy_items,
             policy=storage_policy,
+            max_total_bytes=config.get_storage_stream_max_total_bytes(),
         )
 
 
@@ -647,6 +649,7 @@ def _mark_stream_persistence_incomplete(
             session_id=session_id,
             reason=reason,
             policy=_stream_storage_policy(view_id),
+            max_total_bytes=config.get_storage_stream_max_total_bytes(),
         )
     except Exception:
         # The live registry still exposes the failure. If the storage root is

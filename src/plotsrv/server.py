@@ -436,6 +436,14 @@ def restore_streams_from_storage() -> int:
             # Retention is best effort like restoration. A damaged historical
             # view must not prevent unrelated compact history from loading.
             continue
+    try:
+        backend.enforce_total_retention(
+            maximum=config.get_storage_stream_max_total_bytes()
+        )
+    except Exception:
+        # Unrecognized files in the stream root are never deleted to make
+        # room. Valid retained sessions can still be restored independently.
+        pass
     restored = 0
     compact_sessions = backend.list_compact_sessions()
     for session in compact_sessions:

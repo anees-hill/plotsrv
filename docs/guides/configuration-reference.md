@@ -365,6 +365,7 @@ storage-settings:
     noteworthy_keep_last: 32
     keep_last_sessions: 4
     max_bytes_per_view_mb: 16
+    max_total_mb: 256
     # Omit or set to null for compact-only history.
     raw_retention: null
   default_keep_last: 2
@@ -396,6 +397,7 @@ it does not turn a restarted producer into a live session.
 | `noteworthy_keep_last` | Maximum noteworthy/continuity items retained for each session. |
 | `keep_last_sessions` | Softer count limit for retained sessions per logical stream. |
 | `max_bytes_per_view_mb` | Hard combined ceiling for compact files, markers, and raw blocks for one logical stream. |
+| `max_total_mb` | Shared ceiling for generated stream-session files across all views (default 256 MiB). |
 | `raw_retention` | Explicit raw-segment policy; `null` disables raw persistence. |
 
 `raw_retention`, when present, accepts `max_blocks`, `max_bytes_mb`, and
@@ -403,6 +405,12 @@ optional `max_age_s`. The hard `max_bytes_per_view_mb` ceiling wins whenever
 these policies conflict. A per-view override belongs at
 `storage-settings.views.<view_id>.stream` (the early `streams` spelling is
 also accepted).
+
+The shared cap prunes old raw blocks first, then older closed sessions. Active
+sessions are not evicted to admit another active stream's checkpoint: when
+there is no safe space, persistence is rejected and shown as incomplete while
+live observation continues. On server startup, all stored sessions are
+historical, so the shared cap can also prune old previously active runs.
 
 Compact checkpoints are best-effort observation history, not a lossless audit
 log. A crash can lose accepted observations after the last checkpoint; on

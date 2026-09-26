@@ -383,6 +383,8 @@ def test_default_config_text_is_compact_but_keeps_useful_settings() -> None:
     assert data["storage-settings"]["latest"]["restore_on_startup"] is True
     assert data["storage-settings"]["streams"]["enabled"] is True
     assert data["storage-settings"]["streams"]["max_bytes_per_view_mb"] == 16
+    assert data["storage-settings"]["streams"]["max_total_mb"] == 256
+    assert data["storage-settings"]["streams"]["compact_min_interval_s"] == 10
     assert data["storage-settings"]["streams"]["raw_retention"] is None
     assert data["watch-settings"]["materialization"] == "auto"
     assert data["watch-settings"]["file_threshold_mb"] == 10

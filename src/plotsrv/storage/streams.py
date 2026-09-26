@@ -263,6 +263,7 @@ class FileStreamStorageBackend:
         summary_windows: Sequence[Mapping[str, Any]],
         noteworthy_items: Sequence[Mapping[str, Any]],
         policy: StreamStoragePolicy,
+        max_total_bytes: int | None = None,
     ) -> CompactSessionWrite:
         """Atomically replace the bounded raw-free state for one session.
 
@@ -353,6 +354,23 @@ class FileStreamStorageBackend:
                     previous_noteworthy,
                 ),
             )
+            if max_total_bytes is not None:
+                extra_dirs, extra_raw = self._plan_total_replacement(
+                    paths=paths,
+                    maximum=max_total_bytes,
+                    replacement_bytes=(
+                        len(metadata_bytes) + len(summary_bytes) + len(noteworthy_bytes)
+                    ),
+                    replaced_files=(
+                        paths.metadata,
+                        previous_summaries,
+                        previous_noteworthy,
+                    ),
+                    planned_sessions=session_dirs,
+                    planned_raw=raw_paths,
+                )
+                session_dirs.extend(extra_dirs)
+                raw_paths.extend(extra_raw)
             # Stage both generation files before metadata publishes them.  On
             # an I/O failure, the previous metadata still points at its prior
             # complete generation and retained historical sessions have not
@@ -401,6 +419,7 @@ class FileStreamStorageBackend:
         session_id: str,
         reason: str,
         policy: StreamStoragePolicy,
+        max_total_bytes: int | None = None,
     ) -> None:
         """Persist an irreversible durable-history gap when possible.
 
@@ -436,6 +455,17 @@ class FileStreamStorageBackend:
                     replaced_files=(paths.incomplete_marker,),
                     allow_target_session_eviction=True,
                 )
+                if max_total_bytes is not None:
+                    extra_dirs, extra_raw = self._plan_total_replacement(
+                        paths=paths,
+                        maximum=max_total_bytes,
+                        replacement_bytes=len(marker_bytes),
+                        replaced_files=(paths.incomplete_marker,),
+                        planned_sessions=session_dirs,
+                        planned_raw=raw_paths,
+                    )
+                    session_dirs.extend(extra_dirs)
+                    raw_paths.extend(extra_raw)
             except StreamStorageCapacityError:
                 # If even the minimal marker cannot fit, retaining a stale
                 # complete session would be worse than dropping it.  Remove
@@ -524,6 +554,42 @@ class FileStreamStorageBackend:
                 maximum=policy.max_bytes_per_view,
                 protected_session=None,
             )
+
+    def enforce_total_retention(self, *, maximum: int) -> int:
+        """At startup, bound all previously stored stream runs together."""
+        if maximum < 1:
+            raise ValueError("maximum must be at least one byte")
+        with self._lock:
+            total = self._directory_byte_count(self.streams_root)
+            if total <= maximum:
+                return 0
+            recognized = self._recognized_session_directories()
+            removed = 0
+            raw_paths = sorted(
+                (
+                    raw
+                    for session, _ in recognized
+                    for raw in session.glob("raw/*.jsonl")
+                ),
+                key=_path_age_key,
+            )
+            for raw in raw_paths:
+                if total <= maximum:
+                    break
+                total -= _file_size(raw)
+                raw.unlink(missing_ok=True)
+                removed += 1
+            for session, _ in sorted(recognized, key=lambda item: _path_age_key(item[0])):
+                if total <= maximum:
+                    break
+                total -= self._directory_byte_count(session)
+                _remove_session_directory(session, session.parent)
+                removed += 1
+            if total > maximum:
+                raise StreamStorageCapacityError(
+                    "unrecognized stream-storage files exceed the configured total limit"
+                )
+            return removed
 
     def discard_uncommitted_compact_state(self) -> int:
         """Remove crash-left compact candidates before startup retention.
@@ -853,6 +919,7 @@ class FileStreamStorageBackend:
         records: Sequence[Mapping[str, Any]],
         raw_policy: RawBlockPolicy,
         storage_policy: StreamStoragePolicy,
+        max_total_bytes: int | None = None,
     ) -> RawBlockWrite:
         """Persist one accepted batch only after explicit raw opt-in.
 
@@ -915,6 +982,18 @@ class FileStreamStorageBackend:
                     f"{storage_policy.max_bytes_per_view})"
                 )
 
+            extra_dirs: list[Path] = []
+            extra_raw: list[Path] = []
+            if max_total_bytes is not None:
+                extra_dirs, extra_raw = self._plan_total_replacement(
+                    paths=paths,
+                    maximum=max_total_bytes,
+                    replacement_bytes=len(payload),
+                    replaced_files=(target,),
+                    planned_sessions=(),
+                    planned_raw=tuple(candidate.path for candidate in discarded),
+                )
+
             storage_backend._write_bytes_atomic(target, payload)
             # The immutable replacement is durable before any retained raw
             # block is removed.  A candidate-write error therefore leaves the
@@ -926,6 +1005,7 @@ class FileStreamStorageBackend:
                     candidate.path.unlink()
                 except FileNotFoundError:
                     pass
+            self._apply_cleanup(session_dirs=extra_dirs, raw_paths=extra_raw)
             return RawBlockWrite(
                 path=target,
                 record_count=len(raw_records),
@@ -1288,6 +1368,130 @@ class FileStreamStorageBackend:
                 f"per-view byte limit ({projected} > {policy.max_bytes_per_view})"
             )
         return session_dirs, discarded_raw
+
+    def _plan_total_replacement(
+        self,
+        *,
+        paths: StreamSessionPaths,
+        maximum: int,
+        replacement_bytes: int,
+        replaced_files: Sequence[Path],
+        planned_sessions: Sequence[Path],
+        planned_raw: Sequence[Path],
+    ) -> tuple[list[Path], list[Path]]:
+        """Plan one global cap without deleting any current compact session.
+
+        Old raw blocks yield first, then committed terminal sessions. If all
+        remaining bytes belong to active streams, reject the new write before
+        committing it; a busy stream cannot erase another live stream's
+        durable state just to make room for its own checkpoint.
+        """
+        if maximum < 1:
+            raise ValueError("maximum must be at least one byte")
+        removed_sessions = set(planned_sessions)
+        removed_raw = set(planned_raw)
+        projected = self._directory_byte_count(self.streams_root)
+        projected -= sum(self._directory_byte_count(path) for path in removed_sessions)
+        projected -= sum(
+            _file_size(path)
+            for path in removed_raw
+            if not any(path.is_relative_to(session) for session in removed_sessions)
+        )
+        projected -= sum(
+            _file_size(path)
+            for path in set(replaced_files)
+            if path not in removed_raw
+            and not any(path.is_relative_to(session) for session in removed_sessions)
+        )
+        projected += replacement_bytes
+        if projected <= maximum:
+            return [], []
+
+        sessions = self._recognized_session_directories()
+        extra_raw: list[Path] = []
+        raw_candidates = sorted(
+            (
+                raw
+                for session, _ in sessions
+                if session not in removed_sessions
+                for raw in session.glob("raw/*.jsonl")
+                if raw not in removed_raw and raw not in replaced_files
+            ),
+            key=_path_age_key,
+        )
+        for raw in raw_candidates:
+            if projected <= maximum:
+                break
+            projected -= _file_size(raw)
+            extra_raw.append(raw)
+
+        extra_dirs: list[Path] = []
+        selected_raw = removed_raw | set(extra_raw)
+        terminal = sorted(
+            (
+                session
+                for session, lifecycle in sessions
+                if lifecycle in {"ended", "disconnected", "incomplete"}
+                and session not in removed_sessions
+                and session != paths.session_dir
+            ),
+            key=_path_age_key,
+        )
+        for session in terminal:
+            if projected <= maximum:
+                break
+            selected_bytes = sum(
+                _file_size(raw)
+                for raw in selected_raw
+                if raw.is_relative_to(session)
+            )
+            projected -= self._directory_byte_count(session) - selected_bytes
+            extra_dirs.append(session)
+        if projected > maximum:
+            raise StreamStorageCapacityError(
+                "stream persistence replacement would exceed the configured "
+                f"total stream byte limit ({projected} > {maximum})"
+            )
+        return extra_dirs, extra_raw
+
+    def _recognized_session_directories(self) -> list[tuple[Path, str | None]]:
+        """Only generated, identity-matching directories may be pruned."""
+        root = self.streams_root
+        if not root.exists():
+            return []
+        recognized: list[tuple[Path, str | None]] = []
+        for view_dir in root.iterdir():
+            if not view_dir.is_dir() or view_dir.is_symlink():
+                continue
+            for session_dir in view_dir.iterdir():
+                if not session_dir.is_dir() or session_dir.is_symlink():
+                    continue
+                for name in (_INCOMPLETE_MARKER_NAME, _SESSION_METADATA_NAME):
+                    path = session_dir / name
+                    try:
+                        if path.stat().st_size > 256 * 1024:
+                            continue
+                        envelope = json.loads(path.read_text(encoding="utf-8"))
+                        view_id = envelope.get("view_id")
+                        session_id = envelope.get("session_id")
+                        if not isinstance(view_id, str) or not isinstance(session_id, str):
+                            continue
+                        expected = self.session_paths(
+                            view_id=view_id, session_id=session_id
+                        )
+                        if expected.session_dir != session_dir:
+                            continue
+                        compact = envelope.get("metadata")
+                        lifecycle = (
+                            compact.get("lifecycle")
+                            if isinstance(compact, Mapping)
+                            else "incomplete" if name == _INCOMPLETE_MARKER_NAME else None
+                        )
+                        recognized.append((session_dir, lifecycle))
+                        break
+                    except (OSError, ValueError, TypeError, AttributeError):
+                        continue
+        return recognized
 
     @staticmethod
     def _apply_cleanup(

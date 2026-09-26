@@ -262,6 +262,85 @@ def test_compact_stream_layout_is_versioned_atomic_and_raw_free(tmp_path: Path) 
     assert all(item["storage_kind"] == "noteworthy" for item in noteworthy)
 
 
+def test_global_stream_cap_prunes_old_terminal_sessions_before_new_write(
+    tmp_path: Path,
+) -> None:
+    backend = FileStreamStorageBackend(root_dir=tmp_path / "store")
+    policy = _policy()
+
+    def write(view_id: str, lifecycle: str, maximum: int | None = None) -> None:
+        backend.write_compact_session(
+            view_id=view_id,
+            session_id="session",
+            client_id="producer",
+            metadata={"lifecycle": lifecycle},
+            summary_windows=[],
+            noteworthy_items=[],
+            policy=policy,
+            max_total_bytes=maximum,
+        )
+
+    write("logs:old", "ended")
+    write("logs:middle", "ended")
+    ceiling = backend._directory_byte_count(backend.streams_root)
+    write("logs:new", "live", ceiling)
+
+    assert not backend.session_paths(view_id="logs:old", session_id="session").session_dir.exists()
+    assert backend.session_paths(view_id="logs:new", session_id="session").metadata.exists()
+    assert backend._directory_byte_count(backend.streams_root) <= ceiling
+
+
+def test_global_stream_cap_rejects_write_without_erasing_active_sessions(
+    tmp_path: Path,
+) -> None:
+    backend = FileStreamStorageBackend(root_dir=tmp_path / "store")
+    backend.write_compact_session(
+        view_id="logs:active",
+        session_id="session",
+        client_id="producer",
+        metadata={"lifecycle": "live"},
+        summary_windows=[],
+        noteworthy_items=[],
+        policy=_policy(),
+    )
+    ceiling = backend._directory_byte_count(backend.streams_root) + 10
+    with pytest.raises(StreamStorageCapacityError, match="total stream byte limit"):
+        backend.write_compact_session(
+            view_id="logs:new",
+            session_id="session",
+            client_id="producer",
+            metadata={"lifecycle": "live"},
+            summary_windows=[],
+            noteworthy_items=[],
+            policy=_policy(),
+            max_total_bytes=ceiling,
+        )
+    assert backend.session_paths(view_id="logs:active", session_id="session").metadata.exists()
+    assert not backend.session_paths(view_id="logs:new", session_id="session").session_dir.exists()
+    assert backend._directory_byte_count(backend.streams_root) <= ceiling
+
+
+def test_startup_global_stream_retention_bounds_stale_active_sessions(
+    tmp_path: Path,
+) -> None:
+    backend = FileStreamStorageBackend(root_dir=tmp_path / "store")
+    for view_id in ("logs:older", "logs:newer"):
+        backend.write_compact_session(
+            view_id=view_id,
+            session_id="session",
+            client_id="producer",
+            metadata={"lifecycle": "live"},
+            summary_windows=[],
+            noteworthy_items=[],
+            policy=_policy(),
+        )
+    ceiling = backend._directory_byte_count(
+        backend.session_paths(view_id="logs:newer", session_id="session").session_dir
+    ) + 10
+    assert backend.enforce_total_retention(maximum=ceiling) >= 1
+    assert backend._directory_byte_count(backend.streams_root) <= ceiling
+
+
 def test_compact_stream_write_rejects_raw_summary_and_over_capacity_without_mutation(
     tmp_path: Path,
 ) -> None:
