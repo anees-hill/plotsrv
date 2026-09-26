@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from html import escape
 from typing import Any
+from urllib.parse import urlencode
 
 from fastapi import HTTPException
 
@@ -60,10 +62,10 @@ def _load_snapshot_or_404(*, view_id: str, snapshot_id: str):
 
 
 def _render_plot_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, Any]:
-    src = f"/plot?view={view_id}&snapshot={snapshot_id}"
+    src = "/plot?" + urlencode({"view": view_id, "snapshot": snapshot_id})
     html = f"""
     <div class="plot-frame">
-      <img id="plot" src="{src}" alt="Plot snapshot" />
+      <img id="plot" src="{escape(src, quote=True)}" alt="Plot snapshot" />
     </div>
     """.strip()
 
@@ -82,7 +84,7 @@ def _render_plot_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, A
 
 
 def _render_table_snapshot_html(*, view_id: str, snapshot_id: str) -> dict[str, Any]:
-    data_src = f"/table/data?view={view_id}&snapshot={snapshot_id}"
+    data_src = "/table/data?" + urlencode({"view": view_id, "snapshot": snapshot_id})
     html = """
     <div class="plot-frame">
       <div id="table-grid" class="table-grid"></div>

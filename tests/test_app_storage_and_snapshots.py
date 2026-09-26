@@ -193,7 +193,7 @@ def test_load_snapshot_or_404_raises_http_404(
 def test_render_plot_snapshot_html_structure() -> None:
     out = app_mod._render_plot_snapshot_html(view_id="v1", snapshot_id="s1")
     assert out["kind"] == "plot"
-    assert "/plot?view=v1&snapshot=s1" in out["html"]
+    assert "/plot?view=v1&amp;snapshot=s1" in out["html"]
     assert out["meta"]["src"] == "/plot?view=v1&snapshot=s1"
     assert out["meta"]["snapshot"] is True
 
