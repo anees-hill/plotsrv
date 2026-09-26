@@ -36,6 +36,7 @@ from .http_publish import (
     _validate_artifact_size,
 )
 from .http_security import require_local_request
+from .http_responses import OwnedStreamingResponse
 from .ingestion import (IngestionError, IngestionMiddleware, ingestion_lifespan,
     read_payload, require_admitted, MAX_PUBLISH_REQUEST_BYTES, router as ingestion_router)
 from .http_snapshots import (
@@ -145,8 +146,9 @@ async def browser_updates(
         finally:
             browser_update_hub.unsubscribe(subscription)
 
-    return StreamingResponse(
+    return OwnedStreamingResponse(
         events(),
+        release=lambda: browser_update_hub.unsubscribe(subscription),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",
@@ -1182,7 +1184,7 @@ def _file_backed_csv_table_data_response(
         "truncated": preview.truncated,
         **_watched_file_source_meta(view_id=view_id),
     }
-    return StreamingResponse(
+    return OwnedStreamingResponse(
         _stream_file_backed_table_json(
             columns=preview.columns,
             rows=preview.rows,
@@ -1193,6 +1195,7 @@ def _file_backed_csv_table_data_response(
             meta=response_meta,
             release=lease.release,
         ),
+        release=lease.release,
         media_type="application/json",
     )
 
