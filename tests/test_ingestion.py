@@ -406,6 +406,18 @@ def test_concurrency_rate_and_body_timeout_are_bounded(monkeypatch):
     asyncio.run(exercise())
 
 
+def test_rejected_anonymous_requests_do_not_spend_publisher_budget(tmp_path, monkeypatch):
+    configure(tmp_path, monkeypatch)
+    current = ingestion.state()
+    current._tokens = 1.0
+    monkeypatch.setattr(ingestion.time, "monotonic", lambda: current._last_refill)
+    assert client(key=False).get("/capabilities").status_code == 401
+    assert current._tokens == 1.0
+    assert current._active == 0
+    assert client().get("/capabilities").status_code == 200
+    assert current._tokens == 0.0
+
+
 def test_remote_html_markdown_and_table_flags_cannot_grant_trust(tmp_path, monkeypatch):
     configure(tmp_path, monkeypatch, key=False, remote=True)
     http = client(key=False)

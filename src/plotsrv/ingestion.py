@@ -432,9 +432,9 @@ class IngestionMiddleware:
         current = state()
         entered = False
         try:
+            current.authenticate(Request(scope))
             current.enter()
             entered = True
-            current.authenticate(Request(scope))
             await self.app(scope, receive, send)
         except IngestionError as error:
             await error.response()(scope, receive, send)
