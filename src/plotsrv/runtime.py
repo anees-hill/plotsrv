@@ -982,6 +982,11 @@ def _read_csv_tail_rows(
     with open_regular_file(path) as raw:
         size_bytes = os.fstat(raw.fileno()).st_size
         budget = size_bytes if max_bytes is None else min(size_bytes, max(1, int(max_bytes)))
+        if budget == size_bytes:
+            # Keep a single decoder for complete-file tails: UTF-16 and other
+            # stateful encodings cannot be restarted just after their header.
+            return _read_complete_csv_tail(raw, encoding=encoding, size=size_bytes,
+                                          max_rows=max_rows, max_columns=max_columns)
         header = _read_csv_header(raw, encoding=encoding, max_bytes=max(1, min(64 * 1024, budget)))
         header_bytes = raw.tell()
         width = len(header)
@@ -1012,6 +1017,37 @@ def _read_csv_tail_rows(
             text.detach()
 
     return header, list(retained), header_bytes + limited.bytes_read, has_more_rows
+
+
+def _read_complete_csv_tail(raw, *, encoding, size, max_rows, max_columns):
+    header_budget = min(64 * 1024, size)
+    limited = _LimitedBinaryReader(raw, header_budget)
+    buffered = io.BufferedReader(limited)
+    text = io.TextIOWrapper(buffered, encoding=encoding, errors="replace", newline="")
+    reading_header = True
+
+    def lines():
+        while line := text.readline():
+            if (reading_header and limited.bytes_read >= header_budget
+                    and size > header_budget and not line.endswith(("\n", "\r"))):
+                raise ValueError("CSV header exceeds the preview byte limit")
+            yield line
+
+    try:
+        reader = csv.reader(lines(), strict=True)
+        header = next(reader, [])
+        reading_header = False
+        limited._remaining = size - limited.bytes_read
+        width = len(header) if max_columns is None else min(len(header), max(1, int(max_columns)))
+        retained = deque(maxlen=max_rows) if max_rows is not None else deque()
+        more = False
+        for row in reader:
+            if max_rows is not None and len(retained) >= max_rows:
+                more = True
+            retained.append(_normalise_csv_row(row, width))
+        return header, list(retained), limited.bytes_read, more
+    finally:
+        text.detach()
 
 
 def read_file_backed_csv_preview(

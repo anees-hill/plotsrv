@@ -46,3 +46,20 @@ def test_quoted_header_newline_still_works(tmp_path):
     header, rows, _, _ = runtime._read_csv_tail_rows(source, encoding="utf-8", max_bytes=100, max_rows=2, max_columns=2)
     assert header == ["multi\nline", "value"]
     assert rows == [["1", "first"]]
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-16", "utf-16-le", "utf-16-be"])
+def test_complete_tail_preserves_csv_decoder_state(tmp_path, encoding):
+    source = tmp_path / "source.csv"
+    source.write_text("name,value\r\nα,1\r\nβ,2\r\n", encoding=encoding)
+    header, rows, consumed, _ = runtime._read_csv_tail_rows(source, encoding=encoding, max_bytes=None, max_rows=1, max_columns=2)
+    assert header == ["name", "value"]
+    assert rows == [["β", "2"]]
+    assert consumed == source.stat().st_size
+
+
+def test_complete_tail_still_bounds_header(tmp_path):
+    source = tmp_path / "source.csv"
+    source.write_text("c," * (33 * 1024) + "\n1,2\n")
+    with pytest.raises(ValueError, match="header exceeds"):
+        runtime._read_csv_tail_rows(source, encoding="utf-8", max_bytes=None, max_rows=1, max_columns=2)
