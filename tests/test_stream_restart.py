@@ -23,6 +23,10 @@ def isolate(monkeypatch):
     settings._CONFIG_CACHE.clear()
     store.reset()
     monkeypatch.setattr(config, "get_control_local_only", lambda: False)
+    # This suite proves exact restart ordering of every accepted checkpoint.
+    monkeypatch.setattr(
+        config, "get_storage_stream_compact_min_interval_s", lambda view_id=None: 0.0
+    )
     yield
     store.reset()
     settings._CTX = settings.RuntimeContext()

@@ -335,6 +335,16 @@
       }
 
       const lifecycle = String(stream.lifecycle || "unknown").toLowerCase();
+      if (lifecycle === "held") {
+        return {
+          visible: config.showHeaderFreshness,
+          tone: "error",
+          label: "Stream held",
+          context: "Remote upload budget reached",
+          title: "Stream delivery is held",
+          copy: "The publisher paused record delivery after reaching its remote upload budget. The source log continues independently. To resume sooner, change stream-settings.remote_upload_max_mb_per_day in the publisher's plotsrv configuration.",
+        };
+      }
       if (stream.continuityWarning) {
         return {
           visible: config.showHeaderFreshness,

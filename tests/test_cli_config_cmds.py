@@ -393,11 +393,14 @@ def test_default_config_text_is_compact_but_keeps_useful_settings() -> None:
     assert data["stream-settings"]["retention"]["max_raw_records"] == 1000
     assert data["stream-settings"]["retention"]["max_raw_mb"] == 16
     assert data["stream-settings"]["retention"]["max_total_raw_mb"] == 128
+    assert data["stream-settings"]["remote_upload_max_mb_per_day"] == 100
+    assert data["stream-settings"]["heartbeat_interval_s"] == 10
+    assert data["stream-settings"]["heartbeat_timeout_s"] == 30
     assert data["limits"]["watched_files"]["max_mb"] == 500
     assert data["freshness-settings"]["enabled"] is False
     assert data["security-settings"]["tracebacks_enabled"] is False
     # Keep the starter useful without returning to the full reference dump.
-    assert 75 <= len(text.splitlines()) < 100
+    assert 75 <= len(text.splitlines()) < 110
 
 
 def test_expanded_config_text_includes_useful_controls() -> None:

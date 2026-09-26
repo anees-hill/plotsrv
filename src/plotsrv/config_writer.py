@@ -73,6 +73,11 @@ publish-settings:
     flush_timeout_s: 1.0
 
 stream-settings:
+  # Publisher process: non-loopback stream uploads share this daily budget.
+  # Use "off" to disable it. Loopback demo publishers are exempt.
+  remote_upload_max_mb_per_day: 100
+  heartbeat_interval_s: 10
+  heartbeat_timeout_s: 30
   retention:
     # Server memory for recent source rows. Both limits apply at once;
     # older rows contribute to bounded derived insights instead of raw history.
@@ -178,8 +183,11 @@ publish-settings:
     flush_timeout_s: 1.0
 
 stream-settings:
-  # Publisher-side source polling, not a records-per-second or upload cap.
+  # Publisher-side source polling; no records-per-second cap is imposed here.
   poll_interval_s: 0.1
+  remote_upload_max_mb_per_day: 100
+  heartbeat_interval_s: 10
+  heartbeat_timeout_s: 30
   retention:
     # Receiver-side live raw window; both bounds apply at once.
     max_raw_records: 1000

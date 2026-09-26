@@ -50,6 +50,8 @@ def test_stream_header_uses_a_stable_lifecycle_presentation_and_slow_pulse() -> 
     assert 'config.kind === "stream"' in status_source
     assert 'label: "Stream active"' in status_source
     assert 'label: "Stream retrying"' in status_source
+    assert 'label: "Stream held"' in status_source
+    assert "remote_upload_max_mb_per_day" in status_source
     assert 'label: "Stream disconnected"' in status_source
     assert 'label: "Stream incomplete"' in status_source
     assert 'label: "Stream ended"' in status_source

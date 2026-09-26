@@ -282,13 +282,16 @@ does not turn a metadata-only `@view(...)` declaration into a publisher.
 
 ## `stream-settings`
 
-Stream source polling runs in the publisher process; live raw retention applies
-in the receiving server. Neither setting is a records-per-second or network
-upload quota.
+Stream source polling and remote upload accounting run in the publisher
+process; live raw retention applies in the receiving server. No
+records-per-second quota is imposed.
 
 ```yaml
 stream-settings:
   poll_interval_s: 0.1
+  heartbeat_interval_s: 10
+  heartbeat_timeout_s: 30
+  remote_upload_max_mb_per_day: 100
   retention:
     max_raw_records: 1000
     max_raw_mb: 16
@@ -310,6 +313,27 @@ under pressure plotsrv evicts an oldest row from the largest window first.
 It does not limit derived summaries, restored historical rows or Python object
 overhead. Increasing these limits also increases the potential first browser
 response for a stream view.
+
+`remote_upload_max_mb_per_day` is an estimated daily budget, shared by stream
+clients in one publisher process and reset at midnight UTC. It applies only
+when the destination is not provably loopback (`localhost`, `127.0.0.1`, or
+`::1`); use a loopback URL for a same-machine publisher. It counts attempted
+stream POST bodies plus a per-request envelope allowance, including retries
+and heartbeats. It does not meter TLS, retransmissions, capability handshakes,
+browser downloads, other plotsrv features, or other processes. A publisher
+restart resets this in-memory counter, so deploy an external network quota if
+you need a strict billable-traffic limit. Set the value to `off` to disable
+the guard.
+
+When the budget is reached, the follower retains one unacknowledged batch and
+stops advancing through the source log until the next UTC day. The original
+logging process is not paused; its file can continue growing. The publisher
+uses a portion of the budget for control heartbeats so the browser can show
+`Stream held` and explain how to change the publisher-side setting. If even
+control traffic exhausts the total budget, heartbeats stop and the receiver
+eventually reports an incomplete stream. The 10-second heartbeat and
+30-second timeout defaults keep idle 24/7 streams from producing a request
+every second; tune both together if faster disconnect detection matters.
 
 ## `render-settings`
 

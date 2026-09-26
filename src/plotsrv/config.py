@@ -141,8 +141,11 @@ _DEFAULTS: dict[str, Any] = {
         # A stream session remains live only while its producer renews this
         # heartbeat. Timeouts are observations of the transport, never proof
         # of a clean producer or application exit.
-        "heartbeat_interval_s": 1.0,
-        "heartbeat_timeout_s": 3.0,
+        "heartbeat_interval_s": 10.0,
+        "heartbeat_timeout_s": 30.0,
+        # Publisher-process estimate for non-loopback stream POST uploads.
+        # Loopback destinations remain exempt; "off" disables this guard.
+        "remote_upload_max_mb_per_day": 100.0,
         # Every explicit stop and the single process-exit manager receives a
         # finite budget; neither installs an application signal handler.
         "shutdown_drain_timeout_s": 1.0,
@@ -1405,6 +1408,14 @@ def get_stream_heartbeat_timeout_s() -> float:
         _stream_settings().get("heartbeat_timeout_s"), default, min_value=interval
     )
     return max(interval, value)
+
+
+def get_stream_remote_upload_max_bytes_per_day() -> int | None:
+    """Publisher-process budget for non-loopback stream request uploads."""
+    default_mb = float(_DEFAULTS["stream-settings"]["remote_upload_max_mb_per_day"])
+    return _parse_mb_to_bytes(
+        _stream_settings().get("remote_upload_max_mb_per_day"), default_mb
+    )
 
 
 def get_stream_shutdown_drain_timeout_s() -> float:

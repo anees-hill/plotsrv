@@ -230,7 +230,8 @@
   background: #f2c200;
 }
 
-.ps-stream-feed-status[data-lifecycle="disconnected"] .ps-stream-feed-status__dot {
+.ps-stream-feed-status[data-lifecycle="disconnected"] .ps-stream-feed-status__dot,
+.ps-stream-feed-status[data-lifecycle="held"] .ps-stream-feed-status__dot {
   background: #d55970;
 }
 

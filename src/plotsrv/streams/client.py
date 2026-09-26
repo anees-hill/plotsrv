@@ -20,12 +20,17 @@ from .models import (
     validate_source_health,
     validate_stream_batch,
 )
+from .upload_budget import (
+    RemoteUploadHeld,
+    shared_remote_upload_budget,
+    target_is_loopback,
+)
 
 
 REQUEST_TIMEOUT_S = 1.0
 INITIAL_RETRY_DELAY_S = 0.1
 MAX_RETRY_DELAY_S = 5.0
-DEFAULT_HEARTBEAT_INTERVAL_S = 1.0
+DEFAULT_HEARTBEAT_INTERVAL_S = 10.0
 
 
 class StreamClient:
@@ -52,7 +57,16 @@ class StreamClient:
         source_health_provider: Callable[[], Mapping[str, object]] | None = None,
     ) -> None:
         from ..connection_config import resolve_publish_target
+        from .. import config
         self.target = resolve_publish_target(destination=destination, host=host, port=port, launch_server=False)
+        remote_maximum = config.get_stream_remote_upload_max_bytes_per_day()
+        self._upload_budget = (
+            shared_remote_upload_budget(remote_maximum)
+            if remote_maximum is not None and not target_is_loopback(self.target)
+            else None
+        )
+        if self._upload_budget is not None:
+            self._upload_budget.register(self)
         resolved_timeout = self.target.stream_request_timeout_s if request_timeout_s is None else request_timeout_s
         resolved_initial_delay = (
             INITIAL_RETRY_DELAY_S
@@ -100,6 +114,8 @@ class StreamClient:
         self._connection_lock = threading.Lock()
         self._heartbeat_thread: threading.Thread | None = None
         self._closed = False
+        self._upload_held = False
+        self.delivery_holds = 0
         self._next_batch_sequence = 0
         self._pending_batch_id: str | None = None
         self._pending_batch_sequence: int | None = None
@@ -191,6 +207,9 @@ class StreamClient:
                     or next_sequence != sequence + 1
                 ):
                     raise RuntimeError("stream append acknowledgement was invalid")
+            except RemoteUploadHeld as error:
+                self._record_upload_hold(error)
+                return False
             except Exception as error:
                 self._record_failure(error, operation="delivery")
                 return False
@@ -221,6 +240,9 @@ class StreamClient:
                 "delivery_attempts": self.delivery_attempts,
                 "delivery_failures": self.delivery_failures,
                 "delivery_acknowledgements": self.delivery_acknowledgements,
+                "delivery_holds": self.delivery_holds,
+                "upload_held": self._upload_held,
+                "remote_upload_budget_applies": self._upload_budget is not None,
                 "heartbeat_attempts": self.heartbeat_attempts,
                 "heartbeat_failures": self.heartbeat_failures,
                 "close_attempts": self.close_attempts,
@@ -250,7 +272,13 @@ class StreamClient:
                 return False
         with self._append_lock:
             pending_delivery = self._pending_batch_id is not None
-        delivery_state = "retrying" if pending_delivery or self.retry_delay_s > 0 else "live"
+        with self._connection_lock:
+            held = self._upload_held
+        delivery_state = (
+            "held" if held else
+            "retrying" if pending_delivery or self.retry_delay_s > 0 else "live"
+        )
+        pending_delivery = pending_delivery or held
         try:
             with self._source_telemetry_delivery_lock:
                 payload = {
@@ -269,9 +297,13 @@ class StreamClient:
             if response.get("ok") is not True or response.get("lifecycle") not in (
                 "live",
                 "retrying",
+                "held",
             ):
                 raise RuntimeError("stream heartbeat acknowledgement was invalid")
             return True
+        except RemoteUploadHeld as error:
+            self._record_upload_hold(error)
+            return False
         except Exception as error:
             self._record_failure(error, operation="heartbeat")
             return False
@@ -301,6 +333,8 @@ class StreamClient:
             self._closed = True
             self.close_attempts += 1
         if timeout_s <= 0:
+            if self._upload_budget is not None:
+                self._upload_budget.unregister(self)
             return False
         payload = {
             "protocol_version": STREAM_PROTOCOL_VERSION,
@@ -322,6 +356,9 @@ class StreamClient:
                 self.close_failures += 1
                 self.last_error = error
             return False
+        finally:
+            if self._upload_budget is not None:
+                self._upload_budget.unregister(self)
 
     def _ensure_registered(
         self, *, timeout_s: float | None = None, force: bool = False
@@ -401,6 +438,9 @@ class StreamClient:
             self._registered.set()
             self._reset_retry()
             return True
+        except RemoteUploadHeld as error:
+            self._record_upload_hold(error)
+            return False
         except Exception as error:
             self._record_failure(error, operation="registration")
             return False
@@ -507,8 +547,18 @@ class StreamClient:
             self._next_retry_at = now + delay
             self._retry_delay_s = min(self._retry_max_delay_s, delay * 2)
 
+    def _record_upload_hold(self, error: RemoteUploadHeld) -> None:
+        """Pause follower retries without dropping the owned server session."""
+        with self._connection_lock:
+            if not self._upload_held:
+                self.delivery_holds += 1
+            self._upload_held = True
+            self.last_error = error
+            self._next_retry_at = time.monotonic() + error.retry_after_s
+
     def _reset_retry(self) -> None:
         with self._connection_lock:
+            self._upload_held = False
             self._next_retry_at = 0.0
             self._retry_delay_s = self._retry_initial_delay_s
 
@@ -532,6 +582,8 @@ class StreamClient:
     ) -> dict[str, Any]:
         from ..publishing.transport import request_json
         timeout = self._request_timeout_s if timeout_s is None else min(self._request_timeout_s, float(timeout_s))
+        if self._upload_budget is not None:
+            self._upload_budget.reserve(payload, append=path == "/stream/append")
         return request_json(self.target, path, payload, feature="stream-v4", timeout_s=timeout)
 
 

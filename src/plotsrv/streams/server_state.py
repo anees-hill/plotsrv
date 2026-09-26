@@ -53,7 +53,7 @@ DEFAULT_MAX_SUMMARY_FIELDS = 64
 DEFAULT_MAX_CATEGORICAL_VALUES = 16
 DEFAULT_MAX_CATEGORICAL_VALUE_BYTES = 128
 DEFAULT_MAX_NOTEWORTHY_ITEMS = 64
-DEFAULT_HEARTBEAT_TIMEOUT_S = 3.0
+DEFAULT_HEARTBEAT_TIMEOUT_S = 30.0
 _OBSERVATION_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 # Automatic non-severity retention remains deliberately narrow.  These are
@@ -86,10 +86,11 @@ NOTEWORTHY_NUMERIC_EXTREMUM_FIELDS = frozenset(
 
 LIVE = "live"
 RETRYING = "retrying"
+HELD = "held"
 ENDED = "ended"
 DISCONNECTED = "disconnected"
 INCOMPLETE = "incomplete"
-_ACTIVE_LIFECYCLES = frozenset((LIVE, RETRYING))
+_ACTIVE_LIFECYCLES = frozenset((LIVE, RETRYING, HELD))
 
 
 class StreamStateError(ValueError):
@@ -691,8 +692,10 @@ class StreamRegistry:
         """Accept one truthful producer liveness observation for a session."""
         if heartbeat.delivery_state not in _ACTIVE_LIFECYCLES:
             raise StreamStateError(
-                "stream heartbeat delivery_state must be 'live' or 'retrying'"
+                "stream heartbeat delivery_state must be 'live', 'retrying' or 'held'"
             )
+        if heartbeat.delivery_state == HELD and not heartbeat.pending_delivery:
+            raise StreamStateError("held stream heartbeat must report pending delivery")
         from ..ingestion import require_admitted
         require_admitted(heartbeat.view_id)
         with self._lock:
@@ -1289,6 +1292,7 @@ class StreamRegistry:
             if stored_lifecycle not in {
                 LIVE,
                 RETRYING,
+                HELD,
                 ENDED,
                 DISCONNECTED,
                 INCOMPLETE,

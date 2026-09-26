@@ -18,6 +18,9 @@
     retrying: {
       text: "Retrying delivery — recent observations may still be pending.",
     },
+    held: {
+      text: "Stream held — the publisher's remote upload budget paused record delivery. Increase or disable stream-settings.remote_upload_max_mb_per_day in the publisher's plotsrv configuration to resume sooner. The source log continues independently.",
+    },
     ended: {
       text: "Observation ended — the producer explicitly stopped after its bounded final drain.",
     },
@@ -862,6 +865,7 @@
       ? "Stored stream"
       : lifecycle === "live" ? "Stream active"
         : lifecycle === "retrying" ? "Stream retrying"
+          : lifecycle === "held" ? "Stream held"
           : lifecycle === "ended" ? "Stream ended"
             : "Stream " + lifecycle;
     const received = Number(data.accepted_records || 0);

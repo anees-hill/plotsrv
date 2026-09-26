@@ -84,8 +84,9 @@ def test_default_stream_settings_bound_recovery_without_affecting_publish() -> N
     assert config.get_stream_request_timeout_s() == 1.0
     assert config.get_stream_retry_initial_delay_s() == 0.1
     assert config.get_stream_retry_max_delay_s() == 5.0
-    assert config.get_stream_heartbeat_interval_s() == 1.0
-    assert config.get_stream_heartbeat_timeout_s() == 3.0
+    assert config.get_stream_heartbeat_interval_s() == 10.0
+    assert config.get_stream_heartbeat_timeout_s() == 30.0
+    assert config.get_stream_remote_upload_max_bytes_per_day() == 100 * 1024 * 1024
     assert config.get_stream_shutdown_drain_timeout_s() == 1.0
     assert config.get_stream_process_exit_cleanup_timeout_s() == 0.25
     assert config.get_stream_raw_max_records() == 1_000
@@ -114,6 +115,7 @@ stream-settings:
   retry_max_delay_s: 0.2
   heartbeat_interval_s: 0.04
   heartbeat_timeout_s: 0.12
+  remote_upload_max_mb_per_day: off
   shutdown_drain_timeout_s: 0.3
   process_exit_cleanup_timeout_s: 0.05
   retention:
@@ -140,6 +142,7 @@ stream-settings:
     assert config.get_stream_retry_max_delay_s() == 0.2
     assert config.get_stream_heartbeat_interval_s() == 0.04
     assert config.get_stream_heartbeat_timeout_s() == 0.12
+    assert config.get_stream_remote_upload_max_bytes_per_day() is None
     assert config.get_stream_shutdown_drain_timeout_s() == 0.3
     assert config.get_stream_process_exit_cleanup_timeout_s() == 0.05
     assert config.get_stream_raw_max_records() == 3
