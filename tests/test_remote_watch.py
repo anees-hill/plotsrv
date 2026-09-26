@@ -263,6 +263,23 @@ def test_auth_seal_unknown_and_no_snapshots(client, tmp_path, monkeypatch):
     )
 
 
+def test_mislabeled_eps_never_enters_postscript_parser(client, monkeypatch):
+    from PIL import Image
+
+    Image.init()
+    entered = []
+    def forbidden_parser(*args, **kwargs):
+        entered.append(True)
+        raise AssertionError("EPS parser was selected")
+    monkeypatch.setitem(Image.OPEN, "EPS", (forbidden_parser, lambda prefix: True))
+    session = register(client)
+    # Ordinary inert EPS header; no looping or resource-exhaustion payload.
+    raw = b"%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 1 1\n%%EOF\n"
+    result = client.post("/watch/update", json=envelope(session, raw, name="image.png"))
+    assert result.status_code == 422
+    assert entered == []
+
+
 def test_image_validation_decoded_size_and_binary_rejection(client):
     from PIL import Image
 

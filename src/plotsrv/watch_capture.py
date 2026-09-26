@@ -145,7 +145,9 @@ def prepare(raw: bytes, source: dict) -> Preparation:
             raise ValueError("image must be complete supported raster data")
         from PIL import Image
 
-        with Image.open(io.BytesIO(raw)) as im:
+        # Restrict parser selection before opening: a PNG filename is not
+        # evidence of PNG bytes, and post-open MIME checks are too late.
+        with Image.open(io.BytesIO(raw), formats=["PNG", "JPEG", "GIF", "WEBP", "BMP"]) as im:
             if im.width * im.height > MAX_PIXELS or getattr(im, "n_frames", 1) != 1:
                 raise ValueError("decoded image limit")
             mime = Image.MIME.get(im.format)
