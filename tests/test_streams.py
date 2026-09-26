@@ -3976,6 +3976,55 @@ def test_raw_retention_enforces_count_byte_and_age_bounds_into_fine_windows() ->
     assert not hasattr(fine_window, "records")
 
 
+def test_shared_live_raw_budget_evicts_largest_window_into_summary() -> None:
+    large = {"source": "large", "message": "x" * 100}
+    small = {"source": "small", "message": "y"}
+    budget = stream_record_size(large) + stream_record_size(small) - 1
+    registry = StreamRegistry(
+        max_recent_records=1_000,
+        max_recent_bytes=16 * 1024 * 1024,
+        max_total_recent_bytes=budget,
+    )
+    for index, record in enumerate((large, small)):
+        view_id = f"logs:shared-budget-{index}"
+        registration = StreamRegistration(
+            view_id=view_id,
+            label=view_id,
+            section="logs",
+            client_id=TEST_CLIENT_ID,
+            session_id=TEST_SESSION_ID,
+        )
+        registry.register(registration)
+        registry.append(
+            StreamAppend(
+                view_id=view_id,
+                client_id=TEST_CLIENT_ID,
+                session_id=TEST_SESSION_ID,
+                batch_id="first",
+                batch_sequence=0,
+                records=(record,),
+            )
+        )
+
+    large_state = registry._streams["logs:shared-budget-0"]
+    small_state = registry._streams["logs:shared-budget-1"]
+    assert len(large_state.records) == 0
+    assert len(small_state.records) == 1
+    assert sum(state.raw_record_bytes for state in (large_state, small_state)) <= budget
+    assert large_state.cumulative.total_records == 1
+    assert sum(window.record_count for window in large_state.fine_windows.values()) == 1
+
+    registry.set_raw_retention(
+        max_recent_records=1_000,
+        max_recent_bytes=16 * 1024 * 1024,
+        max_total_recent_bytes=1,
+        max_recent_age_s=None,
+        fine_window_s=60,
+    )
+    assert len(small_state.records) == 0
+    assert sum(window.record_count for window in small_state.fine_windows.values()) == 1
+
+
 def test_eviction_uses_fixed_plotsrv_observation_time_fine_windows() -> None:
     observed_at = datetime(2026, 1, 1, 12, 0, 59, tzinfo=UTC)
     registry = StreamRegistry(

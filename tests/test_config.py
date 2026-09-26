@@ -88,8 +88,9 @@ def test_default_stream_settings_bound_recovery_without_affecting_publish() -> N
     assert config.get_stream_heartbeat_timeout_s() == 3.0
     assert config.get_stream_shutdown_drain_timeout_s() == 1.0
     assert config.get_stream_process_exit_cleanup_timeout_s() == 0.25
-    assert config.get_stream_raw_max_records() == 200
-    assert config.get_stream_raw_max_bytes() == 8 * 1024 * 1024
+    assert config.get_stream_raw_max_records() == 1_000
+    assert config.get_stream_raw_max_bytes() == 16 * 1024 * 1024
+    assert config.get_stream_total_raw_max_bytes() == 128 * 1024 * 1024
     assert config.get_stream_raw_max_age_s() is None
     assert config.get_stream_fine_window_s() == 60
     assert config.get_stream_max_fine_summary_windows() == 32
@@ -118,6 +119,7 @@ stream-settings:
   retention:
     max_raw_records: 3
     max_raw_bytes: 1234
+    max_total_raw_mb: 2
     max_raw_age_s: 0.2
     fine_window_s: 5
     max_fine_summary_windows: 4
@@ -142,6 +144,7 @@ stream-settings:
     assert config.get_stream_process_exit_cleanup_timeout_s() == 0.05
     assert config.get_stream_raw_max_records() == 3
     assert config.get_stream_raw_max_bytes() == 1234
+    assert config.get_stream_total_raw_max_bytes() == 2 * 1024 * 1024
     assert config.get_stream_raw_max_age_s() == 0.2
     assert config.get_stream_fine_window_s() == 5
     assert config.get_stream_max_fine_summary_windows() == 4

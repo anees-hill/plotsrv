@@ -388,8 +388,9 @@ def test_default_config_text_is_compact_but_keeps_useful_settings() -> None:
     assert data["watch-settings"]["file_threshold_mb"] == 10
     assert data["publish-settings"]["live"]["async_enabled"] is False
     assert data["publish-settings"]["live"]["max_pending_views"] == 32
-    assert data["stream-settings"]["retention"]["max_raw_records"] == 200
-    assert data["stream-settings"]["retention"]["max_raw_mb"] == 8
+    assert data["stream-settings"]["retention"]["max_raw_records"] == 1000
+    assert data["stream-settings"]["retention"]["max_raw_mb"] == 16
+    assert data["stream-settings"]["retention"]["max_total_raw_mb"] == 128
     assert data["limits"]["watched_files"]["max_mb"] == 500
     assert data["freshness-settings"]["enabled"] is False
     assert data["security-settings"]["tracebacks_enabled"] is False
@@ -410,7 +411,7 @@ def test_expanded_config_text_includes_useful_controls() -> None:
     assert data["publish-settings"]["live"]["async_enabled"] is False
     assert data["publish-settings"]["live"]["max_pending_views"] == 32
     assert data["stream-settings"]["poll_interval_s"] == 0.1
-    assert data["stream-settings"]["retention"]["max_raw_mb"] == 8
+    assert data["stream-settings"]["retention"]["max_raw_mb"] == 16
     assert data["storage-settings"]["streams"]["keep_last_sessions"] == 8
     assert data["freshness-settings"]["enabled"] is False
     assert data["render-settings"]["default"]["table_view_mode"] == "rich"

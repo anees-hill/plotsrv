@@ -353,6 +353,7 @@ def _configure_heartbeat_timeout() -> None:
     stream_registry.set_raw_retention(
         max_recent_records=config.get_stream_raw_max_records(),
         max_recent_bytes=config.get_stream_raw_max_bytes(),
+        max_total_recent_bytes=config.get_stream_total_raw_max_bytes(),
         max_recent_age_s=config.get_stream_raw_max_age_s(),
         fine_window_s=config.get_stream_fine_window_s(),
     )

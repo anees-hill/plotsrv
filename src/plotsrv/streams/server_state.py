@@ -41,8 +41,9 @@ from .log_profile import LogProfile
 from .summaries import SummaryLimits, SummaryWindow
 
 
-MAX_RECENT_STREAM_RECORDS = 200
-MAX_RECENT_STREAM_BYTES = 8 * 1024 * 1024
+MAX_RECENT_STREAM_RECORDS = 1_000
+MAX_RECENT_STREAM_BYTES = 16 * 1024 * 1024
+MAX_TOTAL_LIVE_STREAM_BYTES = 128 * 1024 * 1024
 MAX_RECENT_STREAM_COLUMNS = 200
 DEFAULT_FINE_WINDOW_S = 60
 DEFAULT_MAX_FINE_SUMMARY_WINDOWS = 32
@@ -406,6 +407,7 @@ class StreamRegistry:
         *,
         max_recent_records: int = MAX_RECENT_STREAM_RECORDS,
         max_recent_bytes: int = MAX_RECENT_STREAM_BYTES,
+        max_total_recent_bytes: int = MAX_TOTAL_LIVE_STREAM_BYTES,
         max_recent_age_s: float | None = None,
         max_recent_columns: int = MAX_RECENT_STREAM_COLUMNS,
         fine_window_s: int = DEFAULT_FINE_WINDOW_S,
@@ -439,6 +441,9 @@ class StreamRegistry:
             max_bytes=int(max_recent_bytes),
             max_age_s=max_recent_age_s,
         )
+        if max_total_recent_bytes < 1:
+            raise ValueError("max_total_recent_bytes must be at least one")
+        self.max_total_recent_bytes = int(max_total_recent_bytes)
         self.max_recent_columns = int(max_recent_columns)
         self.fine_window_s = int(fine_window_s)
         self.max_fine_summary_windows = int(max_fine_summary_windows)
@@ -607,6 +612,7 @@ class StreamRegistry:
 
             observed_at = self._observed_now()
             accepted_raw_records: list[StreamRecord] = []
+            affected_schema_views: set[str] = {append.view_id}
             for data in append.records:
                 # The route gives JSON-native dictionaries. Copy them before
                 # retention so registry state cannot be mutated by the caller.
@@ -638,10 +644,21 @@ class StreamRegistry:
                     )
                 self._retain_noteworthy_first_appearances(state, row)
                 self._retain_noteworthy_numeric_extrema(state, row)
-                # Enforce after every accepted record, rather than once at
-                # batch end, so a valid 100-record append cannot grow the
-                # retained raw window beyond a hard policy in between rows.
-                self._enforce_raw_retention(state, observed_at)
+                # Keep each view within its own bound while accepting a batch.
+                self._enforce_raw_retention(state, observed_at, refresh_schema=False)
+
+            # The registry lock hides intermediate batch state from readers.
+            # Checking the shared bound once per batch avoids scanning every
+            # live view for every incoming row.
+            affected_schema_views.update(
+                self._enforce_total_raw_retention(refresh_schema=False)
+            )
+
+            # No browser can inspect an intermediate state inside an accepted
+            # batch. Rebuilding the schema once avoids rescanning up to 1,000
+            # retained rows for every one of its at most 100 records.
+            for affected_view_id in sorted(affected_schema_views):
+                self._refresh_schema(self._streams[affected_view_id])
 
             state.last_batch_id = append.batch_id
             state.last_batch_fingerprint = batch_fingerprint
@@ -1584,6 +1601,7 @@ class StreamRegistry:
         *,
         max_recent_records: int,
         max_recent_bytes: int,
+        max_total_recent_bytes: int | None = None,
         max_recent_age_s: float | None,
         fine_window_s: int,
     ) -> None:
@@ -1595,14 +1613,30 @@ class StreamRegistry:
             max_bytes=int(max_recent_bytes),
             max_age_s=max_recent_age_s,
         )
+        total_bytes = (
+            self.max_total_recent_bytes
+            if max_total_recent_bytes is None
+            else int(max_total_recent_bytes)
+        )
+        if total_bytes < 1:
+            raise ValueError("max_total_recent_bytes must be at least one")
         with self._lock:
+            if (
+                self.raw_retention == policy
+                and self.max_total_recent_bytes == total_bytes
+                and self.fine_window_s == int(fine_window_s)
+                and policy.max_age_s is None
+            ):
+                return
             self.raw_retention = policy
+            self.max_total_recent_bytes = total_bytes
             self.fine_window_s = int(fine_window_s)
             now = self._observed_now()
             for state in self._streams.values():
                 if state.historical:
                     continue
                 self._enforce_raw_retention(state, now)
+            self._enforce_total_raw_retention()
 
     def set_summary_retention(
         self,
@@ -1708,16 +1742,51 @@ class StreamRegistry:
         return tuple(columns)
 
     def _enforce_raw_retention(
-        self, state: StreamViewState, observed_now: datetime
+        self,
+        state: StreamViewState,
+        observed_now: datetime,
+        *,
+        refresh_schema: bool = True,
     ) -> None:
         """Evict oldest raw rows until every configured hard bound is met."""
+        evicted_any = False
         while state.records and self._raw_bounds_exceeded(state, observed_now):
-            evicted = state.records.popleft()
-            state.raw_record_bytes -= evicted.encoded_bytes
-            state.http_profile.evict(evicted.browser_sequence)
-            state.log_profile.evict(evicted.browser_sequence)
-            self._add_to_fine_window(state, evicted)
-        self._refresh_schema(state)
+            self._evict_oldest_raw_record(state)
+            evicted_any = True
+        if evicted_any and refresh_schema:
+            self._refresh_schema(state)
+
+    def _enforce_total_raw_retention(
+        self, *, refresh_schema: bool = True
+    ) -> set[str]:
+        """Share one hard live-row byte budget without starving small streams."""
+        live = [
+            (view_id, state)
+            for view_id, state in self._streams.items()
+            if not state.historical and state.records
+        ]
+        total = sum(state.raw_record_bytes for _, state in live)
+        changed: set[str] = set()
+        while live and total > self.max_total_recent_bytes:
+            # The largest current window yields one oldest row. Ties use a
+            # stable view ID so two noisy sources cannot depend on arrival order.
+            view_id, state = max(live, key=lambda item: (item[1].raw_record_bytes, item[0]))
+            total -= self._evict_oldest_raw_record(state)
+            changed.add(view_id)
+            if not state.records:
+                live = [(key, item) for key, item in live if key != view_id]
+        if refresh_schema:
+            for view_id in sorted(changed):
+                self._refresh_schema(self._streams[view_id])
+        return changed
+
+    def _evict_oldest_raw_record(self, state: StreamViewState) -> int:
+        evicted = state.records.popleft()
+        state.raw_record_bytes -= evicted.encoded_bytes
+        state.http_profile.evict(evicted.browser_sequence)
+        state.log_profile.evict(evicted.browser_sequence)
+        self._add_to_fine_window(state, evicted)
+        return evicted.encoded_bytes
 
     def _raw_bounds_exceeded(
         self, state: StreamViewState, observed_now: datetime

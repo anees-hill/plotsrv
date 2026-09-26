@@ -74,8 +74,9 @@ stream-settings:
   retention:
     # Server memory for recent source rows. Both limits apply at once;
     # older rows contribute to bounded derived insights instead of raw history.
-    max_raw_records: 200
-    max_raw_mb: 8
+    max_raw_records: 1000
+    max_raw_mb: 16
+    max_total_raw_mb: 128
 
 limits:
   published_objects:
@@ -177,8 +178,9 @@ stream-settings:
   poll_interval_s: 0.1
   retention:
     # Receiver-side live raw window; both bounds apply at once.
-    max_raw_records: 200
-    max_raw_mb: 8
+    max_raw_records: 1000
+    max_raw_mb: 16
+    max_total_raw_mb: 128
     # Derived insights use observation-time windows, not source timestamps.
     fine_window_s: 60
     max_fine_summary_windows: 32

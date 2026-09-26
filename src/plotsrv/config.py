@@ -152,8 +152,11 @@ _DEFAULTS: dict[str, Any] = {
         # Fine windows are an internal compaction boundary, not source-time
         # buckets: they use plotsrv's observation time.
         "retention": {
-            "max_raw_records": 200,
-            "max_raw_mb": 8.0,
+            "max_raw_records": 1_000,
+            "max_raw_mb": 16.0,
+            # A process-wide ceiling for current (non-historical) raw windows.
+            # Python object overhead is additional to these encoded bytes.
+            "max_total_raw_mb": 128.0,
             "max_raw_age_s": None,
             "fine_window_s": 60,
             # Derived history keeps a recent fixed fine tier, a coarser fixed
@@ -1200,6 +1203,17 @@ def get_stream_raw_max_bytes() -> int:
                 _as_int_or_inf(configured["max_raw_bytes"], default_bytes),
             )
     return default_bytes
+
+
+def get_stream_total_raw_max_bytes() -> int:
+    """Shared encoded-row byte ceiling for current stream windows."""
+    default_mb = float(
+        _DEFAULTS["stream-settings"]["retention"]["max_total_raw_mb"]
+    )
+    value = _parse_mb_to_bytes(
+        _stream_retention_settings().get("max_total_raw_mb"), default_mb
+    )
+    return int(default_mb * _MB) if value is None else max(1, value)
 
 
 def get_stream_raw_max_age_s() -> float | None:
