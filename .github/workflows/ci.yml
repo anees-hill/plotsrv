@@ -30,10 +30,16 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install test dependencies
-        run: uv sync --group test
+        run: uv sync --locked --group test
 
       - name: Install project
         run: uv pip install -e .
+
+      - name: Audit locked runtime dependencies
+        if: matrix.python-version == '3.13'
+        run: |
+          uv export --locked --no-dev --no-emit-project --format requirements-txt --output-file /tmp/plotsrv-runtime-requirements.txt > /dev/null
+          uvx --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps -r /tmp/plotsrv-runtime-requirements.txt
 
       - name: Run tests
         run: uv run pytest --benchmark-skip --cov=plotsrv --cov-report=xml

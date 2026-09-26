@@ -19,15 +19,17 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "bleach>=6.0",
-    "fastapi>=0.111,<1",
+    "bleach>=6.4,<7",
+    "fastapi>=0.141.1,<1",
+    "starlette>=1.7,<2",
     "markdown>=3.6,<4",
     "matplotlib>=3.8,<4",
+    "pillow>=12.3,<13",
     "plotnine>=0.14",
     "pyyaml>=6.0",
     "pygments>=2.19,<3",
-    "requests>=2.31,<3",
-    "uvicorn>=0.30,<1",
+    "requests>=2.34.2,<3",
+    "uvicorn>=0.54,<1",
 ]
 
 [dependency-groups]
