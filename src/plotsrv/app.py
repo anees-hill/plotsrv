@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import shutil
 import stat
 import time
@@ -37,6 +38,7 @@ from .http_publish import (
 )
 from .http_security import require_local_request, require_snapshot_read
 from .http_responses import OwnedStreamingResponse
+from .file_access import open_regular_file
 from .ingestion import (IngestionError, IngestionMiddleware, ingestion_lifespan,
     read_payload, require_admitted, MAX_PUBLISH_REQUEST_BYTES, router as ingestion_router)
 from .http_snapshots import (
@@ -412,7 +414,8 @@ def _watched_file_raw_response(
     *,
     view_id: str,
     download: bool,
-) -> FileResponse:
+    request: Request,
+) -> Response:
     meta, path = _registered_watched_file_or_404(view_id=view_id)
     headers = {
         "Cache-Control": "no-store, max-age=0",
@@ -422,13 +425,61 @@ def _watched_file_raw_response(
     sandbox = config.get_html_sandbox().strip()
     if meta.file_kind == "html" and sandbox:
         headers["Content-Security-Policy"] = "sandbox " + sandbox
-    return FileResponse(
-        path,
-        media_type=_watched_file_media_type(meta),
-        filename=path.name if download else None,
-        content_disposition_type="attachment" if download else "inline",
-        headers=headers,
-    )
+    try:
+        source = open_regular_file(path)
+    except OSError as error:
+        raise HTTPException(409, "The watched source is no longer a readable regular file.") from error
+    try:
+        info = os.fstat(source.fileno())
+        descriptor = FileResponse(
+            path, stat_result=info, media_type=_watched_file_media_type(meta),
+            filename=path.name if download else None,
+            content_disposition_type="attachment" if download else "inline",
+            headers=headers,
+        )
+        start, end, status = 0, info.st_size, 200
+        requested_range = request.headers.get("range", "")
+        # HTTP permits ignoring a range. Serve multi-ranges as one full
+        # response so one request cannot amplify into many file seeks.
+        if requested_range.startswith("bytes=") and "," not in requested_range:
+            if_range = request.headers.get("if-range")
+            if if_range is None or if_range in (descriptor.headers["etag"], descriptor.headers["last-modified"]):
+                try:
+                    left, right = requested_range[6:].split("-", 1)
+                    if left:
+                        start = int(left)
+                        end = min(info.st_size, int(right) + 1) if right else info.st_size
+                    else:
+                        suffix = int(right)
+                        if suffix <= 0:
+                            raise ValueError
+                        start = max(0, info.st_size - suffix)
+                    if start < 0 or start >= end:
+                        raise ValueError
+                except ValueError:
+                    source.close()
+                    return Response(status_code=416, headers={"Content-Range": f"bytes */{info.st_size}"})
+                status = 206
+                descriptor.headers["content-range"] = f"bytes {start}-{end - 1}/{info.st_size}"
+        descriptor.headers["content-length"] = str(end - start)
+        source.seek(start)
+
+        def chunks():
+            remaining = end - start
+            try:
+                while remaining:
+                    chunk = source.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+            finally:
+                source.close()
+
+        return OwnedStreamingResponse(chunks(), release=source.close, status_code=status, headers=dict(descriptor.headers))
+    except BaseException:
+        source.close()
+        raise
 
 
 def _file_backed_load_busy_http_exception() -> HTTPException:
@@ -996,7 +1047,7 @@ def get_watched_file_raw(
     request: Request,
     download: bool = False,
     view: str | None = None,
-) -> FileResponse:
+) -> Response:
     """
     Stream the original source of a registered live watched-file view.
 
@@ -1007,7 +1058,7 @@ def get_watched_file_raw(
         require_local_request(request)
 
     view_id = view or store.get_active_view_id()
-    return _watched_file_raw_response(view_id=view_id, download=download)
+    return _watched_file_raw_response(view_id=view_id, download=download, request=request)
 
 
 def _table_response_limits(limit: int | None) -> tuple[int | None, int | None]:
@@ -1375,7 +1426,7 @@ def export_table(
         if meta.file_kind == "csv":
             if config.get_internal_read_local_only():
                 require_local_request(request)
-            return _watched_file_raw_response(view_id=vid, download=True)
+            return _watched_file_raw_response(view_id=vid, download=True, request=request)
 
     if not store.has_table(view_id=vid):
         raise HTTPException(status_code=404, detail="No table has been published yet.")

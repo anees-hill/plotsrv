@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import logging
+import os
 import random
 import weakref
 import threading
@@ -17,6 +18,7 @@ from typing import Any, Literal, cast
 
 from . import config, settings, store
 from .file_kinds import coerce_file_to_publishable, infer_file_kind
+from .file_access import open_regular_file
 from .file_backed_loads import (
     FileBackedLoadBusyError as FileBackedLoadBusyError,
     _FILE_BACKED_LOADS as _FILE_BACKED_LOADS,
@@ -313,7 +315,7 @@ def read_watch_file_bytes(
     - tail reads from the end.
     - text-like tail reads are bounded by the useful render window.
     """
-    p = Path(path).expanduser().resolve()
+    p = Path(path).expanduser().absolute()
     fk = infer_file_kind(p)
 
     effective_max_bytes = get_effective_watch_read_max_bytes(
@@ -747,7 +749,7 @@ def read_file_backed_artifact_preview(
       - reuses existing watch coercion/render-limit behaviour
       - returns an artifact object and artifact kind ready for rendering
     """
-    p = Path(meta.path).expanduser().resolve()
+    p = Path(meta.path).expanduser().absolute()
 
     if meta.file_kind == "csv":
         raise TypeError("file-backed CSV previews are table previews, not artifacts")
@@ -905,7 +907,7 @@ def _coerce_csv_rows(
 
 
 def _read_csv_header(path: Path, *, encoding: str) -> list[str]:
-    with path.open("rb") as raw:
+    with open_regular_file(path) as raw:
         text = io.TextIOWrapper(raw, encoding=encoding, errors="replace", newline="")
         try:
             return next(csv.reader(text), [])
@@ -935,7 +937,7 @@ def _read_csv_head_rows(
     max_columns: int | None,
 ) -> tuple[list[str], list[list[str | None]], int, bool]:
     """Read at most the requested head rows and byte window from a CSV."""
-    with path.open("rb") as raw:
+    with open_regular_file(path) as raw:
         limited = _LimitedBinaryReader(raw, max_bytes)
         buffered = io.BufferedReader(limited)
         text = io.TextIOWrapper(buffered, encoding=encoding, errors="replace", newline="")
@@ -986,7 +988,7 @@ def _read_csv_tail_rows(
     )
     has_more_rows = False
 
-    with path.open("rb") as raw:
+    with open_regular_file(path) as raw:
         raw.seek(start)
         if start > 0:
             _discard_partial_tail_row(raw)
@@ -1028,7 +1030,7 @@ def read_file_backed_csv_preview(
     if meta.materialization != "file":
         raise TypeError("file-backed CSV preview requires file materialization")
 
-    path = Path(meta.path).expanduser().resolve()
+    path = Path(meta.path).expanduser().absolute()
     configured_row_limit = config.get_table_truncate_rows()
     if row_limit is None:
         effective_row_limit = configured_row_limit
@@ -1186,11 +1188,12 @@ def _drop_last_partial_line(raw: bytes) -> bytes:
 
 def read_tail_bytes(p: Path, *, max_bytes: int | None) -> bytes:
     if max_bytes is None:
-        return p.read_bytes()
+        with open_regular_file(p) as f:
+            return f.read(os.fstat(f.fileno()).st_size)
 
     max_bytes = max(1, int(max_bytes))
 
-    with p.open("rb") as f:
+    with open_regular_file(p) as f:
         try:
             f.seek(0, 2)  # os.SEEK_END without importing os
             size = f.tell()
@@ -1210,11 +1213,12 @@ def read_tail_bytes(p: Path, *, max_bytes: int | None) -> bytes:
 
 def read_head_bytes(p: Path, *, max_bytes: int | None) -> bytes:
     if max_bytes is None:
-        return p.read_bytes()
+        with open_regular_file(p) as f:
+            return f.read(os.fstat(f.fileno()).st_size)
 
     max_bytes = max(1, int(max_bytes))
 
-    with p.open("rb") as f:
+    with open_regular_file(p) as f:
         raw = f.read(max_bytes)
         try:
             more = bool(f.read(1))
@@ -1229,12 +1233,13 @@ def read_head_bytes(p: Path, *, max_bytes: int | None) -> bytes:
 
 def read_csv_tail_with_header_bytes(p: Path, *, max_bytes: int | None) -> bytes:
     if max_bytes is None:
-        return p.read_bytes()
+        with open_regular_file(p) as f:
+            return f.read(os.fstat(f.fileno()).st_size)
 
     max_bytes = max(1, int(max_bytes))
 
     header = b""
-    with p.open("rb") as f:
+    with open_regular_file(p) as f:
         chunk = f.read(min(64_000, max_bytes))
         nl = chunk.find(b"\n")
         header = chunk if nl == -1 else chunk[: nl + 1]

@@ -152,6 +152,41 @@ def test_raw_watched_source_streams_registered_file_without_read_bytes(
     assert missing.status_code == 404
 
 
+def test_raw_response_uses_open_file_even_if_path_is_replaced(client, tmp_path, monkeypatch):
+    import plotsrv.app as app_module
+    from plotsrv.file_access import open_regular_file
+
+    source = tmp_path / "source.txt"
+    source.write_text("public fixture")
+    private = tmp_path / "private.txt"
+    private.write_text("private fixture")
+    view = _register_file_watch(source, monkeypatch=monkeypatch)
+
+    def replace_after_open(path):
+        opened = open_regular_file(path)
+        source.unlink()
+        source.symlink_to(private)
+        return opened
+
+    monkeypatch.setattr(app_module, "open_regular_file", replace_after_open)
+    result = client.get("/watched-file/raw", params={"view": view})
+    assert result.content == b"public fixture"
+
+
+@pytest.mark.parametrize("range_header,status,expected", [
+    ("bytes=1-3", 206, b"123"), ("bytes=-2", 206, b"89"),
+    ("bytes=5-", 206, b"56789"), ("bytes=99-", 416, b""),
+    ("bytes=0-1,3-4", 200, b"0123456789"),
+])
+def test_raw_ranges(client, tmp_path, monkeypatch, range_header, status, expected):
+    source = tmp_path / "source.txt"
+    source.write_text("0123456789")
+    view = _register_file_watch(source, monkeypatch=monkeypatch)
+    result = client.get("/watched-file/raw", params={"view": view}, headers={"Range": range_header})
+    assert result.status_code == status
+    assert result.content == expected
+
+
 def test_memory_backed_watched_csv_export_uses_its_live_source(
     client: TestClient,
     tmp_path: Path,
