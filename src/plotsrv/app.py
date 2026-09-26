@@ -6,7 +6,6 @@ import base64
 import json
 import logging
 import os
-import shutil
 import stat
 import time
 from html import escape as escape_html
@@ -158,53 +157,62 @@ async def browser_updates(
         },
     )
 
-# Static files shipped inside plotsrv package (logo, etc.)
+class PackageStaticFiles(StaticFiles):
+    async def get_response(self, path, scope):
+        # Older versions left configured user assets in the installed package.
+        # They must not remain reachable through the bundled-assets mount.
+        if "_runtime_assets" in Path(path).parts:
+            raise HTTPException(404)
+        return await super().get_response(path, scope)
+
+
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.mount("/static", PackageStaticFiles(directory=str(STATIC_DIR)), name="static")
 
-_ASSETS_CACHE_DIR = STATIC_DIR / "_runtime_assets"
+
+@app.get("/assets/{asset_name}")
+def get_selected_asset(asset_name: str):
+    """Serve only files in this instance's current explicit asset selection."""
+    ui = get_ui_settings()
+    files = list(getattr(ui, "asset_files", ()))
+    if ui.assets_dir is not None and ui.assets_dir.is_file():
+        files.append(ui.assets_dir)
+    matches = {Path(path) for path in files if Path(path).name == asset_name}
+    if len(matches) != 1 or asset_name in (".", "..") or "\\" in asset_name:
+        raise HTTPException(404)
+    path = matches.pop()
+    try:
+        source = open_regular_file(path)
+    except OSError as error:
+        raise HTTPException(404) from error
+    try:
+        info = os.fstat(source.fileno())
+        descriptor = FileResponse(path, stat_result=info, headers={
+            "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+        })
+
+        def chunks():
+            remaining = info.st_size
+            try:
+                while remaining:
+                    chunk = source.read(min(64 * 1024, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+            finally:
+                source.close()
+
+        return OwnedStreamingResponse(chunks(), release=source.close, headers=dict(descriptor.headers))
+    except BaseException:
+        source.close()
+        raise
 
 
 def _ensure_assets_mount() -> None:
-    """
-    Mount /assets using a dedicated cache directory containing only explicitly
-    configured asset files (for example logo/favicon), not their whole parents.
-    """
-    ui = get_ui_settings()
-
-    asset_files: list[Path] = []
-    if ui.assets_dir is not None:
-        # backwards compatibility: if assets_dir is actually a file, use it
-        if ui.assets_dir.exists() and ui.assets_dir.is_file():
-            asset_files.append(ui.assets_dir)
-    for asset_file in getattr(ui, "asset_files", ()):
-        if (
-            asset_file.exists()
-            and asset_file.is_file()
-            and asset_file not in asset_files
-        ):
-            asset_files.append(asset_file)
-
-    # Rebuild cache dir
-    if not asset_files:
-        return
-
-    _ASSETS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    for src in asset_files:
-        dst = _ASSETS_CACHE_DIR / src.name
-        if not dst.exists() or src.stat().st_mtime > dst.stat().st_mtime:
-            shutil.copy2(src, dst)
-
-    existing = app.router.routes
-    for route in existing:
-        if getattr(route, "path", None) == "/assets":
-            current_dir = getattr(getattr(route, "app", None), "directory", None)
-            if current_dir == str(_ASSETS_CACHE_DIR):
-                return
-
-    app.mount("/assets", StaticFiles(directory=str(_ASSETS_CACHE_DIR)), name="assets")
+    # Kept for internal callers; the explicit asset route is registered once.
+    pass
 
 
 def _render_artifact_response(
