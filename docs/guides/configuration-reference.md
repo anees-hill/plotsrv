@@ -414,6 +414,28 @@ storage-settings:
 
 `storage-settings.enabled` is the master switch. If it is `false`, storage is off even if nested settings are present.
 
+Latest-state persistence has independent limits:
+
+- `storage-settings.latest.max_size_mb`: maximum serialized latest payload;
+  default 20 MiB. Oversized writes leave the previous persisted state intact.
+- `storage-settings.latest.min_store_interval_s`: minimum time between latest
+  writes per view; default `0` preserves existing write-on-update behaviour.
+  A public demo with persistence should use a positive interval, such as `5`.
+  Updates inside that interval are skipped, so restored state can lag the live
+  view; there is no delayed flush of skipped updates.
+- `storage-settings.views.<view_id>.latest_enabled: false`: exclude that view from future latest
+  writes independently of snapshot retention. Existing files are not erased.
+
+`storage_queue.latest_skipped` counts latest writes skipped by these controls.
+They do not remove or truncate the live view. These per-payload controls are
+not a total disk quota: use a dedicated quota-limited storage volume, finite
+snapshot retention and a fixed view catalogue for continuous public demos.
+
+The legacy `/history` endpoint now returns at most 100 records per page, with
+`next_cursor` for the next request's `before` parameter and `count` for the
+total matching records. It uses the same bounded metadata scan as
+`/history/navigation` and avoids scanning when history storage is disabled.
+
 `max_pending_tasks` and `max_pending_mb` bound best-effort latest/snapshot
 serialisation work. Rejections are exposed as `storage_queue` counters in
 `/status`; they never affect the in-memory live view that has already been

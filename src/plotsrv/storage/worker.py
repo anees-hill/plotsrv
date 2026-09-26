@@ -4,12 +4,13 @@ from __future__ import annotations
 import queue
 import sys
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
 from .. import config, store
 from .backend import list_snapshots, write_snapshot_and_prune
-from .latest import FileLatestStateBackend
+from .latest import FileLatestStateBackend, LatestPayloadTooLarge
 from .policy import (
     estimate_payload_size_bytes,
     is_file_backed_watch_storage_task,
@@ -66,6 +67,8 @@ class StorageWorker:
         self._processed = 0
         self._rejected = 0
         self._failed = 0
+        self._latest_skipped = 0
+        self._last_latest_write: dict[str, float] = {}
         self._last_error: str | None = None
         self._thread: threading.Thread | None = None
         self._started = False
@@ -126,7 +129,7 @@ class StorageWorker:
             label=label,
             extra=extra,
             source=source,
-            estimated_bytes=_estimate_storage_task_bytes(obj),
+            estimated_bytes=_estimate_storage_task_bytes(obj, limit=self._max_pending_bytes),
             activity_revision=store.snapshot_activity_revision(view_id=view_id, obj=obj),
         )
 
@@ -197,6 +200,7 @@ class StorageWorker:
                 "processed": self._processed,
                 "rejected": self._rejected,
                 "failed": self._failed,
+                "latest_skipped": self._latest_skipped,
                 "last_error": self._last_error,
                 "running": bool(thread is not None and thread.is_alive()),
             }
@@ -211,15 +215,24 @@ class StorageWorker:
         root_dir = config.get_storage_root_dir()
 
         if config.get_storage_latest_enabled():
-            latest_backend = FileLatestStateBackend(root_dir=root_dir)
-            latest_backend.write_latest(
-                view_id=task.view_id,
-                kind=task.kind,
-                obj=task.obj,
-                section=task.section,
-                label=task.label,
-                extra=task.extra,
+            now = time.monotonic()
+            allowed = config.get_storage_latest_view_enabled(task.view_id) and (
+                now - self._last_latest_write.get(task.view_id, float("-inf"))
+                >= config.get_storage_latest_min_interval_s()
             )
+            if allowed:
+                try:
+                    FileLatestStateBackend(root_dir=root_dir).write_latest(
+                        view_id=task.view_id, kind=task.kind, obj=task.obj,
+                        section=task.section, label=task.label, extra=task.extra,
+                        max_payload_bytes=config.get_storage_latest_max_bytes(),
+                    )
+                    self._last_latest_write[task.view_id] = now
+                except LatestPayloadTooLarge:
+                    allowed = False
+            if not allowed:
+                with self._lock:
+                    self._latest_skipped += 1
 
         existing = list_snapshots(root_dir=root_dir, view_id=task.view_id)
         size_bytes = estimate_payload_size_bytes(kind=task.kind, obj=task.obj)
@@ -297,7 +310,7 @@ def get_storage_queue_stats() -> dict[str, Any]:
     return get_storage_worker().stats()
 
 
-def _estimate_storage_task_bytes(obj: Any) -> int:
+def _estimate_storage_task_bytes(obj: Any, *, limit: int = 64 * 1024 * 1024) -> int:
     """Estimate retained source memory without serialising or copying it."""
     if isinstance(obj, (bytes, bytearray)):
         return max(1, len(obj))
@@ -313,6 +326,33 @@ def _estimate_storage_task_bytes(obj: Any) -> int:
         pass
 
     try:
-        return max(1, int(sys.getsizeof(obj)))
+        total = 0
+        seen = set()
+        pending = [iter((obj,))]
+        count = 0
+        while pending:
+            value = next(pending[-1], _ESTIMATE_END)
+            if value is _ESTIMATE_END:
+                pending.pop()
+                continue
+            count += 1
+            if count > 100_000:
+                return limit + 1  # Refuse an estimate needing unbounded work.
+            identity = id(value)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            total += sys.getsizeof(value)
+            if total > limit:
+                return total
+            if isinstance(value, dict):
+                from itertools import chain
+                pending.append(chain(value.keys(), value.values()))
+            elif isinstance(value, (list, tuple, set, frozenset)):
+                pending.append(iter(value))
+        return max(1, total)
     except Exception:
-        return 1
+        return limit + 1
+
+
+_ESTIMATE_END = object()

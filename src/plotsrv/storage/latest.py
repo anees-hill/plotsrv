@@ -10,6 +10,10 @@ from . import backend as storage_backend
 from .models import LatestMeta, LoadedLatest
 
 
+class LatestPayloadTooLarge(ValueError):
+    pass
+
+
 @runtime_checkable
 class LatestStateBackend(Protocol):
     """
@@ -89,11 +93,14 @@ class FileLatestStateBackend:
         section: str | None = None,
         label: str | None = None,
         extra: dict[str, Any] | None = None,
+        max_payload_bytes: int | None = None,
     ) -> LatestMeta:
         view_dir = self._view_dir(view_id)
         view_dir.mkdir(parents=True, exist_ok=True)
 
         payload = storage_backend._serialise_payload(kind=kind, obj=obj)
+        if max_payload_bytes is not None and len(payload["data"]) > max_payload_bytes:
+            raise LatestPayloadTooLarge("Latest payload exceeds storage-settings.latest.max_size_mb")
 
         payload_name = f"latest__payload.{payload['suffix']}"
         meta_name = "latest__meta.json"

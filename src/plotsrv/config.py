@@ -191,6 +191,8 @@ _DEFAULTS: dict[str, Any] = {
         "max_pending_mb": 64,
         "latest": {
             "enabled": True,
+            "max_size_mb": 20.0,
+            "min_store_interval_s": 0.0,
             "restore_on_startup": True,
             "restore_scope": "discovered",
         },
@@ -1509,6 +1511,20 @@ def get_storage_latest_enabled() -> bool:
 
     latest = _storage_latest_settings()
     return _as_bool(latest.get("enabled"), False)
+
+
+def get_storage_latest_max_bytes() -> int:
+    value = _parse_mb_to_bytes(_storage_latest_settings().get("max_size_mb"), 20.0)
+    return value if value is not None and value > 0 else 20 * 1024 * 1024
+
+
+def get_storage_latest_min_interval_s() -> float:
+    value = _as_float(_storage_latest_settings().get("min_store_interval_s"), 0.0, min_value=0.0)
+    return value if math.isfinite(value) else 0.0
+
+
+def get_storage_latest_view_enabled(view_id: str) -> bool:
+    return _as_bool(get_storage_view_settings(view_id).get("latest_enabled"), True)
 
 
 def get_storage_restore_latest_on_startup() -> bool:
