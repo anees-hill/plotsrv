@@ -38,10 +38,15 @@ from plotsrv.streams.server_state import StreamRegistry, StreamStateError
 
 
 @pytest.fixture(autouse=True)
-def reset_stream_storage_state() -> None:
+def reset_stream_storage_state(monkeypatch: pytest.MonkeyPatch) -> None:
     settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
     settings._CONFIG_CACHE.clear()  # type: ignore[attr-defined]
     store.reset()
+    # Existing admission/ordering regressions need every request to produce
+    # a task. Dedicated interval tests below exercise the new default.
+    monkeypatch.setattr(
+        config, "get_storage_stream_compact_min_interval_s", lambda view_id=None: 0.0
+    )
     yield
     store.reset()
     settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
@@ -1266,6 +1271,94 @@ def test_stream_routes_persist_compact_state_but_not_raw_by_default(
         ]["state"] == "complete"
     finally:
         worker.stop(join=True)
+
+
+def test_compact_checkpoints_coalesce_but_close_flushes_and_live_restore_is_incomplete(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _configure_stream_storage(tmp_path)
+    monkeypatch.setattr(
+        config, "get_storage_stream_compact_min_interval_s", lambda view_id=None: 10.0
+    )
+    worker = StreamStorageWorker(max_queue_size=8, max_pending_bytes=128_000)
+    monkeypatch.setattr(http_streams, "get_stream_storage_worker", lambda: worker)
+    try:
+        _register(client)
+        _wait_until(lambda: worker.stats()["processed"] == 1)
+        _append(client, batch_sequence=0)
+        _append(client, batch_sequence=1)
+        heartbeat = client.post(
+            "/stream/heartbeat",
+            json={
+                "protocol_version": STREAM_PROTOCOL_VERSION,
+                "view_id": "logs:persisted",
+                "client_id": "storage-client",
+                "session_id": "storage-session",
+                "delivery_state": "live",
+                "pending_delivery": False,
+            },
+        )
+        assert heartbeat.status_code == 200
+        assert worker.stats()["submitted"] == 1
+        assert client.get("/stream/status", params={"view": "logs:persisted"}).json()[
+            "durable_history"
+        ]["state"] == "pending"
+
+        backend = FileStreamStorageBackend(root_dir=root)
+        stored = backend.load_compact_session(
+            view_id="logs:persisted", session_id="storage-session"
+        )
+        assert stored is not None
+        restored = StreamRegistry()
+        assert restored.restore_compact_session(
+            stored_metadata=stored.metadata,
+            summary_windows=stored.summary_windows,
+            noteworthy_items=stored.noteworthy_items,
+        )
+        assert restored.status(view_id="logs:persisted")["durable_history"]["state"] == "incomplete"
+
+        close = client.post(
+            "/stream/close",
+            json={
+                "protocol_version": STREAM_PROTOCOL_VERSION,
+                "view_id": "logs:persisted",
+                "client_id": "storage-client",
+                "session_id": "storage-session",
+                "drain_completed": True,
+            },
+        )
+        assert close.status_code == 200
+        _wait_until(lambda: worker.stats()["processed"] == 2)
+        stored = backend.load_compact_session(
+            view_id="logs:persisted", session_id="storage-session"
+        )
+        assert stored is not None
+        assert stored.metadata["metadata"]["lifecycle"] == "ended"
+        assert stored.metadata["metadata"]["cumulative"]["total_records"] == "2"
+    finally:
+        worker.stop(join=True)
+
+
+def test_compact_checkpoint_interval_reopens_after_elapsed_time() -> None:
+    now = [100.0]
+    registry = StreamRegistry(monotonic_clock=lambda: now[0])
+    registry.register(
+        StreamRegistration(
+            view_id="logs:interval",
+            label="interval",
+            section="logs",
+            client_id="client",
+            session_id="session",
+        )
+    )
+    claim = lambda: registry.claim_compact_persistence(
+        view_id="logs:interval", session_id="session", min_interval_s=10.0, force=False
+    )
+    assert claim() is True
+    now[0] += 9.9
+    assert claim() is False
+    now[0] += 0.1
+    assert claim() is True
 
 
 def test_storage_disabled_stream_routes_create_no_stream_history(

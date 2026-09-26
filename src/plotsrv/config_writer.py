@@ -140,6 +140,7 @@ storage-settings:
     enabled: true
     max_pending_tasks: 16
     max_pending_mb: 8
+    compact_min_interval_s: 10
     summary_retention: 64
     noteworthy_keep_last: 64
     keep_last_sessions: 8

@@ -174,6 +174,7 @@ def _submit_stream_persistence(
     session_id: str,
     raw_block_id: str | None = None,
     raw_records: tuple[StreamRecord, ...] = (),
+    force: bool = False,
 ) -> None:
     """Best-effort persistence that never changes stream protocol acceptance.
 
@@ -192,6 +193,13 @@ def _submit_stream_persistence(
 
     raw_enabled = config.get_storage_stream_raw_enabled(view_id)
     try:
+        if not stream_registry.claim_compact_persistence(
+            view_id=view_id,
+            session_id=session_id,
+            min_interval_s=config.get_storage_stream_compact_min_interval_s(view_id),
+            force=force or bool(raw_enabled and raw_records),
+        ):
+            return
         stream_registry.begin_persistence(view_id=view_id, session_id=session_id)
         snapshot = stream_registry.persistence_snapshot(
             view_id=view_id,
@@ -446,6 +454,7 @@ async def register_stream(request: Request) -> dict[str, Any]:
     _submit_stream_persistence(
         view_id=registration.view_id,
         session_id=registration.session_id,
+        force=True,
     )
 
     current_active = store.get_active_view_id()
@@ -592,6 +601,7 @@ async def close_stream(request: Request) -> dict[str, Any]:
     _submit_stream_persistence(
         view_id=result.view_id,
         session_id=close.session_id,
+        force=True,
     )
     notify_stream_browser(result.view_id)
     return {

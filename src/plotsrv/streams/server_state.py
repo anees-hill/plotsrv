@@ -219,6 +219,7 @@ class DurableHistoryState:
 
     persistence_enabled: bool = False
     pending_writes: int = 0
+    checkpoint_deferred: bool = False
     completed_writes: int = 0
     rejected_writes: int = 0
     failed_writes: int = 0
@@ -231,7 +232,7 @@ class DurableHistoryState:
             state = "disabled"
         elif self.incomplete:
             state = "incomplete"
-        elif self.pending_writes:
+        elif self.pending_writes or self.checkpoint_deferred:
             state = "pending"
         elif self.completed_writes:
             state = "complete"
@@ -367,6 +368,7 @@ class StreamViewState:
     source_status: SourceStatus = field(default_factory=SourceStatus)
     source_health: SourceHealth = field(default_factory=SourceHealth)
     durable_history: DurableHistoryState = field(default_factory=DurableHistoryState)
+    last_compact_persistence_submission_at: float | None = None
     # Restored compact history intentionally remains browser-shaped. The
     # storage format is an immutable observational record, not sufficient
     # internal state to resume compaction or one producer transport session.
@@ -1129,6 +1131,8 @@ class StreamRegistry:
             if state is None:
                 raise UnknownStreamError("stream view has not been registered")
             state.durable_history.persistence_enabled = bool(enabled)
+            if not enabled:
+                state.durable_history.checkpoint_deferred = False
 
     def restore_compact_session(
         self,
@@ -1290,6 +1294,14 @@ class StreamRegistry:
                 INCOMPLETE,
             }:
                 raise ValueError("stream lifecycle is invalid")
+            if stored_lifecycle in _ACTIVE_LIFECYCLES:
+                # A crash can lose observations accepted after the most
+                # recent checkpoint; a live snapshot proves no clean end.
+                durable.incomplete = True
+                durable.last_error = (
+                    durable.last_error
+                    or "The observer was still active at its last checkpoint; later observations may not have been stored."
+                )
             pending_delivery = compact.get("pending_delivery")
             if not isinstance(pending_delivery, bool):
                 raise ValueError("pending delivery is invalid")
@@ -1470,7 +1482,23 @@ class StreamRegistry:
         with self._lock:
             state = self._owned_state_for_session(view_id=view_id, session_id=session_id)
             state.durable_history.persistence_enabled = True
+            state.durable_history.checkpoint_deferred = False
             state.durable_history.pending_writes += 1
+
+    def claim_compact_persistence(
+        self, *, view_id: str, session_id: str, min_interval_s: float, force: bool
+    ) -> bool:
+        """Coalesce compact checkpoints without hiding their pending state."""
+        with self._lock:
+            state = self._owned_state_for_session(view_id=view_id, session_id=session_id)
+            now = self._monotonic_clock()
+            previous = state.last_compact_persistence_submission_at
+            if not force and previous is not None and now - previous < min_interval_s:
+                state.durable_history.persistence_enabled = True
+                state.durable_history.checkpoint_deferred = True
+                return False
+            state.last_compact_persistence_submission_at = now
+            return True
 
     def reject_persistence(
         self, *, view_id: str, session_id: str, reason: str

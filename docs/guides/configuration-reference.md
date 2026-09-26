@@ -360,6 +360,7 @@ storage-settings:
     restore_scope: discovered
   streams:
     enabled: true
+    compact_min_interval_s: 10
     summary_retention: 32
     noteworthy_keep_last: 32
     keep_last_sessions: 4
@@ -390,6 +391,7 @@ it does not turn a restarted producer into a live session.
 | Key | Meaning |
 |---|---|
 | `enabled` | Enable compact stream persistence while master storage is enabled. |
+| `compact_min_interval_s` | Minimum time between compact-only checkpoints (default 10 seconds); registration and close always write, and explicitly enabled raw blocks are never coalesced. Set to `0` for a checkpoint on every request. |
 | `summary_retention` | Maximum derived windows retained for each session. |
 | `noteworthy_keep_last` | Maximum noteworthy/continuity items retained for each session. |
 | `keep_last_sessions` | Softer count limit for retained sessions per logical stream. |
@@ -401,6 +403,11 @@ optional `max_age_s`. The hard `max_bytes_per_view_mb` ceiling wins whenever
 these policies conflict. A per-view override belongs at
 `storage-settings.views.<view_id>.stream` (the early `streams` spelling is
 also accepted).
+
+Compact checkpoints are best-effort observation history, not a lossless audit
+log. A crash can lose accepted observations after the last checkpoint; on
+restore, a session last stored as active is marked incomplete rather than
+presented as a complete run. A normally closed session gets a final checkpoint.
 
 ### Source-aware storage
 

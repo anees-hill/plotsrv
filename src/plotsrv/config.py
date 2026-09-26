@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 from typing import Any, Literal
 from collections.abc import Mapping
 
@@ -203,6 +204,8 @@ _DEFAULTS: dict[str, Any] = {
             # admission budget.
             "max_pending_tasks": 16,
             "max_pending_mb": 8.0,
+            # Avoid a durable three-file rewrite for every heartbeat/batch.
+            "compact_min_interval_s": 10.0,
             "raw_retention": None,
             "summary_retention": 64,
             "noteworthy_keep_last": 64,
@@ -1601,6 +1604,19 @@ def get_storage_stream_max_pending_bytes() -> int:
         default_mb,
     )
     return max(1, int(default_mb * _MB) if value is None else value)
+
+
+def get_storage_stream_compact_min_interval_s(view_id: str | None = None) -> float:
+    """Minimum interval between best-effort compact-only checkpoints."""
+    default = float(
+        _DEFAULTS["storage-settings"]["streams"]["compact_min_interval_s"]
+    )
+    value = _as_float(
+        _storage_stream_settings(view_id).get("compact_min_interval_s"),
+        default,
+        min_value=0.0,
+    )
+    return value if math.isfinite(value) else default
 
 
 def get_storage_stream_noteworthy_keep_last(view_id: str | None = None) -> int:
