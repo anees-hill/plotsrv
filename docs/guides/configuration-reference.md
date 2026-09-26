@@ -362,9 +362,9 @@ render-settings:
 | `plot_pad_inches` | plot padding when tight bounding boxes are used |
 | `table_plot_max_points` | maximum SVG points in a browser table plot (default `5000`, hard-capped at `25000`); larger plots offer browser-side sampling |
 | `table_view_mode` | `rich` or `simple` table mode |
-| `html_sanitize` | sanitize HTML artifacts before rendering |
+| `html_sanitize` | opt-in sanitization of HTML artifacts; removes scripts and styles, default `false` |
 | `markdown_sanitize` | sanitize rendered markdown HTML |
-| `html_sandbox` | optional iframe sandbox value for HTML |
+| `html_sandbox` | optional HTML sandbox tokens; empty means no sandbox for trusted reports; also applied to direct watched HTML responses |
 | `markdown_sandbox` | optional iframe sandbox value for markdown |
 
 Legacy `table-settings` and `artifact-render-settings` are still readable, but new config should use `render-settings.default`.

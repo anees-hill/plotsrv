@@ -419,6 +419,9 @@ def _watched_file_raw_response(
         "Pragma": "no-cache",
         "X-Content-Type-Options": "nosniff",
     }
+    sandbox = config.get_html_sandbox().strip()
+    if meta.file_kind == "html" and sandbox:
+        headers["Content-Security-Policy"] = "sandbox " + sandbox
     return FileResponse(
         path,
         media_type=_watched_file_media_type(meta),
@@ -472,13 +475,13 @@ def _render_file_backed_html_stream_response(
 ) -> dict[str, Any]:
     """Render unsanitised file-backed HTML without putting the file in JSON."""
     source_url = _watched_file_raw_url(view_id=view_id)
-    # An empty sandbox is deliberately stronger than the normal in-memory HTML
-    # iframe default: no scripts, forms, popups, or same-origin access are
-    # granted to a raw on-disk report.
+    # Selecting this file is the developer's trust decision. Restrictions are
+    # opt-in and must agree with direct access to the report's raw URL.
     sandbox = config.get_html_sandbox().strip()
+    sandbox_attr = f" sandbox='{escape_html(sandbox, quote=True)}'" if sandbox else ""
     html = (
         "<div class='plotsrv-html-iframe-wrap' data-plotsrv-html-frame='file-backed'>"
-        f"<iframe class='plotsrv-html-iframe' sandbox='{escape_html(sandbox, quote=True)}' "
+        f"<iframe class='plotsrv-html-iframe'{sandbox_attr} "
         f"src='{escape_html(source_url, quote=True)}' referrerpolicy='no-referrer'></iframe>"
         "</div>"
     )
@@ -492,7 +495,7 @@ def _render_file_backed_html_stream_response(
             "file_backed": True,
             "watch": True,
             **_public_watched_file_meta(meta),
-            "mode": "file_backed_sandboxed_iframe",
+            "mode": "file_backed_sandboxed_iframe" if sandbox else "file_backed_iframe",
             "sandbox": sandbox,
             "source": "file_backed_stream",
             **_watched_file_source_meta(view_id=view_id),
@@ -1570,6 +1573,7 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
 
     elif kind == "artifact":
         artifact_kind = str(payload.get("artifact_kind") or "python").strip().lower()
+        declared_html = artifact_kind == "html"
         if artifact_kind not in ("text", "json", "html", "markdown", "image", "python", "code", "traceback", "watch_error", "publish_error", "exception"):
             raise IngestionError("invalid_request", 422, "unsupported_artifact_kind")
         artifact_obj = payload.get("artifact")
@@ -1581,7 +1585,13 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
             artifact_kind = selected_renderer.kind
         if artifact_kind in ("html", "markdown"):
             key = "html" if artifact_kind == "html" else "text"
-            artifact_obj = {**artifact_obj, "_plotsrv_remote": True} if isinstance(artifact_obj, dict) else {key: str(artifact_obj or ""), "_plotsrv_remote": True}
+            trusted_report = (
+                declared_html and artifact_kind == "html"
+                and state().trusts_html_reports(request)
+                and not config.get_html_sanitize()
+            )
+            artifact_obj = dict(artifact_obj) if isinstance(artifact_obj, dict) else {key: str(artifact_obj or "")}
+            artifact_obj["_plotsrv_remote"] = not trusted_report
         if artifact_kind == "image" and isinstance(artifact_obj, dict) and "svg" in str(artifact_obj.get("mime", "")).lower():
             raise IngestionError("invalid_request", 422, "remote_svg_not_supported")
 

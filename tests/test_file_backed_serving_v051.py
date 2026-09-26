@@ -222,10 +222,22 @@ def test_file_backed_image_and_unsanitised_html_use_streaming_source_urls(
 
     html_data = html_resp.json()
     assert html_resp.status_code == 200
-    assert html_data["meta"]["mode"] == "file_backed_sandboxed_iframe"
+    assert html_data["meta"]["mode"] == "file_backed_iframe"
     assert "srcdoc=" not in html_data["html"]
-    assert "sandbox=''" in html_data["html"]
+    assert "sandbox=" not in html_data["html"]
     assert "/watched-file/raw?" in html_data["html"]
+
+
+def test_explicit_html_sandbox_applies_to_frame_and_raw_url(client, tmp_path, monkeypatch):
+    path = tmp_path / "report.html"
+    path.write_text("<script>window.report = true</script>")
+    view = _register_file_watch(path, monkeypatch=monkeypatch)
+    monkeypatch.setattr(config, "get_html_sanitize", lambda: False)
+    monkeypatch.setattr(config, "get_html_sandbox", lambda: "allow-scripts")
+    assert "sandbox='allow-scripts'" in client.get("/artifact", params={"view": view}).json()["html"]
+    raw = client.get("/watched-file/raw", params={"view": view})
+    assert raw.headers["content-security-policy"] == "sandbox allow-scripts"
+    assert raw.content == path.read_bytes()
 
 
 def test_file_backed_load_controller_returns_503_when_all_slots_busy(

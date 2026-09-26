@@ -407,8 +407,8 @@ def test_concurrency_rate_and_body_timeout_are_bounded(monkeypatch):
 
 
 def test_remote_html_markdown_and_table_flags_cannot_grant_trust(tmp_path, monkeypatch):
-    configure(tmp_path, monkeypatch)
-    http = client()
+    configure(tmp_path, monkeypatch, key=False, remote=True)
+    http = client(key=False)
     monkeypatch.setattr(config, "get_html_sanitize", lambda: False)
     monkeypatch.setattr(
         config, "get_html_sandbox", lambda: "allow-scripts allow-same-origin"
@@ -570,6 +570,51 @@ def test_http_html_dictionary_cannot_bypass_text_limit(tmp_path, monkeypatch):
     assert response.status_code == 413
 
 
+@pytest.mark.parametrize("local,key,forwarded,trusted", [
+    (True, False, False, True),
+    (False, True, False, True),
+    (False, False, False, False),
+    (True, False, True, False),
+])
+def test_report_trust_comes_from_publisher_authority(tmp_path, monkeypatch, local, key, forwarded, trusted):
+    from html.parser import HTMLParser
+
+    configure(tmp_path, monkeypatch, key=key, remote=True)
+    monkeypatch.setattr(config, "get_html_sanitize", lambda: False)
+    monkeypatch.setattr(config, "get_html_sandbox", lambda: "")
+    http = client(local=local, key=key)
+    report = '<style>body{background:navy}</style><button onclick="this.textContent=42">Run</button><script>window.reportReady=true</script>'
+    response = http.post("/publish", headers={"X-Forwarded-For": "198.51.100.1"} if forwarded else {}, json={
+        **publication("report"), "artifact_kind": "html",
+        "artifact": {"html": report, "unsafe": True, "_plotsrv_remote": False},
+    })
+    assert response.status_code == 200
+    rendered = http.get("/artifact", params={"view": "report"}).json()
+    assert store.get_artifact(view_id="report").obj["_plotsrv_remote"] is not trusted
+    if trusted:
+        frames = []
+        class Frames(HTMLParser):
+            def handle_starttag(self, tag, attrs):
+                if tag == "iframe":
+                    frames.append(dict(attrs))
+        Frames().feed(rendered["html"])
+        assert len(frames) == 1
+        assert frames[0]["srcdoc"] == report
+        assert "sandbox" not in frames[0]
+        assert rendered["meta"]["display_only"] is False
+    else:
+        assert "<script>" not in rendered["html"]
+        assert "onclick=" not in rendered["html"]
+
+
+def test_operator_can_explicitly_sanitize_reports(tmp_path, monkeypatch):
+    configure(tmp_path, monkeypatch)
+    monkeypatch.setattr(config, "get_html_sanitize", lambda: True)
+    http = client()
+    assert http.post("/publish", json={**publication("report"), "artifact_kind": "html", "artifact": {"html": "<script>1</script><b>Report</b>", "unsafe": True}}).status_code == 200
+    assert http.get("/artifact", params={"view": "report"}).json()["meta"]["mode"] == "sanitized"
+
+
 def test_remote_table_cannot_supply_inline_html(tmp_path, monkeypatch):
     configure(tmp_path, monkeypatch)
     response = client().post(
@@ -594,7 +639,7 @@ def test_remote_content_stays_untrusted_in_persisted_history(
     from plotsrv.storage.backend import write_snapshot
     from plotsrv.storage.latest import FileLatestStateBackend
 
-    configure(tmp_path, monkeypatch)
+    configure(tmp_path, monkeypatch, key=False, remote=True)
     snapshots = []
     latest = FileLatestStateBackend(root_dir=tmp_path)
 
@@ -608,7 +653,7 @@ def test_remote_content_stays_untrusted_in_persisted_history(
     monkeypatch.setattr(config, "get_storage_root_dir", lambda: tmp_path)
     monkeypatch.setattr(config, "get_html_sanitize", lambda: False)
     monkeypatch.setattr(config, "get_markdown_sanitize", lambda: False)
-    http = client()
+    http = client(key=False)
     assert (
         http.post(
             "/publish",

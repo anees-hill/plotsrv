@@ -340,7 +340,26 @@ HTML artifacts are useful for:
 
     HTML can contain active content.
 
-    Use trusted HTML where possible, and review sanitisation/sandbox settings before exposing HTML views more widely.
+    Selecting or explicitly publishing an HTML report counts as trusting it;
+    there is no per-file confirmation. By default, developer reports retain
+    their CSS, JavaScript, forms, downloads and normal browser functionality.
+    PlotSrv does not inject interaction blockers or sandbox these reports.
+
+    This applies to locally selected files, direct local publishers and
+    publishers authenticated with the server's publisher key. Possession of
+    that key grants authority to publish active HTML. Anonymous remote
+    ingestion, if explicitly enabled, cannot grant itself this authority;
+    its HTML and all HTTP-published Markdown remain sanitized.
+
+    Trusted reports execute with the dashboard's browser-origin privileges.
+    Publish only reports and scripts you trust, including their dependencies.
+    Use a dedicated origin for a public demo, with no unrelated applications
+    or privileged cookies on that origin. Do not give anonymous visitors a
+    report-upload path or a publisher key.
+
+    `html_sanitize: true` and a nonempty `html_sandbox` remain optional
+    restrictions; they can reduce report functionality. An explicitly
+    configured sandbox also applies when opening a watched HTML URL directly.
 
 ## Image renderer
 

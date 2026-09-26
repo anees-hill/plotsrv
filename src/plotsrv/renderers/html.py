@@ -209,11 +209,11 @@ def _iframe_html(
     srcdoc = _escape_srcdoc(iframe_html)
 
     mode_attr = "display-only" if display_only else "interactive"
+    sandbox_attr = f' sandbox="{_escape_html(sandbox)}"' if sandbox else ""
 
     return f"""
     <div class="plotsrv-html-iframe-wrap" data-plotsrv-html-frame="{mode_attr}">
-      <iframe class="plotsrv-html-iframe"
-              sandbox="{_escape_html(sandbox)}"
+      <iframe class="plotsrv-html-iframe"{sandbox_attr}
               srcdoc="{srcdoc}">
       </iframe>
     </div>
@@ -231,19 +231,17 @@ class HtmlRenderer(Renderer):
         Supports:
           - obj: str => treated as raw HTML
           - obj: {"html": "<...>", "unsafe": bool, "sandbox": "..."} optional
-          - obj: {"html": "<...>", "interactive": true} optional escape hatch
+          - obj: {"html": "<...>", "interactive": false} optional display-only mode
         """
         sanitize = config.get_html_sanitize()
         unsafe = not sanitize
 
-        # For HTML reports, default to a sandbox that allows our injected blocker
-        # script to run, while still preventing parent-page access because we do
-        # not set allow-same-origin.
-        configured_sandbox = config.get_html_sandbox()
-        sandbox = configured_sandbox if configured_sandbox else "allow-scripts"
+        # Developer-selected reports are trusted active documents. Keep their
+        # normal browser functionality unless restrictions were requested.
+        sandbox = config.get_html_sandbox()
 
         raw_html = ""
-        interactive = False
+        interactive = True
 
         if isinstance(obj, dict):
             raw_html = str(obj.get("html") or "")
@@ -256,7 +254,7 @@ class HtmlRenderer(Renderer):
             if obj.get("sandbox"):
                 sandbox = str(obj.get("sandbox") or sandbox)
 
-            interactive = bool(obj.get("interactive") or False)
+            interactive = bool(obj.get("interactive", True))
         else:
             raw_html = str(obj)
 

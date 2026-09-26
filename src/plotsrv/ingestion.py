@@ -139,6 +139,20 @@ class IngestionState:
                 "unauthorised_publisher", 403, "browser_ingestion_not_allowed"
             )
 
+    def trusts_html_reports(self, request: Request) -> bool:
+        """Call only after authenticate: publisher authority includes reports.
+
+        Opting into anonymous remote ingestion does not grant active HTML
+        privileges. A payload can never choose its own provenance.
+        """
+        return self._key_digest is not None or (
+            request.client is not None
+            and _is_loopback_ip(request.client.host)
+            and not any(key in request.headers for key in (
+                "forwarded", "x-forwarded-for", "x-forwarded-host"
+            ))
+        )
+
     def enter(self) -> None:
         with self._budget_lock:
             now = time.monotonic()

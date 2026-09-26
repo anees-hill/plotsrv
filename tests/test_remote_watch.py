@@ -123,7 +123,7 @@ def test_supported_complete_sources_and_hosted_download(client, name, raw, kind)
         assert response["kind"] == kind
         assert "Complete source hosted" in response["html"]
         if kind == "html":
-            assert store.get_artifact(view_id="watch:exact:é").obj["_plotsrv_remote"]
+            assert store.get_artifact(view_id="watch:exact:é").obj["_plotsrv_remote"] is False
 
 
 def test_previews_exports_and_parse_limits(client):
