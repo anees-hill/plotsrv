@@ -63,7 +63,7 @@ class FileLatestStateBackend:
 
       <root_dir>/
         latest/
-          <slugged_view_id>/
+          v2-<sha256_of_exact_view_id>/
             latest__meta.json
             latest__payload.<ext>
 
@@ -101,6 +101,9 @@ class FileLatestStateBackend:
         payload_path = view_dir / payload_name
         meta_path = view_dir / meta_name
 
+        if meta_path.exists():
+            storage_backend._read_bound_metadata(meta_path, view_id=view_id, latest=True)
+
         self._remove_old_payloads(view_dir=view_dir, keep=payload_name)
 
         storage_backend._write_bytes_atomic(payload_path, payload["data"])
@@ -128,15 +131,21 @@ class FileLatestStateBackend:
         return latest_meta_from_dict(meta_dict)
 
     def load_latest(self, *, view_id: str) -> LoadedLatest:
-        view_dir = self._view_dir(view_id)
-        meta_path = view_dir / "latest__meta.json"
+        meta_path = self._view_dir(view_id) / "latest__meta.json"
+        if not meta_path.exists():
+            for directory in storage_backend._read_view_dirs(self.latest_root, view_id)[1:]:
+                candidate = directory / "latest__meta.json"
+                if candidate.exists():
+                    meta_path = candidate
+                    break
 
         if not meta_path.exists():
             raise LookupError(f"Latest state not found: {view_id}")
 
-        raw = json.loads(meta_path.read_text(encoding="utf-8"))
-        if not isinstance(raw, dict):
-            raise LookupError(f"Latest state metadata invalid: {view_id}")
+        try:
+            raw = storage_backend._read_bound_metadata(meta_path, view_id=view_id, latest=True)
+        except LookupError as error:
+            raise LookupError(f"Latest state metadata invalid: {view_id}") from error
 
         meta = latest_meta_from_dict(raw)
         payload_path = Path(meta.path_payload)
@@ -150,70 +159,54 @@ class FileLatestStateBackend:
     def list_latest(self) -> list[LatestMeta]:
         root = self.latest_root
 
-        out: list[LatestMeta] = []
+        by_view: dict[str, LatestMeta] = {}
         for meta_path in sorted(root.glob("*/latest__meta.json")):
             try:
-                raw = json.loads(meta_path.read_text(encoding="utf-8"))
+                with storage_backend.open_regular_file(meta_path) as source:
+                    content = source.read(1024 * 1024 + 1)
+                if len(content) > 1024 * 1024:
+                    continue
+                raw = json.loads(content)
                 if not isinstance(raw, dict):
                     continue
 
-                payload_path = Path(str(raw.get("path_payload") or ""))
-                raw["payload_exists"] = payload_path.exists()
-                out.append(latest_meta_from_dict(raw))
+                view_id = raw.get("view_id")
+                if not isinstance(view_id, str) or meta_path.parent not in storage_backend._read_view_dirs(root, view_id):
+                    continue
+                # Prefer v2 state after the first new write; never resurrect
+                # a stale legacy copy on restart.
+                canonical = self._view_dir(view_id) / "latest__meta.json"
+                selected = canonical if canonical.exists() else meta_path
+                bound = storage_backend._read_bound_metadata(selected, view_id=view_id, latest=True)
+                by_view[view_id] = latest_meta_from_dict(bound)
             except Exception:
                 continue
 
-        out.sort(key=lambda x: (x.section or "", x.label or x.view_id, x.view_id))
+        out = sorted(by_view.values(), key=lambda x: (x.section or "", x.label or x.view_id, x.view_id))
         return out
 
     def delete_latest(self, *, view_id: str) -> bool:
-        view_dir = self._view_dir(view_id)
-        if not view_dir.exists() or not view_dir.is_dir():
-            return False
-
         removed = False
-
-        meta_path = view_dir / "latest__meta.json"
-        payload_path: Path | None = None
-
-        if meta_path.exists():
+        for view_dir in storage_backend._read_view_dirs(self.latest_root, view_id):
+            meta_path = view_dir / "latest__meta.json"
             try:
-                raw = json.loads(meta_path.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    payload_raw = raw.get("path_payload")
-                    if isinstance(payload_raw, str) and payload_raw.strip():
-                        payload_path = Path(payload_raw)
-            except Exception:
-                payload_path = None
-
-        if payload_path is None:
-            matches = list(view_dir.glob("latest__payload.*"))
-            payload_path = matches[0] if matches else None
-
-        for path in (payload_path, meta_path):
-            if path is None:
+                raw = storage_backend._read_bound_metadata(meta_path, view_id=view_id, latest=True)
+            except (OSError, ValueError, LookupError):
                 continue
-            try:
-                if path.exists():
+            for path in (Path(raw["path_payload"]), meta_path):
+                try:
                     path.unlink()
                     removed = True
-            except Exception:
-                pass
-
-        try:
-            next(view_dir.iterdir())
-        except StopIteration:
+                except OSError:
+                    pass
             try:
                 view_dir.rmdir()
-            except Exception:
+            except OSError:
                 pass
-        except Exception:
-            pass
-
         return removed
 
     def _view_dir(self, view_id: str) -> Path:
-        return self.latest_root / storage_backend._slug_view_id(view_id)
+        return storage_backend._view_dir(self.latest_root, view_id)
 
     @staticmethod
     def _remove_old_payloads(*, view_dir: Path, keep: str) -> None:
@@ -310,7 +303,7 @@ def get_latest_stats(*, root_dir: str | Path) -> dict[str, Any]:
         }
 
     for view_dir in latest_root.iterdir():
-        if not view_dir.is_dir():
+        if view_dir.is_symlink() or not view_dir.is_dir():
             continue
 
         has_meta = False
@@ -341,31 +334,14 @@ def delete_latest_for_view(*, root_dir: str | Path, view_id: str) -> int:
     Returns the number of files removed.
     """
     backend = FileLatestStateBackend(root_dir=root_dir)
-    view_dir = backend._view_dir(view_id)
-
-    if not view_dir.exists() or not view_dir.is_dir():
-        return 0
-
-    removed = 0
-    for path in list(view_dir.iterdir()):
+    count = 0
+    for view_dir in storage_backend._read_view_dirs(backend.latest_root, view_id):
         try:
-            if path.is_file():
-                path.unlink()
-                removed += 1
-        except Exception:
+            raw = storage_backend._read_bound_metadata(view_dir / "latest__meta.json", view_id=view_id, latest=True)
+            count += 1 + int(raw["payload_exists"])
+        except (OSError, ValueError, LookupError):
             pass
-
-    try:
-        next(view_dir.iterdir())
-    except StopIteration:
-        try:
-            view_dir.rmdir()
-        except Exception:
-            pass
-    except Exception:
-        pass
-
-    return removed
+    return count if backend.delete_latest(view_id=view_id) else 0
 
 
 def delete_all_latest(*, root_dir: str | Path) -> int:

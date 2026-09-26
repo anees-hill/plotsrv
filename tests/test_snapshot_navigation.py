@@ -40,14 +40,14 @@ def test_order_time_then_id_latest_is_separate_and_no_body_reads(tmp_path, monke
     seed(tmp_path, "b", "2026-09-10T13:00:00+01:00")
     seed(tmp_path, "c", "2026-09-10T12:00:00.001Z")
     opened = []
-    original = Path.open
+    original = nav.open_regular_file
 
     def checked(path, *args, **kwargs):
         opened.append(path.name)
         assert path.name.endswith("__meta.json")
         return original(path, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "open", checked)
+    monkeypatch.setattr(nav, "open_regular_file", checked)
     page = nav.navigation_page(root_dir=tmp_path, view_id="ops:log", limit=2)
     assert [s["snapshot_id"] for s in page["snapshots"]] == ["c", "b"]
     assert page["older"]["snapshot_id"] == "c"

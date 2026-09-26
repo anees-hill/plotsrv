@@ -145,7 +145,7 @@ def test_file_latest_backend_writes_under_latest_layout(tmp_path: Path) -> None:
         extra={"source": "test"},
     )
 
-    latest_dir = tmp_path / "latest" / "etl__orders"
+    latest_dir = backend._view_dir("etl:orders")
 
     assert latest_dir.exists()
     assert (latest_dir / "latest__meta.json").exists()
@@ -193,7 +193,7 @@ def test_file_latest_backend_overwrites_latest_payload(tmp_path: Path) -> None:
         obj={"value": "second"},
     )
 
-    latest_dir = tmp_path / "latest" / "demo__item"
+    latest_dir = backend._view_dir("demo:item")
 
     assert meta1.updated_at <= meta2.updated_at
     assert not (latest_dir / "latest__payload.txt").exists()
@@ -239,7 +239,7 @@ def test_file_latest_backend_delete_latest_removes_files_and_dir(
         obj="hello",
     )
 
-    view_dir = tmp_path / "latest" / "demo__item"
+    view_dir = backend._view_dir("demo:item")
     assert view_dir.exists()
 
     assert backend.delete_latest(view_id="demo:item") is True

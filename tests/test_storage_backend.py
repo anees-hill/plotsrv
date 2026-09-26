@@ -308,7 +308,7 @@ def test_list_snapshots_ignores_bad_meta_json(tmp_path: Path) -> None:
         obj="ok",
     )
     view_dir = tmp_path / backend._slug_view_id("v1")
-    (view_dir / "bad__meta.json").write_text("{not json", encoding="utf-8")
+    (Path(meta.path_meta).parent / "bad__meta.json").write_text("{not json", encoding="utf-8")
 
     snaps = backend.list_snapshots(root_dir=tmp_path, view_id="v1")
     assert [s.snapshot_id for s in snaps] == [meta.snapshot_id]
@@ -383,7 +383,7 @@ def test_delete_snapshot_uses_meta_payload_path(tmp_path: Path) -> None:
     assert snaps == []
 
 
-def test_delete_snapshot_falls_back_to_payload_glob_when_meta_unreadable(
+def test_delete_snapshot_refuses_legacy_files_without_verifiable_identity(
     tmp_path: Path,
 ) -> None:
     view_id = "v1"
@@ -401,9 +401,9 @@ def test_delete_snapshot_falls_back_to_payload_glob_when_meta_unreadable(
         view_id=view_id,
         snapshot_id=snap_id,
     )
-    assert removed is True
-    assert not payload_path.exists()
-    assert not meta_path.exists()
+    assert removed is False
+    assert payload_path.exists()
+    assert meta_path.exists()
 
 
 def test_delete_all_snapshots_for_view_removes_files_and_directory(

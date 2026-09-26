@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -14,6 +15,7 @@ from typing import Any
 import pandas as pd
 
 from .models import LoadedSnapshot, SnapshotMeta
+from ..file_access import open_regular_file
 
 
 # These directories have their own storage backends.  Snapshot traversal must
@@ -117,19 +119,15 @@ def write_snapshot_and_prune(
 
 def list_snapshots(*, root_dir: Path, view_id: str) -> list[SnapshotMeta]:
     root = ensure_storage_root(root_dir)
-    view_dir = _view_dir(root, view_id)
-
-    if not view_dir.exists() or not view_dir.is_dir():
-        return []
-
     out: list[SnapshotMeta] = []
-    for meta_path in sorted(view_dir.glob("*__meta.json"), reverse=True):
+    paths = (p for directory in _read_view_dirs(root, view_id) for p in directory.glob("*__meta.json"))
+    seen = set()
+    for meta_path in paths:
         try:
-            raw = json.loads(meta_path.read_text(encoding="utf-8"))
-            if not isinstance(raw, dict):
+            raw = _read_bound_metadata(meta_path, view_id=view_id)
+            if raw["snapshot_id"] in seen:
                 continue
-            payload_path = Path(str(raw.get("path_payload") or ""))
-            raw["payload_exists"] = payload_path.exists()
+            seen.add(raw["snapshot_id"])
             out.append(_meta_from_dict(raw))
         except Exception:
             continue
@@ -148,19 +146,14 @@ def list_snapshots(*, root_dir: Path, view_id: str) -> list[SnapshotMeta]:
 
 
 def load_snapshot(*, root_dir: Path, view_id: str, snapshot_id: str) -> LoadedSnapshot:
+    _validate_snapshot_id(snapshot_id)
     root = ensure_storage_root(root_dir)
-    view_dir = _view_dir(root, view_id)
-    meta_path = view_dir / f"{snapshot_id}__meta.json"
+    meta_path = _find_snapshot_metadata(root, view_id, snapshot_id)
 
     if not meta_path.exists():
         raise LookupError(f"Snapshot not found: {snapshot_id}")
 
-    raw = json.loads(meta_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise LookupError(f"Snapshot metadata invalid: {snapshot_id}")
-
-    if raw.get("view_id") != view_id or raw.get("snapshot_id") != snapshot_id:
-        raise LookupError("Snapshot identity does not match the requested view")
+    raw = _read_bound_metadata(meta_path, view_id=view_id)
     meta = _meta_from_dict(raw)
     payload_path = Path(meta.path_payload)
 
@@ -172,62 +165,35 @@ def load_snapshot(*, root_dir: Path, view_id: str, snapshot_id: str) -> LoadedSn
 
 
 def delete_snapshot(*, root_dir: Path, view_id: str, snapshot_id: str) -> bool:
+    _validate_snapshot_id(snapshot_id)
     root = ensure_storage_root(root_dir)
-    view_dir = _view_dir(root, view_id)
-
-    meta_path = view_dir / f"{snapshot_id}__meta.json"
     removed = False
-
-    payload_path: Path | None = None
-    if meta_path.exists():
+    for directory in _read_view_dirs(root, view_id):
+        meta_path = directory / f"{snapshot_id}__meta.json"
         try:
-            raw = json.loads(meta_path.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                payload_raw = raw.get("path_payload")
-                if isinstance(payload_raw, str) and payload_raw.strip():
-                    payload_path = Path(payload_raw)
-        except Exception:
-            payload_path = None
-
-    if payload_path is None:
-        matches = list(view_dir.glob(f"{snapshot_id}__payload.*"))
-        payload_path = matches[0] if matches else None
-
-    for p in (payload_path, meta_path):
-        if p is None:
+            raw = _read_bound_metadata(meta_path, view_id=view_id)
+        except (OSError, ValueError, LookupError):
             continue
-        try:
-            if p.exists():
+        for p in (Path(raw["path_payload"]), meta_path):
+            try:
                 p.unlink()
                 removed = True
-        except Exception:
-            pass
+            except OSError:
+                pass
 
     return removed
 
 
 def delete_all_snapshots_for_view(*, root_dir: Path, view_id: str) -> int:
     root = ensure_storage_root(root_dir)
-    view_dir = _view_dir(root, view_id)
-
-    if not view_dir.exists() or not view_dir.is_dir():
-        return 0
-
     removed = 0
-    for p in view_dir.iterdir():
-        try:
-            if p.is_file():
-                p.unlink()
-                removed += 1
-        except Exception:
-            pass
-
-    try:
-        next(view_dir.iterdir())
-    except StopIteration:
+    for snapshot in list_snapshots(root_dir=root, view_id=view_id):
+        if delete_snapshot(root_dir=root, view_id=view_id, snapshot_id=snapshot.snapshot_id):
+            removed += 1 + int(snapshot.payload_exists)
+    for view_dir in _read_view_dirs(root, view_id):
         try:
             view_dir.rmdir()
-        except Exception:
+        except OSError:
             pass
 
     return removed
@@ -249,7 +215,7 @@ def prune_snapshots(
     if keep_last is None:
         return []
 
-    ordered = sorted(snapshots, key=lambda x: x.snapshot_id, reverse=True)
+    ordered = sorted((s for s in snapshots if s.view_id == view_id), key=lambda x: x.snapshot_id, reverse=True)
     to_delete = ordered[keep_last:]
 
     pruned: list[SnapshotMeta] = []
@@ -327,34 +293,30 @@ def list_stored_views(*, root_dir: Path) -> list[dict[str, Any]]:
         metas: list[SnapshotMeta] = []
         for meta_path in sorted(child.glob("*__meta.json")):
             try:
-                raw = json.loads(meta_path.read_text(encoding="utf-8"))
+                with open_regular_file(meta_path) as source:
+                    content = source.read(1024 * 1024 + 1)
+                if len(content) > 1024 * 1024:
+                    continue
+                raw = json.loads(content)
                 if not isinstance(raw, dict):
                     continue
-                metas.append(_meta_from_dict(raw))
+                view = raw.get("view_id")
+                if not isinstance(view, str) or child not in _read_view_dirs(root, view):
+                    continue
+                metas.append(_meta_from_dict(_read_bound_metadata(meta_path, view_id=view)))
             except Exception:
                 continue
 
         if metas:
             metas.sort(key=lambda x: x.snapshot_id, reverse=True)
-            view_id = metas[0].view_id or child.name
-            snapshot_count = len(metas)
-            total_bytes = 0
-            last_created_at = metas[0].created_at
-
             for m in metas:
-                try:
-                    total_bytes += int(m.size_bytes)
-                except Exception:
-                    pass
-
-            out.append(
-                {
-                    "view_id": view_id,
-                    "snapshot_count": snapshot_count,
-                    "total_bytes": total_bytes,
-                    "last_created_at": last_created_at,
-                }
-            )
+                existing = next((item for item in out if item["view_id"] == m.view_id), None)
+                if existing is None:
+                    existing = {"view_id": m.view_id, "snapshot_count": 0, "total_bytes": 0, "last_created_at": m.created_at}
+                    out.append(existing)
+                existing["snapshot_count"] += 1
+                existing["total_bytes"] += m.size_bytes
+                existing["last_created_at"] = max(existing["last_created_at"] or "", m.created_at)
             continue
 
         # empty / orphaned directory
@@ -385,7 +347,7 @@ def delete_all_snapshots(*, root_dir: Path) -> int:
     removed = 0
 
     for child in list(root.iterdir()):
-        if not child.is_dir():
+        if child.is_symlink() or not child.is_dir():
             continue
         if child.name in _RESERVED_STORAGE_DIRECTORIES:
             continue
@@ -415,7 +377,55 @@ def delete_all_snapshots(*, root_dir: Path) -> int:
 
 
 def _view_dir(root: Path, view_id: str) -> Path:
-    return root / _slug_view_id(view_id)
+    return root / ("v2-" + hashlib.sha256(view_id.encode("utf-8")).hexdigest())
+
+
+def _read_view_dirs(root: Path, view_id: str) -> list[Path]:
+    """New writes are isolated; legacy directories are read by exact identity."""
+    paths = [_view_dir(root, view_id)]
+    legacy = _slug_view_id(view_id)
+    if legacy not in _RESERVED_STORAGE_DIRECTORIES and len(legacy.encode()) <= 255:
+        paths.append(root / legacy)
+    return paths
+
+
+def _validate_snapshot_id(snapshot_id: str) -> None:
+    if not isinstance(snapshot_id, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", snapshot_id) or snapshot_id in (".", ".."):
+        raise LookupError("Invalid snapshot identity")
+
+
+def _find_snapshot_metadata(root: Path, view_id: str, snapshot_id: str) -> Path:
+    for directory in _read_view_dirs(root, view_id):
+        path = directory / f"{snapshot_id}__meta.json"
+        if path.exists():
+            return path
+    return _view_dir(root, view_id) / f"{snapshot_id}__meta.json"
+
+
+def _read_bound_metadata(path: Path, *, view_id: str, latest: bool = False) -> dict:
+    with open_regular_file(path) as source:
+        content = source.read(1024 * 1024 + 1)
+    if len(content) > 1024 * 1024:
+        raise ValueError("Stored metadata exceeds the byte limit")
+    raw = json.loads(content)
+    if not isinstance(raw, dict):
+        raise LookupError("Snapshot metadata invalid")
+    if raw.get("view_id") != view_id:
+        raise LookupError("Stored identity does not match the requested view")
+    identity = "latest" if latest else raw.get("snapshot_id", "")
+    if not latest:
+        _validate_snapshot_id(identity)
+    if path.name != identity + "__meta.json":
+        raise LookupError("Stored metadata identity mismatch")
+    name = raw.get("payload_filename", "")
+    if not isinstance(name, str) or not re.fullmatch(re.escape(identity) + r"__payload\.[a-zA-Z0-9]+", name):
+        raise LookupError("Invalid stored payload filename")
+    # Serialized absolute paths are historical diagnostics, never authority.
+    payload = path.parent / name
+    raw["path_meta"] = str(path)
+    raw["path_payload"] = str(payload)
+    raw["payload_exists"] = payload.is_file() and not payload.is_symlink()
+    return raw
 
 
 def _slug_view_id(view_id: str) -> str:
@@ -547,28 +557,33 @@ def _serialise_payload(*, kind: str, obj: Any) -> dict[str, Any]:
 
 
 def _deserialise_payload(*, meta: SnapshotMeta, payload_path: Path) -> Any:
+    with open_regular_file(payload_path) as source:
+        return _deserialise_open_payload(meta=meta, payload_path=payload_path, source=source)
+
+
+def _deserialise_open_payload(*, meta: SnapshotMeta, payload_path: Path, source) -> Any:
     kind = meta.kind.strip().lower()
     fmt = meta.payload_format.strip().lower()
 
     if kind == "plot":
-        return payload_path.read_bytes()
+        return source.read()
 
     if kind == "table":
-        return pd.read_csv(payload_path)
+        return pd.read_csv(source)
 
     if kind in ("json", "traceback", "exception") or fmt == "json":
-        return json.loads(payload_path.read_text(encoding="utf-8"))
+        return json.loads(source.read())
 
     if kind == "image" and fmt == "binary_image":
         mime, _ = mimetypes.guess_type(str(payload_path))
-        raw = payload_path.read_bytes()
+        raw = source.read()
         return {
             "mime": mime or "application/octet-stream",
             "data_b64": base64.b64encode(raw).decode("ascii"),
             "filename": payload_path.name,
         }
 
-    return payload_path.read_text(encoding="utf-8", errors="replace")
+    return source.read().decode("utf-8", errors="replace")
 
 
 def _suffix_from_mime(mime: str) -> str:

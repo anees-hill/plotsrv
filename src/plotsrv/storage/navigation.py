@@ -17,7 +17,8 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .backend import _view_dir
+from .backend import _read_view_dirs, _view_dir
+from ..file_access import open_regular_file
 
 MAX_ENTRIES = 10_000
 MAX_METADATA_BYTES = 8 * 1024 * 1024
@@ -114,7 +115,7 @@ def navigation_page(
 
 
 def _scan(root, view_id, selected, cursor, limit, start, end, days=False):
-    directory = _view_dir(root, view_id)
+    directories = _read_view_dirs(root, view_id)
     deadline = time.monotonic() + MAX_SCAN_SECONDS
     read_bytes = 0
 
@@ -123,7 +124,7 @@ def _scan(root, view_id, selected, cursor, limit, start, end, days=False):
         # Size is bounded before JSON parsing; unneeded extra/path metadata is discarded.
         if path.is_symlink():
             raise ValueError("Invalid metadata link")
-        with path.open("rb") as handle:
+        with open_regular_file(path) as handle:
             content = handle.read(
                 min(MAX_FILE_BYTES, MAX_METADATA_BYTES - read_bytes) + 1
             )
@@ -155,67 +156,81 @@ def _scan(root, view_id, selected, cursor, limit, start, end, days=False):
 
     selected_item = None
     if selected:
-        try:
-            selected_item = read(directory / (selected + "__meta.json"))
-        except (OSError, ValueError, KeyError, TypeError, RecursionError):
-            pass  # Selected metadata unreadable/missing is explicit in the response.
+        for directory in directories:
+            try:
+                selected_item = read(directory / (selected + "__meta.json"))
+                if selected_item:
+                    break
+            except (OSError, ValueError, KeyError, TypeError, RecursionError):
+                pass  # Selected metadata unreadable/missing is explicit in the response.
     heap = []
     older = newer = newest = None
     count = eligible = 0
     available_days = {}
-    try:
-        entries = os.scandir(directory)
-    except FileNotFoundError:
-        entries = None
-    if entries is not None:
-        with entries:
-            for index, entry in enumerate(entries):
-                if index >= MAX_ENTRIES or time.monotonic() > deadline:
-                    raise NavigationUnavailable(
-                        "Snapshot history exceeds the navigation scan budget. Reduce retained history or try again."
-                    )
-                if not entry.name.endswith("__meta.json"):
+    def entries():
+        for directory in directories:
+            try:
+                scan = os.scandir(directory)
+            except FileNotFoundError:
+                continue
+            with scan:
+                yield from scan
+
+    seen = set()
+    # The scan budgets cover both formats together, including legacy entries
+    # belonging to another identity in a colliding directory.
+    from contextlib import closing
+    with closing(entries()) as scan:
+        for index, entry in enumerate(scan):
+            if index >= MAX_ENTRIES or time.monotonic() > deadline:
+                raise NavigationUnavailable(
+                    "Snapshot history exceeds the navigation scan budget. Reduce retained history or try again."
+                )
+            if not entry.name.endswith("__meta.json"):
+                continue
+            try:
+                if not entry.is_file(follow_symlinks=False):
                     continue
-                try:
-                    if not entry.is_file(follow_symlinks=False):
-                        continue
-                    item = read(Path(entry.path))
-                except FileNotFoundError:
-                    continue  # Retention concurrently removed this version.
-                except (
-                    OSError,
-                    ValueError,
-                    KeyError,
-                    TypeError,
-                    RecursionError,
-                ) as exc:
-                    raise NavigationUnavailable(
-                        "Snapshot metadata is unreadable; ordering is unavailable."
-                    ) from exc
-                if item is None:
-                    continue
-                key, row = item
-                if newest is None or key > newest[0]:
-                    newest = item
-                if selected_item:
-                    pivot = selected_item[0]
-                    if key < pivot and (older is None or key > older[0]):
-                        older = item
-                    if key > pivot and (newer is None or key < newer[0]):
-                        newer = item
-                if (start and key[0] < start) or (end and key[0] >= end):
-                    continue
-                count += 1
-                if days:
-                    day = key[0][:10]
-                    available_days[day] = available_days.get(day, 0) + 1
-                if cursor and key >= cursor:
-                    continue
-                eligible += 1
-                if len(heap) < limit:
-                    heapq.heappush(heap, item)
-                elif key > heap[0][0]:
-                    heapq.heapreplace(heap, item)
+                item = read(Path(entry.path))
+            except FileNotFoundError:
+                continue  # Retention concurrently removed this version.
+            except (
+                OSError,
+                ValueError,
+                KeyError,
+                TypeError,
+                RecursionError,
+            ) as exc:
+                raise NavigationUnavailable(
+                    "Snapshot metadata is unreadable; ordering is unavailable."
+                ) from exc
+            if item is None:
+                continue
+            key, row = item
+            if key[1] in seen:
+                continue
+            seen.add(key[1])
+            if newest is None or key > newest[0]:
+                newest = item
+            if selected_item:
+                pivot = selected_item[0]
+                if key < pivot and (older is None or key > older[0]):
+                    older = item
+                if key > pivot and (newer is None or key < newer[0]):
+                    newer = item
+            if (start and key[0] < start) or (end and key[0] >= end):
+                continue
+            count += 1
+            if days:
+                day = key[0][:10]
+                available_days[day] = available_days.get(day, 0) + 1
+            if cursor and key >= cursor:
+                continue
+            eligible += 1
+            if len(heap) < limit:
+                heapq.heappush(heap, item)
+            elif key > heap[0][0]:
+                heapq.heapreplace(heap, item)
     page = sorted(heap, reverse=True)
     for key, row in page:
         row["is_latest"] = newest is not None and key == newest[0]
