@@ -199,6 +199,8 @@ Use this pattern when:
 For private workflows, SSH tunnelling or an authenticated internal reverse proxy is usually preferable.
 
 For public demos, expose only non-sensitive content and block write/control routes.
+For a continuously running demo, use the full [public-demo security baseline](public-demo-security.md),
+including resource limits and the trusted HTML report boundary.
 
 ### Start plotsrv on localhost
 
@@ -225,7 +227,8 @@ Use an allow-list so only the routes needed for viewing the UI are public:
 ```caddy title="/etc/caddy/Caddyfile"
 demo.plotsrv.com {
     @public {
-        path / /plot /table/data /artifact /status /history /table/export /static/* /assets/*
+        method GET HEAD
+        path / /plot /table/data /artifact /status /checks /table/export /updates /stream/data /stream/status /stream/summary /history/navigation /static/* /assets/*
     }
 
     handle @public {
@@ -243,7 +246,11 @@ This configuration means:
 - write/control routes such as `/publish` and `/shutdown` are not publicly reachable
 - new or unexpected routes are blocked by default
 
-This pattern is suitable for a public read-only demo where trusted code running on the server publishes the displayed content.
+This is the routing portion of a public read-only demo where trusted code
+publishes the content. It does not supply connection limits or process
+isolation. Add `/watched-file/raw` and `/watch/source` when demonstrating
+downloads or file-backed reports, and enable history routes only with finite
+retention and a disk quota; see the [full baseline](public-demo-security.md).
 
 ### Validate and reload Caddy
 
