@@ -153,6 +153,17 @@ stream-settings:
     assert config.get_stream_max_noteworthy_items() == 10
 
 
+def test_stream_raw_mb_setting_takes_precedence_over_legacy_bytes(tmp_path) -> None:
+    yml = tmp_path / "plotsrv.yml"
+    yml.write_text(
+        "stream-settings:\n  retention:\n    max_raw_mb: 16\n    max_raw_bytes: 1234\n",
+        encoding="utf-8",
+    )
+    settings.set_runtime_context(config_path=yml)
+
+    assert config.get_stream_raw_max_bytes() == 16 * 1024 * 1024
+
+
 def test_live_publish_settings_use_yaml(tmp_path) -> None:
     yml = tmp_path / "plotsrv.yml"
     yml.write_text(

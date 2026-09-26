@@ -36,6 +36,12 @@ storage-settings:
     enabled: true
     restore_on_startup: true
     restore_scope: discovered
+  streams:
+    # Storage keeps compact stream insights, not source log lines, by default.
+    enabled: true
+    max_bytes_per_view_mb: 16
+    # Replace null with {max_blocks: 16, max_bytes_mb: 4} to opt into raw rows.
+    raw_retention: null
 
 watch-settings:
   # Controls how watched files are represented internally:
@@ -63,6 +69,13 @@ publish-settings:
 
     # Default bounded wait used by flush_views() and server shutdown.
     flush_timeout_s: 1.0
+
+stream-settings:
+  retention:
+    # Server memory for recent source rows. Both limits apply at once;
+    # older rows contribute to bounded derived insights instead of raw history.
+    max_raw_records: 200
+    max_raw_mb: 8
 
 limits:
   published_objects:
@@ -121,6 +134,18 @@ storage-settings:
     restore_on_startup: true
     restore_scope: discovered
 
+  streams:
+    # Compact stream history is on when storage is on; raw rows are opt-in.
+    enabled: true
+    max_pending_tasks: 16
+    max_pending_mb: 8
+    summary_retention: 64
+    noteworthy_keep_last: 64
+    keep_last_sessions: 8
+    max_bytes_per_view_mb: 16
+    # Replace null with {max_blocks: 16, max_bytes_mb: 4} to opt into raw rows.
+    raw_retention: null
+
   # Bounds for best-effort snapshot work waiting to be serialised.
   max_pending_tasks: 32
   max_pending_mb: 64
@@ -146,6 +171,19 @@ publish-settings:
     max_pending_views: 32
     max_pending_mb: 64
     flush_timeout_s: 1.0
+
+stream-settings:
+  # Publisher-side source polling, not a records-per-second or upload cap.
+  poll_interval_s: 0.1
+  retention:
+    # Receiver-side live raw window; both bounds apply at once.
+    max_raw_records: 200
+    max_raw_mb: 8
+    # Derived insights use observation-time windows, not source timestamps.
+    fine_window_s: 60
+    max_fine_summary_windows: 32
+    max_coarse_summary_windows: 24
+    max_noteworthy_items: 64
 
 limits:
   published_objects:

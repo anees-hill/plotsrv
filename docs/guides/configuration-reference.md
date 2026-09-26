@@ -280,6 +280,32 @@ For `@view`, this setting selects synchronous or asynchronous delivery only
 after the decorator is active through `host`, `port`, or `launch_server`. It
 does not turn a metadata-only `@view(...)` declaration into a publisher.
 
+## `stream-settings`
+
+Stream source polling runs in the publisher process; live raw retention applies
+in the receiving server. Neither setting is a records-per-second or network
+upload quota.
+
+```yaml
+stream-settings:
+  poll_interval_s: 0.1
+  retention:
+    max_raw_records: 200
+    max_raw_mb: 8
+    max_raw_age_s: null
+    fine_window_s: 60
+    max_fine_summary_windows: 32
+    max_coarse_summary_windows: 24
+    max_noteworthy_items: 64
+```
+
+The server evicts a raw row when either the row or byte limit is exceeded and
+adds the evicted observation to bounded derived summaries. `max_raw_mb` counts
+canonical encoded row bytes, not the server's total Python memory; one MB here
+is 1,024² bytes. Existing `max_raw_bytes` configurations still work, but
+`max_raw_mb` takes precedence if both keys are supplied. Increasing these
+limits also increases the potential first browser response for a stream view.
+
 ## `render-settings`
 
 `render-settings.default` controls renderer behaviour.

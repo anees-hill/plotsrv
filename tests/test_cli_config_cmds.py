@@ -373,6 +373,7 @@ def test_default_config_text_is_compact_but_keeps_useful_settings() -> None:
         "storage-settings",
         "watch-settings",
         "publish-settings",
+        "stream-settings",
         "limits",
         "freshness-settings",
         "security-settings",
@@ -380,10 +381,15 @@ def test_default_config_text_is_compact_but_keeps_useful_settings() -> None:
     assert data["storage-settings"]["enabled"] is False
     assert data["storage-settings"]["root_dir"] == ".plotsrv/store"
     assert data["storage-settings"]["latest"]["restore_on_startup"] is True
+    assert data["storage-settings"]["streams"]["enabled"] is True
+    assert data["storage-settings"]["streams"]["max_bytes_per_view_mb"] == 16
+    assert data["storage-settings"]["streams"]["raw_retention"] is None
     assert data["watch-settings"]["materialization"] == "auto"
     assert data["watch-settings"]["file_threshold_mb"] == 10
     assert data["publish-settings"]["live"]["async_enabled"] is False
     assert data["publish-settings"]["live"]["max_pending_views"] == 32
+    assert data["stream-settings"]["retention"]["max_raw_records"] == 200
+    assert data["stream-settings"]["retention"]["max_raw_mb"] == 8
     assert data["limits"]["watched_files"]["max_mb"] == 500
     assert data["freshness-settings"]["enabled"] is False
     assert data["security-settings"]["tracebacks_enabled"] is False
@@ -403,6 +409,9 @@ def test_expanded_config_text_includes_useful_controls() -> None:
     assert data["watch-settings"]["file_threshold_mb"] == 10
     assert data["publish-settings"]["live"]["async_enabled"] is False
     assert data["publish-settings"]["live"]["max_pending_views"] == 32
+    assert data["stream-settings"]["poll_interval_s"] == 0.1
+    assert data["stream-settings"]["retention"]["max_raw_mb"] == 8
+    assert data["storage-settings"]["streams"]["keep_last_sessions"] == 8
     assert data["freshness-settings"]["enabled"] is False
     assert data["render-settings"]["default"]["table_view_mode"] == "rich"
     assert data["security-settings"]["tracebacks_enabled"] is False
@@ -494,6 +503,7 @@ def test_create_config_file_writes_new_layout(tmp_path: Path) -> None:
         "storage-settings",
         "watch-settings",
         "publish-settings",
+        "stream-settings",
         "limits",
         "freshness-settings",
         "security-settings",

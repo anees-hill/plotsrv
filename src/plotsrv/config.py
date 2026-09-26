@@ -153,7 +153,7 @@ _DEFAULTS: dict[str, Any] = {
         # buckets: they use plotsrv's observation time.
         "retention": {
             "max_raw_records": 200,
-            "max_raw_bytes": 8 * 1024 * 1024,
+            "max_raw_mb": 8.0,
             "max_raw_age_s": None,
             "fine_window_s": 60,
             # Derived history keeps a recent fixed fine tier, a coarser fixed
@@ -1185,15 +1185,21 @@ def get_stream_raw_max_records() -> int:
 
 def get_stream_raw_max_bytes() -> int:
     """Maximum canonical source bytes retained in a stream's raw window."""
-    default = int(_DEFAULTS["stream-settings"]["retention"]["max_raw_bytes"])
-    return max(
-        1,
-        _as_int_or_inf(
-            _stream_retention_settings().get("max_raw_bytes"),
-            default,
-            min_value=1,
-        ),
-    )
+    default_mb = float(_DEFAULTS["stream-settings"]["retention"]["max_raw_mb"])
+    default_bytes = int(default_mb * _MB)
+    configured = settings.get_section("stream-settings").get("retention")
+    if isinstance(configured, Mapping):
+        # Prefer the readable MiB setting when both spellings are present.
+        # Existing configs using the byte setting remain valid.
+        if "max_raw_mb" in configured:
+            value = _parse_mb_to_bytes(configured["max_raw_mb"], default_mb)
+            return default_bytes if value is None else max(1, value)
+        if "max_raw_bytes" in configured:
+            return max(
+                1,
+                _as_int_or_inf(configured["max_raw_bytes"], default_bytes),
+            )
+    return default_bytes
 
 
 def get_stream_raw_max_age_s() -> float | None:
