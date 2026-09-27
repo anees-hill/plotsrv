@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 
 import pandas as pd
+import pytest
 from starlette.requests import Request
 
 from plotsrv import store
@@ -265,12 +266,13 @@ def test_admission_counts_clients_across_views_and_releases_slots():
     asyncio.run(scenario())
 
 
-def test_sse_lifetime_closes_and_reconnects_without_leaking(monkeypatch):
+@pytest.mark.parametrize("asgi_version", ["2.0", "2.4"])
+def test_sse_lifetime_closes_and_reconnects_without_leaking(monkeypatch, asgi_version):
     monkeypatch.setattr("plotsrv.app.config.get_browser_update_limits", lambda: (1, 1, .02))
 
     async def scenario():
         baseline = browser_update_hub.subscriber_count()
-        scope = dict(type="http", asgi={"spec_version": "2.4"}, method="GET",
+        scope = dict(type="http", asgi={"spec_version": asgi_version}, method="GET",
                      path="/updates", headers=[], client=("192.0.2.1", 1234))
         messages = []
 
@@ -289,12 +291,13 @@ def test_sse_lifetime_closes_and_reconnects_without_leaking(monkeypatch):
     asyncio.run(scenario())
 
 
-def test_sse_lifetime_also_bounds_a_blocked_writer(monkeypatch):
+@pytest.mark.parametrize("asgi_version", ["2.0", "2.4"])
+def test_sse_lifetime_also_bounds_a_blocked_writer(monkeypatch, asgi_version):
     monkeypatch.setattr("plotsrv.app.config.get_browser_update_limits", lambda: (1, 1, .02))
 
     async def scenario():
         baseline = browser_update_hub.subscriber_count()
-        scope = dict(type="http", asgi={"spec_version": "2.4"}, method="GET",
+        scope = dict(type="http", asgi={"spec_version": asgi_version}, method="GET",
                      path="/updates", headers=[], client=("192.0.2.1", 1234))
 
         async def receive():

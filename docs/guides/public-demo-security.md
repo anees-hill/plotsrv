@@ -230,6 +230,8 @@ browser-update-settings:
   max_connection_seconds: 600
 ```
 
+The example above is a conference profile for a shared IP; the smaller per-IP
+values in the general baseline table need adjustment for that situation.
 These limits apply per receiver process, across all views. Defaults are 1024,
 1024 and 600 respectively; counts must be integers between 1 and 1024 and the
 lifetime between 1 and 86400 seconds. Invalid values fall back to defaults.
