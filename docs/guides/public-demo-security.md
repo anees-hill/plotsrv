@@ -217,3 +217,33 @@ See [Bleach's maintenance notice](https://bleach.readthedocs.io/en/latest/change
 This baseline has not been applied to any deployed demo by this change. The
 connection values are initial operational limits, not measured capacity or a
 load-test result.
+
+### Bound browser update subscriptions
+
+`/updates` uses SSE (ordinary HTTP streaming, not WebSockets). Configure finite
+admission separately from proxy request rates:
+
+```yaml
+browser-update-settings:
+  max_connections: 96
+  max_connections_per_client: 64
+  max_connection_seconds: 600
+```
+
+These limits apply per receiver process, across all views. Defaults are 1024,
+1024 and 600 respectively; counts must be integers between 1 and 1024 and the
+lifetime between 1 and 86400 seconds. Invalid values fall back to defaults.
+The client key is the ASGI client address, not an arbitrary forwarding header.
+Configure trusted proxy forwarding correctly; otherwise a proxy's clients may
+all count as one client. A shared conference IP can legitimately contain dozens
+of browsers, so the per-client allowance must account for that.
+
+The application closes SSE responses at the lifetime, including blocked writes
+(with at most a one-second closing grace period); browsers reconnect using their
+existing backoff and revision handling. Rejected subscriptions return 503 with
+Retry-After. Subscription cleanup covers disconnection and expiry. Set the proxy
+upstream allowance above the SSE total (for example 128 versus 96) to leave
+capacity for ordinary reads. Caddy's `stream_timeout` is not an SSE lifetime
+control. Limits protect capacity, not fair service under a distributed attack;
+retain proxy request limits and monitor saturation. No HTML sandbox or report
+sanitization change is involved.

@@ -239,3 +239,82 @@ def test_stalled_browser_loop_retains_one_dispatch_and_bounded_classes():
     assert not sub.pending
     assert not sub.dispatch_scheduled
     hub.unsubscribe(sub)
+
+
+def test_admission_counts_clients_across_views_and_releases_slots():
+    import pytest
+
+    async def scenario():
+        hub = BrowserUpdateHub()
+        options = dict(since=0, loop=asyncio.get_running_loop(),
+                       max_connections=3, max_connections_per_client=2)
+        first = hub.subscribe(view_id="a", client_key="nat", **options)
+        second = hub.subscribe(view_id="b", client_key="nat", **options)
+        with pytest.raises(BrowserUpdateCapacityError):
+            hub.subscribe(view_id="c", client_key="nat", **options)
+        other = hub.subscribe(view_id="a", client_key="other", **options)
+        with pytest.raises(BrowserUpdateCapacityError):
+            hub.subscribe(view_id="a", client_key="third", **options)
+        hub.unsubscribe(first)
+        hub.unsubscribe(first)  # Early disconnect cleanup is idempotent.
+        replacement = hub.subscribe(view_id="c", client_key="nat", **options)
+        for sub in (second, other, replacement):
+            hub.unsubscribe(sub)
+        assert hub.subscriber_count() == 0
+
+    asyncio.run(scenario())
+
+
+def test_sse_lifetime_closes_and_reconnects_without_leaking(monkeypatch):
+    monkeypatch.setattr("plotsrv.app.config.get_browser_update_limits", lambda: (1, 1, .02))
+
+    async def scenario():
+        baseline = browser_update_hub.subscriber_count()
+        scope = dict(type="http", asgi={"spec_version": "2.4"}, method="GET",
+                     path="/updates", headers=[], client=("192.0.2.1", 1234))
+        messages = []
+
+        async def receive():
+            await asyncio.Future()
+
+        async def send(message):
+            messages.append(message)
+
+        for _ in range(2):
+            response = await browser_updates(Request(scope), view="idle", since=0)
+            await asyncio.wait_for(response(scope, receive, send), timeout=2)
+            assert messages[-1] == {"type": "http.response.body", "body": b"", "more_body": False}
+            assert browser_update_hub.subscriber_count() == baseline
+
+    asyncio.run(scenario())
+
+
+def test_sse_lifetime_also_bounds_a_blocked_writer(monkeypatch):
+    monkeypatch.setattr("plotsrv.app.config.get_browser_update_limits", lambda: (1, 1, .02))
+
+    async def scenario():
+        baseline = browser_update_hub.subscriber_count()
+        scope = dict(type="http", asgi={"spec_version": "2.4"}, method="GET",
+                     path="/updates", headers=[], client=("192.0.2.1", 1234))
+
+        async def receive():
+            await asyncio.Future()
+
+        async def send(message):
+            if message["type"] == "http.response.body":
+                await asyncio.Future()
+
+        response = await browser_updates(Request(scope), view="idle", since=0)
+        await asyncio.wait_for(response(scope, receive, send), timeout=2)
+        assert browser_update_hub.subscriber_count() == baseline
+
+    asyncio.run(scenario())
+
+
+def test_browser_limits_reject_disabled_or_nonfinite_values(monkeypatch):
+    from plotsrv import config
+    monkeypatch.setattr(config, "_merged_section", lambda _: {
+        "max_connections": 0, "max_connections_per_client": float("inf"),
+        "max_connection_seconds": True,
+    })
+    assert config.get_browser_update_limits() == (1024, 1024, 600)

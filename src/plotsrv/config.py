@@ -65,6 +65,11 @@ _DEFAULTS: dict[str, Any] = {
         "views_local_only": True,
         "tracebacks_enabled": False,
     },
+    "browser-update-settings": {
+        "max_connections": 1024,
+        "max_connections_per_client": 1024,
+        "max_connection_seconds": 600,
+    },
     "view-order-settings": {},
     # Legacy top-level truncation section.
     # New preferred home is limits.truncate_after.
@@ -2054,3 +2059,18 @@ def get_check_rules():
 def get_webhook_config():
     from .webhook_config import parse_webhooks
     return parse_webhooks(settings.get_section("webhook-settings", strict=True))
+
+
+def get_browser_update_limits() -> tuple[int, int, int]:
+    """Finite per-process SSE admission and lifetime; never trust raw headers."""
+    section = _merged_section("browser-update-settings")
+    values = []
+    for key, ceiling in (("max_connections", 1024),
+                         ("max_connections_per_client", 1024),
+                         ("max_connection_seconds", 86400)):
+        value = section.get(key)
+        # Reject booleans, non-integers and nonfinite/disabled limits.
+        if type(value) is not int or not 1 <= value <= ceiling:
+            value = _DEFAULTS["browser-update-settings"][key]
+        values.append(value)
+    return values[0], min(values[0], values[1]), values[2]

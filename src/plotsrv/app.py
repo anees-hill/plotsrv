@@ -97,6 +97,10 @@ async def browser_updates(
     since: int = Query(default=0, ge=0),
 ) -> StreamingResponse:
     """Stream bounded change notices; view payloads stay on existing routes."""
+    max_connections, max_per_client, max_seconds = config.get_browser_update_limits()
+    # ASGI client reflects forwarding only when the server trusts the proxy.
+    # Never key admission directly on client-supplied forwarding headers.
+    client_key = request.client.host if request.client else "unknown"
     last_event_id = request.headers.get("last-event-id")
     if last_event_id and last_event_id.isdecimal():
         since = max(since, int(last_event_id))
@@ -105,9 +109,12 @@ async def browser_updates(
             view_id=view,
             since=since,
             loop=asyncio.get_running_loop(),
+            client_key=client_key,
+            max_connections=max_connections,
+            max_connections_per_client=max_per_client,
         )
     except BrowserUpdateCapacityError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
+        raise HTTPException(status_code=503, detail=str(error), headers={"Retry-After": "5"}) from error
 
     async def events():
         try:
@@ -150,6 +157,7 @@ async def browser_updates(
     return OwnedStreamingResponse(
         events(),
         release=lambda: browser_update_hub.unsubscribe(subscription),
+        max_duration_s=max_seconds,
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

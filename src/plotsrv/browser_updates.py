@@ -36,6 +36,7 @@ class BrowserUpdateSubscription:
     queue: asyncio.Queue[BrowserUpdate]
     pending: dict[str, BrowserUpdate] = field(default_factory=dict)
     dispatch_scheduled: bool = False
+    client_key: str = "unknown"
 
 
 class BrowserUpdateCapacityError(RuntimeError):
@@ -127,19 +128,28 @@ class BrowserUpdateHub:
         view_id: str,
         since: int,
         loop: asyncio.AbstractEventLoop,
+        client_key: str = "unknown",
+        max_connections: int | None = None,
+        max_connections_per_client: int | None = None,
     ) -> BrowserUpdateSubscription:
         subscription = BrowserUpdateSubscription(
             view_id=view_id,
             loop=loop,
+            client_key=client_key,
             # Preserve one data, stored-run, check, and global-catalogue notice. Each
             # class remains coalesced, so a slow browser has a strict bound.
             queue=asyncio.Queue(maxsize=4),
         )
         with self._lock:
-            if len(self._subscribers) >= self._max_subscribers:
+            limit = min(self._max_subscribers, max_connections or self._max_subscribers)
+            if len(self._subscribers) >= limit:
                 raise BrowserUpdateCapacityError(
                     "too many browser update connections"
                 )
+            if max_connections_per_client is not None and sum(
+                s.client_key == client_key for s in self._subscribers
+            ) >= max_connections_per_client:
+                raise BrowserUpdateCapacityError("too many browser update connections from this client")
             self._subscribers.add(subscription)
             current = self.current_revision(view_id)
             latest = self._latest.get(view_id)
