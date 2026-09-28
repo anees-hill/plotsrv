@@ -37,7 +37,7 @@ def test_full_command_delegates(monkeypatch) -> None:
 
 
 def test_all_help_paths_stay_lightweight(tmp_path):
-    """A cold help process must never import runtime or optional wizard dependencies."""
+    """A cold help process must never import runtime modules."""
     import subprocess
     import sys
     from plotsrv.cli_help import HELP
@@ -51,7 +51,7 @@ class BlockRuntime:
         roots = ('plotsrv.cli', 'plotsrv.config', 'plotsrv.settings',
                  'plotsrv.config_wizard', 'plotsrv.ui_customiser', 'plotsrv.server',
                  'plotsrv.discovery', 'plotsrv.publisher_agent',
-                 'pandas', 'numpy', 'matplotlib', 'fastapi', 'uvicorn', 'textual')
+                 'pandas', 'numpy', 'matplotlib', 'fastapi', 'uvicorn')
         if any(fullname == root or fullname.startswith(root + '.') for root in roots):
             raise AssertionError('Help imported ' + fullname)
 sys.meta_path.insert(0, BlockRuntime())

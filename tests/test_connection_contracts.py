@@ -393,7 +393,7 @@ from plotsrv import publish_view
 from plotsrv.cli_parser import build_parser
 assert not attempted
 assert build_parser().parse_args(["run"]).target is None
-assert not any(name.split(".")[0] in ("textual", "rich", "plotsrv.discovery") for name in sys.modules)
+assert "plotsrv.discovery" not in sys.modules
 assert "plotsrv.discovery" not in sys.modules
 """
     subprocess.run([sys.executable, "-c", script], check=True, timeout=20)

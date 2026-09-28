@@ -7,7 +7,7 @@ COMMANDS = {
     "serve": "Host a server receiving data from publishers",
     "publish": "Register project views and send watched files to an existing server",
     "watch": "Serve a file or directory, or publish it to another server",
-    "config": "Configure plotsrv with terminal/browser wizards or file utilities",
+    "config": "Configure plotsrv with prompts, the browser editor or file utilities",
     "store": "Inspect or clear locally persisted data",
 }
 
@@ -75,21 +75,21 @@ HELP = {
     "config": (
         "Create or update configuration. Choose 'init' for guided terminal setup, "
         "'ui' for browser-based appearance/navigation editing, or the file utilities "
-        "for starter templates and discovered per-view settings. Wizards are optional.",
+        "for starter templates and discovered per-view settings. The CLI wizard needs no extra dependency.",
         "plotsrv config init\nplotsrv config ui\nplotsrv config create\n"
         "plotsrv config populate --help",
     ),
     "config init": (
-        "Guided keyboard setup for everything on this machine, publishing to another "
-        "server, or hosting a server. Choose discovery, watches and relevant settings, "
-        "then review the preview/diff before confirming a save. Existing files are backed up.",
+        "Sequential setup for publishing to another "
+        "server, hosting a server, or both. Choose discovery, watches and relevant settings, "
+        "then review changes before confirming a save. Existing files are backed up.",
         "plotsrv config init\nplotsrv config init ./src --config project.yml\n\n"
-        "An optional target focuses static discovery; server-only setup does not scan code. "
+        "An optional target focuses static discovery; server-only setup can scan when local source exists. "
         "For a custom filename, pass --config project.yml to subsequent commands too.",
     ),
     "config ui": (
         "Launch a temporary browser editor for server appearance and navigation settings. "
-        "Review changes before saving to config; this is not the terminal deployment wizard "
+        "Review changes before saving to config; this is separate from the CLI wizard "
         "or the normal data server. Stop the editor with Ctrl+C.",
         "plotsrv config ui\nplotsrv config ui --config server.yml --host 0.0.0.0 --port 8766 --no-open\n\n"
         "Use the printed editor URL to connect. Use 'config init' for deployment, sources and storage.",
