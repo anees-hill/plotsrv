@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
+import signal
 import socket
 import subprocess
 import sys
@@ -117,6 +118,60 @@ def test_standalone_server_log_modes(monkeypatch, quiet, verbose, level, access,
     assert (cfg.app is app) is verbose
     assert isinstance(cfg.app, FailureRequestLogger) is (not verbose)
     assert ("Waiting for a publisher" in capsys.readouterr().out) is (not quiet)
+
+
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, RuntimeError])
+def test_serve_cleans_up_and_only_swallows_normal_interrupt(monkeypatch, interruption):
+    import uvicorn
+    from plotsrv import server as server_mod
+    from plotsrv.standalone import serve
+
+    calls = []
+
+    def interrupted_run(self):
+        raise interruption("stop")
+
+    monkeypatch.setattr(uvicorn.Server, "run", interrupted_run)
+    monkeypatch.setattr(server_mod, "stop_server", lambda **kwargs: calls.append(kwargs))
+    if interruption is RuntimeError:
+        with pytest.raises(RuntimeError, match="stop"):
+            serve(quiet=True)
+    else:
+        assert serve(quiet=True) == 0
+    assert calls == [{"join": True}]
+
+
+def test_serve_sigint_exits_without_traceback():
+    port = unused_port()
+    script = (
+        "from plotsrv.cli_entry import main; "
+        f"raise SystemExit(main(['serve', '--port', '{port}', '--quiet']))"
+    )
+    process = subprocess.Popen(
+        [sys.executable, "-c", script], stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                break
+            try:
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/status", timeout=0.2):
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            pytest.fail("standalone server did not become ready")
+        assert process.poll() is None
+        process.send_signal(signal.SIGINT)
+        stdout, stderr = process.communicate(timeout=15)
+        assert process.returncode == 0, (stdout, stderr)
+        assert "Traceback" not in stderr
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate(timeout=5)
 
 
 def unused_port():

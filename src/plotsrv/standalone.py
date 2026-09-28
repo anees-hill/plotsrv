@@ -49,6 +49,10 @@ def serve(
         print("plotsrv: Waiting for a publisher", flush=True)
     try:
         server.run()
+    except KeyboardInterrupt:
+        # Uvicorn re-raises a captured SIGINT after its graceful shutdown.
+        # The requested stop is not an application error.
+        pass
     finally:
         store.clear_service_stop_request()
         stop_server(join=True)

@@ -38,6 +38,9 @@ def _flush_async_views_at_process_exit() -> None:
         flush_views(timeout=config.get_publish_flush_timeout_s())
         from .observations.runtime import stop_observations
         stop_observations()
+    except KeyboardInterrupt:
+        # A second signal can interrupt this best-effort atexit flush.
+        return
     except Exception:
         # Interpreter shutdown can partially tear down optional dependencies.
         # Never turn a successful user script into a shutdown exception.

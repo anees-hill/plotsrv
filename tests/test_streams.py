@@ -1111,6 +1111,25 @@ def test_single_exit_cleanup_manager_uses_one_finite_shared_budget(
     assert 0 < calls[0] <= 0.05
 
 
+def test_exit_cleanup_ignores_interrupt_during_best_effort_drain(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Handle:
+        def stop(self, *, timeout: float | None = None) -> None:
+            raise KeyboardInterrupt
+
+    manager = stream_api._stream_exit_cleanup_manager
+    manager.register(Handle())  # type: ignore[arg-type]
+    manager.cleanup()
+    assert not manager._handles
+
+    def interrupted_budget() -> float:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(config, "get_stream_process_exit_cleanup_timeout_s", interrupted_budget)
+    manager.cleanup()
+
+
 def test_ordinary_publish_cannot_replace_a_registered_stream_view(
     client: TestClient,
 ) -> None:

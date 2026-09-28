@@ -173,6 +173,10 @@ class _StreamExitCleanupManager:
                     # Never turn interpreter shutdown into a user-script
                     # exception while optional modules may be tearing down.
                     continue
+        except KeyboardInterrupt:
+            # A second signal during interpreter shutdown cancels this
+            # best-effort drain without printing an atexit traceback.
+            return
         except Exception:
             return
 

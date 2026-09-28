@@ -15,6 +15,14 @@ pytestmark = pytest.mark.usefixtures("publisher_payload_transport")
 import plotsrv.publisher as pub
 
 
+def test_process_exit_flush_ignores_interrupt(monkeypatch: pytest.MonkeyPatch) -> None:
+    def interrupted_flush(*, timeout: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pub, "flush_views", interrupted_flush)
+    pub._flush_async_views_at_process_exit()
+
+
 class DummyResp:
     def __enter__(self):
         return self
