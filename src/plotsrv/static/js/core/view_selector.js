@@ -547,6 +547,28 @@
       fragment.replaceChildren.apply(fragment, columns);
     }
 
+    function scrollStorageKey() {
+      return "plotsrv:v1:view_selector_scroll:" + controller.mode + ":" + controller.layout;
+    }
+
+    function savedScrollTop() {
+      try {
+        const value = Number(sessionStorage.getItem(scrollStorageKey()));
+        return Number.isFinite(value) && value > 0 ? value : 0;
+      } catch (e) {
+        return 0;
+      }
+    }
+
+    function saveScrollTop() {
+      if (controller.query || menu.hidden) return;
+      try {
+        sessionStorage.setItem(scrollStorageKey(), String(results.scrollTop));
+      } catch (e) {
+        // Session storage can be unavailable in restricted browsers.
+      }
+    }
+
     function render() {
       controller.renderFrame = null;
       const features = availableFeatures();
@@ -685,6 +707,7 @@
       }
       if (controller.layout === "compact") arrangeCompactColumns(fragment);
       results.replaceChildren(fragment);
+      results.scrollTop = query ? 0 : savedScrollTop();
       const items = Array.from(results.querySelectorAll("[data-plotsrv-view]"));
       const roving = items.find(function (item) {
         return item.getAttribute("aria-current") === "page";
@@ -699,6 +722,7 @@
 
     function setMode(mode, focusTab) {
       if (mode !== "grouped" && mode !== "az" && mode !== "my") return;
+      saveScrollTop();
       controller.mode = mode;
       saveViewSelectorMode(mode);
       render();
@@ -764,6 +788,7 @@
       controller.query = search.value;
       scheduleRender();
     });
+    results.addEventListener("scroll", saveScrollTop);
     search.addEventListener("keydown", function (event) {
       if (event.key !== "ArrowDown") return;
       const first = results.querySelector("[data-plotsrv-view]");
@@ -792,6 +817,7 @@
     if (layouts) layouts.addEventListener("click", function (event) {
       const button = event.target.closest && event.target.closest("[data-view-layout]");
       if (!button) return;
+      saveScrollTop();
       controller.layout = button.getAttribute("data-view-layout") === "compact" ? "compact" : "standard";
       core.savePref(core.storageKeys.viewSelectorLayout, controller.layout);
       render();
@@ -862,6 +888,7 @@
       if (!item) return;
       const viewId = item.getAttribute("data-plotsrv-view");
       if (!viewId) return;
+      saveScrollTop();
       window.location.href = window.location.pathname + "?view=" + encodeURIComponent(viewId);
     });
     menu.addEventListener("keydown", function (event) {

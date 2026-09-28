@@ -53,3 +53,16 @@ def test_compact_menu_uses_two_columns_and_one_on_mobile(page):
     assert page.locator(".ps-viewselect__results").evaluate("node => getComputedStyle(node).gridTemplateColumns.split(' ').length === 1")
     page.locator('[data-view-layout="standard"]').click()
     assert page.locator('[data-view-layout="standard"]').get_attribute("aria-pressed") == "true"
+
+
+def test_view_menu_restores_scroll_after_navigation(page):
+    open_dashboard(page, count=70)
+    page.locator(".ps-viewselect__btn").click()
+    results = page.locator(".ps-viewselect__results")
+    results.evaluate("node => node.scrollTop = 420")
+    assert results.evaluate("node => node.scrollTop") == 420
+    page.locator("[data-plotsrv-view='reports:v15']").evaluate("node => node.click()")
+    page.wait_for_url("**/?view=reports%3Av15")
+    open_dashboard(page, count=70)
+    page.locator(".ps-viewselect__btn").click()
+    assert page.locator(".ps-viewselect__results").evaluate("node => node.scrollTop") == 420
