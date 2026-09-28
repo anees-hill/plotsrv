@@ -107,6 +107,7 @@ def render_index(
     view_freshness: dict[str, dict[str, object]] | None = None,
     active_view_id: str | None = None,
     view_menu_revision: int = 0,
+    view_menu_refresh_allowed: bool = True,
     browser_update_revision: int = 0,
     browser_update_instance_id: str | None = None,
     table_plot_max_points: int = 5_000,
@@ -1259,6 +1260,7 @@ def render_index(
             "max_table_rows_rich": max_table_rows_rich,
             "table_plot_max_points": table_plot_max_points,
             "view_menu_revision": view_menu_revision,
+            "view_menu_refresh_allowed": view_menu_refresh_allowed,
             "browser_update_revision": browser_update_revision,
             "browser_update_instance_id": browser_update_instance_id,
             # These settings independently control the two modes of the shared

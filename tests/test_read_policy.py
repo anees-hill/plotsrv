@@ -7,6 +7,22 @@ from plotsrv.app import app
 from plotsrv.storage.backend import write_snapshot
 
 
+def test_dashboard_only_refreshes_catalogue_when_views_route_is_readable(monkeypatch):
+    monkeypatch.setattr(config, "get_views_local_only", lambda: True)
+    remote = TestClient(app, client=("198.51.100.1", 1000))
+    local = TestClient(app, client=("127.0.0.1", 1000))
+    forwarded = TestClient(app, client=("127.0.0.1", 1000), headers={"X-Forwarded-For": "198.51.100.1"})
+
+    for client, allowed in ((remote, False), (local, True), (forwarded, False)):
+        response = client.get("/")
+        assert response.status_code == 200
+        assert f'"view_menu_refresh_allowed": {str(allowed).lower()}' in response.text
+        assert client.get("/views").status_code == (200 if allowed else 403)
+
+    monkeypatch.setattr(config, "get_views_local_only", lambda: False)
+    assert '"view_menu_refresh_allowed": true' in remote.get("/").text
+
+
 @pytest.mark.parametrize("endpoint", ["/plot", "/artifact", "/table/data", "/table/export"])
 def test_snapshot_policy_precedes_payload_loading(monkeypatch, endpoint):
     monkeypatch.setattr(config, "get_history_local_only", lambda: True)

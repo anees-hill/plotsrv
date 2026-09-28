@@ -572,6 +572,10 @@ security-settings:
 ```
 
 The generated starter config only includes `tracebacks_enabled`, but the full set can be added when needed.
+With `views_local_only: true`, remote dashboards show the view list embedded in
+the page but cannot refresh it while open. Reload the page to see newly added
+or renamed views. Set it to `false` only when the dashboard's view catalogue is
+intended to be readable by remote clients.
 
 ## Populating config
 

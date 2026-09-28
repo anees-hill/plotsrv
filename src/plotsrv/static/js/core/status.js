@@ -16,7 +16,7 @@
   const metadataRequests = new Map(); // At most one /status and one /views.
   let pageSuspended = false;
 
-  function refreshMetadata(promiseKey, url, apply) {
+  function refreshMetadata(promiseKey, url, apply, onDenied) {
     if (document.hidden || pageSuspended) return Promise.resolve();
     if (state[promiseKey]) return state[promiseKey];
     const controller = new AbortController();
@@ -27,6 +27,7 @@
     const request = Promise.resolve().then(function () {
       return fetch(url, {signal: controller.signal});
     }).then(function (response) {
+      if (response.status === 403 && onDenied) onDenied();
       return response.ok ? response.json() : null;
     }).then(function (payload) {
       if (payload && !controller.signal.aborted && !pageSuspended &&
@@ -177,7 +178,7 @@
 
   function refreshViewIcons(viewMenuRevision) {
     const wrap = document.querySelector("[data-plotsrv-viewselect='1']");
-    if (!wrap) return;
+    if (!wrap || config.viewMenuRefreshAllowed === false || state.viewMenuAccessDenied) return Promise.resolve();
 
     const nextRevision = normalizeViewMenuRevision(viewMenuRevision);
     if (
@@ -252,7 +253,7 @@
       if (nextRevision !== null) {
         state.viewMenuRevision = nextRevision;
       }
-    });
+    }, function () { state.viewMenuAccessDenied = true; });
   }
 
   function elapsedLabel(totalSeconds) {

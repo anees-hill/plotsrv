@@ -1841,7 +1841,7 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(view: str | None = None) -> HTMLResponse:
+def index(request: Request, view: str | None = None) -> HTMLResponse:
     """
     Main HTML viewer.
 
@@ -1874,6 +1874,12 @@ def index(view: str | None = None) -> HTMLResponse:
 
     views = store.list_views()
     view_freshness = {v.view_id: store.get_freshness(view_id=v.view_id) for v in views}
+    view_menu_refresh_allowed = True
+    if config.get_views_local_only():
+        try:
+            require_local_request(request)
+        except HTTPException:
+            view_menu_refresh_allowed = False
 
     html_str = html_mod.render_index(
         kind=kind,
@@ -1888,6 +1894,7 @@ def index(view: str | None = None) -> HTMLResponse:
         view_freshness=view_freshness,
         active_view_id=active_view,
         view_menu_revision=store.get_view_menu_revision(),
+        view_menu_refresh_allowed=view_menu_refresh_allowed,
         browser_update_revision=browser_update_hub.current_revision(active_view),
         browser_update_instance_id=browser_update_hub.instance_id,
         table_plot_max_points=config.get_table_plot_max_points(),

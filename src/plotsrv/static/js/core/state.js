@@ -70,6 +70,7 @@
   config.viewCatalogue = Array.isArray(raw.view_catalogue)
     ? raw.view_catalogue
     : [];
+  config.viewMenuRefreshAllowed = raw.view_menu_refresh_allowed !== false;
   config.featuredViews = Array.isArray(raw.featured_views)
     ? raw.featured_views
     : [];
@@ -112,6 +113,7 @@
   state.reloadCurrentViewPromise = null;
   state.statusRefreshPromise = null;
   state.viewMenuRefreshPromise = null;
+  state.viewMenuAccessDenied = false;
   state.viewMenuRevision = Number.isInteger(raw.view_menu_revision)
     ? raw.view_menu_revision
     : null;

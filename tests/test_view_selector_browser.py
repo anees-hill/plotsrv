@@ -131,3 +131,28 @@ def test_view_navigation_skips_duplicate_pinned_source(page):
     page.locator(".ps-viewselect__search").press("Escape")
     page.locator('[data-view-step="-1"]').click()
     page.wait_for_url("**/?view=reports%3Av2")
+
+
+def test_view_catalogue_refresh_stops_after_access_denied(page):
+    open_dashboard(page)
+    page.add_script_tag(path=str(STATIC / "js/core/status.js"))
+    calls = []
+
+    def reject_views(route):
+        calls.append(route.request.url)
+        route.fulfill(status=403, content_type="application/json", body='{"detail":"Local access only"}')
+
+    page.route("http://plotsrv.test/views?*", reject_views)
+    page.evaluate("""async () => {
+      PLOTSRV.state.viewMenuRevision = 0;
+      PLOTSRV.config.viewMenuRefreshAllowed = false;
+      await PLOTSRV.core.refreshViewIcons(1);
+      await PLOTSRV.core.refreshViewIcons(2);
+    }""")
+    assert calls == []
+    page.evaluate("""async () => {
+      PLOTSRV.config.viewMenuRefreshAllowed = true;
+      await PLOTSRV.core.refreshViewIcons(1);
+      await PLOTSRV.core.refreshViewIcons(2);
+    }""")
+    assert len(calls) == 1
