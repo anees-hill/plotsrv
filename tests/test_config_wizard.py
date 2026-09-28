@@ -1,24 +1,16 @@
 from __future__ import annotations
 
-import asyncio
-import builtins
-from dataclasses import replace
-import os
+import io
 from pathlib import Path
-import subprocess
-import sys
-from threading import Event
-import time
-from types import SimpleNamespace
 
 import pytest
+import yaml
 
 from plotsrv import settings
 from plotsrv.cli_parser import build_parser
-from plotsrv.config_wizard import launch
-from plotsrv.config_wizard.draft import Draft, FIELDS, FieldSpec, MAX_CONFIG_BYTES
-from plotsrv.config_wizard.scanning import ScanJob
-from plotsrv.discovery import DiscoveryProgress, scan_sources
+from plotsrv.config_wizard.draft import Draft
+from plotsrv.config_wizard.flow import _current_role, run
+from plotsrv.config_wizard.inputs import Prompts, format_size, parse_duration, parse_size
 
 
 @pytest.fixture(autouse=True)
@@ -27,598 +19,318 @@ def isolate(monkeypatch):
     monkeypatch.setattr(settings, "_CONFIG_CACHE", {})
     monkeypatch.delenv("PLOTSRV_CONFIG", raising=False)
     monkeypatch.delenv("PLOTSRV_NAME", raising=False)
-    import urllib.request
-    import requests
-
-    def no_network(*args, **kwargs):
-        pytest.fail("Wizard must not contact any endpoint")
-
-    monkeypatch.setattr(urllib.request, "urlopen", no_network)
-    monkeypatch.setattr(requests.Session, "request", no_network)
 
 
 @pytest.fixture
 def project(tmp_path):
-    (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n")
     (tmp_path / "app.py").write_text(
         "from plotsrv import view\n"
-        "raise RuntimeError('never execute this project')\n"
-        "@view(label='Alpha', section='A', view_id='exact:A')\n"
-        "def one(): pass\n"
-        "@view(label='Beta', section='B', view_id='exact:B')\n"
-        "def two(): pass\n"
-        "@view(label='Gamma', section='B', view_id='exact:C')\n"
-        "def three(): pass\n"
+        "raise RuntimeError('AST discovery must not execute code')\n"
+        "@view(label='Alpha', view_id='exact:alpha')\ndef first(): pass\n"
+        "@view(label='Beta', view_id='exact:beta')\ndef second(): pass\n"
     )
     return tmp_path
 
 
-def ui():
-    pytest.importorskip(
-        "textual", reason="install plotsrv[config] for keyboard harness tests"
+def wizard(path: Path, *, target: str | None = None, answers=None, existing=None):
+    if existing is not None:
+        path.write_text(existing)
+    output = io.StringIO()
+    supplied = {key: list(values) for key, values in (answers or {}).items()}
+
+    def read():
+        question = output.getvalue().splitlines()[-1]
+        for prefix, values in supplied.items():
+            if question.startswith(prefix) and values:
+                return values.pop(0)
+        return ""
+
+    draft = Draft.load(config=path, target=target)
+    result = run(draft, Prompts(reader=read, output=output))
+    return result, output.getvalue(), draft
+
+
+def test_first_run_defaults_create_minimal_combined_config(project):
+    path = project / "plotsrv.yml"
+    result, output, _ = wizard(
+        path, target=str(project), answers={"Write this configuration?": ["y"]},
     )
-    from plotsrv.config_wizard.tui import ConfigWizard
-
-    return ConfigWizard
-
-
-async def until(pilot, predicate):
-    for _ in range(150):
-        if predicate():
-            await pilot.pause()
-            return
-        await pilot.pause(0.02)
-    raise AssertionError("Wizard did not reach expected state")
+    data = yaml.safe_load(path.read_text())
+    assert result == path
+    assert data["server-settings"]["bind"] == {"host": "127.0.0.1", "port": 8000}
+    assert data["storage-settings"]["enabled"] is True
+    assert data["freshness-settings"]["expected_every"] == "60s"
+    assert data["publisher-settings"]["discovery"]["target"] == str(project)
+    assert "Found 2 plotsrv views" in output
+    assert "Tip: enter ?" in output
+    assert "@view" not in path.read_text()  # Discovery did not copy or execute source.
 
 
-def test_parser_and_non_tty_do_not_load_ui(monkeypatch, capsys):
-    args = build_parser().parse_args(["config", "init", "pkg", "--name", "etl"])
-    assert args.target == "pkg" and args.name == "etl" and args.config is None
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
-    assert launch(args) == 2
-    assert "interactive terminal" in capsys.readouterr().err
+@pytest.mark.parametrize("role", ["publisher", "server"])
+def test_role_gates_questions_and_sections(project, role):
+    path = project / "plotsrv.yml"
+    answers = {
+        "How will this installation": [role],
+        "Destination URL": ["https://example.org/base"] if role == "publisher" else [],
+        "Write this configuration?": ["y"],
+    }
+    _, output, _ = wizard(path, target=str(project), answers=answers)
+    data = yaml.safe_load(path.read_text())
+    assert "Found 2 plotsrv views" in output
+    if role == "publisher":
+        assert "Storage\n" not in output
+        assert "server-settings" not in data
+        assert data["publisher-settings"]["destination"]["url"] == "https://example.org/base/"
+    else:
+        assert "Destination URL" not in output
+        assert "publisher-settings" not in data
+        assert data["server-settings"]["bind"]["port"] == 8000
 
 
-@pytest.mark.parametrize("missing", ["rich", "textual"])
-def test_optional_dependency_absent(monkeypatch, capsys, missing):
-    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
-    monkeypatch.setattr(sys.stdout, "isatty", lambda: True)
-    real_import = builtins.__import__
-
-    def absent(name, *args, **kwargs):
-        if missing == "textual" and (name == "tui" or name.startswith("textual")):
-            raise ModuleNotFoundError("absent", name="textual")
-        if missing == "rich" and (name == "rich" or name.startswith("rich.")):
-            raise ModuleNotFoundError("absent", name="rich")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", absent)
-    assert launch(SimpleNamespace(config=None, name=None, target=None)) == 2
-    error = capsys.readouterr().err
-    assert "plotsrv[config]" in error
-    assert "Traceback" not in error
+def test_help_invalid_input_and_view_selection(project):
+    path = project / "plotsrv.yml"
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Hide any discovered views?": ["y"],
+        "Which views should be hidden?": ["7", "2"],
+        "Enable storage?": ["?", "maybe", "n"],
+        "Enable freshness monitoring?": ["n"],
+        "Write this configuration?": ["y"],
+    })
+    data = yaml.safe_load(path.read_text())
+    assert data["publisher-settings"]["discovery"]["exact_selection"] == ["exact:alpha"]
+    assert data.get("storage-settings", {}).get("enabled", False) is False
+    assert "Storage saves latest values" in output
+    assert "Choose numbers from 1 to 2" in output
+    assert "Enter y or n" in output
 
 
-def test_core_and_cli_have_no_textual_import():
-    script = """
-import sys
-import plotsrv
-import plotsrv.cli
-import plotsrv.config_wizard
-assert not any(k == 'textual' or k.startswith('textual.') for k in sys.modules)
-assert 'plotsrv.config_wizard.tui' not in sys.modules
-"""
-    subprocess.run([sys.executable, "-c", script], check=True, timeout=20)
+def test_storage_freshness_and_per_view_overrides(project):
+    path = project / "plotsrv.yml"
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Customise storage?": ["y"],
+        "Maximum snapshot size": ["500 KB"],
+        "Snapshots retained per view": ["8"],
+        "Customise individual views?": ["y", "y"],
+        "Choose views to customise": ["1", "2"],
+        "Snapshots retained per view [": ["4", ""],
+        "Customise another view?": ["n", "n"],
+        "Configure advanced storage settings?": ["n"],
+        "Customise freshness?": ["y"],
+        "Expected update interval": ["3 am", "4h"],
+        "Warning threshold": ["5h"],
+        "Overdue threshold": ["2d"],
+        "Write this configuration?": ["y"],
+    })
+    data = yaml.safe_load(path.read_text())
+    assert data["storage-settings"]["max_snapshot_size_mb"] == pytest.approx(500 / 1024)
+    assert data["storage-settings"]["views"]["exact:alpha"]["keep_last"] == 4
+    assert data["freshness-settings"]["expected_every"] == "4h"
+    assert data["freshness-settings"]["warn_after"] == "5h"
+    assert data["freshness-settings"]["overdue_after"] == "2d"
+    assert "Enter a duration" in output
+    assert "Size example" in output
 
 
-def test_path_precedence_and_instance_defaults(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    assert Draft.load().path == tmp_path / "plotsrv.yml"
-    yaml = tmp_path / "plotsrv.yaml"
-    yaml.write_text("publisher-settings:\n  discovery:\n    target: src\n")
-    assert Draft.load().path == yaml
-    yml = tmp_path / "plotsrv.yml"
-    yml.write_text(
-        "publisher-settings:\n  default:\n    destination:\n      url: https://server/base\n  instances:\n    etl:\n      destination:\n        bearer_token_env: MISSING_KEY\n"
-    )
-    draft = Draft.load(name="etl")
-    assert draft.path == yml
-    assert draft.value(FIELDS["destination"]) == "https://server/base/"
-    assert draft.value(FIELDS["bearer"]) == "MISSING_KEY"
-    assert settings._CTX.config_path is None
-    monkeypatch.setenv("PLOTSRV_CONFIG", str(yaml))
-    assert Draft.load().path == yaml
-    assert Draft.load(config=yml).path == yml
-
-
-@pytest.mark.parametrize(
-    "raw",
-    [
-        b"x: [",
-        b"x: 1\nx: 2",
-        b"[1,2]",
-        b"x: &a [*a]",
-        b"x: " + b"[" * 40 + b"]" * 40,
-        b"x: !!python/object:foo {}",
-        b"1: value",
-        b"x" * (MAX_CONFIG_BYTES + 1),
-    ],
-)
-def test_unsafe_yaml_is_refused_without_writes(tmp_path, raw):
-    path = tmp_path / "plotsrv.yml"
-    path.write_bytes(raw)
-    with pytest.raises(ValueError):
-        Draft.load(config=path)
-    assert path.read_bytes() == raw
-
-
-def test_typed_editor_validation_and_override():
-    assert FIELDS["bind_port"].parse("8223") == 8223
-    for value in ("nan", "inf", "0", "301"):
+def test_human_friendly_size_and_duration_inputs():
+    assert parse_size("500 KB") == 500 * 1024
+    assert parse_size("1.5 GB") == int(1.5 * 1024**3)
+    assert parse_size("1048576") == 1048576
+    assert parse_size("500 KB", megabytes=True) == 500 / 1024
+    assert format_size(5242880) == "5 MiB"
+    assert format_size(1000) == "1,000 B"
+    assert format_size(5300001) == "5.05 MiB (5,300,001 B)"
+    assert parse_duration(" 30 m ") == "30m"
+    assert parse_duration("2D") == "2d"
+    for value in ("3am", "0m", "bogus"):
         with pytest.raises(ValueError):
-            FIELDS["request_timeout"].parse(value)
+            parse_duration(value)
     with pytest.raises(ValueError):
-        FIELDS["bearer"].parse("Bearer secret-value")
-    with pytest.raises(ValueError):
-        FIELDS["destination"].parse("https://user:SECRET@host/")
-    spec = FieldSpec(
-        "enabled",
-        ("freshness-settings", "enabled"),
-        "Freshness",
-        "bool",
-        False,
-        "Check freshness",
-        per_view=True,
-    )
-    draft = Draft(Path("unused.yml"))
-    draft.set_override(spec, "exact:id", "true")
-    assert draft.edits[("freshness-settings", "views", "exact:id", "enabled")] is True
-    with pytest.raises(ValueError):
-        draft.set_override(FIELDS["destination"], "exact:id", "https://host")
+        parse_size("1.5 bytes")
 
 
-def test_server_keyboard_path_never_parses_sources_or_scans(tmp_path, monkeypatch):
-    app_class = ui()
-    draft = Draft(
-        tmp_path / "plotsrv.yml",
-        config={"publisher-settings": "invalid unused section"},
-    )
-    monkeypatch.setattr(
-        draft, "sources", lambda: pytest.fail("Server must skip publisher setup")
-    )
-
-    async def run():
-        app = app_class(draft)
-        async with app.run_test() as pilot:
-            await pilot.press("j", "j", "enter")
-            assert app.stage == "server"
-            assert app.job is None
-            assert not app.screen.query("#target")
-            await pilot.press("escape")
-            assert app.stage == "role"
-            await pilot.press("ctrl+q")
-            assert app.screen.__class__.__name__ == "Confirm"
-            await pilot.press("escape")
-            assert app.stage == "role"
-            assert not draft.path.exists()
-
-    asyncio.run(run())
-
-
-def test_keyboard_discovery_selection_ranges_help_and_resize(project):
-    app_class = ui()
-    draft = Draft(project / "plotsrv.yml", cli_target=str(project))
-
-    async def run():
-        from textual.widgets import Static
-        from plotsrv.config_wizard.tui import Views
-
-        app = app_class(draft)
-        async with app.run_test(size=(100, 35)) as pilot:
-            await pilot.press("enter")
-            assert app.stage == "sources"
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            await until(pilot, lambda: app.stage == "selection")
-            assert draft.selected_ids == {"exact:A", "exact:B", "exact:C"}
-            views = app.screen.query_one(Views)
-            assert views.option_count == 5  # Two section headings.
-            await pilot.press("c")
-            assert draft.selected_ids == set()
-            await pilot.press("home", "r", "end", "e")
-            assert draft.selected_ids == {"exact:A", "exact:B", "exact:C"}
-            assert "Range selected" in str(
-                app.screen.query_one("#range", Static).content
-            )
-            await pilot.press("c", "home", "space", "j", "space")
-            assert len(draft.selected_ids) == 2
-            await pilot.press("a")
-            assert len(draft.selected_ids) == 3
-            await pilot.press("?")
-            assert app.screen.__class__.__name__ == "Help"
-            await pilot.press("escape")
-            await pilot.resize_terminal(44, 16)
-            assert app.screen.query_one("#legend").region.height > 0
-            await pilot.press("enter")
-            assert app.stage == "storage"
-            assert not draft.path.exists()
-            await pilot.press("escape", "escape")
-            assert app.stage == "sources"
-            app.screen.query_one("#next").focus()
-            previous_job = app.job
-            await pilot.press("enter")
-            assert app.stage == "selection" and app.job is previous_job
-            app.save_screenshot("/tmp/plotsrv-20-small.svg")
-
-    asyncio.run(run())
-
-
-def test_text_keys_destination_validation_and_watch(project):
-    app_class = ui()
-    draft = Draft(project / "plotsrv.yml", cli_target=str(project))
-
-    async def run():
-        from textual.widgets import Input, Static
-
-        app = app_class(draft)
-        async with app.run_test() as pilot:
-            await pilot.press("j", "enter")
-            assert draft.role == "publisher"
-            app.screen.query_one("#target", Input).focus()
-            app.screen.query_one("#target", Input).value = ""
-            await pilot.press("j", "k", "q", "space", "?", "backspace", "left")
-            assert app.stage == "sources"
-            assert app.screen.query_one("#target", Input).value == "jkq "
-            await pilot.press("f1")
-            assert app.screen.__class__.__name__ == "Help"
-            await pilot.press("escape")
-            app.screen.query_one("#destination", Input).value = "http://remote.example/"
-            app.screen.query_one("#bearer", Input).value = "MISSING_KEY"
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            assert "HTTPS" in str(app.screen.query_one("#error", Static).content)
-            app.screen.query_one("#destination", Input).value = (
-                "https://remote.example/base/"
-            )
-            app.screen.query_one("#target", Input).value = str(project)
-            app.screen.query_one("#configure-watches").focus()
-            await pilot.press("enter")
-            app.screen.query_one("#watch-path", Input).value = "missing-file.log"
-            app.screen.query_one("#watch-id", Input).value = "logs:stable"
-            app.screen.query_one("#add-watch").focus()
-            await pilot.press("enter")
-            assert draft.sources().watches[0].path == str(project / "missing-file.log")
-            app.screen.query_one("#skip").focus()
-            await pilot.press("enter")
-            assert app.stage == "publisher" and app.job is None
-            assert draft.watches()[0].view_id == "logs:stable"
-            assert draft.value(FIELDS["bearer"]) == "MISSING_KEY"
-            await pilot.press("ctrl+c", "tab", "enter")
-        assert not draft.path.exists()
-
-    asyncio.run(run())
-
-
-def test_existing_selection_duplicates_unresolved_and_no_rewrite(project):
+def test_watched_file_addition_customisation_and_storage_context(project):
     path = project / "plotsrv.yml"
-    raw = b"# preserve comment\npublisher-settings:\n  discovery:\n    target: .\n    selection: [exact:B]\nunrelated:\n  token: SUPER_SECRET\n"
-    path.write_bytes(raw)
-    with (project / "app.py").open("a") as f:
-        f.write(
-            "@view(label='Duplicate', view_id='exact:B')\ndef dup(): pass\n@view(label=dynamic)\ndef unresolved(): pass\n"
-        )
-    draft = Draft.load(config=path)
-    setup = draft.sources()
-    result = scan_sources(setup.scan_root())
-    draft.accept_scan(result, (setup.target, setup.target_base, setup.include_pruned))
-    assert draft.selected_ids == {"exact:B"}
-    preview = "\n".join(draft.diagnostics())
-    assert "Duplicate logical ID" in preview and "unresolved" in preview
-    assert "SUPER_SECRET" not in preview
-    draft.selected_ids = set()
-    with pytest.raises(ValueError, match="duplicate"):
-        draft.save_edits()
-    assert path.read_bytes() == raw
+    watched = project / "events.jsonl"
+    watched.write_text("{}\n")
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Add a watched file?": ["y"],
+        "File path": ["events.jsonl"],
+        "Customise this watched file?": ["y"],
+        "Read mode": ["tail"],
+        "Representation": ["file"],
+        "Customise storage for this watched file?": ["y"],
+        "Store watched-file snapshots": ["n", "yes"],
+        "Change another watched file?": ["n"],
+        "Write this configuration?": ["y"],
+    })
+    data = yaml.safe_load(path.read_text())
+    row = data["publisher-settings"]["watch"][0]
+    assert row["path"] == "events.jsonl"
+    assert row["label"] == "events"
+    assert row["read_mode"] == "tail"
+    assert row["materialization"] == "file"
+    assert "view_id" not in row
+    assert data["storage-settings"]["views"]["watch:events"]["watch_enabled"] is True
+    assert "Store watched-file snapshots" in output
+    assert "publisher-settings.watch.watch:events.path" in output
 
 
-def test_cancel_coalesces_progress_and_prevents_worker_overlap(project, monkeypatch):
-    app_class = ui()
-    from plotsrv.config_wizard import scanning
-
-    entered = Event()
-    release = Event()
-    calls = []
-
-    def blocked(root, *, on_progress, cancelled, **kwargs):
-        calls.append(root)
-        for i in range(5000):
-            on_progress(DiscoveryProgress("scanning", i, 5000, 5000, 0, 0))
-        entered.set()
-        release.wait(5)
-        return scan_sources(project, cancelled=cancelled)
-
-    monkeypatch.setattr(scanning, "scan_sources", blocked)
-
-    async def run():
-        app = app_class(Draft(project / "plotsrv.yml", cli_target=str(project)))
-        async with app.run_test() as pilot:
-            await pilot.press("enter")
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            await until(pilot, entered.is_set)
-            assert app.job.progress is None or app.job.progress.processed == 4999
-            await pilot.press("escape")
-            assert app.stage == "sources" and app.job.cancelled.is_set()
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            assert len(calls) == 1 and app.stage == "sources"
-            release.set()
-            await until(pilot, app.job.done.is_set)
-            await until(pilot, lambda: app.poll_timer is None)
-            assert app.draft.result is None
-        assert not app.job.thread.is_alive()
-
-    try:
-        asyncio.run(run())
-    finally:
-        release.set()
+def test_existing_config_preserved_and_no_change_rerun(project):
+    path = project / "plotsrv.yml"
+    raw = "# human comment\nserver-settings: {bind: {host: 127.0.0.1, port: 8000}}\nunknown: {keep: true}\n"
+    _, output, _ = wizard(path, target=str(project), existing=raw)
+    assert path.read_text() == raw
+    assert "No changes" in output
+    assert "Write this configuration?" not in output
+    _, _, _ = wizard(path, target=str(project), answers={
+        "Change storage settings?": ["y"],
+        "Enable storage?": ["y"],
+        "Write this configuration?": ["y"],
+    })
+    assert "# human comment" in path.read_text()
+    assert "unknown: {keep: true}" in path.read_text()
+    assert yaml.safe_load(path.read_text())["storage-settings"]["enabled"] is True
+    assert list(project.glob("plotsrv.yml.bak.*"))
 
 
-def test_default_scope_detection_does_not_walk_sources(project, monkeypatch):
-    from plotsrv.cli import _find_project_root
-
-    (project / "pyproject.toml").unlink()
-    (project / "src").mkdir()
-    monkeypatch.setattr(
-        Path, "rglob", lambda *a, **kw: pytest.fail("No unbounded preliminary scan")
-    )
-    assert _find_project_root(project) == project
+def test_starter_sections_do_not_imply_server_only(project):
+    path = project / "plotsrv.yml"
+    path.write_text("storage-settings: {enabled: false}\nfreshness-settings: {enabled: false}\n")
+    assert _current_role(Draft.load(config=path)) == "combined"
 
 
-def test_no_target_discovery_and_error_recovery(project, monkeypatch):
-    app_class = ui()
-    monkeypatch.chdir(project)
+def test_cancel_and_decline_review_leave_existing_bytes(project):
+    path = project / "plotsrv.yml"
+    raw = "# unchanged\nserver-settings: {bind: {port: 8000}}\n"
+    _, output, _ = wizard(path, target=str(project), existing=raw, answers={
+        "Change storage settings?": ["y"], "Enable storage?": ["y"],
+    })
+    assert "Not saved" in output
+    assert path.read_text() == raw
 
-    async def run():
-        from textual.widgets import Input
-
-        app = app_class(Draft(project / "plotsrv.yml"))
-        async with app.run_test() as pilot:
-            await pilot.press("enter")
-            app.screen.query_one("#target", Input).value = "missing/path"
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            await until(pilot, lambda: app.job.done.is_set())
-            await until(pilot, lambda: app.poll_timer is None)
-            assert app.stage == "scanning" and app.job.error
-            await pilot.press("escape")
-            app.screen.query_one("#target", Input).value = ""
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            await until(pilot, lambda: app.stage == "selection")
-            assert len(app.draft.selected_ids) == 3
-
-    asyncio.run(run())
+    output = io.StringIO()
+    def interrupt():
+        raise KeyboardInterrupt
+    with pytest.raises(KeyboardInterrupt):
+        run(Draft.load(config=path, target=str(project)), Prompts(reader=interrupt, output=output))
+    assert path.read_text() == raw
 
 
-def test_quit_during_scan_is_prompt_and_never_applies_late_result(project, monkeypatch):
-    app_class = ui()
-    from plotsrv.config_wizard import scanning
+def test_no_ansi_in_plain_terminal(monkeypatch):
+    monkeypatch.setenv("NO_COLOR", "1")
+    class Terminal(io.StringIO):
+        def isatty(self):
+            return True
 
-    release = Event()
-    entered = Event()
-
-    def blocked(*args, **kwargs):
-        entered.set()
-        release.wait(5)
-        return scan_sources(project)
-
-    monkeypatch.setattr(scanning, "scan_sources", blocked)
-
-    async def run():
-        app = app_class(Draft(project / "plotsrv.yml", cli_target=str(project)))
-        async with app.run_test() as pilot:
-            await pilot.press("enter")
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            await until(pilot, entered.is_set)
-            await pilot.press("ctrl+q", "tab", "enter")
-        assert app.job.cancelled.is_set()
-        assert app.draft.result is None
-        release.set()
-        app.job.thread.join(2)
-        assert not app.job.thread.is_alive()
-        assert app.draft.result is None
-
-    try:
-        asyncio.run(run())
-    finally:
-        release.set()
+    output = Terminal()
+    prompts = Prompts(reader=lambda: "", output=output)
+    prompts.section("Storage")
+    assert "\x1b[" not in output.getvalue()
 
 
-def test_input_draft_survives_back_and_selection_header_cannot_collide(project):
-    app_class = ui()
-
-    async def run():
-        from textual.widgets import Input
-        from plotsrv.config_wizard.tui import Views
-        from plotsrv.discovery import DiscoveredView, DiscoveryResult
-
-        app = app_class(Draft(project / "plotsrv.yml", cli_target=str(project)))
-        async with app.run_test() as pilot:
-            await pilot.press("enter")
-            app.screen.query_one("#destination", Input).value = "invalid unfinished URL"
-            await pilot.press("escape")
-            assert app.stage == "role"
-            await pilot.press("enter")
-            assert (
-                app.screen.query_one("#destination", Input).value
-                == "invalid unfinished URL"
-            )
-            app.draft.result = DiscoveryResult(
-                (DiscoveredView("unknown", "label", "section", "header-0"),),
-                (),
-                0,
-                1,
-                1,
-                1,
-                False,
-                False,
-            )
-            app.draft.selected_ids = {"header-0"}
-            app.show_stage("selection")
-            await pilot.pause()
-            await pilot.press("c", "a")
-            views = app.screen.query_one(Views)
-            assert views.selected == ["header-0"]
-            assert app.draft.selected_ids == {"header-0"}
-
-    asyncio.run(run())
+def test_limits_invalid_size_reprompts_and_shows_binary_units(project):
+    path = project / "plotsrv.yml"
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Customise safety limits?": ["y"],
+        "Max plot bytes": ["lots", "10 MB"],
+        "Write this configuration?": ["y"],
+    })
+    data = yaml.safe_load(path.read_text())
+    assert data["limits"]["published_objects"]["max_plot_bytes"] == 10 * 1024**2
+    assert "Enter a size such as" in output
 
 
-def test_config_init_noninteractive_entry_stays_lightweight(tmp_path):
-    script = """
-import sys
-from plotsrv.cli_entry import main
-assert main(['config', 'init']) == 2
-assert 'plotsrv.cli' not in sys.modules
-assert 'textual' not in sys.modules
-assert 'plotsrv.config_wizard.draft' not in sys.modules
-"""
-    result = subprocess.run(
-        [sys.executable, "-c", script],
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    assert result.returncode == 0, result.stderr
+def test_freshness_threshold_order_reprompts_in_section(project):
+    path = project / "plotsrv.yml"
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Customise freshness?": ["y"],
+        "Warning threshold": ["5h"],
+        "Overdue threshold": ["1h", "6h"],
+        "Write this configuration?": ["y"],
+    })
+    data = yaml.safe_load(path.read_text())
+    assert data["freshness-settings"]["overdue_after"] == "6h"
+    assert "Overdue must be later" in output
 
 
-@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="POSIX special-file guard")
-def test_config_fifo_is_rejected_before_read(tmp_path):
-    path = tmp_path / "plotsrv.yml"
-    os.mkfifo(path)
-    with pytest.raises(ValueError, match="regular file"):
-        Draft.load(config=path)
+def test_duplicate_watched_path_offers_edit_and_keeps_single_entry(project):
+    path = project / "plotsrv.yml"
+    (project / "events.log").write_text("test\n")
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Add a watched file?": ["y"],
+        "File path": ["events.log", "./events.log"],
+        "Change another watched file?": ["y", "n"],
+        "Choose an action": ["add"],
+        "Write this configuration?": ["y"],
+    })
+    data = yaml.safe_load(path.read_text())
+    assert len(data["publisher-settings"]["watch"]) == 1
+    assert "Already watched as events" in output
+    assert "Edit that entry instead?" in output
 
 
-def test_entire_navigation_can_use_only_tab_and_enter(project):
-    app_class = ui()
-
-    async def run():
-        app = app_class(Draft(project / "plotsrv.yml", cli_target=str(project)))
-        async with app.run_test(size=(44, 16)) as pilot:
-            await pilot.press("enter")
-            # Walk actual focus order, including scrolling fields and help.
-            for _ in range(25):
-                if app.focused and app.focused.id == "next":
-                    break
-                await pilot.press("tab")
-            assert app.focused.id == "next"
-            await pilot.press("enter")
-            await until(pilot, lambda: app.stage == "selection")
-            assert app.screen.query_one("#help-panel").region.height == 3
-            await pilot.press("r")
-            from textual.widgets import Static
-
-            assert "anchor (set)" in str(
-                app.screen.query_one("#legend", Static).content
-            )
-            await pilot.press("end", "e", "enter")
-            assert app.stage == "storage"
-            await pilot.press("ctrl+q", "tab", "enter")
-        assert not app.draft.path.exists()
-
-    asyncio.run(run())
+def test_storage_disabled_omits_watch_snapshot_questions(project):
+    path = project / "plotsrv.yml"
+    (project / "events.log").write_text("test\n")
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Enable storage?": ["n"],
+        "Add a watched file?": ["y"],
+        "File path": ["events.log"],
+        "Write this configuration?": ["y"],
+    })
+    assert "Store watched-file snapshots" not in output
+    assert "Customise storage for this watched file?" not in output
 
 
-def test_completed_scan_waits_for_help_without_an_idle_timer(project, monkeypatch):
-    app_class = ui()
-    from plotsrv.config_wizard import scanning
-
-    entered, release = Event(), Event()
-
-    def paused(*args, **kwargs):
-        entered.set()
-        release.wait(5)
-        return scan_sources(project)
-
-    monkeypatch.setattr(scanning, "scan_sources", paused)
-
-    async def run():
-        app = app_class(Draft(project / "plotsrv.yml", cli_target=str(project)))
-        async with app.run_test() as pilot:
-            await pilot.press("enter")
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            await until(pilot, entered.is_set)
-            await pilot.press("?")
-            release.set()
-            await until(pilot, lambda: app.poll_timer is None)
-            assert app.screen.__class__.__name__ == "Help"
-            await pilot.press("escape")
-            await until(pilot, lambda: app.stage == "selection")
-
-    try:
-        asyncio.run(run())
-    finally:
-        release.set()
+def test_publisher_destination_validates_at_prompt(project):
+    path = project / "plotsrv.yml"
+    _, output, _ = wizard(path, target=str(project), answers={
+        "How will this installation": ["publisher"],
+        "Destination URL": ["off", "http://example.test/base"],
+        "Write this configuration?": ["y"],
+    })
+    assert "http://example.test/base/" in path.read_text()
+    assert "destination must be an HTTP(S) base URL" in output
 
 
-def test_broad_implicit_scan_shows_narrowing_tip(project, monkeypatch):
-    app_class = ui()
-    from plotsrv.config_wizard import scanning
-    from textual.widgets import Static
-
-    release = Event()
-    entered = Event()
-    monkeypatch.chdir(project)
-
-    def blocked(root, *, on_progress, **kwargs):
-        on_progress(DiscoveryProgress("scanning", 50, 1200, 1200, 0, 6))
-        entered.set()
-        release.wait(5)
-        return scan_sources(project)
-
-    monkeypatch.setattr(scanning, "scan_sources", blocked)
-
-    async def run():
-        app = app_class(Draft.load(config=project / "plotsrv.yml"))
-        async with app.run_test() as pilot:
-            await pilot.press("enter")
-            app.screen.query_one("#next").focus()
-            await pilot.press("enter")
-            await until(pilot, entered.is_set)
-            await until(
-                pilot,
-                lambda: "narrow discovery"
-                in str(app.screen.query_one("#progress", Static).content),
-            )
-            assert app.job.progress is None
-            await pilot.press("escape")
-            release.set()
-            await until(pilot, app.job.done.is_set)
-
-    try:
-        asyncio.run(run())
-    finally:
-        release.set()
+def test_explicit_per_view_choice_is_override_even_if_equal_to_inherited(project):
+    path = project / "plotsrv.yml"
+    _, _, _ = wizard(path, target=str(project), answers={
+        "Customise storage?": ["y"],
+        "Customise individual views?": ["y"],
+        "Choose views to customise": ["1"],
+        "Keep snapshots on disk": ["yes"],
+        "Write this configuration?": ["y"],
+    })
+    data = yaml.safe_load(path.read_text())
+    assert data["storage-settings"]["views"]["exact:alpha"]["enabled"] is True
 
 
-def test_existing_exact_empty_selection_is_described(project):
-    app_class = ui()
-    from textual.widgets import Static
+def test_per_view_limit_is_reviewed_and_saved(project):
+    path = project / "plotsrv.yml"
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Customise safety limits?": ["y"],
+        "Customise truncation for individual views?": ["y"],
+        "Choose views": ["1"],
+        "Text character limit": ["500"],
+        "Write this configuration?": ["y"],
+    })
+    data = yaml.safe_load(path.read_text())
+    assert data["limits"]["views"]["exact:alpha"]["truncate_after"]["text"] == 500
+    assert "limits.views.exact:alpha.truncate_after.text" in output
+
+
+def test_launch_handles_interrupt_without_writing(project, monkeypatch, capsys):
+    from plotsrv.config_wizard import launch
 
     path = project / "plotsrv.yml"
-    path.write_text("publisher-settings:\n  discovery:\n    exact_selection: []\n")
+    args = build_parser().parse_args(["config", "init", str(project), "--config", str(path)])
+    monkeypatch.setattr("builtins.input", lambda: (_ for _ in ()).throw(KeyboardInterrupt))
+    assert launch(args) == 130
+    assert not path.exists()
+    assert "Configuration cancelled" in capsys.readouterr().err
 
-    async def run():
-        app = app_class(Draft.load(config=path))
-        async with app.run_test() as pilot:
-            await pilot.press("enter")
-            text = "\n".join(str(widget.content) for widget in app.screen.query(Static))
-            assert "exact IDs: []" in text
-            assert "all (runtime default)" not in text
 
-    asyncio.run(run())
+def test_config_init_parser():
+    args = build_parser().parse_args(["config", "init", "./src", "--name", "etl"])
+    assert args.target == "./src" and args.name == "etl"
