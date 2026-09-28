@@ -239,6 +239,7 @@ class Draft:
     edits: dict[tuple[str, ...], Any] = field(default_factory=dict)
     result: DiscoveryResult | None = None
     selected_ids: set[str] | None = None
+    selection_changed: bool = False
     watch_rows: list[dict] | None = None
     scan_key: tuple | None = None
     discovery_skipped: bool = False
@@ -522,7 +523,7 @@ class Draft:
                 )
             if self.discovery_skipped:
                 edits[("publisher-settings", "discovery", "exact_selection")] = []
-            elif self.result is not None:
+            elif self.result is not None and self.selection_changed:
                 if not self.result.complete:
                     raise ValueError(
                         "Discovery is incomplete. Narrow the scope and rescan, or explicitly continue without discovery."
@@ -537,11 +538,11 @@ class Draft:
                 edits[("publisher-settings", "discovery", "exact_selection")] = sorted(
                     self.selected_ids or ()
                 )
-            if self.cli_target is not None and not self.discovery_skipped:
+            if self.cli_target is not None and (self.original is None or self.selection_changed) and not self.discovery_skipped:
                 edits[("publisher-settings", "discovery", "target")] = saved_target(
                     self.cli_target
                 )
-            elif self.result is not None and self.sources().target is None:
+            elif self.result is not None and (self.original is None or self.selection_changed) and self.sources().target is None:
                 from ..source_targets import default_source_target
 
                 edits[("publisher-settings", "discovery", "target")] = (

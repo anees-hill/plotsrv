@@ -583,6 +583,7 @@ def review_projection(document, name, role, *, raw_values=False):
         ("server-settings", ("admission",)),
         ("storage-settings", ("views",)),
         ("freshness-settings", ("views",)),
+        ("limits", ("views",)),
     ):
         if (
             role == "publisher"
@@ -628,11 +629,22 @@ def review_projection(document, name, role, *, raw_values=False):
                                 "warn_after",
                                 "overdue_after",
                                 "error_after",
+                                "truncate_after",
                             }
                         )
                     )
                 )
                 value = sec[key]
+
+                if section_key == "limits" and key == "views" and isinstance(value, dict):
+                    assign(output, (section_key, key), {
+                        vid: {"truncate_after": {
+                            kind: setting for kind, setting in row.get("truncate_after", {}).items()
+                            if kind in {"text", "html", "markdown"}
+                        }}
+                        for vid, row in value.items() if isinstance(row, dict)
+                    })
+                    continue
 
                 def clean(row):
                     return (
