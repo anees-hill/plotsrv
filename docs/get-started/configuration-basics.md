@@ -18,11 +18,10 @@ A config file becomes useful when behaviour needs to be kept consistent across r
 
 ## Create a config file
 
-For a keyboard walkthrough of roles, local sources and view selection, see the
-[configuration wizard](../guides/cli.md#configuration-wizard).
-It requires the optional `plotsrv[config]` extra and includes settings, per-view
-overrides, a reviewed diff and confirmed saving with a backup. The commands below
-remain available for noninteractive creation and population.
+For a sequential walkthrough of roles, local sources and view selection, run
+`plotsrv config init` (see the [configuration wizard](../guides/cli.md#configuration-wizard)).
+It uses ordinary prompts, supports per-view overrides, and reviews changes before
+saving. The commands below remain available for noninteractive creation and population.
 
 To create a starter config:
 

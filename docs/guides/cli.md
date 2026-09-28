@@ -220,125 +220,52 @@ plotsrv run . \
 
 ## Configuration wizard
 
-Install the optional terminal interface explicitly, then open it:
+Run the sequential CLI wizard with the standard plotsrv installation:
 
 ```bash
-pip install 'plotsrv[config]'
 plotsrv config init
 plotsrv config init ./src --config plotsrv.yml --name etl
 ```
 
-For a locally built wheel, append `[config]` to the wheel path when installing
-it, for example `uv pip install './plotsrv-0.8.0-py3-none-any.whl[config]'`.
+It works in an ordinary terminal or SSH session; there is no terminal UI extra.
+Choose whether this installation publishes, serves, or does both. When local
+publisher source is available, plotsrv discovers `@view` declarations by
+reading their AST without executing the project, then lets you hide selected
+views. Server-only setups can also discover views when local source is available,
+but do not need source code to configure a receiving server. Discovery remains
+separate from watched files and direct API publication.
 
-Choose **Everything on this machine**, **Send data to another plotsrv server**,
-or **Host a plotsrv server**. Local setup proceeds through sources, storage and
-freshness, then offers Review and save or Advanced. Local setup starts with your
-source target; Remote destination is optional, and existing remote settings stay
-visible. Publisher setup offers a
-destination, key environment reference, watches, manual logical IDs and bounded
-publication/observation settings. Server setup covers bind, ingestion/admission,
-storage and freshness without requiring application source code.
+The main path asks whether to enable storage and freshness, then uses their
+built-in defaults. Answer **yes** to customisation only when you need global
+settings or per-view exceptions. Limits and watched files are optional; each
+watched file needs only a path and a label, which defaults to the filename.
+Settings for watched-file snapshots appear alongside watched files when storage
+is enabled. Advanced settings are behind an explicit question. The same
+storage, freshness, limit and source semantics are available through the
+existing `config populate` commands.
 
-Storage and freshness start with on/off choices. Turning either off retains
-values you may re-enable. Storage exposes snapshot size/retention, watched-file
-storage; latest restore and queue settings are under Advanced / Storage advanced.
-Freshness uses server receipt time:
-an unset warning threshold uses the expected interval; an unset overdue
-threshold uses twice the warning. Disabling disk storage does not disable
-in-memory stream summaries. Per-view editors use the same logical IDs, including
-configured/manual IDs when there is no local catalogue. Reset removes the local
-override and reveals inherited policy. Watched-file freshness starts disabled
-unless explicitly configured for that view; choose Yes to opt in.
+Press Enter to accept the shown value. Enter `?` at any prompt for an explanation
+of the current question; the wizard then repeats it. Durations accept `30m`,
+`4h` or `2d` (and `s` for seconds). Size prompts accept `500 KB`, `10 MB` or
+`1.5 GB`, with case and spacing variations. These use plotsrv's binary units:
+1 MB means 1 MiB, or 1,048,576 bytes. Plain integer bytes are accepted for
+byte-valued limits. Invalid values are explained and prompted again. No clock
+time is requested by the current schema; freshness uses elapsed durations since
+last receipt.
 
-Advanced covers Watch, Publish, Limits and server Security/Admission. Checks and
-webhooks offer modest controls and existing-schema guidance; they do not have a
-second rule language. Existing rules and destinations are validated and retained.
-For appearance, run `plotsrv config ui` after saving, with the same `--config`
-and `--name`. It opens a separate temporary browser editor.
+Run the same command again to edit an existing config. Enter keeps its current
+values, and declining a section's **Change** question preserves the entire
+section. The wizard holds proposed edits in memory, shows a concise review,
+and writes only after explicit confirmation. No-change runs do not rewrite the
+file. Ctrl+C or EOF before confirmation leaves it untouched. Existing comments,
+ordering, unknown settings and other instances are preserved where the safe
+YAML editor supports the layout; ambiguous layouts are refused rather than
+rewritten destructively. Confirmed writes use atomic replacement and make a
+backup of an existing file. The wizard never reads watched-file contents or
+secret values and does not contact a destination.
 
-| Keys | Action |
-| --- | --- |
-| Tab / Shift+Tab | Move through fields and actions |
-| Arrows / j / k | Move within lists and open dropdowns |
-| Space | Toggle a discovered view |
-| a / c | Select all / clear all in the view list |
-| r, then e | Set a range anchor, move, select through its end |
-| Enter | Choose, continue, or activate the focused button |
-| Esc | Dismiss or go back |
-| Left / Backspace | Go back outside text editors |
-| Ctrl+C / Ctrl+Q | Confirm abandonment |
-| ? / F1 | Help; use F1 while editing text |
-
-Contextual help includes meaning, units, defaults and inheritance; an asterisk
-marks a departure from the displayed default. Input editing retains its normal
-keys, and small terminals use scrolling panels. No mouse is required.
-
-Discovery reads bounded AST source without importing the project. An optional
-package/path focuses it; otherwise the configured target or normal project root
-is used. New setups select all discovered views; existing setups start with the
-effective selection. Explicit IDs are preserved, and duplicate/unresolved or
-incomplete discovery is disclosed. The wizard saves `discovery.exact_selection`
-so clearing every view means no discovery and never accidentally means all.
-`discovery.additional_ids` records reviewed dynamic/manual publisher IDs.
-Legacy `selection` keeps its existing label/section/ID matching and empty-means-all
-behaviour when exact selection is absent. An explicit CLI `--include` overrides
-the configured selection. Watches and direct API publication are independent of
-AST selection. Choose Configure watches to add files; the editor opens
-automatically for existing watches. Select an existing watch to edit its path, logical ID, label,
-section, read mode or materialization (inherited or explicit), or remove that specific watch. Changes
-apply with Add / update watch; New watch starts a new entry.
-
-The wizard never reads watched-file contents, tests a destination, reads secret
-values, registers views, seals a catalogue or changes a running service. Key and
-webhook-header settings use environment-variable names. Those values must exist
-on the machine starting the corresponding service; startup still validates them
-and fails closed when required values are absent. Locked servers may use a
-complete configured ID list, or await an explicit publisher bootstrap. An empty
-configured list seals a catalogue admitting no IDs. Review the complete union
-before using the generated `--seal-catalogue --reviewed` guidance. Publisher
-additional IDs and server admission IDs are separate lists, including in local
-setup. Advanced / Publish shows the applicable local or remote stream timeout;
-the maximum retry delay must be at least the initial delay.
-
-Config selection follows the existing resolver: explicit `--config`, environment
-selection, then `plotsrv.yml` before `plotsrv.yaml`. New drafts default to
-`./plotsrv.yml`. Choose an unused custom filename or edit an existing one with
-`--config`. The final screen supplies the applicable run/serve/publish command,
-including `--config` and the selected instance. CLI bind flags override saved
-server bind values for combined `run` as well as standalone `serve`.
-
-Before saving, inspect managed YAML excerpts in their actual default/instance
-placement and the effective-value diff; unrelated content,
-comments and webhook endpoints are hidden from the review display. They are
-retained in the actual file. Confirmation writes a unique restrictive backup
-when replacing a file, then atomically replaces the target. New files use
-no-clobber creation. Nothing writes until confirmation. File identity, timestamps
-and content are checked against the review. If another editor changes the file,
-reload it for review with your draft edits retained; do not confirm until you have
-reviewed the new diff. Permission/write errors retain the previous target and
-your draft. Closing before saving or cancelling the confirmation leaves files unchanged.
-
-Edits preserve unrelated YAML bytes, comments, quoting and other instances.
-Appending a watch preserves existing list rows/comments. Ambiguous layouts,
-commented structures requiring destructive replacement, aliases, duplicate or
-non-string keys, unsupported tags, nesting beyond 32 levels, more than 20,000
-parser events, and files exceeding 1 MiB are refused with repair/new-file guidance.
-An existing config must remain in its original directory when saving under a new
-name, so unrelated relative paths cannot silently change meaning. New configs
-may use another existing directory; explicitly entered source/storage paths keep
-their original base. Module/package expressions retain their import names,
-including `package.module:callable`; run those commands from the project
-environment where the module is importable. Use `module:callable` for callable
-execution, rather than `file.py:callable`. Directories are not created automatically. The draft allows
-at most 2,048 field edits in one session.
-
-Discovery has one cooperative worker and one replaceable progress slot; there is
-no idle scan polling after completion. A filesystem/parser call cannot be
-interrupted mid-call. Saving is synchronous, bounded local work in this optional
-configuration process. The optional interface is never loaded by publishers or
-servers and never installs dependencies on invocation. Noninteractive invocation
-exits with guidance to the unchanged `config create/populate` commands.
+For appearance settings, `plotsrv config ui` remains a separate browser editor.
+For automation, use `config create` and `config populate`.
 
 ## Create config
 

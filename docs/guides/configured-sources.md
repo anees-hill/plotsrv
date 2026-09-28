@@ -55,7 +55,7 @@ view IDs survive registration and `config populate`, even when labels differ.
 Config population retains its existing merge/replace behaviour and respects the
 configuration's discovery selection.
 
-The keyboard configuration wizard writes `discovery.exact_selection` when saving
+The sequential configuration wizard writes `discovery.exact_selection` when saving
 its chosen IDs. When present, this list matches only logical IDs; an empty list
 skips discovery entirely. It takes precedence over legacy `selection`, whose
 empty list continues to mean all views. An explicit CLI `--include` replaces

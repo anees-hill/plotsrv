@@ -203,5 +203,5 @@ catalogue registration and remote watch transport are covered by
 [Publisher agent](../guides/publisher-agent.md). Full description presentation
 remains subsequent work. Server wire
 admission and authentication are now enforced by the ingestion boundary. No
-discovery, TUI imports or network activity occurs on ordinary package import or
+discovery, wizard imports or network activity occurs on ordinary package import or
 parser startup.
