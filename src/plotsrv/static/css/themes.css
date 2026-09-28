@@ -690,6 +690,7 @@ body.ps-settings-open {
 }
 
 .ps-viewselect__tabs,
+.ps-viewselect__layouts,
 .ps-status-policy-values div {
   background: var(--ps-surface-muted);
 }
@@ -702,6 +703,10 @@ body.ps-settings-open {
   background: var(--ps-surface-raised);
   color: var(--ps-text);
 }
+
+.ps-viewselect__layout { color: var(--ps-muted); }
+.ps-viewselect__layout[aria-pressed="true"] { background: var(--ps-surface-raised); color: var(--ps-text); }
+.ps-viewselect__layout:focus-visible { outline-color: var(--ps-focus); }
 
 .ps-viewselect__item[data-selected="true"],
 .ps-viewselect__feature[data-selected="true"] {

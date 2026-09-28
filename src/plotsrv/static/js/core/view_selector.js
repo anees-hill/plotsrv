@@ -479,12 +479,14 @@
     const menu = wrap.querySelector(".ps-viewselect__menu");
     const search = wrap.querySelector(".ps-viewselect__search");
     const tabs = wrap.querySelector(".ps-viewselect__tabs");
+    const layouts = wrap.querySelector(".ps-viewselect__layouts");
     const results = wrap.querySelector(".ps-viewselect__results");
     if (!trigger || !menu || !search || !tabs || !results) return null;
 
     const controller = {
       catalogue: normalizeViewCatalogue(config.viewCatalogue),
       mode: "grouped",
+      layout: core.loadPref && core.loadPref(core.storageKeys.viewSelectorLayout, "standard") === "compact" ? "compact" : "standard",
       query: "",
       pinned: [],
       featuredDisplay: loadFeaturedDisplay(),
@@ -514,6 +516,37 @@
       tabs.replaceChildren.apply(tabs, nodes);
     }
 
+    function arrangeCompactColumns(fragment) {
+      const groups = Array.from(fragment.children);
+      const count = groups.reduce(function (sum, group) {
+        const list = group.querySelector("[role='list']");
+        return sum + (list ? list.children.length : 0);
+      }, 0);
+      if (!count) return;
+      const columns = [element("div", "ps-viewselect__column"), element("div", "ps-viewselect__column")];
+      const leftTarget = Math.ceil(count / 2);
+      let leftCount = 0;
+      for (const group of groups) {
+        const list = group.querySelector("[role='list']");
+        if (!list) { columns[leftCount < leftTarget ? 0 : 1].appendChild(group); continue; }
+        const rows = Array.from(list.children);
+        const leftTake = Math.max(0, Math.min(rows.length, leftTarget - leftCount));
+        if (leftTake === 0) { columns[1].appendChild(group); continue; }
+        columns[0].appendChild(group);
+        leftCount += leftTake;
+        if (leftTake < rows.length) {
+          const continuation = group.cloneNode(false);
+          const heading = group.querySelector(".ps-viewselect__group-label");
+          if (heading) continuation.appendChild(heading.cloneNode(true));
+          const remainder = list.cloneNode(false);
+          rows.slice(leftTake).forEach(function (row) { remainder.appendChild(row); });
+          continuation.appendChild(remainder);
+          columns[1].appendChild(continuation);
+        }
+      }
+      fragment.replaceChildren.apply(fragment, columns);
+    }
+
     function render() {
       controller.renderFrame = null;
       const features = availableFeatures();
@@ -526,6 +559,11 @@
           .map(function (item) { return [item.view.view_id, item]; })
       );
       renderTabs();
+      if (layouts) layouts.querySelectorAll("[data-view-layout]").forEach(function (button) {
+        button.setAttribute("aria-pressed", button.getAttribute("data-view-layout") === controller.layout ? "true" : "false");
+      });
+      menu.classList.toggle("ps-viewselect__menu--compact", controller.layout === "compact");
+      results.classList.toggle("ps-viewselect__results--compact", controller.layout === "compact");
       const fragment = document.createDocumentFragment();
       const query = controller.query.trim();
       const pinnedIds = new Set(controller.pinned);
@@ -626,6 +664,16 @@
         });
       }
 
+      if (controller.layout === "compact" && controller.mode === "my") {
+        const group = element("section", "ps-viewselect__group");
+        group.setAttribute("aria-label", "My views");
+        group.appendChild(element("h3", "ps-viewselect__group-label", "My views"));
+        const list = element("div", "ps-viewselect__group-items");
+        list.setAttribute("role", "list");
+        Array.from(fragment.querySelectorAll(".ps-viewselect__entry")).forEach(function (row) { list.appendChild(row); });
+        if (list.children.length) { group.appendChild(list); fragment.replaceChildren(group); }
+      }
+
       if (!fragment.childNodes.length) {
         const empty = element(
           "div",
@@ -635,6 +683,7 @@
         empty.setAttribute("role", "status");
         fragment.appendChild(empty);
       }
+      if (controller.layout === "compact") arrangeCompactColumns(fragment);
       results.replaceChildren(fragment);
       const items = Array.from(results.querySelectorAll("[data-plotsrv-view]"));
       const roving = items.find(function (item) {
@@ -660,14 +709,13 @@
     }
 
     function clampMenuToViewport() {
-      menu.classList.remove("ps-viewselect__menu--clamped-left");
-      menu.classList.remove("ps-viewselect__menu--clamped-right");
+      menu.style.left = "";
+      menu.style.right = "0";
       const rect = menu.getBoundingClientRect();
       const pad = 8;
-      if (rect.left < pad) menu.classList.add("ps-viewselect__menu--clamped-left");
-      if (rect.right > window.innerWidth - pad) {
-        menu.classList.add("ps-viewselect__menu--clamped-right");
-      }
+      const desiredLeft = Math.max(pad, Math.min(rect.left, window.innerWidth - pad - rect.width));
+      menu.style.right = "auto";
+      menu.style.left = (desiredLeft - wrap.getBoundingClientRect().left) + "px";
     }
 
     function openMenu() {
@@ -740,6 +788,15 @@
       const offset = event.key === "ArrowRight" ? 1 : -1;
       const next = allTabs[(index + offset + allTabs.length) % allTabs.length];
       setMode(next.getAttribute("data-view-mode"), true);
+    });
+    if (layouts) layouts.addEventListener("click", function (event) {
+      const button = event.target.closest && event.target.closest("[data-view-layout]");
+      if (!button) return;
+      controller.layout = button.getAttribute("data-view-layout") === "compact" ? "compact" : "standard";
+      core.savePref(core.storageKeys.viewSelectorLayout, controller.layout);
+      render();
+      clampMenuToViewport();
+      layouts.querySelector('[data-view-layout="' + controller.layout + '"]').focus();
     });
     results.addEventListener("keydown", function (event) {
       if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;

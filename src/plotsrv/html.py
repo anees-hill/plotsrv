@@ -556,6 +556,10 @@ def render_index(
                 <div class="ps-viewselect__tabs" role="tablist" aria-label="View browse mode">
                   {''.join(tab_parts)}
                 </div>
+                <div class="ps-viewselect__layouts" role="group" aria-label="View menu layout">
+                  <button type="button" class="ps-viewselect__layout" data-view-layout="standard" aria-label="Standard view menu" aria-pressed="true" title="Standard view menu"><svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2 3h14M2 8h14M2 13h14" /></svg></button>
+                  <button type="button" class="ps-viewselect__layout" data-view-layout="compact" aria-label="Compact two-column view menu" aria-pressed="false" title="Compact two-column view menu"><svg viewBox="0 0 18 18" aria-hidden="true"><path d="M2 3h6M2 8h6M2 13h6M10 3h6M10 8h6M10 13h6" /></svg></button>
+                </div>
               </div>
               <div id="view-selector-results" class="ps-viewselect__results" role="region" aria-label="Views" aria-live="polite">
                 {''.join(menu_parts)}

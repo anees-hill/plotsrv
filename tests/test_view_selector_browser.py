@@ -1,0 +1,55 @@
+"""Browser coverage for the view selector's layout and navigation controls."""
+
+import re
+
+from plotsrv.html import render_index
+from plotsrv.store import ViewMeta
+from tests.test_browser_settings_assets import _ui
+from tests.test_plot_controls_browser import STATIC, page
+
+
+def open_dashboard(page, count=12):
+    page.route(
+        "http://plotsrv.test/static/**",
+        lambda route: route.fulfill(path=str(STATIC / route.request.url.split("/static/", 1)[1]))
+        if (STATIC / route.request.url.split("/static/", 1)[1]).is_file() else route.abort(),
+    )
+    views = [
+        ViewMeta(f"reports:v{i}", "artifact", f"View {i:02d}", "Reports" if i < 9 else "Live")
+        for i in range(count)
+    ]
+    markup = render_index(
+        kind="artifact", table_view_mode="rich", table_html_simple=None,
+        max_table_rows_simple=200, max_table_rows_rich=1000,
+        ui_settings=_ui(), views=views, active_view_id=views[0].view_id,
+    )
+    page.set_content(re.sub(r"<script\b[^>]*>.*?</script>", "", markup, flags=re.S))
+    page.add_script_tag(path=str(STATIC / "js/core/storage.js"))
+    page.add_script_tag(path=str(STATIC / "js/core/view_selector.js"))
+    page.evaluate("""views => {
+      PLOTSRV.config.viewCatalogue = views;
+      PLOTSRV.config.activeViewId = views[0].view_id;
+      PLOTSRV.core.bindViewDropdown();
+    }""", [dict(view_id=v.view_id, kind=v.kind, label=v.label, section=v.section, icon_key="html") for v in views])
+    return views
+
+
+def test_compact_menu_uses_two_columns_and_one_on_mobile(page):
+    open_dashboard(page)
+    page.locator(".ps-viewselect__btn").click()
+    page.locator('[data-view-layout="compact"]').click()
+    assert page.evaluate("localStorage.getItem('plotsrv:v1:view_selector_layout')") == "compact"
+    menu = page.locator(".ps-viewselect__menu")
+    assert menu.get_attribute("class").find("--compact") >= 0
+    assert menu.bounding_box()["width"] > 800
+    assert page.locator(".ps-viewselect__column").count() == 2
+    assert page.locator(".ps-viewselect__column [data-plotsrv-view]").count() == 12
+    assert page.locator(".ps-viewselect__column:nth-child(2) .ps-viewselect__group-label").count() >= 1
+    assert page.locator(".ps-viewselect__item").first.bounding_box()["height"] < 40
+    page.set_viewport_size({"width": 390, "height": 850})
+    page.locator(".ps-viewselect__search").press("Escape")
+    page.locator(".ps-viewselect__btn").click()
+    assert page.locator(".ps-viewselect__menu").evaluate("node => node.getBoundingClientRect().right <= innerWidth")
+    assert page.locator(".ps-viewselect__results").evaluate("node => getComputedStyle(node).gridTemplateColumns.split(' ').length === 1")
+    page.locator('[data-view-layout="standard"]').click()
+    assert page.locator('[data-view-layout="standard"]').get_attribute("aria-pressed") == "true"
