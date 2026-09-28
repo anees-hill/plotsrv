@@ -1063,9 +1063,15 @@ def render_index(
             <div class="header-left ps-header__left" id="preview-branding">
               <img src="{logo_url}" alt="Dashboard logo" class="header-logo ps-header__logo">
               <div class="header-title ps-header__title">{header_text}</div>
-            </div><div class="header-right ps-header__right" id="preview-controls">{header_status_html}{dropdown_html}</div>
+            </div><div class="header-right ps-header__right" id="preview-controls">{dropdown_html}{header_status_html}</div>
           </header><main class="page ps-page"><section class="plot-card ps-card">{content_html}</section></main>
           {footer_html}</body></html>"""
+
+    header_controls_class = "header-right ps-header__right ps-header__right--controls"
+    if not dropdown_html:
+        header_controls_class += " ps-header__right--no-view"
+    if not header_status_html:
+        header_controls_class += " ps-header__right--no-status"
 
     plotsrv_version = _escape_html(_plotsrv_version())
     settings_html = f"""
@@ -1294,9 +1300,9 @@ def render_index(
           <div class="header-title ps-header__title">{header_text}</div>
         </div>
 
-        <div class="header-right ps-header__right">
-          {header_status_html}
+        <div class="{header_controls_class}">
           {dropdown_html}
+          {header_status_html}
           <div class="ps-header-actions">
             <details id="view-about" class="ps-view-about" hidden>
               <summary class="ps-expand-button" aria-label="About this view" title="About this view">i</summary>

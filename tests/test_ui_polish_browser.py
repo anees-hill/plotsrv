@@ -4,8 +4,84 @@ import re
 import pytest
 
 from plotsrv.html import render_index
+from plotsrv.store import ViewMeta
 from tests.test_browser_settings_assets import _ui
 from tests.test_plot_controls_browser import page, STATIC
+
+
+@pytest.mark.parametrize("width", [1366, 600, 390])
+def test_header_control_slots_stay_stable_as_content_changes(page, width):
+    page.set_viewport_size({"width": width, "height": 900})
+    page.route(
+        "http://plotsrv.test/static/**",
+        lambda route: route.fulfill(
+            path=str(STATIC / route.request.url.split("/static/", 1)[1])
+        ),
+    )
+    markup = render_index(
+        kind="artifact",
+        table_view_mode="rich",
+        table_html_simple=None,
+        max_table_rows_simple=200,
+        max_table_rows_rich=1000,
+        ui_settings=_ui(logo_url="/static/plotsrv_icon_title_colour_swash_logo.png"),
+        views=[ViewMeta("reports:all", "artifact", "All (7d)", "Reports")],
+        active_view_id="reports:all",
+    )
+    page.set_content(re.sub(r"<script\b[^>]*>.*?</script>", "", markup, flags=re.S))
+
+    selectors = (
+        ".ps-viewselect__btn",
+        "#header-status",
+        "#expand-view",
+        "#settings-button",
+    )
+
+    def bounds():
+        return [page.locator(selector).bounding_box() for selector in selectors]
+
+    initial = bounds()
+    backgrounds = page.evaluate("""() => [
+      getComputedStyle(document.querySelector('.ps-viewselect__btn')).backgroundColor,
+      getComputedStyle(document.querySelector('#header-status-button')).backgroundColor,
+    ]""")
+    assert backgrounds[0] != backgrounds[1]
+    page.locator(".ps-viewselect__label").evaluate(
+        "node => node.textContent = 'RR102 vs raw.marks by component'"
+    )
+    long_name = bounds()
+    assert long_name[0]["x"] == pytest.approx(initial[0]["x"], abs=1)
+    assert long_name[0]["width"] == pytest.approx(initial[0]["width"], abs=1)
+    assert page.locator(".ps-viewselect__label").evaluate(
+        "node => getComputedStyle(node).textOverflow === 'ellipsis'"
+    )
+    page.locator(".ps-viewselect__label").evaluate(
+        "node => node.textContent = 'RR102 vs raw.marks by component with an extended detailed breakdown'"
+    )
+    assert page.locator(".ps-viewselect__label").evaluate(
+        "node => node.scrollWidth > node.clientWidth"
+    )
+    chevron = page.locator(".ps-viewselect__chev").bounding_box()
+    assert initial[0]["x"] + initial[0]["width"] - chevron["x"] - chevron["width"] == pytest.approx(10, abs=2)
+
+    page.locator("#header-status-label").evaluate(
+        "node => node.textContent = 'New data available'"
+    )
+    page.locator("#header-status-context").evaluate(
+        "node => node.textContent = 'New data available'"
+    )
+    page.locator("#header-update-now").evaluate("node => node.hidden = false")
+    page.locator("#header-status").evaluate(
+        "node => node.setAttribute('data-quick-update', '')"
+    )
+    updated = bounds()
+    for before, after in zip(initial, updated, strict=True):
+        assert after["x"] == pytest.approx(before["x"], abs=1)
+        assert after["width"] == pytest.approx(before["width"], abs=1)
+        assert after["x"] + after["width"] <= width + 1
+    assert page.locator("#site-header").evaluate(
+        "node => node.scrollWidth <= window.innerWidth + 1"
+    )
 
 
 @pytest.mark.parametrize("width", [1366, 600, 390])
@@ -19,6 +95,7 @@ def test_stream_toolbar_and_settings_header(page, width):
     markup = re.sub(r"<script\b[^>]*>.*?</script>", "", markup, flags=re.S)
     page.set_content(markup)
     page.add_script_tag(path=str(STATIC / "js/core/settings.js"))
+    page.evaluate("PLOTSRV.core.continuousUpdatesEnabled = () => false")
     page.evaluate("PLOTSRV.core.bindSettings()")
     page.wait_for_function("Array.from(document.querySelectorAll('.header-logo')).every(e => e.complete)")
     label = page.locator("#stream-session-label").bounding_box()

@@ -628,6 +628,10 @@ body.ps-settings-open {
   color: var(--ps-text);
 }
 
+.ps-viewselect__btn {
+  background: var(--ps-surface-muted);
+}
+
 .header {
   border-color: var(--ps-border);
 }
@@ -1302,6 +1306,12 @@ body.ps-has-html-artifact .plot-frame--artifact,
 body.ps-has-html-artifact .ps-artifact__meta {
   border-color: var(--ps-border);
   background: var(--ps-surface);
+}
+
+@media (max-width: 1200px) {
+  .ps-settings-page__header {
+    align-items: flex-start;
+  }
 }
 
 @media (max-width: 900px) {

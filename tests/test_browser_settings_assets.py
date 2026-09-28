@@ -53,7 +53,7 @@ def _render(*, show_status: bool = True, **ui_kwargs: str) -> str:
 def test_header_actions_follow_menus_with_settings_at_the_far_right() -> None:
     rendered = _render()
     header_right = rendered.split(
-        '<div class="header-right ps-header__right">', 1
+        '<div class="header-right ps-header__right ps-header__right--controls">', 1
     )[1].split("</header>", 1)[0]
 
     assert 'id="settings-button"' in header_right
@@ -65,7 +65,7 @@ def test_header_actions_follow_menus_with_settings_at_the_far_right() -> None:
     fullscreen = header_right.index('id="expand-view"')
     about = header_right.index('id="view-about"')
     settings = header_right.index('id="settings-button"')
-    assert status < view_selector < about < fullscreen < settings
+    assert view_selector < status < about < fullscreen < settings
     assert (STATIC / "icons/header-settings.png").is_file()
     assert (STATIC / "icons/header-fullscreen.png").is_file()
 
@@ -108,6 +108,7 @@ def test_settings_remains_available_when_freshness_is_disabled() -> None:
     assert 'id="settings-button"' in rendered
     assert 'id="settings-page"' in rendered
     assert 'id="header-status"' not in rendered
+    assert 'ps-header__right--no-status' in rendered
 
 
 def test_quick_update_and_continuous_updates_setting_are_accessible() -> None:

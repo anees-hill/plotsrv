@@ -57,11 +57,30 @@
   margin-left: auto;
 }
 
+.ps-header__right--controls {
+  display: grid;
+  grid-template-columns: 340px 280px 130px;
+  flex: 0 0 auto;
+}
+
+.ps-header__right--controls.ps-header__right--no-view {
+  grid-template-columns: 280px 130px;
+}
+
+.ps-header__right--controls.ps-header__right--no-status {
+  grid-template-columns: 340px 130px;
+}
+
+.ps-header__right--controls.ps-header__right--no-view.ps-header__right--no-status {
+  grid-template-columns: 130px;
+}
+
 .ps-header-actions {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex: 0 0 auto;
+  justify-content: flex-end;
 }
 
 .header-logo {
@@ -251,7 +270,7 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
   font-size: 0.9rem;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1200px) {
   .header {
     flex-wrap: wrap;
   }
@@ -259,9 +278,25 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
   .header-right {
     order: 3;
     width: 100%;
-    display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
     margin-left: 0;
+  }
+
+  .ps-header__right--controls {
+    display: flex;
+    flex: 1 1 100%;
+  }
+
+  .ps-header__right--controls .ps-viewselect {
+    flex: 1 1 340px;
+    min-width: 0;
+  }
+
+  .ps-header__right--controls .ps-header-status {
+    flex: 1 1 280px;
+  }
+
+  .ps-header__right--controls .ps-header-actions {
+    flex: 0 0 130px;
   }
 
   .header-title {
@@ -285,6 +320,18 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
     padding: 0.5rem 0.75rem;
   }
 
+  .ps-header__right--controls {
+    flex-wrap: wrap;
+  }
+
+  .ps-header__right--controls .ps-viewselect {
+    flex-basis: 100%;
+  }
+
+  .ps-header__right--controls .ps-header-status {
+    flex: 1 1 0;
+  }
+
   .plot-frame {
     min-height: 180px;
   }
@@ -293,5 +340,15 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
   body[data-kind="table"] .page,
   body[data-kind="artifact"] .page:has(.ps-json-shell) {
     padding-bottom: calc(var(--ps-bottom-dock-height, 9.5rem) + 1rem);
+  }
+}
+
+@media (max-width: 420px) {
+  .ps-header__right--controls .ps-header-status {
+    flex-basis: 100%;
+  }
+
+  .ps-header__right--controls .ps-header-actions {
+    margin-left: auto;
   }
 }

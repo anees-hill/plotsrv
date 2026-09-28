@@ -122,9 +122,11 @@ def test_header_status_opens_the_shared_accessible_modal() -> None:
     assert "core.bindStatusModal()" in app_source
 
 
-def test_view_selector_and_status_use_the_same_header_control_treatment() -> None:
+def test_view_selector_and_status_share_base_treatment_with_distinct_layout() -> None:
     status_css = (_STATIC / "css" / "status.css").read_text(encoding="utf-8")
     controls_css = (_STATIC / "css" / "controls.css").read_text(encoding="utf-8")
+    layout_css = (_STATIC / "css" / "layout.css").read_text(encoding="utf-8")
+    themes_css = (_STATIC / "css" / "themes.css").read_text(encoding="utf-8")
     html_source = (Path(__file__).parents[1] / "src" / "plotsrv" / "html.py").read_text(
         encoding="utf-8"
     )
@@ -145,7 +147,12 @@ def test_view_selector_and_status_use_the_same_header_control_treatment() -> Non
         ".ps-header-status__button:focus-visible,\n.ps-viewselect__btn:focus-visible"
         in status_css
     )
-    assert "grid-template-columns: auto minmax(0, auto) auto" in controls_css
+    assert "grid-template-columns: 340px 280px 130px" in layout_css
+    assert "grid-template-columns: 18px minmax(0, 1fr) 16px" in controls_css
+    assert "text-overflow: ellipsis" in controls_css
+    assert ".ps-viewselect__btn {\n  background: var(--ps-surface-muted);" in themes_css
+    assert ".ps-header-status__chevron {\n  margin-left: auto;" in status_css
+    assert ".ps-header__right--controls {\n    flex-wrap: wrap;" in layout_css
     for name in ("ps-viewselect__chev", "ps-header-status__chevron"):
         assert f'<svg class="{name}" aria-hidden="true" focusable="false"' in html_source
         icon = html_source.split(f'<svg class="{name}"', 1)[1].split('</svg>', 1)[0]

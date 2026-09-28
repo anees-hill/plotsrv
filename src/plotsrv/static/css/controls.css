@@ -342,11 +342,15 @@
 /* Custom view selector (with icons) */
 .ps-viewselect {
   position: relative;
+  min-width: 0;
 }
 
 .ps-viewselect__btn {
-  display: inline-grid;
-  grid-template-columns: auto minmax(0, auto) auto;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 16px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
 }
 
 .ps-viewselect__icon {
@@ -369,7 +373,7 @@
 
 .ps-viewselect__label {
   white-space: nowrap;
-  max-width: 36vw;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 0.9rem;
@@ -898,10 +902,6 @@
 @media (max-width: 640px) {
   .ps-viewselect {
     position: static;
-  }
-
-  .ps-viewselect__label {
-    max-width: 42vw;
   }
 
   .ps-viewselect__menu {
