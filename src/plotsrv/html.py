@@ -535,7 +535,8 @@ def render_index(
 
         dropdown_html = f"""
           <div class="ps-viewselect" data-plotsrv-viewselect="1">
-            <button type="button"
+            <div class="ps-viewselect__main">
+              <button type="button"
                     class="ps-viewselect__btn"
                     aria-haspopup="dialog"
                     aria-controls="view-selector-menu"
@@ -544,7 +545,12 @@ def render_index(
               {_view_icon(active_meta, "ps-viewselect__icon")}
               <span class="ps-viewselect__label">{active_label}</span>
               <svg class="ps-viewselect__chev" aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5.5 8 10.5 13 5.5" /></svg>
-            </button>
+              </button>
+              <div class="ps-viewselect__nav" role="group" aria-label="Step through views">
+                <button type="button" data-view-step="-1" aria-label="Previous view" title="Previous view"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" /></svg></button>
+                <button type="button" data-view-step="1" aria-label="Next view" title="Next view"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg></button>
+              </div>
+            </div>
 
             <div id="view-selector-menu" class="ps-viewselect__menu" role="dialog" aria-label="Browse views" hidden>
               <div class="ps-viewselect__tools">
@@ -1164,6 +1170,20 @@ def render_index(
               <span>
                 <strong>Update continuously while interacting</strong>
                 <span>New data may replace the visible table or plot while you filter, sort, or use its controls. Leave off to keep updates pending until you choose Update now or clear those controls.</span>
+              </span>
+            </label>
+          </section>
+
+          <section class="ps-settings-section" aria-labelledby="settings-navigation-title">
+            <div class="ps-settings-section__intro">
+              <h2 id="settings-navigation-title">View navigation</h2>
+              <p>Choose which controls appear beside the view selector in this browser.</p>
+            </div>
+            <label class="ps-settings-toggle">
+              <input id="settings-view-navigation" type="checkbox" checked>
+              <span>
+                <strong>Show previous and next view buttons</strong>
+                <span>Step through views in the selected browse order.</span>
               </span>
             </label>
           </section>

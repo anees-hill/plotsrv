@@ -474,12 +474,42 @@
     fragment.appendChild(group);
   }
 
+  function navigationEntries(catalogue, mode, features, pinnedIds, savedItems) {
+    const known = new Map(catalogue.map(function (view) { return [view.view_id, view]; }));
+    if (mode === "my") return (savedItems || []).filter(function (item) {
+      return item && item.spec && known.has(item.spec.sourceId);
+    }).map(function (item) { return {id: item.id, item: item}; });
+    if (mode === "az") return catalogue.slice().sort(compareViews).map(function (view) {
+      return {id: view.view_id, view: view};
+    });
+    const ordered = [];
+    const seen = new Set();
+    function push(view) {
+      if (view && !seen.has(view.view_id)) {
+        seen.add(view.view_id);
+        ordered.push({id: view.view_id, view: view});
+      }
+    }
+    const featuredIds = new Set(features.map(function (feature) { return feature.view.view_id; }));
+    features.forEach(function (feature) { push(feature.view); });
+    pinnedIds.forEach(function (id) { push(known.get(id)); });
+    const groups = new Map();
+    catalogue.forEach(function (view) {
+      if (featuredIds.has(view.view_id)) return;
+      if (!groups.has(view.section)) groups.set(view.section, []);
+      groups.get(view.section).push(view);
+    });
+    groups.forEach(function (views) { views.forEach(push); });
+    return ordered;
+  }
+
   function createController(wrap) {
     const trigger = wrap.querySelector(".ps-viewselect__btn");
     const menu = wrap.querySelector(".ps-viewselect__menu");
     const search = wrap.querySelector(".ps-viewselect__search");
     const tabs = wrap.querySelector(".ps-viewselect__tabs");
     const layouts = wrap.querySelector(".ps-viewselect__layouts");
+    const navigation = wrap.querySelector(".ps-viewselect__nav");
     const results = wrap.querySelector(".ps-viewselect__results");
     if (!trigger || !menu || !search || !tabs || !results) return null;
 
@@ -498,6 +528,35 @@
 
     function availableFeatures() {
       return resolveFeaturedViews(controller.catalogue, config.featuredViews);
+    }
+
+    function currentNavigationEntries() {
+      const saved = controller.mode === "my" && core.viewSpec ? core.viewSpec.read().items : [];
+      return navigationEntries(controller.catalogue, controller.mode, availableFeatures(), controller.pinned, saved);
+    }
+
+    function syncNavigation() {
+      if (!navigation) return;
+      wrap.setAttribute("data-nav-hidden", core.viewNavigationEnabled && !core.viewNavigationEnabled() ? "true" : "false");
+      const entries = currentNavigationEntries();
+      const personalId = new URL(window.location.href).searchParams.get("my_view");
+      const selectedId = controller.mode === "my" ? personalId : config.activeViewId;
+      const canStep = entries.length > 0 && (entries.length > 1 || entries[0].id !== selectedId);
+      navigation.querySelectorAll("button").forEach(function (button) { button.disabled = !canStep; });
+    }
+
+    function stepView(direction) {
+      const entries = currentNavigationEntries();
+      if (!entries.length) return;
+      const personalId = new URL(window.location.href).searchParams.get("my_view");
+      const selectedId = controller.mode === "my" ? personalId : config.activeViewId;
+      const index = entries.findIndex(function (entry) { return entry.id === selectedId; });
+      const next = entries[index < 0 ? (direction > 0 ? 0 : entries.length - 1)
+        : (index + direction + entries.length) % entries.length];
+      if (!next || next.id === selectedId) return;
+      saveScrollTop();
+      window.location.href = next.item ? core.personalViewUrl(next.item)
+        : window.location.pathname + "?view=" + encodeURIComponent(next.id);
     }
 
     function renderTabs() {
@@ -581,6 +640,7 @@
           .map(function (item) { return [item.view.view_id, item]; })
       );
       renderTabs();
+      syncNavigation();
       if (layouts) layouts.querySelectorAll("[data-view-layout]").forEach(function (button) {
         button.setAttribute("aria-pressed", button.getAttribute("data-view-layout") === controller.layout ? "true" : "false");
       });
@@ -784,6 +844,11 @@
         else search.focus();
       }
     });
+    if (navigation) navigation.addEventListener("click", function (event) {
+      const button = event.target.closest && event.target.closest("[data-view-step]");
+      if (button && !button.disabled) stepView(Number(button.getAttribute("data-view-step")));
+    });
+    window.addEventListener("plotsrv:viewnavigationchange", syncNavigation);
     search.addEventListener("input", function () {
       controller.query = search.value;
       scheduleRender();

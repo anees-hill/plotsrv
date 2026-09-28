@@ -8,7 +8,7 @@ from tests.test_browser_settings_assets import _ui
 from tests.test_plot_controls_browser import STATIC, page
 
 
-def open_dashboard(page, count=12):
+def open_dashboard(page, count=12, active=0):
     page.route(
         "http://plotsrv.test/static/**",
         lambda route: route.fulfill(path=str(STATIC / route.request.url.split("/static/", 1)[1]))
@@ -21,16 +21,17 @@ def open_dashboard(page, count=12):
     markup = render_index(
         kind="artifact", table_view_mode="rich", table_html_simple=None,
         max_table_rows_simple=200, max_table_rows_rich=1000,
-        ui_settings=_ui(), views=views, active_view_id=views[0].view_id,
+        ui_settings=_ui(), views=views, active_view_id=views[active].view_id,
     )
     page.set_content(re.sub(r"<script\b[^>]*>.*?</script>", "", markup, flags=re.S))
     page.add_script_tag(path=str(STATIC / "js/core/storage.js"))
     page.add_script_tag(path=str(STATIC / "js/core/view_selector.js"))
-    page.evaluate("""views => {
+    page.evaluate("""data => {
+      const views = data.views;
       PLOTSRV.config.viewCatalogue = views;
-      PLOTSRV.config.activeViewId = views[0].view_id;
+      PLOTSRV.config.activeViewId = views[data.active].view_id;
       PLOTSRV.core.bindViewDropdown();
-    }""", [dict(view_id=v.view_id, kind=v.kind, label=v.label, section=v.section, icon_key="html") for v in views])
+    }""", {"views": [dict(view_id=v.view_id, kind=v.kind, label=v.label, section=v.section, icon_key="html") for v in views], "active": active})
     return views
 
 
@@ -74,3 +75,51 @@ def test_menu_icons_use_full_asset_contrast(page):
     assert page.locator(".ps-viewselect__itemicon").first.evaluate(
         "node => getComputedStyle(node).opacity"
     ) == "1"
+
+
+def test_view_navigation_wraps_and_settings_can_hide_it(page):
+    open_dashboard(page, count=4)
+    assert page.locator(".ps-viewselect__nav button").count() == 2
+    page.locator('[data-view-step="-1"]').click()
+    page.wait_for_url("**/?view=reports%3Av3")
+    open_dashboard(page, count=4, active=3)
+    page.locator('[data-view-step="1"]').click()
+    page.wait_for_url("**/?view=reports%3Av0")
+    open_dashboard(page, count=4)
+    page.add_script_tag(path=str(STATIC / "js/core/settings.js"))
+    page.evaluate("PLOTSRV.core.continuousUpdatesEnabled = () => false; PLOTSRV.core.bindSettings()")
+    page.locator("#settings-button").click()
+    page.locator("#settings-view-navigation").uncheck()
+    assert page.locator(".ps-viewselect").get_attribute("data-nav-hidden") == "true"
+    assert page.evaluate("localStorage.getItem('plotsrv:v1:view_selector_navigation')") == "0"
+    open_dashboard(page, count=4)
+    assert page.locator(".ps-viewselect").get_attribute("data-nav-hidden") == "true"
+    page.add_script_tag(path=str(STATIC / "js/core/settings.js"))
+    page.evaluate("PLOTSRV.core.continuousUpdatesEnabled = () => false; PLOTSRV.core.bindSettings()")
+    page.locator("#settings-button").click()
+    page.locator("#settings-view-navigation").check()
+    assert page.locator(".ps-viewselect").get_attribute("data-nav-hidden") == "false"
+
+
+def test_view_navigation_follows_my_views_tab(page):
+    open_dashboard(page, count=3)
+    page.evaluate("""() => {
+      PLOTSRV.core.viewSpec = {read: () => ({items: [
+        {id: 'saved-1', spec: {sourceId: 'reports:v1', name: 'First saved', caption: ''}},
+        {id: 'saved-2', spec: {sourceId: 'reports:v2', name: 'Second saved', caption: ''}}
+      ]})};
+      PLOTSRV.core.personalViewUrl = item => '/?view=' + encodeURIComponent(item.spec.sourceId) + '&my_view=' + item.id;
+    }""")
+    page.locator(".ps-viewselect__btn").click()
+    page.locator('[data-view-mode="my"]').click()
+    page.locator('[data-view-step="1"]').click()
+    page.wait_for_url("**/?view=reports%3Av1&my_view=saved-1")
+
+
+def test_view_navigation_skips_duplicate_pinned_source(page):
+    open_dashboard(page, count=4)
+    page.locator(".ps-viewselect__btn").click()
+    page.locator('[data-pin-view="reports:v2"]').first.click()
+    page.locator(".ps-viewselect__search").press("Escape")
+    page.locator('[data-view-step="-1"]').click()
+    page.wait_for_url("**/?view=reports%3Av2")

@@ -21,6 +21,7 @@
    textPrefsPrefix: "plotsrv:v2:text_prefs:",
    viewSelectorMode: "plotsrv:v1:view_selector_mode",
    viewSelectorLayout: "plotsrv:v1:view_selector_layout",
+   viewSelectorNavigation: "plotsrv:v1:view_selector_navigation",
    featuredDisplay: "plotsrv:v1:featured_display",
    viewSelectorPinned: "plotsrv:v1:view_selector_pinned",
    theme: "plotsrv:v1:theme",
@@ -43,6 +44,10 @@
     } catch (e) {
       return false
     }
+  };
+
+  core.viewNavigationEnabled = function () {
+    return core.loadPref(core.storageKeys.viewSelectorNavigation, "1") !== "0";
   };
 
   core.getTablePrefsKey = function (viewId) {

@@ -613,6 +613,7 @@ body.ps-settings-open {
 .plot-frame,
 .ps-header-status__button,
 .ps-viewselect__btn,
+.ps-viewselect__nav button,
 .ps-viewselect__menu,
 .ps-viewselect__tools,
 .ps-viewselect__feature,
@@ -644,6 +645,7 @@ body.ps-settings-open {
 
 .ps-header-status__button:hover,
 .ps-viewselect__btn:hover,
+.ps-viewselect__nav button:hover,
 .ps-viewselect__item:hover,
 .ps-viewselect__feature:hover,
 .artifact-btn:hover {
@@ -653,6 +655,7 @@ body.ps-settings-open {
 
 .ps-header-status__button:focus-visible,
 .ps-viewselect__btn:focus-visible,
+.ps-viewselect__nav button:focus-visible,
 .ps-viewselect__pin:focus-visible,
 .ps-viewselect__tab:focus-visible {
   outline-color: var(--ps-focus);

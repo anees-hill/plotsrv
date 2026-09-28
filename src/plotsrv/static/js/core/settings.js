@@ -89,6 +89,8 @@
     ));
     const continuousUpdates = document.getElementById("settings-continuous-updates");
     if (continuousUpdates) continuousUpdates.checked = core.continuousUpdatesEnabled();
+    const viewNavigation = document.getElementById("settings-view-navigation");
+    if (viewNavigation) viewNavigation.checked = typeof core.viewNavigationEnabled === "function" ? core.viewNavigationEnabled() : true;
     page.hidden = false;
     syncSettingsHeaderHeight();
     if (document.body) document.body.classList.add("ps-settings-open");
@@ -139,6 +141,14 @@
         if (continuousUpdates.checked && typeof core.notifyUpdateEligibilityChanged === "function") {
           core.notifyUpdateEligibilityChanged();
         }
+      });
+    }
+    const viewNavigation = document.getElementById("settings-view-navigation");
+    if (viewNavigation) {
+      viewNavigation.checked = typeof core.viewNavigationEnabled === "function" ? core.viewNavigationEnabled() : true;
+      viewNavigation.addEventListener("change", function () {
+        core.savePref(core.storageKeys.viewSelectorNavigation, viewNavigation.checked ? "1" : "0");
+        window.dispatchEvent(new Event("plotsrv:viewnavigationchange"));
       });
     }
 
