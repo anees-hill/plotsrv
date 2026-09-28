@@ -577,13 +577,23 @@
 
     function arrangeCompactColumns(fragment) {
       const groups = Array.from(fragment.children);
-      const count = groups.reduce(function (sum, group) {
+      const sizes = groups.map(function (group) {
         const list = group.querySelector("[role='list']");
-        return sum + (list ? list.children.length : 0);
-      }, 0);
+        return list ? list.children.length : 0;
+      });
+      const count = sizes.reduce(function (sum, size) { return sum + size; }, 0);
       if (!count) return;
       const columns = [element("div", "ps-viewselect__column"), element("div", "ps-viewselect__column")];
-      const leftTarget = Math.ceil(count / 2);
+      let leftTarget = Math.ceil(count / 2);
+      if (!sizes.some(function (size) { return size > leftTarget; })) {
+        let prefix = 0;
+        let bestGap = Infinity;
+        for (let index = 0; index < sizes.length - 1; index++) {
+          prefix += sizes[index];
+          const gap = Math.abs(count - 2 * prefix);
+          if (gap < bestGap) { bestGap = gap; leftTarget = prefix; }
+        }
+      }
       let leftCount = 0;
       for (const group of groups) {
         const list = group.querySelector("[role='list']");

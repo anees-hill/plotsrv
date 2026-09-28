@@ -8,14 +8,14 @@ from tests.test_browser_settings_assets import _ui
 from tests.test_plot_controls_browser import STATIC, page
 
 
-def open_dashboard(page, count=12, active=0):
+def open_dashboard(page, count=12, active=0, sections=None):
     page.route(
         "http://plotsrv.test/static/**",
         lambda route: route.fulfill(path=str(STATIC / route.request.url.split("/static/", 1)[1]))
         if (STATIC / route.request.url.split("/static/", 1)[1]).is_file() else route.abort(),
     )
     views = [
-        ViewMeta(f"reports:v{i}", "artifact", f"View {i:02d}", "Reports" if i < 9 else "Live")
+        ViewMeta(f"reports:v{i}", "artifact", f"View {i:02d}", sections[i] if sections else ("Reports" if i < 9 else "Live"))
         for i in range(count)
     ]
     markup = render_index(
@@ -54,6 +54,14 @@ def test_compact_menu_uses_two_columns_and_one_on_mobile(page):
     assert page.locator(".ps-viewselect__results").evaluate("node => getComputedStyle(node).gridTemplateColumns.split(' ').length === 1")
     page.locator('[data-view-layout="standard"]').click()
     assert page.locator('[data-view-layout="standard"]').get_attribute("aria-pressed") == "true"
+
+
+def test_compact_menu_keeps_short_sections_together(page):
+    open_dashboard(page, sections=["First"] * 4 + ["Second"] * 4 + ["Third"] * 4)
+    page.locator(".ps-viewselect__btn").click()
+    page.locator('[data-view-layout="compact"]').click()
+    assert page.locator(".ps-viewselect__group-label").count() == 3
+    assert page.locator(".ps-viewselect__column").nth(0).locator(".ps-viewselect__group-label").all_text_contents() == ["First"]
 
 
 def test_view_menu_restores_scroll_after_navigation(page):
