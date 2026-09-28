@@ -4,11 +4,13 @@ from __future__ import annotations
 
 
 def serve(
-    *, host: str | None = None, port: int | None = None, quiet: bool = False
+    *, host: str | None = None, port: int | None = None, quiet: bool = False,
+    verbose: bool = False,
 ) -> int:
     import uvicorn
     from . import config, store
     from .app import app
+    from .request_logging import FailureRequestLogger
     from .connection_config import get_server_connection_config
     from .ingestion import setup_ingestion
     from .server import (
@@ -35,14 +37,16 @@ def serve(
     restore_streams_from_storage()
     server = uvicorn.Server(
         uvicorn.Config(
-            app,
+            app if verbose else FailureRequestLogger(app),
             host=bind_host,
             port=bind_port,
-            log_level="warning" if quiet else "info",
+            log_level="warning" if quiet and not verbose else "info",
+            access_log=verbose,
         )
     )
     store.set_service_stop_hook(lambda: setattr(server, "should_exit", True))
-    print("plotsrv: Waiting for a publisher", flush=True)
+    if not quiet:
+        print("plotsrv: Waiting for a publisher", flush=True)
     try:
         server.run()
     finally:

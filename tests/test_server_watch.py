@@ -32,7 +32,7 @@ def test_start_server_watches_registers_then_starts_threads_with_client_host(
         calls.append("restore_latest")
         return 0
 
-    def fake_ensure_server_running(host: str, port: int, quiet: bool) -> bool:
+    def fake_ensure_server_running(host: str, port: int, quiet: bool, verbose: bool = False) -> bool:
         calls.append(f"ensure:{host}:{port}")
         return True
 

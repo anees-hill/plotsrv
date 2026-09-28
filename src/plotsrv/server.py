@@ -19,6 +19,7 @@ import uvicorn
 from fastapi import BackgroundTasks, HTTPException, Request
 
 from .app import app, require_local_request
+from .request_logging import FailureRequestLogger
 from .backends import fig_to_png_bytes, df_to_html_simple
 from . import store, config
 from .storage.worker import stop_storage_worker, enqueue_snapshot
@@ -64,18 +65,17 @@ _SHOW_PATCHED: bool = False
 # ---- Uvicorn
 
 
-def _run_server(host: str, port: int, quiet: bool) -> None:
+def _run_server(host: str, port: int, quiet: bool, verbose: bool = False) -> None:
     global _SERVER, _SERVER_RUNNING, _SERVER_STARTING
 
-    log_level = "error" if quiet else "info"
-    access_log = not quiet
+    log_level = "warning" if quiet and not verbose else "info"
 
     config_uv = uvicorn.Config(
-        app,
+        app if verbose else FailureRequestLogger(app),
         host=host,
         port=port,
         log_level=log_level,
-        access_log=access_log,
+        access_log=verbose,
     )
     server = uvicorn.Server(config_uv)
 
@@ -136,7 +136,7 @@ def _wait_for_server_ready(host: str, port: int, *, timeout_s: float = 5.0) -> b
     return False
 
 
-def _ensure_server_running(host: str, port: int, quiet: bool) -> bool:
+def _ensure_server_running(host: str, port: int, quiet: bool, verbose: bool = False) -> bool:
     """
     Start server in a background thread if not already running or starting.
 
@@ -165,7 +165,7 @@ def _ensure_server_running(host: str, port: int, quiet: bool) -> bool:
 
         thread = threading.Thread(
             target=_run_server,
-            args=(host, port, quiet),
+            args=(host, port, quiet, verbose),
             daemon=True,
         )
         _SERVER_THREAD = thread
@@ -855,6 +855,7 @@ def start_server(
     port: int = 8000,
     auto_on_show: bool = True,
     quiet: bool = True,
+    verbose: bool = False,
     config: str | Path | None = None,
     name: str | None = None,
     truncate: int | str | None = None,
@@ -869,7 +870,8 @@ def start_server(
     - host: e.g. "0.0.0.0" (all interfaces) or "127.0.0.1".
     - port: TCP port.
     - auto_on_show: patch plt.show to also refresh the view.
-    - quiet: reduce uvicorn noise if True.
+    - quiet: suppress startup messages while retaining HTTP failures.
+    - verbose: log all HTTP requests using Uvicorn's access log.
     - config: path to plotsrv.yml / plotsrv.yaml, equivalent to CLI --config.
     - name: runtime instance name, equivalent to CLI --name.
     - truncate: runtime truncation override, equivalent to CLI --truncate.
@@ -906,7 +908,7 @@ def start_server(
         restore_latest_views_from_storage()
         restore_streams_from_storage()
 
-    started = _ensure_server_running(host, port, quiet=quiet)
+    started = _ensure_server_running(host, port, quiet=quiet, verbose=verbose)
 
     if announce and started:
         _announce_server_running(host=host, port=port)
@@ -989,6 +991,7 @@ def plot_session(
     port: int = 8000,
     auto_on_show: bool = True,
     quiet: bool = True,
+    verbose: bool = False,
     config: str | Path | None = None,
     name: str | None = None,
     truncate: int | str | None = None,
@@ -1005,6 +1008,7 @@ def plot_session(
         port=port,
         auto_on_show=auto_on_show,
         quiet=quiet,
+        verbose=verbose,
         config=config,
         name=name,
         truncate=truncate,

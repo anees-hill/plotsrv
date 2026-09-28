@@ -46,6 +46,10 @@ Choose a host and port:
 plotsrv run demo_pipeline.py --host 127.0.0.1 --port 8000
 ```
 
+By default, `plotsrv run`, `plotsrv serve`, and local `plotsrv watch` omit successful HTTP access records. Every HTTP 4xx response is logged as a warning and every 5xx response as an error, with the method, path, status, and client address. Query strings are omitted. This keeps busy dashboards from filling logs with routine 200 responses.
+
+Use `--verbose` to restore Uvicorn's full access log, including successful requests and query strings. Use `--quiet` to suppress startup and discovery messages while retaining HTTP failure logs. These options are mutually exclusive. `watch --verbose` requires a local server; it is not available with a remote `--destination`.
+
 ## What `plotsrv run` does
 
 `plotsrv run` starts the browser UI and scans the target for plotsrv views.

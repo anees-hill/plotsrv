@@ -43,7 +43,7 @@ def reset_state(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def fake_run_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _fake_run_server(host: str, port: int, quiet: bool) -> None:
+    def _fake_run_server(host: str, port: int, quiet: bool, verbose: bool = False) -> None:
         srv._SERVER_STARTING = False
         srv._SERVER_RUNNING = True
 
@@ -355,6 +355,7 @@ def test_plot_session_starts_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:
             "port": 123,
             "auto_on_show": False,
             "quiet": False,
+            "verbose": False,
             "config": None,
             "name": None,
             "truncate": None,
@@ -542,6 +543,7 @@ def test_plot_session_passes_runtime_options(monkeypatch: pytest.MonkeyPatch) ->
             "port": 8123,
             "auto_on_show": True,
             "quiet": True,
+            "verbose": False,
             "config": "plotsrv.yml",
             "name": "demo",
             "truncate": 60_000,

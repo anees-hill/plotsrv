@@ -538,7 +538,8 @@ ps.start_server(
 | `config` | path to `plotsrv.yaml` |
 | `name` | runtime instance name |
 | `auto_on_show` | patch `plt.show()` so it updates plotsrv |
-| `quiet` | reduce server logging |
+| `quiet` | suppress startup messages while retaining HTTP 4xx/5xx logs (default: `True`) |
+| `verbose` | log every HTTP request with Uvicorn's access log, including successful requests and query strings; overrides `quiet` for logging |
 | `truncate` | runtime truncation override |
 | `no_truncate` | disable text/html/markdown truncation |
 | `watches` | files to watch from Python |

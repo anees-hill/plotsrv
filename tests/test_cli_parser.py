@@ -1,6 +1,8 @@
 # tests/test_cli_parser.py
 from __future__ import annotations
 
+import pytest
+
 from plotsrv import cli
 from plotsrv.cli import build_parser
 
@@ -47,6 +49,46 @@ def test_cli_parses_run_args() -> None:
     assert args.mode == "passive"
     assert args.call_every is None
     assert args.keep_alive is False
+
+
+@pytest.mark.parametrize("command", ["run", "serve", "watch"])
+def test_server_commands_accept_verbose_and_reject_quiet_combination(command) -> None:
+    prefix = [command, "app.log"] if command == "watch" else [command]
+    args = build_parser().parse_args([*prefix, "--verbose"])
+    assert args.verbose is True
+    assert args.quiet is False
+    with pytest.raises(SystemExit):
+        build_parser().parse_args([*prefix, "--verbose", "--quiet"])
+
+
+def test_remote_watch_rejects_verbose(tmp_path, capsys) -> None:
+    watched = tmp_path / "app.log"
+    watched.write_text("ready\n")
+
+    assert cli.main(["watch", str(watched), "--destination", "http://example.com", "--verbose"]) == 2
+    assert "--verbose requires a local watch server" in capsys.readouterr().err
+
+
+def test_local_server_commands_forward_verbose(tmp_path, monkeypatch) -> None:
+    from plotsrv import standalone
+
+    watched = tmp_path / "app.log"
+    watched.write_text("ready\n")
+    calls = []
+
+    def capture(**kwargs):
+        calls.append(kwargs)
+        return 0
+
+    monkeypatch.setattr(standalone, "serve", capture)
+    monkeypatch.setattr(cli, "_run_passive_server_forever", lambda *args, **kwargs: capture(**kwargs))
+    monkeypatch.setattr(cli, "_run_watch_mode", lambda *args, **kwargs: capture(**kwargs))
+
+    assert cli.main(["serve", "--verbose"]) == 0
+    assert cli.main(["run", str(tmp_path), "--verbose"]) == 0
+    assert cli.main(["watch", str(watched), "--verbose"]) == 0
+    assert len(calls) == 3
+    assert all(call["verbose"] is True for call in calls)
 
 
 def test_cli_parses_callable_scheduler_args() -> None:

@@ -114,7 +114,9 @@ def build_parser() -> argparse.ArgumentParser:
     serve_p.add_argument("--port", type=int, default=None, help="Bind port (server config, otherwise 8000)")
     serve_p.add_argument("--config", default=None, help="Server config (default: PLOTSRV_CONFIG, then plotsrv.yml/plotsrv.yaml)")
     serve_p.add_argument("--name", default=None, help="Configuration instance name")
-    serve_p.add_argument("--quiet", action="store_true", help="Reduce server logging")
+    serve_logging = serve_p.add_mutually_exclusive_group()
+    serve_logging.add_argument("--quiet", action="store_true", help="Suppress startup messages; still log HTTP failures")
+    serve_logging.add_argument("--verbose", action="store_true", help="Log all HTTP requests")
 
     run_p = sub.add_parser(
         "run", **command_help('run'),
@@ -137,9 +139,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument(
         "--port", action=_ExplicitValueAction, type=int, default=8000, help="Bind port (server config, otherwise 8000)"
     )
-    run_p.add_argument(
-        "--quiet", action="store_true", help="Reduce server logs and suppress discovery progress"
+    run_logging = run_p.add_mutually_exclusive_group()
+    run_logging.add_argument(
+        "--quiet", action="store_true", help="Suppress startup and discovery progress; still log HTTP failures"
     )
+    run_logging.add_argument("--verbose", action="store_true", help="Log all HTTP requests")
     run_p.add_argument(
         "--name",
         default=None,
@@ -424,9 +428,11 @@ def build_parser() -> argparse.ArgumentParser:
             "auto uses config threshold; memory publishes contents; file reads previews on demand."
         ),
     )
-    watch_p.add_argument(
-        "--quiet", action="store_true", help="Reduce uvicorn logging noise"
+    watch_logging = watch_p.add_mutually_exclusive_group()
+    watch_logging.add_argument(
+        "--quiet", action="store_true", help="Suppress startup messages; still log HTTP failures"
     )
+    watch_logging.add_argument("--verbose", action="store_true", help="Log all HTTP requests when serving locally")
     mx = watch_p.add_mutually_exclusive_group()
     mx.add_argument(
         "--head", action="store_true", help="Read file from the start (head)."

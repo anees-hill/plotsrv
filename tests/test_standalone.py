@@ -93,6 +93,32 @@ def test_server_only_restores_logical_metadata_without_discovery(
     assert config.get_storage_latest_restore_scope() == "discovered"
 
 
+@pytest.mark.parametrize("quiet,verbose,level,access", [
+    (False, False, "info", False),
+    (True, False, "warning", False),
+    (False, True, "info", True),
+])
+def test_standalone_server_log_modes(monkeypatch, quiet, verbose, level, access, capsys):
+    import uvicorn
+    from plotsrv.app import app
+    from plotsrv.request_logging import FailureRequestLogger
+    from plotsrv.standalone import serve
+
+    captured = {}
+
+    def fake_run(self):
+        captured["config"] = self.config
+
+    monkeypatch.setattr(uvicorn.Server, "run", fake_run)
+    assert serve(quiet=quiet, verbose=verbose) == 0
+    cfg = captured["config"]
+    assert cfg.log_level == level
+    assert cfg.access_log is access
+    assert (cfg.app is app) is verbose
+    assert isinstance(cfg.app, FailureRequestLogger) is (not verbose)
+    assert ("Waiting for a publisher" in capsys.readouterr().out) is (not quiet)
+
+
 def unused_port():
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))

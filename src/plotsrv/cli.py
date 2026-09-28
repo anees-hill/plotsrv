@@ -916,6 +916,7 @@ def _run_passive_server_forever(
     unscoped: bool = False,
     exact_selection=None,
     additional_ids=(),
+    verbose: bool = False,
 ) -> int:
     """
     Passive mode:
@@ -971,6 +972,7 @@ def _run_passive_server_forever(
         port=port,
         auto_on_show=False,
         quiet=quiet,
+        verbose=verbose,
         restore_latest=False,
     )
 
@@ -1002,7 +1004,8 @@ def _run_passive_server_forever(
 
 
 def _run_watch_collection(
-    watches: list[WatchConfig], *, host: str, port: int, every: float, quiet: bool
+    watches: list[WatchConfig], *, host: str, port: int, every: float, quiet: bool,
+    verbose: bool = False,
 ) -> int:
     """Serve an already-discovered collection using ordinary local watch steps."""
     start_server, stop_server = _get_server_hooks()
@@ -1011,7 +1014,7 @@ def _run_watch_collection(
     try:
         register_watch_views(watches, activate_first_if_none=True)
         _get_restore_streams_hook()()
-        start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+        start_server(host=host, port=port, auto_on_show=False, quiet=quiet, verbose=verbose)
         if not _wait_for_server(client_host, port, timeout_s=5.0):
             return _die(
                 f"server did not become ready at http://{client_host}:{port}/status"
@@ -1058,6 +1061,7 @@ def _run_watch_mode(
     quiet: bool,
     read_mode: WatchReadMode | None,
     materialization: WatchMaterializationOverride | None = None,
+    verbose: bool = False,
 ) -> int:
 
     start_server, stop_server = _get_server_hooks()
@@ -1144,7 +1148,7 @@ def _run_watch_mode(
     # matching passive mode.  Restored stream sessions remain historical and
     # therefore cannot become the watch producer's live transport state.
     restore_streams()
-    start_server(host=host, port=port, auto_on_show=False, quiet=quiet)
+    start_server(host=host, port=port, auto_on_show=False, quiet=quiet, verbose=verbose)
 
     if not _wait_for_server(client_host, port, timeout_s=5.0):
         stop_server(join=False)
@@ -1317,7 +1321,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "serve":
         from .standalone import serve
         try:
-            return serve(host=args.host, port=args.port, quiet=args.quiet)
+            return serve(host=args.host, port=args.port, quiet=args.quiet, verbose=args.verbose)
         except ValueError as error:
             return _die(str(error))
 
@@ -1471,6 +1475,8 @@ def main(argv: list[str] | None = None) -> int:
                     "--max-depth, --max-views and --include require a directory"
                 )
             target = destination_for_cli(args)
+            if target.base_url is not None and args.verbose:
+                raise ValueError("--verbose requires a local watch server; remote watch does not serve HTTP")
             if directory:
                 if target.base_url is not None:
                     return foreground(RemoteWatcher(specs, target, every=args.every))
@@ -1480,6 +1486,7 @@ def main(argv: list[str] | None = None) -> int:
                     port=args.port,
                     every=args.every,
                     quiet=args.quiet,
+                    verbose=args.verbose,
                 )
             if target.base_url is not None:
                 spec = WatchConfig(
@@ -1516,6 +1523,7 @@ def main(argv: list[str] | None = None) -> int:
             force=args.force,
             materialization=getattr(args, "materialization", None),
             quiet=args.quiet,
+            verbose=args.verbose,
             read_mode=read_mode,
         )
 
@@ -1593,6 +1601,7 @@ def main(argv: list[str] | None = None) -> int:
             host=args.host,
             port=args.port,
             quiet=args.quiet,
+            verbose=args.verbose,
             excludes=excludes,
             includes=includes,
             watch_specs=watch_specs,
@@ -1636,6 +1645,7 @@ def main(argv: list[str] | None = None) -> int:
         port=args.port,
         auto_on_show=False,
         quiet=args.quiet,
+        verbose=args.verbose,
         restore_latest=False,
     )
 
