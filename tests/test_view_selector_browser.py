@@ -66,3 +66,11 @@ def test_view_menu_restores_scroll_after_navigation(page):
     open_dashboard(page, count=70)
     page.locator(".ps-viewselect__btn").click()
     assert page.locator(".ps-viewselect__results").evaluate("node => node.scrollTop") == 420
+
+
+def test_menu_icons_use_full_asset_contrast(page):
+    open_dashboard(page)
+    page.locator(".ps-viewselect__btn").click()
+    assert page.locator(".ps-viewselect__itemicon").first.evaluate(
+        "node => getComputedStyle(node).opacity"
+    ) == "1"

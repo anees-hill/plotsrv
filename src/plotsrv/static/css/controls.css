@@ -709,7 +709,7 @@
   width: 18px;
   height: 18px;
   object-fit: contain;
-  opacity: 0.75;
+  opacity: 1;
 }
 
 .ps-viewselect__itemicon[src$="/logo_stream.png"] {
@@ -852,7 +852,7 @@
 .ps-viewselect__feature-fallback img {
   width: 28px;
   height: 28px;
-  opacity: 0.68;
+  opacity: 1;
 }
 
 .ps-viewselect__feature-fallback img[src$="/logo_stream.png"] {
@@ -1064,6 +1064,7 @@
   flex: 0 0 18px;
   width: 18px;
   height: 18px;
+  color: var(--ps-muted, #697279);
 }
 .ps-code-view-icon__glyph {
   display: block;
