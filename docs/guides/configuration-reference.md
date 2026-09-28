@@ -77,7 +77,7 @@ limits:
     max_mb: 500
   truncate_after:
     text: 1000000
-    markdown: 100000
+    markdown: 1000000
     html: off
     table_rows: 100000
     table_columns: 200
@@ -106,7 +106,11 @@ throughout this reference.
 
 These are hard server-side safety limits.
 
-If a normal Python publish exceeds one of these values, the request is rejected. The browser UI also receives a visible `publish_error` artifact explaining what failed and which key to adjust.
+If a publish exceeds one of these values, the request is rejected. This also
+applies to memory-backed watched files. For normal Python publishes, the browser
+UI receives a `publish_error` artifact explaining what failed and which key to
+adjust. Explicit values in an existing config continue to take precedence over
+the defaults shown below.
 
 ```yaml
 limits:
@@ -114,8 +118,8 @@ limits:
     max_plot_bytes: 5242880
     max_table_rows: 100000
     max_table_columns: 200
-    max_artifact_text_chars: 200000
-    max_json_container_items: 20000
+    max_artifact_text_chars: 6000000
+    max_json_container_items: 100000
 ```
 
 | Key | Meaning |
@@ -125,6 +129,10 @@ limits:
 | `max_table_columns` | maximum table columns/fields accepted by `/publish` |
 | `max_artifact_text_chars` | maximum text representation accepted for text-like artifacts |
 | `max_json_container_items` | maximum item count for JSON-like containers |
+
+The `/publish` transport also has an 8 MiB serialized request cap. Raising an
+object limit cannot make a request larger than that cap deliverable. Large local
+watched files in `auto` mode switch to file-backed previews before reaching it.
 
 `publish-limits` is still accepted as a legacy fallback, but new configs should use `limits.published_objects`.
 
@@ -229,7 +237,7 @@ Controls preparation/display truncation.
 limits:
   truncate_after:
     text: 1000000
-    markdown: 100000
+    markdown: 1000000
     html: off
     table_rows: 100000
     table_columns: 200
@@ -583,13 +591,13 @@ limits:
     max_plot_bytes: 5242880
     max_table_rows: 100000
     max_table_columns: 200
-    max_artifact_text_chars: 200000
-    max_json_container_items: 20000
+    max_artifact_text_chars: 6000000
+    max_json_container_items: 100000
   watched_files:
     max_mb: 500
   truncate_after:
     text: 1000000
-    markdown: 100000
+    markdown: 1000000
     html: off
     table_rows: 100000
     table_columns: 200
@@ -597,7 +605,7 @@ limits:
     "pipelines:daily import":
       truncate_after:
         text: 1000000
-        markdown: 100000
+        markdown: 1000000
         html: off
 ```
 

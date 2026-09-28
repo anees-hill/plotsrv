@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from plotsrv.app import app
-from plotsrv import store, config
+from plotsrv import store, config, settings
 from plotsrv.runtime import WatchConfig, register_watch_views
 
 
@@ -474,6 +474,32 @@ def test_publish_watch_large_text_artifact_cannot_bypass_publish_text_limit(
     resp = client.post("/publish", json=payload)
 
     assert resp.status_code == 413
+    assert "publish_source=watch" in resp.json()["detail"]
+
+
+def test_default_limit_accepts_a_medium_watched_html_report(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "empty.yml"
+    config_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(settings, "_CTX", settings.RuntimeContext(config_path=config_path))
+
+    resp = client.post(
+        "/publish",
+        json={
+            "kind": "artifact",
+            "artifact_kind": "html",
+            "section": "reports",
+            "label": "medium-report",
+            "artifact": "<p>" + "x" * 450_000 + "</p>",
+            "publish_source": "watch",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
 
 
 def test_publish_watch_source_cannot_bypass_limits_with_case_or_spaces(

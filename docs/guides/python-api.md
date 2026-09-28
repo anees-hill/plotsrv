@@ -226,8 +226,8 @@ limits:
     max_plot_bytes: 5242880
     max_table_rows: 100000
     max_table_columns: 200
-    max_artifact_text_chars: 200000
-    max_json_container_items: 20000
+    max_artifact_text_chars: 6000000
+    max_json_container_items: 100000
 ```
 
 Display/preparation truncation is separate:
@@ -236,7 +236,7 @@ Display/preparation truncation is separate:
 limits:
   truncate_after:
     text: 1000000
-    markdown: 100000
+    markdown: 1000000
     html: off
     table_rows: 100000
     table_columns: 200

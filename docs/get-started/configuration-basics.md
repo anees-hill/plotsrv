@@ -235,8 +235,8 @@ limits:
     max_plot_bytes: 5242880
     max_table_rows: 100000
     max_table_columns: 200
-    max_artifact_text_chars: 200000
-    max_json_container_items: 20000
+    max_artifact_text_chars: 6000000
+    max_json_container_items: 100000
 
   watched_files:
     # Maximum amount plotsrv reads from each watched file.
@@ -247,7 +247,7 @@ limits:
     # Preparation/display limits.
     # These truncate what plotsrv prepares for display.
     text: 1000000
-    markdown: 100000
+    markdown: 1000000
     html: off
     table_rows: 100000
     table_columns: 200
@@ -406,13 +406,13 @@ limits:
     max_plot_bytes: 5242880
     max_table_rows: 100000
     max_table_columns: 200
-    max_artifact_text_chars: 200000
-    max_json_container_items: 20000
+    max_artifact_text_chars: 6000000
+    max_json_container_items: 100000
   watched_files:
     max_mb: 500
   truncate_after:
     text: 1000000
-    markdown: 100000
+    markdown: 1000000
     html: off
     table_rows: 100000
     table_columns: 200

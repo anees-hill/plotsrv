@@ -131,17 +131,11 @@ def _validate_artifact_size(
     *,
     publish_source: str | None = None,
 ) -> None:
+    """Validate an artifact against the hard /publish limits.
+
+    The /publish route applies this check to every request, including watched
+    files: request-supplied publish_source is only a diagnostic label.
     """
-        Validate normal /publish artifact payloads.
-
-
-    Watched files are source-aware: by the time they reach /publish, they should
-    already have been controlled by limits.watched_files and limits.truncate_after.*.
-    They should not also be rejected by limits.published_objects.*.
-    """
-    if _is_watch_publish_source(publish_source):
-        return
-
     source = _publish_source_label(publish_source)
     max_text = config.get_publish_max_artifact_text_chars()
     max_items = config.get_publish_max_json_container_items()

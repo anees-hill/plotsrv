@@ -7,10 +7,14 @@ import plotsrv.settings as settings
 
 
 @pytest.fixture(autouse=True)
-def reset_config_state() -> None:
+def reset_config_state(tmp_path) -> None:
     settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
     settings._CONFIG_CACHE.clear()  # type: ignore[attr-defined]
     config._RUNTIME_TABLE_VIEW_MODE = None  # type: ignore[attr-defined]
+    # Ignore any local plotsrv.yml: default tests must exercise code defaults.
+    empty_config = tmp_path / "empty.yml"
+    empty_config.write_text("", encoding="utf-8")
+    settings.set_runtime_context(config_path=empty_config)
     yield
     settings._CTX = settings.RuntimeContext()  # type: ignore[attr-defined]
     settings._CONFIG_CACHE.clear()  # type: ignore[attr-defined]
@@ -56,7 +60,7 @@ def test_default_limits_are_generous() -> None:
     assert config.get_watch_max_bytes() == 500 * 1024 * 1024
     assert config.get_truncation_max_chars("text") == 1_000_000
     assert config.get_truncation_max_chars("html") is None
-    assert config.get_truncation_max_chars("markdown") == 100_000
+    assert config.get_truncation_max_chars("markdown") == 1_000_000
 
 
 def test_default_watch_materialisation_settings(tmp_path) -> None:
@@ -310,7 +314,7 @@ def test_get_render_text_max_chars_default() -> None:
 def test_get_render_markdown_max_chars_default() -> None:
     from plotsrv import config
 
-    assert config.get_render_markdown_max_chars() == 100_000
+    assert config.get_render_markdown_max_chars() == 1_000_000
 
 
 def test_get_render_html_max_chars_default() -> None:
@@ -328,8 +332,8 @@ def test_default_published_object_limits() -> None:
     assert config.get_publish_max_plot_bytes() == 5 * 1024 * 1024
     assert config.get_publish_max_table_rows() == 100_000
     assert config.get_publish_max_table_columns() == 200
-    assert config.get_publish_max_artifact_text_chars() == 200_000
-    assert config.get_publish_max_json_container_items() == 20_000
+    assert config.get_publish_max_artifact_text_chars() == 6_000_000
+    assert config.get_publish_max_json_container_items() == 100_000
 
 
 def test_published_object_limits_use_new_limits_section(tmp_path) -> None:

@@ -84,8 +84,8 @@ _DEFAULTS: dict[str, Any] = {
             "max_plot_bytes": 5 * 1024 * 1024,
             "max_table_rows": 100_000,
             "max_table_columns": 200,
-            "max_artifact_text_chars": 200_000,
-            "max_json_container_items": 20_000,
+            "max_artifact_text_chars": 6_000_000,
+            "max_json_container_items": 100_000,
         },
         # Preferred watched-file read limit.
         "watched_files": {
@@ -97,7 +97,7 @@ _DEFAULTS: dict[str, Any] = {
         "truncate_after": {
             "text": 1_000_000,
             "html": None,
-            "markdown": 100_000,
+            "markdown": 1_000_000,
             "table_rows": 100_000,
             "table_columns": 200,
         },
@@ -238,8 +238,8 @@ _DEFAULTS: dict[str, Any] = {
         "max_plot_bytes": 5 * 1024 * 1024,
         "max_table_rows": 5_000,
         "max_table_columns": 200,
-        "max_artifact_text_chars": 200_000,
-        "max_json_container_items": 20_000,
+        "max_artifact_text_chars": 6_000_000,
+        "max_json_container_items": 100_000,
     },
 }
 

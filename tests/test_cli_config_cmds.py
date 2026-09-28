@@ -451,11 +451,13 @@ def test_default_config_text_parses_as_yaml() -> None:
     assert data["limits"]["published_objects"]["max_plot_bytes"] == 5 * 1024 * 1024
     assert data["limits"]["published_objects"]["max_table_rows"] == 100000
     assert data["limits"]["published_objects"]["max_table_columns"] == 200
+    assert data["limits"]["published_objects"]["max_artifact_text_chars"] == 6000000
+    assert data["limits"]["published_objects"]["max_json_container_items"] == 100000
 
     assert data["limits"]["watched_files"]["max_mb"] == 500
 
     assert data["limits"]["truncate_after"]["text"] == 1000000
-    assert data["limits"]["truncate_after"]["markdown"] == 100000
+    assert data["limits"]["truncate_after"]["markdown"] == 1000000
     assert data["limits"]["truncate_after"]["html"] is False
     assert data["limits"]["truncate_after"]["table_rows"] == 100000
     assert data["limits"]["truncate_after"]["table_columns"] == 200
@@ -604,12 +606,14 @@ def test_populate_limits_writes_new_schema(
     assert limits["published_objects"]["max_plot_bytes"] == 5 * 1024 * 1024
     assert limits["published_objects"]["max_table_rows"] == 100000
     assert limits["published_objects"]["max_table_columns"] == 200
+    assert limits["published_objects"]["max_artifact_text_chars"] == 6000000
+    assert limits["published_objects"]["max_json_container_items"] == 100000
 
     assert limits["watched_files"]["max_mb"] == 500
     assert "max_bytes" not in limits["watched_files"]
 
     assert limits["truncate_after"]["text"] == 1000000
-    assert limits["truncate_after"]["markdown"] == 100000
+    assert limits["truncate_after"]["markdown"] == 1000000
     assert limits["truncate_after"]["html"] is False
     assert limits["truncate_after"]["table_rows"] == 100000
     assert limits["truncate_after"]["table_columns"] == 200

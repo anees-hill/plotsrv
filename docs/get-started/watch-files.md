@@ -230,6 +230,11 @@ Watched files can be represented in two ways.
 
 The default is `auto`.
 
+Memory-backed watched files also pass through the hard
+`limits.published_objects` checks. The default text artifact limit is 6,000,000
+characters; an explicit lower value in your config can reject a watched HTML,
+Markdown, or text file even when the read and truncation limits allow it.
+
 In `auto` mode, small watched files behave like normal published objects. Larger files become file-backed views, so plotsrv does not keep the full file content in server memory.
 The configured automatic threshold is 10 MiB by default. It was 20 MiB in
 v0.5.0; later performance tuning moved it earlier to reduce memory held by

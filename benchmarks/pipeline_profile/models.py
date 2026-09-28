@@ -125,8 +125,8 @@ class PlotsrvConfigSpec:
     publish_max_plot_bytes: int = 5_242_880
     publish_max_table_rows: int = 100_000
     publish_max_table_columns: int = 200
-    publish_max_artifact_text_chars: int = 200_000
-    publish_max_json_container_items: int = 20_000
+    publish_max_artifact_text_chars: int = 6_000_000
+    publish_max_json_container_items: int = 100_000
     truncate_table_rows: int | None = 1_000
     truncate_table_columns: int | None = 200
     watch_active_max_concurrent: int = 2
@@ -178,10 +178,10 @@ class PlotsrvConfigSpec:
             publish_max_table_rows=int(raw.get("publish_max_table_rows", 100_000)),
             publish_max_table_columns=int(raw.get("publish_max_table_columns", 200)),
             publish_max_artifact_text_chars=int(
-                raw.get("publish_max_artifact_text_chars", 200_000)
+                raw.get("publish_max_artifact_text_chars", 6_000_000)
             ),
             publish_max_json_container_items=int(
-                raw.get("publish_max_json_container_items", 20_000)
+                raw.get("publish_max_json_container_items", 100_000)
             ),
             truncate_table_rows=(
                 None

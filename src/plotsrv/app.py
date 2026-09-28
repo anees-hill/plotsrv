@@ -1668,11 +1668,13 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
         try:
             _validate_artifact_size(
                 artifact_obj,
-                publish_source=None,
+                publish_source=publish_source,
             )
             if artifact_kind in ("html", "markdown"):
                 text_key = "html" if artifact_kind == "html" else "text"
-                _validate_artifact_size(artifact_obj.get(text_key, ""), publish_source=None)
+                _validate_artifact_size(
+                    artifact_obj.get(text_key, ""), publish_source=publish_source
+                )
         except HTTPException as e:
             _record_publish_rejection_artifact(
                 exc=e,
