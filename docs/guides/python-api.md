@@ -214,9 +214,14 @@ remote delivery failures visible without storing large response payloads.
 
 ## Rejected publishes
 
-When a normal Python publish is rejected by the server, for example because it exceeds a hard publish limit, plotsrv keeps the HTTP error behaviour and also creates a visible error artifact in the target view.
+When a normal Python publish exceeds a hard limit, plotsrv creates a visible
+`publish_error` artifact in the target view. Attached DataFrame publishes check
+the table row and column limits before retaining the frame or converting Polars
+to pandas. Remote publishes also pass through the HTTP limits.
 
-This means the Python caller still sees the failed request, while the browser UI shows an actionable message explaining what failed and which config key to adjust.
+The browser message names the failed limit and its config key. Direct
+`refresh_view()` calls raise the rejection; `publish_view()` follows its normal
+error handling and raises only when `PLOTSRV_DEBUG=1`.
 
 Hard publish limits are configured under:
 

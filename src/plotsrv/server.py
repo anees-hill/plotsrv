@@ -220,6 +220,26 @@ def _register_refresh_view_if_named(
     store.set_active_view(resolved_view_id)
 
 
+def _enforce_local_table_limits(
+    obj: Any,
+    *,
+    resolved_view_id: str | None,
+    section: str | None,
+    label: str | None,
+) -> None:
+    # Check the source shape before Polars is converted to pandas, and before
+    # the store or persistence worker can retain the full frame.
+    from .http_publish import _enforce_table_limits
+
+    _enforce_table_limits(
+        row_count=len(obj),
+        column_count=len(obj.columns),
+        view_id=resolved_view_id or store.get_active_view_id(),
+        section=section,
+        label=label,
+    )
+
+
 def _set_restored_status(*, view_id: str, updated_at: str | None) -> None:
     """
     Preserve the original latest-state timestamp after restoring into memory.
@@ -645,6 +665,12 @@ def refresh_view(
         )
 
         if coerced.publish_kind == "table":
+            _enforce_local_table_limits(
+                coerced.obj,
+                resolved_view_id=resolved_view_id,
+                section=section,
+                label=label,
+            )
             df = _object_to_dataframe(coerced.obj)
             html_simple = (
                 df_to_html_simple(df, config.get_max_table_rows_simple())
@@ -717,6 +743,13 @@ def refresh_view(
     if forced_kind == "table" or (
         forced_kind is None and obj is not None and _object_is_dataframe(obj)
     ):
+        if _object_is_dataframe(obj):
+            _enforce_local_table_limits(
+                obj,
+                resolved_view_id=resolved_view_id,
+                section=section,
+                label=label,
+            )
         df = _object_to_dataframe(obj)
         if config.get_table_view_mode() == "simple":
             html_simple = df_to_html_simple(df, config.get_max_table_rows_simple())

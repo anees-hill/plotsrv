@@ -126,6 +126,49 @@ def _raise_publish_rejection(
     raise exc
 
 
+def _enforce_table_limits(
+    *,
+    row_count: int,
+    column_count: int,
+    view_id: str,
+    section: Any,
+    label: Any,
+    publish_source: str | None = None,
+) -> None:
+    """Apply the same hard table limits to HTTP and attached publishes."""
+    max_cols = config.get_publish_max_table_columns()
+    if column_count > max_cols:
+        _raise_publish_rejection(
+            status_code=413,
+            detail=(
+                f"Table payload has {column_count} columns, exceeding "
+                f"limits.published_objects.max_table_columns={max_cols}. "
+                f"publish_source={_publish_source_label(publish_source)}"
+            ),
+            view_id=view_id,
+            section=section,
+            label=label,
+            kind="table",
+            publish_source=publish_source,
+        )
+
+    max_rows = config.get_publish_max_table_rows()
+    if row_count > max_rows:
+        _raise_publish_rejection(
+            status_code=413,
+            detail=(
+                f"Table payload has {row_count} rows, exceeding "
+                f"limits.published_objects.max_table_rows={max_rows}. "
+                f"publish_source={_publish_source_label(publish_source)}"
+            ),
+            view_id=view_id,
+            section=section,
+            label=label,
+            kind="table",
+            publish_source=publish_source,
+        )
+
+
 def _validate_artifact_size(
     obj: Any,
     *,

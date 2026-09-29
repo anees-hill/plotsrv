@@ -104,9 +104,11 @@ throughout this reference.
 
 ### `limits.published_objects`
 
-These are hard server-side safety limits.
+These are hard publish safety limits. The table row and column limits also apply
+to attached in-process DataFrame publishes before plotsrv retains the frame or
+converts a Polars frame to pandas.
 
-If a publish exceeds one of these values, the request is rejected. This also
+If a publish exceeds one of these values, it is rejected. This also
 applies to memory-backed watched files. For normal Python publishes, the browser
 UI receives a `publish_error` artifact explaining what failed and which key to
 adjust. Explicit values in an existing config continue to take precedence over
@@ -131,8 +133,9 @@ limits:
 | `max_json_container_items` | maximum item count for JSON-like containers |
 
 The `/publish` transport also has an 8 MiB serialized request cap. Raising an
-object limit cannot make a request larger than that cap deliverable. Large local
-watched files in `auto` mode switch to file-backed previews before reaching it.
+object limit cannot make a request larger than that cap deliverable. Attached
+in-process publishes do not use that HTTP cap. Large local watched files in
+`auto` mode switch to file-backed previews before reaching it.
 
 `publish-limits` is still accepted as a legacy fallback, but new configs should use `limits.published_objects`.
 

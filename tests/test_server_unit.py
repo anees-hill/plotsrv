@@ -9,6 +9,8 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException, Request
 
 from plotsrv import config, store
+from plotsrv.decorators import view
+from plotsrv.publisher import publish_view
 import plotsrv.server as srv
 from plotsrv.storage.models import LatestMeta, LoadedLatest
 
@@ -94,6 +96,107 @@ def test_refresh_view_with_dataframe_rich(fake_run_server: None) -> None:
     # in rich mode, we should not have pre-rendered HTML stored
     with pytest.raises(LookupError):
         store.get_table_html_simple()
+
+
+@pytest.mark.parametrize(
+    ("rows", "columns", "limit_key"),
+    [
+        (3, 1, "limits.published_objects.max_table_rows=2"),
+        (1, 3, "limits.published_objects.max_table_columns=2"),
+    ],
+)
+def test_local_table_limit_rejects_before_store_or_persistence(
+    monkeypatch: pytest.MonkeyPatch,
+    rows: int,
+    columns: int,
+    limit_key: str,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 2)
+    monkeypatch.setattr(config, "get_publish_max_table_columns", lambda: 2)
+    submitted: list[object] = []
+    monkeypatch.setattr(srv, "enqueue_snapshot", lambda **kwargs: submitted.append(kwargs))
+    df = pd.DataFrame({f"c{i}": range(rows) for i in range(columns)})
+
+    with pytest.raises(HTTPException) as exc:
+        srv.refresh_view(df, label="oversize", section="tests", launch_server=False)
+
+    assert exc.value.status_code == 413
+    assert limit_key in str(exc.value.detail)
+    assert not store.has_table(view_id="tests:oversize")
+    artifact = store.get_artifact(view_id="tests:oversize")
+    assert artifact.kind == "publish_error"
+    assert limit_key in artifact.obj
+    assert store.get_status(view_id="tests:oversize")["last_error"]
+    assert submitted == []
+
+
+def test_local_table_at_hard_limits_keeps_full_frame(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 2)
+    monkeypatch.setattr(config, "get_publish_max_table_columns", lambda: 2)
+    df = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+
+    srv.refresh_view(df, label="allowed", section="tests", launch_server=False)
+
+    assert store.get_table_df(view_id="tests:allowed") is df
+
+
+def test_local_polars_limit_rejects_before_pandas_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pl = pytest.importorskip("polars")
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 2)
+    monkeypatch.setattr(
+        srv,
+        "_object_to_dataframe",
+        lambda obj: pytest.fail("oversize Polars frame was converted"),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        srv.refresh_view(
+            pl.DataFrame({"a": [1, 2, 3]}),
+            label="polars",
+            section="tests",
+            launch_server=False,
+        )
+
+    assert exc.value.status_code == 413
+    assert store.get_artifact(view_id="tests:polars").kind == "publish_error"
+
+
+def test_publish_view_local_limit_shows_error_in_target_view(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 1)
+    monkeypatch.setattr(srv, "start_server", lambda **kwargs: None)
+
+    publish_view(
+        pd.DataFrame({"a": [1, 2]}),
+        label="oversize",
+        section="tests",
+        launch_server=True,
+    )
+
+    artifact = store.get_artifact(view_id="tests:oversize")
+    assert artifact.kind == "publish_error"
+    assert "limits.published_objects.max_table_rows=1" in artifact.obj
+
+
+def test_active_view_decorator_uses_local_table_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config, "get_publish_max_table_rows", lambda: 1)
+    monkeypatch.setattr(srv, "start_server", lambda **kwargs: None)
+
+    @view(label="oversize", section="tests", launch_server=True)
+    def produce() -> pd.DataFrame:
+        return pd.DataFrame({"a": [1, 2]})
+
+    result = produce()
+
+    assert len(result) == 2
+    assert store.get_artifact(view_id="tests:oversize").kind == "publish_error"
 
 
 def test_refresh_view_generic_object_becomes_python_artifact(

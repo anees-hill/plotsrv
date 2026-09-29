@@ -30,6 +30,7 @@ from .storage.stream_worker import get_stream_storage_queue_stats
 from .storage.backend import read_snapshot_meta
 from .publishing.worker import get_publish_queue_stats
 from .http_publish import (
+    _enforce_table_limits,
     _publish_source_label,
     _raise_publish_rejection,
     _record_publish_rejection_artifact,
@@ -1743,38 +1744,15 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
                 publish_source=publish_source,
             )
 
-        max_rows = config.get_publish_max_table_rows()
+        _enforce_table_limits(
+            row_count=len(rows),
+            column_count=len(cols),
+            view_id=view_id,
+            section=section,
+            label=label,
+            publish_source=publish_source,
+        )
         max_cols = config.get_publish_max_table_columns()
-
-        if len(cols) > max_cols:
-            _raise_publish_rejection(
-                status_code=413,
-                detail=(
-                    f"Table payload has {len(cols)} columns, exceeding "
-                    f"limits.published_objects.max_table_columns={max_cols}. "
-                    f"publish_source={_publish_source_label(publish_source)}"
-                ),
-                view_id=view_id,
-                section=section,
-                label=label,
-                kind="table",
-                publish_source=publish_source,
-            )
-
-        if len(rows) > max_rows:
-            _raise_publish_rejection(
-                status_code=413,
-                detail=(
-                    f"Table payload has {len(rows)} rows, exceeding "
-                    f"limits.published_objects.max_table_rows={max_rows}. "
-                    f"publish_source={_publish_source_label(publish_source)}"
-                ),
-                view_id=view_id,
-                section=section,
-                label=label,
-                kind="table",
-                publish_source=publish_source,
-            )
 
         for i, row in enumerate(rows[:50]):
             if isinstance(row, dict) and len(row) > max_cols:
