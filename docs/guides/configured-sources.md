@@ -63,6 +63,11 @@ either configured selection. Optional `discovery.additional_ids` supplies review
 manual/dynamic IDs for local registration, publishing and config population.
 These are logical identities, not filesystem paths. For example:
 
+Run `plotsrv config init --source src/static` to scan a particular path. The
+wizard shows scan progress and file/line diagnostics for declarations whose
+identity or metadata could not be resolved. Its view list contains every
+resolved declaration; it has no 12-view display limit.
+
 ```yaml
 publisher-settings:
   discovery:
@@ -78,7 +83,12 @@ initialising a locked receiver.
 Selection controls discovery, registration and config population. It does not
 stop application functions from executing, or prevent an active producer from
 publishing another ID to a dynamic server. Use explicit server catalogue
-admission when write admission must be restricted.
+admission when write admission must be restricted. When the wizard hides views
+in combined mode, it configures locked server admission for the selected,
+watched and manually added IDs. The receiving API then rejects hidden IDs, even
+when a separate producer sends them. Review unresolved declarations before
+hiding views: their unknown IDs are not in the allowed set. Publisher-only
+configurations still require admission rules on their receiving server.
 
 Existing `run --mode callable` remains an explicit execution choice. Discovery
 resolves its module scope statically first. When a configured module target comes

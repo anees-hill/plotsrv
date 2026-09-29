@@ -8,6 +8,7 @@ from typing import Any
 from .. import config
 from ..connection_config import get_publisher_sources, get_server_connection_config
 from ..discovery import scan_sources
+from ..discovery_progress import TerminalProgress
 from ..source_setup import watch_descriptor
 from ..source_targets import default_source_target
 from ..cli_parser import WatchSpec
@@ -165,7 +166,9 @@ def _discover(draft: Draft, prompts: Prompts) -> list[str]:
             setup = draft.sources()
             root = setup.scan_root(default_source_target())
             include_pruned = setup.include_pruned
-        result = scan_sources(root, include_pruned=include_pruned)
+        progress = TerminalProgress(stream=prompts.output, unscoped=not bool(draft.cli_target))
+        result = scan_sources(root, include_pruned=include_pruned,
+                              on_progress=progress)
     except (ValueError, OSError, TypeError):
         prompts.say("No readable publisher source found; discovery skipped.")
         return []
@@ -177,7 +180,11 @@ def _discover(draft: Draft, prompts: Prompts) -> list[str]:
     views = list(result.views)
     prompts.say(f"Found {len(views)} plotsrv view{'s' if len(views) != 1 else ''} in this project.")
     if result.issue_count:
-        prompts.say(f"  {result.issue_count} declaration(s) could not be resolved; review discovery diagnostics before sealing a catalogue.")
+        prompts.say(f"  {result.issue_count} declaration(s) could not be resolved. The listed views exclude them.")
+        for line in draft.diagnostics():
+            prompts.say(f"  {line}")
+        prompts.say("  Static discovery cannot resolve dynamic IDs or metadata. Narrow the scan with --source, or review and add missing IDs before sealing a catalogue.")
+    prompts.say(f"  All {len(views)} resolved view(s) are listed if you choose to hide views; there is no display cap.")
     if not result.complete:
         prompts.say("  Scan was incomplete. View selection is unavailable for this scope.")
     if draft.role == "server" or not result.complete or not views:
@@ -219,8 +226,8 @@ def _server(draft: Draft, prompts: Prompts) -> None:
     )
     if expose != remote:
         draft.update_edits({FIELDS["bind_host"].path: "0.0.0.0" if expose else "127.0.0.1"})
-    if expose:
-        _field(draft, prompts, "bind_host")
+    _field(draft, prompts, "bind_host")
+    if draft.value(FIELDS["bind_host"]) not in {"127.0.0.1", "localhost", "::1"}:
         _field(draft, prompts, "ingress_key")
         if not draft.value(FIELDS["ingress_key"]):
             _field(draft, prompts, "allow_remote")
@@ -406,6 +413,7 @@ def _watches(draft: Draft, prompts: Prompts, *, storage_enabled: bool) -> None:
             while True:
                 raw = prompts.ask("File path", default=existing.get("path"),
                                   display=existing.get("path"), required=True,
+                                  path_completion=True,
                                   help_text="A local file path, relative to the config folder or absolute. A missing file may be watched once its parent exists.")
                 assert isinstance(raw, str)
                 full = _watch_path(draft, raw)
@@ -482,7 +490,7 @@ def _watches(draft: Draft, prompts: Prompts, *, storage_enabled: bool) -> None:
                         _field(draft, prompts, "storage_watch_enabled")
                         asked_storage_default = True
                     _watch_storage(draft, prompts, view_id)
-        if not prompts.yes_no("Change another watched file?", default=False,
+        if not prompts.yes_no("Add or edit another watched file?", default=False,
                               help_text="Add, edit or remove another watched file."):
             break
 
@@ -496,6 +504,28 @@ def _watch_storage(draft: Draft, prompts: Prompts, view_id: str) -> None:
     spec = replace(base, path=("storage-settings", "views", view_id, "watch_enabled"),
                    default=draft.value(base))
     _field(draft, prompts, spec.key, spec=spec, inherit=True)
+
+
+def _protect_hidden_views(draft: Draft, prompts: Prompts) -> None:
+    if draft.result is None or draft.role == "server" or not draft.result.complete:
+        return
+    discovered = {view.descriptor().view_id for view in draft.result.views}
+    hidden = discovered - (draft.selected_ids or set())
+    if not hidden:
+        return
+    manual = draft.configured_ids("publisher")
+    if hidden.intersection(manual):
+        manual = [view_id for view_id in manual if view_id not in hidden]
+        draft.manual_ids = manual
+    if draft.role == "publisher":
+        prompts.say("  Hidden IDs are omitted from this publisher. Configure admission on the receiving server to reject another publisher sending them.")
+        return
+    allowed = sorted(((draft.selected_ids or set())
+                      | set(manual)
+                      | {watch.view_id for watch in draft.watches()}) - hidden)
+    prompts.say("  Hidden views will also be rejected by this server's API. Only selected and watched view IDs will be admitted.")
+    draft.update_edits({FIELDS["admission"].path: "catalogue-locked"})
+    draft.server_ids = allowed
 
 
 def _advanced(draft: Draft, prompts: Prompts) -> None:
@@ -618,5 +648,6 @@ def run(draft: Draft, prompts: Prompts) -> Path | None:
     _limits(draft, prompts, ids)
     _watches(draft, prompts, storage_enabled=(
         draft.role != "publisher" and bool(draft.value(FIELDS["storage_enabled"]))))
+    _protect_hidden_views(draft, prompts)
     _advanced(draft, prompts)
     return _review(draft, prompts)

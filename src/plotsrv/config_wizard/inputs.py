@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
+from contextlib import contextmanager
+import glob
 import os
 import re
 import sys
@@ -93,11 +95,13 @@ class Prompts:
         parse: Callable[[str], T] | None = None,
         help_text: str = "",
         required: bool = False,
+        path_completion: bool = False,
     ) -> T | None:
         suffix = f" [{display}]" if display is not None else ""
         while True:
             print(f"{label}{suffix}: ", end="", file=self.output, flush=True)
-            answer = self.reader().strip()
+            with self._path_completion(path_completion):
+                answer = self.reader().strip()
             if not (hasattr(self.output, "isatty") and self.output.isatty()):
                 self.say()
             if answer == "?":
@@ -112,6 +116,39 @@ class Prompts:
                 return parse(answer) if parse else answer  # type: ignore[return-value]
             except ValueError as error:
                 self.say(f"  {error}")
+
+    @contextmanager
+    def _path_completion(self, enabled: bool):
+        if not enabled or self.reader is not input or not sys.stdin.isatty():
+            yield
+            return
+        try:
+            import readline
+        except ImportError:
+            yield
+            return
+        old_completer = readline.get_completer()
+        old_delims = readline.get_completer_delims()
+
+        def complete(text: str, state: int):
+            expanded = os.path.expanduser(text)
+            matches = sorted(glob.glob(glob.escape(expanded) + "*"))
+            values = [
+                ("~" + path[len(os.path.expanduser("~")):] if text.startswith("~")
+                 and path.startswith(os.path.expanduser("~")) else path)
+                + (os.sep if os.path.isdir(path) else "")
+                for path in matches
+            ]
+            return values[state] if state < len(values) else None
+
+        try:
+            readline.set_completer_delims("\t\n")
+            readline.set_completer(complete)
+            readline.parse_and_bind("tab: complete")
+            yield
+        finally:
+            readline.set_completer(old_completer)
+            readline.set_completer_delims(old_delims)
 
     def yes_no(self, label: str, *, default: bool, help_text: str) -> bool:
         mark = "Y/n/?" if default else "y/N/?"

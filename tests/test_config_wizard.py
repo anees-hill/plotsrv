@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+import sys
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -102,6 +104,82 @@ def test_help_invalid_input_and_view_selection(project):
     assert "Storage saves latest values" in output
     assert "Choose numbers from 1 to 2" in output
     assert "Enter y or n" in output
+    assert data["server-settings"]["admission"] == {
+        "mode": "catalogue-locked", "allowed_ids": ["exact:alpha"]
+    }
+
+
+def test_hidden_views_rejected_by_server_even_when_sent_directly(project):
+    from plotsrv import ingestion
+    path = project / "plotsrv.yml"
+    wizard(path, target=str(project), answers={
+        "Hide any discovered views?": ["y"],
+        "Which views should be hidden?": ["2"],
+        "Write this configuration?": ["y"],
+    })
+    settings.set_runtime_context(config_path=path)
+    ingestion.reset_ingestion()
+    ingestion.require_admitted("exact:alpha")
+    with pytest.raises(ingestion.IngestionError) as error:
+        ingestion.require_admitted("exact:beta")
+    assert error.value.status == 403
+
+
+def test_hidden_view_admission_keeps_watched_files(project):
+    watched = project / "events.log"
+    watched.write_text("data")
+    path = project / "plotsrv.yml"
+    wizard(path, target=str(project), answers={
+        "Hide any discovered views?": ["y"],
+        "Which views should be hidden?": ["2"],
+        "Add a watched file?": ["y"],
+        "File path": ["events.log"],
+        "Write this configuration?": ["y"],
+    })
+    allowed = yaml.safe_load(path.read_text())["server-settings"]["admission"]["allowed_ids"]
+    assert allowed == ["exact:alpha", "watch:events"]
+
+
+def test_discovery_reports_unresolved_source_and_progress(project):
+    (project / "dynamic.py").write_text(
+        "from plotsrv import view\n"
+        "name = 'Dynamic'\n"
+        "@view(label=name)\n"
+        "def unresolved(): pass\n"
+    )
+    _, output, _ = wizard(project / "plotsrv.yml", target=str(project))
+    assert "Discovery complete: [####################]" in output
+    assert "dynamic.py:3: unresolved_metadata" in output
+    assert "All 2 resolved view(s)" in output
+
+
+def test_hide_list_has_no_twelve_view_limit(project):
+    (project / "many.py").write_text(
+        "from plotsrv import view\n" + "".join(
+            f"@view(label='Extra {number}', view_id='extra:{number}')\n"
+            f"def extra_{number}(): pass\n"
+            for number in range(11)
+        )
+    )
+    _, output, _ = wizard(project / "plotsrv.yml", target=str(project), answers={
+        "Hide any discovered views?": ["y"],
+    })
+    assert "Found 13 plotsrv views" in output
+    assert "  13  " in output
+
+
+def test_bind_host_can_be_entered_before_port(project):
+    path = project / "plotsrv.yml"
+    _, output, _ = wizard(path, target=str(project), answers={
+        "Bind host": ["0.0.0.0"],
+        "Publisher key environment variable": ["PLOTSRV_KEY"],
+        "Bind port": ["8999"],
+        "Write this configuration?": ["y"],
+    })
+    assert output.index("Bind host") < output.index("Bind port")
+    assert yaml.safe_load(path.read_text())["server-settings"]["bind"] == {
+        "host": "0.0.0.0", "port": 8999
+    }
 
 
 def test_storage_freshness_and_per_view_overrides(project):
@@ -160,7 +238,7 @@ def test_watched_file_addition_customisation_and_storage_context(project):
         "Representation": ["file"],
         "Customise storage for this watched file?": ["y"],
         "Store watched-file snapshots": ["n", "yes"],
-        "Change another watched file?": ["n"],
+        "Add or edit another watched file?": ["n"],
         "Write this configuration?": ["y"],
     })
     data = yaml.safe_load(path.read_text())
@@ -228,6 +306,27 @@ def test_no_ansi_in_plain_terminal(monkeypatch):
     assert "\x1b[" not in output.getvalue()
 
 
+def test_file_path_prompt_installs_completion_only_while_reading(tmp_path, monkeypatch):
+    (tmp_path / "watched.log").write_text("data")
+    completion = SimpleNamespace(value=None, delims=" /", binding=None)
+    readline = SimpleNamespace(
+        get_completer=lambda: completion.value,
+        get_completer_delims=lambda: completion.delims,
+        set_completer=lambda value: setattr(completion, "value", value),
+        set_completer_delims=lambda value: setattr(completion, "delims", value),
+        parse_and_bind=lambda value: setattr(completion, "binding", value),
+    )
+    monkeypatch.setitem(sys.modules, "readline", readline)
+    monkeypatch.setattr(sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    prefix = str(tmp_path / "wat")
+    monkeypatch.setattr("builtins.input", lambda: completion.value(prefix, 0))
+    prompts = Prompts(output=io.StringIO())
+    assert prompts.ask("File path", path_completion=True) == str(tmp_path / "watched.log")
+    assert completion.value is None
+    assert completion.delims == " /"
+    assert completion.binding == "tab: complete"
+
+
 def test_limits_invalid_size_reprompts_and_shows_binary_units(project):
     path = project / "plotsrv.yml"
     _, output, _ = wizard(path, target=str(project), answers={
@@ -259,7 +358,7 @@ def test_duplicate_watched_path_offers_edit_and_keeps_single_entry(project):
     _, output, _ = wizard(path, target=str(project), answers={
         "Add a watched file?": ["y"],
         "File path": ["events.log", "./events.log"],
-        "Change another watched file?": ["y", "n"],
+        "Add or edit another watched file?": ["y", "n"],
         "Choose an action": ["add"],
         "Write this configuration?": ["y"],
     })
@@ -334,3 +433,22 @@ def test_launch_handles_interrupt_without_writing(project, monkeypatch, capsys):
 def test_config_init_parser():
     args = build_parser().parse_args(["config", "init", "./src", "--name", "etl"])
     assert args.target == "./src" and args.name == "etl"
+    source = build_parser().parse_args(["config", "init", "--source", "src/static"])
+    assert source.source == "src/static" and source.target is None
+
+
+def test_source_flag_scans_only_chosen_directory(project, monkeypatch, capsys):
+    from plotsrv.config_wizard import launch
+    source = project / "src" / "static"
+    source.mkdir(parents=True)
+    (source / "only.py").write_text(
+        "from plotsrv import view\n@view(label='Only', view_id='exact:only')\n"
+        "def only(): pass\n"
+    )
+    path = project / "plotsrv.yml"
+    args = build_parser().parse_args([
+        "config", "init", "--source", str(source), "--config", str(path)
+    ])
+    monkeypatch.setattr("builtins.input", lambda: "")
+    assert launch(args) == 0
+    assert "Found 1 plotsrv view" in capsys.readouterr().out

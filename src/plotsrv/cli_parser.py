@@ -503,6 +503,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional path, package or module[:function] to focus static discovery",
     )
     config_init_p.add_argument(
+        "--source", dest="source", default=None,
+        help="Path or package to scan for views (same as the optional positional target)",
+    )
+    config_init_p.add_argument(
         "--config",
         default=None,
         help="Existing config or draft path; otherwise detected plotsrv.yml/plotsrv.yaml",

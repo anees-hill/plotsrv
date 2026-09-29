@@ -35,7 +35,11 @@ class TerminalProgress:
                 f"Finding Python files: {event.files_found} found (total not yet known)"
             )
         else:
-            status = f"Discovery {event.phase}: {event.processed}/{event.total} files; {event.skipped} skipped or unresolved"
+            total = event.total or 0
+            width = 20
+            filled = round(width * event.processed / total) if total else 0
+            bar = "#" * filled + "-" * (width - filled)
+            status = f"Discovery {event.phase}: [{bar}] {event.processed}/{total} files; {event.skipped} skipped or unresolved"
         if tty:
             spinner = "|/-\\"[self.tick % 4]
             self.stream.write(

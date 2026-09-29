@@ -12,7 +12,9 @@ def launch(args) -> int:
     from .saving import SaveError
 
     try:
-        draft = Draft.load(config=args.config, name=args.name, target=args.target)
+        if args.source is not None and args.target is not None:
+            raise ValueError("Use either --source or the positional discovery target, not both")
+        draft = Draft.load(config=args.config, name=args.name, target=args.source or args.target)
         run(draft, Prompts())
     except (KeyboardInterrupt, EOFError):
         print("\nConfiguration cancelled. No files changed.", file=sys.stderr)

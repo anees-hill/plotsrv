@@ -83,7 +83,7 @@ HELP = {
         "Sequential setup for publishing to another "
         "server, hosting a server, or both. Choose discovery, watches and relevant settings, "
         "then review changes before confirming a save. Existing files are backed up.",
-        "plotsrv config init\nplotsrv config init ./src --config project.yml\n\n"
+        "plotsrv config init\nplotsrv config init --source src/static --config project.yml\n\n"
         "An optional target focuses static discovery; server-only setup can scan when local source exists. "
         "For a custom filename, pass --config project.yml to subsequent commands too.",
     ),

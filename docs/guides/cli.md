@@ -224,7 +224,7 @@ Run the sequential CLI wizard with the standard plotsrv installation:
 
 ```bash
 plotsrv config init
-plotsrv config init ./src --config plotsrv.yml --name etl
+plotsrv config init --source ./src --config plotsrv.yml --name etl
 ```
 
 It works in an ordinary terminal or SSH session; there is no terminal UI extra.
@@ -233,12 +233,19 @@ publisher source is available, plotsrv discovers `@view` declarations by
 reading their AST without executing the project, then lets you hide selected
 views. Server-only setups can also discover views when local source is available,
 but do not need source code to configure a receiving server. Discovery remains
-separate from watched files and direct API publication.
+separate from watched files and direct API publication. The scan shows progress
+and reports file/line diagnostics for declarations it cannot resolve. The hide
+list includes every resolved view. In combined mode, hiding views also locks
+server admission to the selected and watched IDs, so direct API publications
+for hidden IDs are rejected.
 
 The main path asks whether to enable storage and freshness, then uses their
 built-in defaults. Answer **yes** to customisation only when you need global
 settings or per-view exceptions. Limits and watched files are optional; each
 watched file needs only a path and a label, which defaults to the filename.
+In an interactive terminal, Tab completes watched-file paths. The server step
+accepts an explicit bind host before the port; `0.0.0.0` listens on all IPv4
+interfaces and requires a publisher key or explicit remote ingestion opt-in.
 Settings for watched-file snapshots appear alongside watched files when storage
 is enabled. Advanced settings are behind an explicit question. The same
 storage, freshness, limit and source semantics are available through the
