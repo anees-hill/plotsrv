@@ -328,7 +328,37 @@ def test_unknown_and_active_ui_keys_not_editable(tmp_path):
         "assets_dir",
     ):
         assert post(client, "/api/draft", {key: True}).status_code == 400
-    assert post(client, "/api/draft", {"logo": "/etc/passwd"}).status_code == 400
+    assert post(client, "/api/draft", {"logo": "/missing/logo.png"}).status_code == 400
+    assert post(client, "/api/draft", {"show_view_selector": False}).status_code == 400
+
+
+def test_existing_image_paths_are_reviewed_and_saved(tmp_path):
+    draft, client = setup(tmp_path)
+    logo = tmp_path / "brand.png"
+    favicon = tmp_path / "tab.png"
+    logo.write_bytes(png())
+    favicon.write_bytes(png())
+    response = post(client, "/api/draft", {"logo": "brand.png", "favicon": str(favicon)})
+    assert response.status_code == 200, response.text
+    assert response.json()["values"]["logo"] == "brand.png"
+    assert client.get("/api/image/logo", headers=HEADERS).status_code == 204
+    review = post(client, "/api/review").json()
+    assert "brand.png" in review["text"] and str(favicon) in review["text"]
+    assert post(client, "/api/save", {"review_id": review["review_id"]}).status_code == 200
+    saved = yaml.safe_load(draft.path.read_text())["ui-settings"]
+    assert saved["logo"] == "brand.png"
+    assert saved["favicon"] == str(favicon)
+    assert "show_view_selector" not in saved
+
+
+def test_existing_view_selector_setting_is_preserved(tmp_path):
+    raw = b"ui-settings:\n  show_view_selector: false\n  header_text: Old\n"
+    draft, client = setup(tmp_path, raw)
+    assert "show_view_selector" not in draft.state()["fields"]
+    assert post(client, "/api/draft", {"header_text": "New"}).status_code == 200
+    review = post(client, "/api/review").json()
+    assert post(client, "/api/save", {"review_id": review["review_id"]}).status_code == 200
+    assert yaml.safe_load(draft.path.read_text())["ui-settings"]["show_view_selector"] is False
 
 
 def test_malformed_existing_config_is_not_replaced(tmp_path):
@@ -523,7 +553,7 @@ def test_new_defaults_and_text_use_production_model(tmp_path):
     draft.prepare()
     draft.finish(draft.review_id)
     document = yaml.safe_load(draft.path.read_bytes())
-    assert document["ui-settings"]["show_view_selector"] is True
+    assert "show_view_selector" not in document["ui-settings"]
     assert document["ui-settings"]["header_text"] == "A title"
 
 

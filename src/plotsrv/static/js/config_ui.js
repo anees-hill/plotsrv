@@ -3,7 +3,7 @@
   "use strict";
   const $ = (id) => document.getElementById(id);
   let key = "", state = null, reviewId = null, activeRegion = "branding", busy = false;
-  let imageUrls = [];
+  let imageUrls = [], previewTimer = null;
   const notice = (text) => { $("notice").textContent = text; };
   async function request(path, {json, raw, name} = {}) {
     const headers = {"X-Plotsrv-UI-Session": key};
@@ -40,6 +40,14 @@
       document.querySelectorAll("#editor button, #editor input, #save, #unlock button").forEach((el) => { el.disabled = false; });
     }
   }
+  function schedulePreview(delay = 500) {
+    clearTimeout(previewTimer);
+    previewTimer = setTimeout(() => {
+      if (busy) { schedulePreview(150); return; }
+      previewTimer = null;
+      run(() => apply());
+    }, delay);
+  }
   function region(name, focus = true) {
     activeRegion = name;
     document.querySelectorAll("[data-region]").forEach((el) => el.setAttribute("aria-pressed", String(el.dataset.region === name)));
@@ -64,23 +72,29 @@
           const file = input.files[0];
           if (!file) return;
           if (file.size > 2 * 1024 * 1024) throw new Error("Images must be at most 2 MiB.");
+          const path = $(`field-${id}-path`); path.dataset.dirty = "false"; path.value = state.values[id];
           await apply(false);
           state = await (await request(`/api/upload/${id}`, {raw: file, name: file.name})).json();
           fields(); await preview(); notice("Image staged. Review and Save to keep it.");
         }));
         const reset = document.createElement("button"); reset.type = "button"; reset.textContent = `Reset ${spec.label.toLowerCase()}`;
         reset.addEventListener("click", () => run(async () => {
+          const path = $(`field-${id}-path`); path.dataset.dirty = "false"; path.value = state.values[id];
           await apply(false);
           state = await (await request("/api/draft", {json: {[id]: ""}})).json();
           fields(); await preview(); notice("Default image selected in the draft.");
         }));
         const current = document.createElement("p"); current.className = "muted"; current.textContent = state.values[id] ? `Configured: ${state.values[id]}` : "Built-in image";
-        row.append(label, input, reset, current);
+        const pathLabel = document.createElement("label"); pathLabel.htmlFor = `field-${id}-path`; pathLabel.textContent = "Or use an existing file path";
+        const path = document.createElement("input"); path.id = `field-${id}-path`; path.dataset.key = id; path.type = "text";
+        path.value = state.values[id]; path.maxLength = 512; path.placeholder = "Path on the server running plotsrv";
+        path.addEventListener("input", () => { path.dataset.dirty = "true"; schedulePreview(); });
+        row.append(label, input, pathLabel, path, reset, current);
       } else {
         input.type = typeof state.values[id] === "boolean" ? "checkbox" : "text";
         if (input.type === "checkbox") input.checked = state.values[id];
         else { input.value = state.values[id]; input.maxLength = 512; }
-        input.addEventListener("input", () => { input.dataset.dirty = "true"; });
+        input.addEventListener("input", () => { input.dataset.dirty = "true"; schedulePreview(input.type === "checkbox" ? 0 : 500); });
         row.append(label, input);
       }
       const help = document.createElement("p"); help.id = `help-${id}`; help.textContent = spec.help;
@@ -90,13 +104,13 @@
   }
   async function apply(refresh = true) {
     const patch = {};
-    document.querySelectorAll("#fields input:not([type=file])").forEach((input) => {
+    document.querySelectorAll("#fields input[data-key]:not([type=file])").forEach((input) => {
       const value = input.type === "checkbox" ? input.checked : input.value;
       if (input.dataset.dirty === "true" && value !== state.values[input.dataset.key]) patch[input.dataset.key] = value;
     });
     if (Object.keys(patch).length) state = await (await request("/api/draft", {json: patch})).json();
     for (const id of Object.keys(patch)) {
-      const input = document.getElementById(`field-${id}`);
+      const input = document.getElementById(`field-${id}${id === "logo" || id === "favicon" ? "-path" : ""}`);
       if (input && input.type === "text") input.value = state.values[id];
       if (input) input.dataset.dirty = "false";
     }
@@ -155,12 +169,14 @@
   $("theme").addEventListener("change", () => { document.documentElement.dataset.theme = $("theme").value; const doc = $("preview").contentDocument; if (doc) doc.documentElement.dataset.theme = $("theme").value; });
   $("settings").addEventListener("submit", (event) => { event.preventDefault(); run(() => apply()); });
   $("review").addEventListener("click", () => run(async () => {
+    clearTimeout(previewTimer); previewTimer = null;
     await apply(false);
     const review = await (await request("/api/review", {json: {}})).json();
     reviewId = review.review_id; $("review-error").textContent = ""; $("diff").textContent = review.text; $("review-dialog").showModal(); $("back").focus();
   }));
   $("back").addEventListener("click", () => $("review-dialog").close());
   function finish(title, message) {
+    clearTimeout(previewTimer); previewTimer = null;
     key = ""; reviewId = null; state = null; $("editor").hidden = true; $("review-dialog").close();
     $("preview").onload = null; $("preview").removeAttribute("srcdoc"); imageUrls.forEach((url) => URL.revokeObjectURL(url)); imageUrls = [];
     $("finished-title").textContent = title; $("finished-message").textContent = message; $("finished").hidden = false; notice("");

@@ -34,7 +34,7 @@ FIELDS = {
     "header_text": ("Header text", "Optional short text beside the logo.", "branding"),
     "logo": (
         "Logo",
-        "One image is used in both light and dark appearance.",
+        "Upload an image or enter an existing file path on this server. One image is used in both appearances.",
         "branding",
     ),
     "icon_url": (
@@ -44,13 +44,8 @@ FIELDS = {
     ),
     "favicon": (
         "Tab icon",
-        "PNG/JPEG uploads are saved as clean PNG images.",
+        "Upload an image or enter an existing file path on this server.",
         "branding",
-    ),
-    "show_view_selector": (
-        "View selector",
-        "Show the view picker in the header.",
-        "controls",
     ),
     "export_image": (
         "Image export",
@@ -99,7 +94,10 @@ class Draft:
         )
         # Do not resolve arbitrary configured asset paths or view thumbnails here.
         self.ui = load_ui_settings(
-            section={k: v for k, v in self.initial.items() if k in FIELDS},
+            section={
+                k: v for k, v in self.initial.items()
+                if k in FIELDS or k == "show_view_selector"
+            },
             resolve_files=False,
         )
         self.values = {
@@ -143,9 +141,16 @@ class Draft:
             raise SaveError("Unknown UI setting.")
         for key, value in values.items():
             if key in IMAGE_FIELDS:
-                # Browser never selects a filesystem path, URL or server filename.
-                if value != "":
-                    raise SaveError("Use Upload or Reset for images.")
+                if type(value) is not str or len(value) > 512 or any(
+                    ord(c) < 32 or 0xD800 <= ord(c) <= 0xDFFF for c in value
+                ):
+                    raise SaveError("Use an image path of at most 512 printable characters.")
+                if value and (
+                    value != value.strip()
+                    or value.startswith(("http:", "https:", "/static/", "/assets/"))
+                    or not (self.path.parent / value).expanduser().is_file()
+                ):
+                    raise SaveError("Choose an existing image file on this server.")
             elif key in TEXT_FIELDS:
                 if (
                     type(value) is not str
@@ -260,6 +265,7 @@ class Draft:
         )
         ui = replace(
             ui,
+            show_view_selector=self.ui.show_view_selector,
             logo_url=DEFAULT_LOGO_URL,
             favicon_url=DEFAULT_FAVICON_URL,
             terminate_process_option=False,

@@ -30,6 +30,7 @@
 .customiser legend { font-weight:600; margin-bottom:12px; }
 .setting { margin-bottom:18px; }
 .setting label { display:block; font-weight:600; margin-bottom:5px; }
+.setting input[type=file] + label { margin-top:12px; }
 .setting p, .customiser aside > p { font-size:12px; color:var(--ps-muted); overflow-wrap:anywhere; }
 .setting input[type=checkbox] { width:18px; height:18px; }
 .setting button { font-size:12px; margin-top:6px; }

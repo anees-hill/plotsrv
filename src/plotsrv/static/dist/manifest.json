@@ -1,7 +1,7 @@
 {
   "css": "/static/dist/plotsrv-ui.143aaf044a9a.css",
-  "customiser_css": "/static/dist/plotsrv-customiser.dd3d37e6d6c4.css",
-  "customiser_js": "/static/dist/plotsrv-customiser.b6cb52f88d4a.js",
+  "customiser_css": "/static/dist/plotsrv-customiser.e8122b4c6f71.css",
+  "customiser_js": "/static/dist/plotsrv-customiser.6427869afb66.js",
   "js": "/static/dist/plotsrv-ui.ccfd60738f3b.js",
   "js_by_kind": {
     "plot": "/static/dist/plotsrv-ui.0bdd8f66c388.js",

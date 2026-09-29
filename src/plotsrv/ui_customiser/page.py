@@ -27,7 +27,7 @@ def page(manifest):
 </section><aside aria-label="Appearance settings">
 <nav aria-label="Configurable regions"><button type="button" data-region="branding" aria-pressed="true">Logo &amp; header</button><button type="button" data-region="controls" aria-pressed="false">Controls</button><button type="button" data-region="footer" aria-pressed="false">Lower bar</button></nav>
 <form id="settings"><div id="fields"></div><button type="submit">Update preview</button></form>
-<p id="asset-policy">Uploads: still PNG/JPEG, up to 2 MiB, 2048 per side and 2 megapixels. Metadata is removed. No SVG or animation.</p><p id="asset-directory"></p><p>Existing images outside this directory and external URLs are preserved, but are not loaded by this preview.</p>
+<p id="asset-policy">Uploads: still PNG/JPEG, up to 2 MiB, 2048 per side and 2 megapixels. Metadata is removed. No SVG or animation.</p><p id="asset-directory"></p><p>File paths are resolved from the config folder (or may be absolute). Images outside the upload directory are saved to the config but are not loaded by this preview.</p>
 <p>Colours and theme defaults are not edited here. Dashboard appearance remains a browser preference.</p>
 </aside></div>
 <footer class="editor-actions"><button id="cancel" type="button">Cancel and close</button><button id="review" type="button">Review changes</button></footer>

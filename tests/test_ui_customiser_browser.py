@@ -69,8 +69,6 @@ def test_keyboard_preview_upload_theme_and_save(page, editor, tmp_path):
     unlock(page, origin, token)
     assert page.evaluate("Object.keys(localStorage).length") == 0
     page.locator("#field-header_text").fill("<Example> dashboard")
-    page.locator("#settings button[type=submit]").focus()
-    page.keyboard.press("Enter")
     page.frame_locator("#preview").locator(".header-title").get_by_text(
         "<Example> dashboard"
     ).wait_for()
@@ -82,11 +80,16 @@ def test_keyboard_preview_upload_theme_and_save(page, editor, tmp_path):
     )
     page.frame_locator("#preview").locator("#preview-controls").focus()
     page.keyboard.press("Enter")
-    page.locator("#field-show_view_selector").wait_for(state="visible")
-    page.locator("#field-show_view_selector").uncheck()
-    page.locator("#settings button[type=submit]").click()
-    expect(page.locator("#notice")).to_contain_text("Preview updated")
+    assert page.locator("#field-show_view_selector").count() == 0
+    page.locator("#field-export_table").uncheck()
+    expect(page.locator("#field-export_table")).to_have_attribute("data-dirty", "false")
+    assert draft.values["export_table"] is False
     page.locator("[data-region=branding]").click()
+    (tmp_path / "existing.png").write_bytes(png())
+    page.locator("#field-logo-path").fill("existing.png")
+    expect(page.locator("#field-logo-path")).to_have_attribute("data-dirty", "false")
+    assert draft.values["logo"] == "existing.png"
+    expect(page.locator("#field-logo-path")).to_have_value("existing.png")
     page.locator("#field-logo").set_input_files(
         {"name": "safe.png", "mimeType": "image/png", "buffer": png()}
     )
@@ -122,7 +125,6 @@ def test_small_screen_cancel_and_no_polling(page, editor):
     page.set_viewport_size({"width": 390, "height": 844})
     unlock(page, origin, token)
     page.locator("#field-header_text").fill("Discard this")
-    page.locator("#settings button[type=submit]").click()
     expect(page.locator("#notice")).to_contain_text("Preview updated")
     requests = []
     page.on("request", lambda r: requests.append(r.url))

@@ -453,8 +453,8 @@ No source scan, live data subscription or production restart occurs.
 
 The preview uses the dashboard's renderer and styling with three example rows.
 Choose a highlighted logo/header/control region, or use the equivalent keyboard
-settings list. Change the title, logo, tab icon or supported visibility options,
-then choose **Update preview**. Light/Dark previews help check image contrast;
+settings list. Changes update the preview automatically after a short pause in
+typing; **Update preview** is available to retry manually. Light/Dark previews help check image contrast;
 they do not change browser theme preferences. There is one shared logo for both
 appearances. Legacy refresh/termination/colour settings and view lists remain
 editable in YAML and are preserved by this tool.
@@ -464,13 +464,16 @@ Uploads accept still PNG/JPEG files up to **2 MiB**, **2048 pixels per side** an
 be inflated. SVG, HTML, animation and malformed images are refused. At most two
 images / 4 MiB are staged, with 16 successful uploads per session. Images stay in
 memory until Save. Existing external URLs or images outside the approved image
-directory remain configured, but are not fetched for preview.
+directory remain configured, but are not fetched for preview. As an alternative
+to uploading, enter a path to an existing image file on the server. Relative
+paths are resolved from the config folder; paths outside the upload directory
+are saved but are not shown in this preview.
 
 New images go into `plotsrv-assets/` beside the config. Use `--assets-dir images`
 to select another directory inside that config folder. Its parent must exist;
 the selected directory is created only when saving an upload. Existing directories
 are reused without replacing them. Images receive unique filenames, and collisions
-fail safely. The editor cannot accept arbitrary asset paths from the browser.
+fail safely. The editor checks that typed image paths point to existing files.
 Relative references use the ordinary plotsrv `/assets/` serving mechanism.
 
 **Review changes** shows the exact scoped YAML paths and an effective UI diff.
