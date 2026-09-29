@@ -170,10 +170,6 @@
       sel.value = state.currentSnapshot || "";
     }
 
-    const unavailableReturn = document.getElementById("snapshots-return-latest");
-    if (unavailableReturn) {
-      unavailableReturn.hidden = !isHistory && !navigation.error;
-    }
     syncSnapshotModeBanner();
 
     if (typeof core.setHeaderViewState === "function") {
@@ -469,11 +465,6 @@
         button.dataset.navigationBound = "1";
         button.addEventListener("click", () => moveSnapshot(direction));
       }
-    }
-    const latest = document.getElementById("snapshots-return-latest");
-    if (latest && !latest.dataset.navigationBound) {
-      latest.dataset.navigationBound = "1";
-      latest.addEventListener("click", returnToLive);
     }
     const bannerLatest = document.getElementById("snapshot-mode-return-latest");
     if (bannerLatest && !bannerLatest.dataset.navigationBound) {

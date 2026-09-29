@@ -1,7 +1,7 @@
 (function () {
   "use strict";
   const {core, state, config} = window.PLOTSRV;
-  const ui = state.compare = {mode: "timeline", day: new Date().toISOString().slice(0, 10), month: "", rows: [], days: {}, next: null, count: 0, loading: false, error: ""};
+  const ui = state.compare = {day: new Date().toISOString().slice(0, 10), month: "", rows: [], days: {}, next: null, count: 0, loading: false, error: ""};
   let metadataController = null, metadataRequest = 0, metadataTask = null, desiredMetadata = null;
   let exportAnchor = null;
   const el = id => document.getElementById(id);
@@ -64,7 +64,7 @@
     const nav = state.snapshotNavigation, cap = state.snapshotCapability;
     el("compare-enter").hidden = !el("snapshots-control") || config.kind === "stream" || !cap || !cap.enabled;
     el("compare-enter").disabled = !nav.metadata || !(nav.metadata.count || (nav.metadata.snapshots || []).length);
-    el("compare-enter").title = el("compare-enter").disabled ? "History becomes available when stored snapshots exist." : "Browse stored snapshots using Timeline or List";
+    el("compare-enter").title = el("compare-enter").disabled ? "History becomes available when stored snapshots exist." : "Browse stored snapshots on a timeline";
     if (!state.compareActive) return;
     const selected = core.currentHistoryMeta();
     label("compare-selected", state.currentSnapshot
@@ -80,33 +80,24 @@
     label("compare-message", message);
     el("compare-message").title = message;
     label("compare-day", dayLabel(ui.day));
-    for (const mode of ["timeline", "list"]) {
-      el("compare-" + mode + "-tab").setAttribute("aria-pressed", String(ui.mode === mode));
-      el("compare-" + mode).hidden = ui.mode !== mode;
-    }
     el("compare-more").hidden = !ui.next;
     el("compare-more").disabled = ui.loading;
     label("compare-count", ui.count + (ui.count === 1 ? " snapshot" : " snapshots") + " · " + ui.rows.length + " shown · UTC");
     for (const button of el("compare-results").querySelectorAll("[data-snapshot]")) button.setAttribute("aria-pressed", String(button.dataset.snapshot === state.currentSnapshot));
   }
   function renderRows() {
-    const list = el("compare-list"), timeline = el("compare-points");
-    list.replaceChildren(); timeline.replaceChildren();
+    const timeline = el("compare-points");
+    timeline.replaceChildren();
     const [start, end] = bounds(ui.day), span = Date.parse(end) - Date.parse(start);
     for (const row of ui.rows) {
-      const button = document.createElement("button"); button.type = "button";
-      button.dataset.snapshot = row.snapshot_id;
-      button.textContent = stamp(row.created_at) + (row.kind ? " · " + row.kind : "");
-      button.addEventListener("click", () => core.snapshotNavigation.select(row.snapshot_id));
-      list.append(button);
-      const point = button.cloneNode(false);
-      point.title = button.textContent; point.setAttribute("aria-label", button.textContent);
-      point.tabIndex = -1; // Exact keyboard selection is provided by List and previous/next.
+      const point = document.createElement("button"); point.type = "button";
+      point.dataset.snapshot = row.snapshot_id;
+      point.title = stamp(row.created_at) + (row.kind ? " · " + row.kind : "");
+      point.setAttribute("aria-label", point.title);
       point.style.left = Math.max(0, Math.min(100, (Date.parse(row.created_at) - Date.parse(start)) / span * 100)) + "%";
       point.addEventListener("click", () => core.snapshotNavigation.select(row.snapshot_id));
       timeline.append(point);
     }
-    if (!ui.rows.length) { const empty = document.createElement("span"); empty.textContent = "No stored snapshots on this UTC day."; list.append(empty); }
     label("compare-timeline-empty", ui.rows.length ? "" : "No stored snapshots on this UTC day.");
     sync();
   }
@@ -201,7 +192,6 @@
       if (state.currentSnapshot || state.snapshotNavigation.error) core.returnToLive();
       else if (state.pendingBrowserUpdate && core.applyPendingUpdate) core.applyPendingUpdate({force: true});
     });
-    for (const mode of ["timeline", "list"]) el("compare-" + mode + "-tab").addEventListener("click", () => {ui.mode = mode; sync();});
     for (const [id, step] of [["compare-day-prev", -1], ["compare-day-next", 1]]) el(id).addEventListener("click", () => {const d = civil(ui.day); d.setUTCDate(d.getUTCDate() + step); setDay(d.toISOString().slice(0, 10));});
     for (const [id, step] of [["compare-month-prev", -1], ["compare-month-next", 1]]) el(id).addEventListener("click", () => {const d = civil(ui.month + "-01"); d.setUTCMonth(d.getUTCMonth() + step); ui.month = d.toISOString().slice(0, 7); metadata();});
     el("compare-calendar-toggle").addEventListener("click", () => {const calendar = el("compare-calendar"); calendar.hidden = !calendar.hidden; el("compare-calendar-toggle").setAttribute("aria-expanded", String(!calendar.hidden));});

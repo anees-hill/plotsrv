@@ -193,7 +193,6 @@ def render_index(
             <button id="snapshot-older" class="ps-snapshot-arrow" type="button" aria-label="Older snapshot" disabled hidden><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3 5 8 10 13" /></svg></button>
             <button id="snapshot-newer" class="ps-snapshot-arrow" type="button" aria-label="Newer snapshot or Latest" disabled hidden><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3 11 8 6 13" /></svg></button>
             <span id="snapshot-navigation-notice" class="ps-snapshot-notice" role="status" aria-live="polite"></span>
-            <button id="snapshots-return-latest" class="ps-snapshots__return" type="button" hidden>Return to latest</button>
           </div>
         """
 
@@ -612,10 +611,6 @@ def render_index(
                       <button id="compare-newer" class="btn" type="button" aria-label="Next snapshot">›</button>
                     </div>
                     <button id="compare-latest" class="btn ps-history-latest" type="button"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5"/></svg>Latest</button>
-                    <div class="ps-history-modes" role="group" aria-label="History display mode">
-                      <button id="compare-timeline-tab" class="btn" type="button" aria-pressed="true"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 14l4-4 3 2 4-6 5 3"/><circle cx="6" cy="10" r="1"/><circle cx="13" cy="6" r="1"/></svg>Timeline</button>
-                      <button id="compare-list-tab" class="btn" type="button" aria-pressed="false"><svg viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M7 5h11M7 10h11M7 15h11"/><circle cx="3" cy="5" r=".8" fill="currentColor"/><circle cx="3" cy="10" r=".8" fill="currentColor"/><circle cx="3" cy="15" r=".8" fill="currentColor"/></svg>List</button>
-                    </div>
                   </div>
                   <div id="compare-calendar" hidden role="region" aria-label="Stored snapshot calendar">
                     <div><button id="compare-month-prev" class="btn" type="button" aria-label="Previous month">‹</button><span id="compare-month-label"></span><button id="compare-month-next" class="btn" type="button" aria-label="Next month">›</button></div>
@@ -624,7 +619,6 @@ def render_index(
                   </div>
                   <div id="compare-results">
                     <div id="compare-timeline"><div id="compare-points"></div><div class="ps-timeline-axis"><span>00:00</span><span>06:00</span><span>12:00 UTC</span><span>18:00</span><span>24:00</span></div><span id="compare-timeline-empty"></span></div>
-                    <div id="compare-list" hidden></div>
                   </div>
                   <footer class="ps-history-panel__footer">
                     <div class="ps-compare-summary"><span id="compare-count"></span><button id="compare-first" class="btn" type="button">First page</button><button id="compare-more" class="btn" type="button" hidden>Older on this day</button></div>

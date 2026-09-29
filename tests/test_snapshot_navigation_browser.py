@@ -111,14 +111,14 @@ def test_keyboard_boundaries_exact_and_ambiguous_latest(page):
     assert "UTC" in selected.get_attribute("title")
     assert "snapshot=1" in page.url
     assert page.evaluate("marked") == 0
-    assert page.locator("#snapshots-return-latest").is_visible()
+    assert page.locator("#snapshots-return-latest").count() == 0
     page.locator("#snapshot-newer").focus()
     page.keyboard.press("Space")
     settled(page)
     assert page.locator("#artifact-root").inner_text() == "Version latest"
     assert "snapshot=" not in page.url
     assert page.evaluate("bodyReads") == ["1", "latest"]
-    assert page.locator("#snapshots-return-latest").is_hidden()
+    assert page.locator("#snapshots-return-latest").count() == 0
     # Hide the duplicate stored latest until it is explicitly selected.
     page.evaluate("""async () => {
       const original=makeMeta;
@@ -346,10 +346,10 @@ def test_failed_latest_can_be_retried_without_blocking_ordinary_live_updates(pag
     mount(page)
     page.evaluate("failures.latest=503; PLOTSRV.core.returnToLive()")
     settled(page)
-    assert page.locator("#snapshots-return-latest").is_visible()
+    assert page.locator("#snapshots-return-latest").count() == 0
     assert page.locator("#export-button").is_disabled()
     page.evaluate("failures.latest=0")
-    page.click("#snapshots-return-latest")
+    page.locator("#history-select").dispatch_event("change")
     settled(page)
     assert page.locator("#export-button").is_enabled()
     page.evaluate(

@@ -262,8 +262,7 @@
   font-weight: 650;
 }
 
-.ps-snapshots__selector[hidden],
-.ps-snapshots__return[hidden] {
+.ps-snapshots__selector[hidden] {
   display: none !important;
 }
 
@@ -286,21 +285,6 @@
   border-color: #d9d9d9;
   background: rgba(242, 243, 244, 0.82);
   color: #7d8388;
-}
-
-.ps-snapshots__return {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #4d657a;
-  cursor: pointer;
-  font-size: 0.74rem;
-  font-weight: 650;
-  white-space: nowrap;
-}
-
-.ps-snapshots__return:hover {
-  text-decoration: underline;
 }
 
 .ps-bottom-bar__terminate {

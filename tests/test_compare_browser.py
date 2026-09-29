@@ -70,7 +70,7 @@ def enter(page):
     )
 
 
-def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page):
+def test_normal_timeline_collapse_restore_and_exit_preserve_controller(page):
     reads = mount(page)
     page.evaluate("window.table=PLOTSRV.state.tabulatorInstance")
     page.click("#bottom-collapse")
@@ -89,14 +89,12 @@ def test_normal_timeline_list_collapse_restore_and_exit_preserve_controller(page
     assert page.locator("#export-control").evaluate(
         "e=>e.parentElement.id==='history-export-slot'"
     )
-    page.click("#compare-list-tab")
-    assert page.locator("#compare-list").is_visible()
+    assert page.locator("#compare-timeline").is_visible()
+    assert page.locator("#compare-list-tab, #compare-timeline-tab, #compare-list").count() == 0
     assert page.locator("#bottom-collapse").is_hidden()
     assert page.locator("#bottom-pin").count() == 0
     assert page.evaluate("PLOTSRV.state.tabulatorInstance===table")
     assert "/compare/latest" not in reads
-    page.screenshot(path="/tmp/plotsrv-17-list.png")
-    page.click("#compare-timeline-tab")
     page.screenshot(path="/tmp/plotsrv-17-timeline.png")
     page.click("#compare-exit")
     assert page.locator("#history-select").is_visible()
@@ -143,6 +141,37 @@ def test_latest_returns_from_snapshot_to_live_view_and_green_freshness(page):
     assert page.locator("#header-status").get_attribute("data-status-tone") == "live"
     assert "snapshot=" not in page.url
     assert "/compare/latest" not in reads
+
+
+def test_timeline_point_click_target_extends_below_visible_dot(page):
+    mount(page)
+    enter(page)
+    page.evaluate("PLOTSRV.core.compare.setDay('2026-09-09')")
+    page.wait_for_function("!PLOTSRV.state.compare.loading")
+    point = page.locator("#compare-points button").last
+    box = point.bounding_box()
+    assert box["width"] >= 28 and box["height"] >= 28
+    x, y = box["x"] + box["width"] / 2, box["y"] + box["height"] - 3
+    assert page.evaluate(
+        "([x,y]) => document.elementFromPoint(x,y)?.closest('#compare-points button')?.dataset.snapshot",
+        [x, y],
+    ) == "s025"
+    page.mouse.click(x, y)
+    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
+    assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s025"
+    point.focus()
+    assert point.evaluate("e => e === document.activeElement")
+
+
+def test_bottom_bar_controls_stay_in_place_when_snapshot_selected(page):
+    mount(page)
+    controls = ["#export-control", "#history-select", "#compare-enter"]
+    before = [page.locator(selector).bounding_box()["x"] for selector in controls]
+    page.evaluate("PLOTSRV.core.snapshotNavigation.select('s124')")
+    page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
+    after = [page.locator(selector).bounding_box()["x"] for selector in controls]
+    assert after == pytest.approx(before, abs=1)
+    assert page.locator("#snapshots-return-latest").count() == 0
 
 
 def test_live_updates_continue_while_history_is_open(page):
@@ -193,8 +222,7 @@ def test_calendar_empty_dates_pagination_same_time_ids_and_outside_day(page):
     )
     page.keyboard.press("Escape")
     assert page.locator("#compare-calendar").is_hidden()
-    page.click("#compare-list-tab")
-    page.locator('#compare-list [data-snapshot="s124"]').click()
+    page.click("#compare-older")
     page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
     assert (
         page.locator("#compare-selected").inner_text()
@@ -212,10 +240,10 @@ def test_calendar_empty_dates_pagination_same_time_ids_and_outside_day(page):
     assert page.evaluate("PLOTSRV.state.currentSnapshot") == "s123"
     page.click("#compare-more")
     page.wait_for_function("!PLOTSRV.state.compare.loading")
-    assert page.locator("#compare-list button").count() == 25
+    assert page.locator("#compare-points button").count() == 25
     page.click("#compare-day-next")
     page.wait_for_function("!PLOTSRV.state.compare.loading")
-    assert "No stored snapshots" in page.locator("#compare-list").inner_text()
+    assert "No stored snapshots" in page.locator("#compare-timeline-empty").inner_text()
     assert "outside" in page.locator("#compare-message").inner_text()
     assert page.locator("#compare-dock").bounding_box()["height"] == pytest.approx(
         stable_height, abs=1
@@ -330,7 +358,7 @@ def test_closing_history_keeps_live_view_and_denied_storage_is_tolerated(page):
     mount(page)
     enter(page)
     page.click("#compare-exit")
-    assert page.locator("#snapshots-return-latest").is_hidden()
+    assert page.locator("#snapshots-return-latest").count() == 0
     assert page.evaluate("PLOTSRV.state.currentSnapshot") is None
     page.evaluate("() => {Storage.prototype.setItem=()=>{throw Error('denied');};}")
     page.click("#bottom-collapse")
@@ -338,7 +366,7 @@ def test_closing_history_keeps_live_view_and_denied_storage_is_tolerated(page):
     assert page.locator(".ps-bottom-dock").is_visible()
 
 
-def test_compare_presentation_changes_retain_plot_svg_and_release_space(page):
+def test_history_day_change_retains_plot_svg_and_release_space(page):
     mount(page)
     enter(page)
     page.click("#table-mode-plot-btn")
@@ -346,8 +374,8 @@ def test_compare_presentation_changes_retain_plot_svg_and_release_space(page):
     page.evaluate(
         "window.svg=document.querySelector('.ps-table-plot__svg'); window.prefs=JSON.stringify(PLOTSRV.state.tablePlotPreferences)"
     )
-    page.click("#compare-list-tab")
-    page.click("#compare-timeline-tab")
+    page.click("#compare-day-prev")
+    page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert page.evaluate(
         "document.querySelector('.ps-table-plot__svg')===svg && JSON.stringify(PLOTSRV.state.tablePlotPreferences)===prefs"
     )
@@ -442,7 +470,7 @@ def test_rapid_date_intents_keep_one_request_and_one_replacement(page):
     page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert page.evaluate("dayRequests.length") == 2
     assert page.evaluate("PLOTSRV.state.currentSnapshot") is None
-    assert page.locator("#compare-list button").count() == 0
+    assert page.locator("#compare-points button").count() == 0
 
 
 def test_repeated_bar_presentations_have_no_dom_growth_requests_or_idle_redraws(page):
@@ -486,8 +514,8 @@ def test_open_history_preserves_live_renderer_content(page, kind):
         "selector=>{window.liveNode=document.querySelector(selector);window.liveChild=liveNode.firstChild;}",
         selector,
     )
-    page.click("#compare-list-tab")
-    page.click("#compare-timeline-tab")
+    page.click("#compare-day-prev")
+    page.wait_for_function("!PLOTSRV.state.compare.loading")
     assert page.evaluate(
         "selector=>liveNode===document.querySelector(selector) && liveNode.firstChild===liveChild",
         selector,

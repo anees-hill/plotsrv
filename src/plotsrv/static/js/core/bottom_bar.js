@@ -22,7 +22,7 @@
         if (!table || !table.initialized || !table.element || !table.element.isConnected) continue;
         if (state.compareActive) {
           const clearance = parseFloat(getComputedStyle(document.body).getPropertyValue("--ps-bottom-dock-clearance")) || 0;
-          table.element.style.setProperty("--ps-table-available", Math.max(100, innerHeight - clearance - Math.max(0, table.element.getBoundingClientRect().top) - 12) + "px");
+          table.element.style.setProperty("--ps-table-available", Math.max(0, innerHeight - clearance - Math.max(0, table.element.getBoundingClientRect().top) - 12) + "px");
         }
         const holder = table.element.querySelector(".tabulator-tableholder");
         const pos = holder && [holder.scrollLeft, holder.scrollTop];
