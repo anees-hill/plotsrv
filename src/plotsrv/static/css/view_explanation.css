@@ -1,5 +1,5 @@
 .ps-view-about { position: relative; flex: 0 0 auto; }
-#view-about[hidden] { display: none; }
+.ps-view-about[data-disabled="true"] > summary { opacity: .45; cursor: default; }
 .ps-view-about > summary { list-style: none; font: italic bold 16px Georgia, serif; }
 .ps-view-about > summary::-webkit-details-marker { display: none; }
 .ps-view-about__panel {

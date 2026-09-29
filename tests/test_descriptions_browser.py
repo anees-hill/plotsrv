@@ -73,22 +73,31 @@ def test_featured_source_and_historical_scope(page):
     assert page.locator("#view-about-scope").inner_text() == "Featured presentation"
 
 
-def test_empty_description_hides_disclosure_and_metadata_update_preserves_body(page):
+def test_empty_description_disables_disclosure_and_metadata_update_preserves_body(page):
     reads = mount(page, "")
-    assert page.locator("#view-about").is_hidden()
+    about = page.locator("#view-about")
+    summary = page.locator("#view-about > summary")
+    assert about.is_visible()
+    assert summary.get_attribute("aria-disabled") == "true"
+    assert summary.get_attribute("title") == "No information explanation has been set for this view"
+    summary.click()
+    assert not about.evaluate("e => e.open")
     page.evaluate("window.originalTable=PLOTSRV.state.tabulatorInstance")
     before = list(reads)
     page.evaluate(
         "PLOTSRV.core.updateViewSelectorCatalogue(PLOTSRV.config.viewCatalogue.map(v=>({...v,description:'New description'})))"
     )
-    assert page.locator("#view-about").is_visible()
+    assert summary.get_attribute("aria-disabled") == "false"
+    assert summary.get_attribute("title") == "About this view"
     assert page.evaluate("PLOTSRV.state.tabulatorInstance===originalTable")
     assert reads == before
     page.locator("#view-about > summary").click()
     page.evaluate(
         "PLOTSRV.core.updateViewSelectorCatalogue(PLOTSRV.config.viewCatalogue.map(v=>({...v,description:''})))"
     )
-    assert page.locator("#view-about").is_hidden()
+    assert about.is_visible()
+    assert summary.get_attribute("aria-disabled") == "true"
+    assert not about.evaluate("e => e.open")
     assert page.locator(".ps-viewselect__btn").evaluate("e=>e===document.activeElement")
 
 

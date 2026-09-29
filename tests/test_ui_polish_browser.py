@@ -65,16 +65,19 @@ def test_header_control_slots_stay_stable_as_content_changes(page, width):
     assert initial[0]["x"] + initial[0]["width"] - chevron["x"] - chevron["width"] == pytest.approx(10, abs=2)
 
     page.locator("#header-status-label").evaluate(
-        "node => node.textContent = 'New data available'"
+        "node => node.textContent = 'New data'"
     )
     page.locator("#header-status-context").evaluate(
-        "node => node.textContent = 'New data available'"
+        "node => node.textContent = 'This view has not applied it yet'"
     )
     page.locator("#header-update-now").evaluate("node => node.hidden = false")
     page.locator("#header-status").evaluate(
         "node => node.setAttribute('data-quick-update', '')"
     )
     updated = bounds()
+    assert page.locator("#header-status-label").evaluate(
+        "node => node.scrollWidth <= node.clientWidth"
+    )
     for before, after in zip(initial, updated, strict=True):
         assert after["x"] == pytest.approx(before["x"], abs=1)
         assert after["width"] == pytest.approx(before["width"], abs=1)

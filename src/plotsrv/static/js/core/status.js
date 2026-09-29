@@ -418,7 +418,7 @@
       return {
         visible: config.showHeaderFreshness,
         tone: "new-data",
-        label: "New data available",
+        label: "New data",
         context: "This view has not applied it yet",
         title: "New data available",
         copy: "The server has newer data than the version currently shown in this browser.",

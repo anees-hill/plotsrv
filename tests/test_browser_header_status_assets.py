@@ -36,7 +36,7 @@ def test_snapshot_presentation_overrides_age_and_new_data_presentation() -> None
     assert snapshot_branch < new_data_branch < freshness_branch
     assert 'label: "Snapshot"' in status_source
     assert "Freshness applies only to the latest data" in status_source
-    assert 'label: "New data available"' in status_source
+    assert 'label: "New data"' in status_source
 
 
 def test_stream_header_uses_a_stable_lifecycle_presentation_and_slow_pulse() -> None:

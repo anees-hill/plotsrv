@@ -284,8 +284,8 @@ def test_render_index_uses_shared_accessible_header_status_for_every_view_kind(
     header_right = rendered.split(
         '<div class="header-right ps-header__right ps-header__right--controls">', 1
     )[1].split("</header>", 1)[0]
-    assert header_right.index('data-plotsrv-viewselect="1"') < header_right.index(
-        'id="header-status"'
+    assert header_right.index('id="header-status"') < header_right.index(
+        'data-plotsrv-viewselect="1"'
     )
 
 

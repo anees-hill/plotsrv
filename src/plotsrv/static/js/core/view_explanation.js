@@ -21,7 +21,11 @@
       }
       about.open = false;
     }
-    about.hidden = !caption;
+    const summary = about.querySelector('summary');
+    about.dataset.disabled = caption ? "false" : "true";
+    summary.setAttribute('aria-disabled', caption ? 'false' : 'true');
+    summary.tabIndex = caption ? 0 : -1;
+    summary.title = caption ? 'About this view' : 'No information explanation has been set for this view';
     for (const [id, value] of [["view-about-text", caption], ["view-about-scope", scope]]) {
       const node = document.getElementById(id);
       if (node.textContent !== value) node.textContent = value;
@@ -31,6 +35,9 @@
     const about = document.getElementById("view-about");
     if (!about || about.dataset.bound) return;
     about.dataset.bound = "1";
+    about.querySelector('summary').addEventListener('click', event => {
+      if (about.dataset.disabled === 'true') event.preventDefault();
+    });
     const close = () => {about.open = false; about.querySelector('summary').focus();};
     about.querySelector('button').addEventListener('click', close);
     document.addEventListener('keydown', event => {

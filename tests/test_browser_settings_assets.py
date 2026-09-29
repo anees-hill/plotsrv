@@ -65,7 +65,7 @@ def test_header_actions_follow_menus_with_settings_at_the_far_right() -> None:
     fullscreen = header_right.index('id="expand-view"')
     about = header_right.index('id="view-about"')
     settings = header_right.index('id="settings-button"')
-    assert view_selector < status < about < fullscreen < settings
+    assert status < view_selector < about < fullscreen < settings
     assert (STATIC / "icons/header-settings.png").is_file()
     assert (STATIC / "icons/header-fullscreen.png").is_file()
 

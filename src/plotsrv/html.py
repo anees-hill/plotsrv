@@ -1074,7 +1074,7 @@ def render_index(
             <div class="header-left ps-header__left" id="preview-branding">
               <img src="{logo_url}" alt="Dashboard logo" class="header-logo ps-header__logo">
               <div class="header-title ps-header__title">{header_text}</div>
-            </div><div class="header-right ps-header__right" id="preview-controls">{dropdown_html}{header_status_html}</div>
+            </div><div class="header-right ps-header__right" id="preview-controls">{header_status_html}{dropdown_html}</div>
           </header><main class="page ps-page"><section class="plot-card ps-card">{content_html}</section></main>
           {footer_html}</body></html>"""
 
@@ -1327,11 +1327,11 @@ def render_index(
         </div>
 
         <div class="{header_controls_class}">
-          {dropdown_html}
           {header_status_html}
+          {dropdown_html}
           <div class="ps-header-actions">
-            <details id="view-about" class="ps-view-about" hidden>
-              <summary class="ps-expand-button" aria-label="About this view" title="About this view">i</summary>
+            <details id="view-about" class="ps-view-about" data-disabled="true">
+              <summary class="ps-expand-button" aria-label="About this view" aria-disabled="true" tabindex="-1" title="No information explanation has been set for this view">i</summary>
               <div class="ps-view-about__panel" role="dialog" aria-label="About this view">
                 <button type="button" aria-label="Close view explanation">×</button>
                 <strong>About this view</strong>

@@ -64,11 +64,11 @@
 }
 
 .ps-header__right--controls.ps-header__right--no-view {
-  grid-template-columns: 280px 130px;
+  grid-template-columns: 340px 130px;
 }
 
 .ps-header__right--controls.ps-header__right--no-status {
-  grid-template-columns: 340px 130px;
+  grid-template-columns: 280px 130px;
 }
 
 .ps-header__right--controls.ps-header__right--no-view.ps-header__right--no-status {
@@ -287,12 +287,12 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
   }
 
   .ps-header__right--controls .ps-viewselect {
-    flex: 1 1 340px;
+    flex: 1 1 280px;
     min-width: 0;
   }
 
   .ps-header__right--controls .ps-header-status {
-    flex: 1 1 280px;
+    flex: 1 1 340px;
   }
 
   .ps-header__right--controls .ps-header-actions {
