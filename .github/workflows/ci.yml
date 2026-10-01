@@ -35,6 +35,9 @@ jobs:
       - name: Install project
         run: uv pip install -e .
 
+      - name: Install Chromium and browser dependencies
+        run: uv run --locked python -m playwright install --with-deps chromium
+
       - name: Audit locked runtime dependencies
         if: matrix.python-version == '3.13'
         run: |
@@ -42,7 +45,7 @@ jobs:
           uvx --from pip-audit==2.10.1 pip-audit --disable-pip --no-deps -r /tmp/plotsrv-runtime-requirements.txt
 
       - name: Run tests
-        run: uv run pytest --benchmark-skip --cov=plotsrv --cov-report=xml
+        run: uv run --locked pytest --benchmark-skip --cov=plotsrv --cov-report=xml
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5

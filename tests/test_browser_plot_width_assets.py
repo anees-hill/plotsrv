@@ -43,11 +43,13 @@ def test_plot_surface_and_raster_preserve_responsive_aspect_ratio() -> None:
 
     frame = plot_css.split(".plot-frame--plot {", 1)[1].split("}", 1)[0]
     image = plot_css.split("#plot,", 1)[1].split("}", 1)[0]
+    unsized_image = plot_css.split("#plot:not(.ps-plot--sized) {", 1)[1].split("}", 1)[0]
 
     assert "box-sizing: border-box" in frame
     assert "width: 100%" in frame
     assert "min-width: 0" in frame
-    assert "max-width: 100%" in image
+    assert "max-width: none" in image
+    assert "max-width: 100%" in unsized_image
     assert "height: auto" in image
     assert "\n  width: 100%" not in image
     assert 'data-kind="plot"' in page

@@ -22,6 +22,7 @@ def test_register_default_renderers_registers_expected_kinds_in_order() -> None:
         "markdown",
         "json",
         "python",
+        "code",
         "traceback",
         "text",
         "watch_error",

@@ -17,10 +17,15 @@ from plotsrv.config_wizard.inputs import Prompts, format_size, parse_duration, p
 
 @pytest.fixture(autouse=True)
 def isolate(monkeypatch):
+    from plotsrv import store
+
+    store.reset()
     monkeypatch.setattr(settings, "_CTX", settings.RuntimeContext())
     monkeypatch.setattr(settings, "_CONFIG_CACHE", {})
     monkeypatch.delenv("PLOTSRV_CONFIG", raising=False)
     monkeypatch.delenv("PLOTSRV_NAME", raising=False)
+    yield
+    store.reset()
 
 
 @pytest.fixture

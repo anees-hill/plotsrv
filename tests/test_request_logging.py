@@ -10,6 +10,24 @@ from fastapi.testclient import TestClient
 from plotsrv.request_logging import FailureRequestLogger
 
 
+@pytest.fixture(autouse=True)
+def isolate_uvicorn_logging(monkeypatch, caplog):
+    # Uvicorn configures these process-wide loggers even when Server.run is mocked.
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        logger = logging.getLogger(name)
+        for attribute in ("level", "handlers", "propagate", "disabled"):
+            value = getattr(logger, attribute)
+            monkeypatch.setattr(
+                logger, attribute, value[:] if attribute == "handlers" else value
+            )
+
+    # Capture directly regardless of an earlier server's propagation settings.
+    logger = logging.getLogger("uvicorn.error")
+    monkeypatch.setattr(logger, "handlers", [caplog.handler])
+    monkeypatch.setattr(logger, "propagate", False)
+    monkeypatch.setattr(logger, "disabled", False)
+
+
 def test_default_logs_each_failure_but_no_success_or_query(caplog: pytest.LogCaptureFixture) -> None:
     app = FastAPI()
 

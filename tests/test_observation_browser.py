@@ -60,23 +60,23 @@ def test_observation_labels_do_not_expose_payload_types(page):
       PLOTSRV.core.refreshStatus = () => Promise.resolve();
     }""")
     page.add_script_tag(path=str(STATIC / "js/renderers/artifact.js"))
-    page.evaluate("""async html => {
-      PLOTSRV.core.fetchView = async () => ({ok:true, json:async () => ({
-        kind:'json', meta:{observation:true}, html
-      })});
-      await PLOTSRV.core.loadArtifact();
-    }""", observed_html)
+    payload = {"kind": "json", "meta": {"observation": True}, "html": observed_html}
+    requests = []
+
+    def serve_artifact(route):
+        requests.append(route.request.url)
+        route.fulfill(json=payload)
+
+    page.route("http://plotsrv.test/artifact?**", serve_artifact)
+    assert page.evaluate("PLOTSRV.core.loadArtifact()")
     assert page.locator("#artifact-kind").inner_text() == "Observed output"
     assert page.locator(".ps-observation-eyebrow").text_content() == "Observed values"
     assert "dict" not in page.locator("#artifact-root").inner_text().lower()
 
-    page.evaluate("""async () => {
-      PLOTSRV.core.fetchView = async () => ({ok:true, json:async () => ({
-        kind:'json', meta:{}, html:'<p>Ordinary JSON artifact</p>'
-      })});
-      await PLOTSRV.core.loadArtifact();
-    }""")
+    payload = {"kind": "json", "meta": {}, "html": "<p>Ordinary JSON artifact</p>"}
+    assert page.evaluate("PLOTSRV.core.loadArtifact()")
     assert page.locator("#artifact-kind").inner_text() == "Kind: json"
+    assert len(requests) == 2
 
 
 def test_observation_help_dialog_is_readable_and_keyboard_accessible(page):

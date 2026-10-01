@@ -56,10 +56,19 @@ Install the project for development:
 uv sync --group dev --group test --group docs
 ```
 
-Run tests:
+Install Chromium and its system dependencies for the browser tests:
 
 ```bash
-uv run pytest
+uv run --locked python -m playwright install --with-deps chromium
+```
+
+On Linux, installing system dependencies may require sudo. GitHub Actions
+performs this step before running the test suite.
+
+Run the same test command as GitHub Actions:
+
+```bash
+uv run --locked pytest --benchmark-skip --cov=plotsrv --cov-report=xml
 ```
 
 For browser UI changes, see [UI development](ui-development.md). The committed

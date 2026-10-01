@@ -29,6 +29,9 @@ from plotsrv.publishing.models import PublishTarget, PublishTask
 
 @pytest.fixture(autouse=True)
 def isolated_config(monkeypatch, tmp_path):
+    from plotsrv import store
+
+    store.reset()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(settings, "_CTX", settings.RuntimeContext())
     monkeypatch.setattr(settings, "_CONFIG_CACHE", {})
@@ -36,6 +39,8 @@ def isolated_config(monkeypatch, tmp_path):
     monkeypatch.delenv("PLOTSRV_NAME", raising=False)
     monkeypatch.delenv("PLOTSRV_DEBUG", raising=False)
     monkeypatch.delenv("TEST_PUBLISH_KEY", raising=False)
+    yield
+    store.reset()
 
 
 def config_file(tmp_path, text):

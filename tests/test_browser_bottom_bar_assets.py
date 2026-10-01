@@ -171,7 +171,8 @@ def test_history_client_uses_explicit_capability_and_preserves_snapshot_urls() -
     assert "core.reloadCurrentView()" in source
     assert "Live (latest)" in source
     assert "Stored version" not in source
-    assert "unavailableReturn.hidden = !isHistory && !pinned && !navigation.error" in source
+    assert 'document.getElementById("snapshots-return-latest")' not in source
+    assert 'bannerLatest.addEventListener("click", returnToLive)' in source
 
 
 def test_export_client_keeps_filtered_complete_and_retained_meanings_distinct() -> None:
@@ -271,13 +272,19 @@ def test_history_panel_reuses_existing_browser_with_grouped_stable_controls() ->
     assert 'id="history-export-slot"' in rendered
     assert 'aria-label="UTC date navigation"' in rendered
     assert 'aria-label="Snapshot navigation"' in rendered
-    assert 'class="ps-history-modes" role="group"' in rendered
+    assert 'id="compare-timeline"' in rendered
+    assert 'class="ps-history-modes"' not in rendered
+    assert 'id="compare-timeline-tab"' not in rendered
+    assert 'id="compare-list-tab"' not in rendered
+    assert 'id="compare-list"' not in rendered
+    assert 'id="snapshots-return-latest"' not in rendered
     assert 'id="compare-day" type="date"' not in rendered
     assert 'aria-label="Open snapshot calendar"' in rendered
     assert 'aria-label="Close History"' in rendered
     assert 'id="bottom-pin"' not in rendered
-    assert "grid-template-rows: auto auto 64px 28px" in compare_css
-    assert "height: 64px" in compare_css
+    assert "grid-template-rows: auto auto minmax(76px, auto) auto" in compare_css
+    assert "#compare-results { min-height: 76px" in compare_css
+    assert "width: 28px; height: 28px" in compare_css
     assert "min-height: 28px" in compare_css
     assert 'moveExportIntoHistory()' in compare_js
     assert 'restoreExport()' in compare_js

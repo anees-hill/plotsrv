@@ -529,7 +529,7 @@ def test_compact_status_hierarchy_empty_checks_and_disclosure_keyboard(page):
         assert page.locator("#status-modal-health").get_attribute("data-status-tone") == tone
         assert page.locator("#status-modal-health-label").inner_text() == label
     page.evaluate("PLOTSRV.core.setHeaderBrowserDataState('update_available')")
-    assert page.locator("#status-modal-health-label").inner_text() == "New data available"
+    assert page.locator("#status-modal-health-label").inner_text() == "New data"
     assert page.locator("#status-modal-health-copy").inner_text() == (
         "The server has newer data than the version currently shown in this browser."
     )
