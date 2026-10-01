@@ -373,6 +373,8 @@ def restore_latest_views_from_storage(
     if not config.get_storage_restore_latest_on_startup():
         return 0
 
+    from .ingestion import IngestionError, require_admitted
+
     registered_view_ids = {v.view_id for v in store.list_views()}
 
     latest_backend = FileLatestStateBackend(root_dir=config.get_storage_root_dir())
@@ -380,6 +382,10 @@ def restore_latest_views_from_storage(
     restored = 0
     for meta in latest_backend.list_latest():
         if scope == "discovered" and meta.view_id not in registered_view_ids:
+            continue
+        try:
+            require_admitted(meta.view_id)
+        except IngestionError:
             continue
 
         try:
@@ -409,6 +415,8 @@ def restore_streams_from_storage() -> int:
     # stream setting, so discovery must not use the default as a global gate.
     if not config.get_storage_enabled():
         return 0
+
+    from .ingestion import IngestionError, require_admitted
 
     backend = FileStreamStorageBackend(root_dir=config.get_storage_root_dir())
     try:
@@ -470,6 +478,10 @@ def restore_streams_from_storage() -> int:
         if not config.get_storage_stream_enabled(session.view_id):
             continue
         try:
+            require_admitted(session.view_id)
+        except IngestionError:
+            continue
+        try:
             history_incomplete_reason: str | None = None
             try:
                 raw_records = backend.load_raw_records(
@@ -499,6 +511,10 @@ def restore_streams_from_storage() -> int:
             continue
     for gap in backend.list_marker_only_sessions():
         if not config.get_storage_stream_enabled(gap.view_id):
+            continue
+        try:
+            require_admitted(gap.view_id)
+        except IngestionError:
             continue
         try:
             if stream_registry.restore_incomplete_marker(

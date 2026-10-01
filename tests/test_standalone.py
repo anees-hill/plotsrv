@@ -40,7 +40,7 @@ def test_serve_parser_has_no_target_or_execution_flags():
             build_parser().parse_args(["serve", *extra])
 
 
-@pytest.mark.parametrize("locked", [False, True, "allowlist"])
+@pytest.mark.parametrize("locked", [False, True, "allowlist", "excluded"])
 def test_server_only_restores_logical_metadata_without_discovery(
     tmp_path, monkeypatch, locked
 ):
@@ -68,10 +68,12 @@ def test_server_only_restores_logical_metadata_without_discovery(
         )
     )
 
-    if locked == "allowlist":
+    if locked in ("allowlist", "excluded"):
         path = tmp_path / "plotsrv.yml"
         cfg = yaml.safe_load(path.read_text())
-        cfg["server-settings"]["admission"]["allowed_ids"] = ["stored"]
+        cfg["server-settings"]["admission"]["allowed_ids"] = [
+            "stored" if locked == "allowlist" else "other"
+        ]
         path.write_text(yaml.safe_dump(cfg))
 
     def forbidden(*args, **kwargs):
@@ -82,7 +84,7 @@ def test_server_only_restores_logical_metadata_without_discovery(
 
     def run(server):
         assert server.config.port == 8765
-        if locked is True:
+        if locked is True or locked == "excluded":
             assert not store.list_views()
         else:
             assert store.get_artifact(view_id="stored").obj == "previous"

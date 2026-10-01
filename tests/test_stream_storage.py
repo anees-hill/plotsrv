@@ -969,6 +969,28 @@ def test_compact_session_loader_reads_only_versioned_compact_history(
     assert FileStreamStorageBackend(root_dir=root).list_compact_sessions() == [loaded]
 
 
+def test_restore_streams_skips_views_excluded_by_server_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _configure_stream_storage(tmp_path)
+    _write_completed_compact_session(root)
+    config_path = tmp_path / "plotsrv.yml"
+    with config_path.open("a", encoding="utf-8") as stream:
+        stream.write(
+            "server-settings:\n"
+            "  admission:\n"
+            "    mode: catalogue-locked\n"
+            "    allowed_ids: [other]\n"
+        )
+    settings._CONFIG_CACHE.clear()
+    store.reset()
+    restored_registry = StreamRegistry()
+    monkeypatch.setattr(server_mod, "stream_registry", restored_registry)
+
+    assert server_mod.restore_streams_from_storage() == 0
+    assert store.list_views() == []
+
+
 def test_restore_streams_from_storage_rebuilds_historical_compact_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
