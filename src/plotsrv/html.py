@@ -583,6 +583,14 @@ def render_index(
                 <strong>Error:</strong> <span id="status-error"></span>
               </div>
             </div>
+            <aside id="snapshot-mode-banner" class="ps-snapshot-mode-banner" role="region" aria-live="polite" aria-label="Historical snapshot" hidden>
+              <svg class="ps-snapshot-mode-banner__icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              <strong>Historical snapshot</strong>
+              <span class="ps-snapshot-mode-banner__divider" aria-hidden="true"></span>
+              <span id="snapshot-mode-banner-time"></span>
+              <button id="snapshot-mode-return-latest" class="ps-snapshot-mode-banner__return" type="button">Return to latest</button>
+              <button id="snapshot-mode-dismiss" class="ps-snapshot-mode-banner__dismiss" type="button" aria-label="Hide snapshot reminder" title="Hide snapshot reminder">×</button>
+            </aside>
             <div class="ps-bottom-bar">
               <div class="ps-bottom-bar__controls">
                 {_export_control_html(view_kind)}
@@ -1349,15 +1357,6 @@ def render_index(
           </div>
         </div>
       </header>
-
-      <aside id="snapshot-mode-banner" class="ps-snapshot-mode-banner" role="region" aria-live="polite" aria-label="Snapshot mode" hidden>
-        <svg class="ps-snapshot-mode-banner__icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-        <strong>Viewing stored snapshot</strong>
-        <span class="ps-snapshot-mode-banner__divider" aria-hidden="true"></span>
-        <span id="snapshot-mode-banner-time"></span>
-        <button id="snapshot-mode-return-latest" class="ps-snapshot-mode-banner__return" type="button">Return to latest</button>
-        <button id="snapshot-mode-dismiss" class="ps-snapshot-mode-banner__dismiss" type="button" aria-label="Hide snapshot reminder" title="Hide snapshot reminder">×</button>
-      </aside>
 
       <div id="expanded-handle" class="ps-expanded-handle" hidden>
         <button id="expanded-reveal" type="button" aria-label="Show view controls" title="Show view controls" aria-controls="expanded-controls" aria-expanded="false">

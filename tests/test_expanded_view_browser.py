@@ -242,7 +242,12 @@ def test_source_change_reload_session_scope_and_snapshot_intention(page):
     mount(page)
     page.evaluate("PLOTSRV.core.snapshotNavigation.select('2')")
     page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
+    assert page.locator("#snapshot-mode-banner").is_visible()
     expand(page)
+    assert page.locator("#snapshot-mode-banner").is_hidden()
+    assert "Historical snapshot" in page.locator("#expanded-handle").evaluate(
+        "e => getComputedStyle(e, '::before').content"
+    )
     reveal(page)
     assert page.locator("#history-select").input_value() == "2"
     page.click("#snapshot-older")
@@ -261,6 +266,9 @@ def test_source_change_reload_session_scope_and_snapshot_intention(page):
     )
     assert page.evaluate("PLOTSRV.state.expandedView.active")
     assert page.evaluate("PLOTSRV.state.currentSnapshot") is None
+    assert "Historical snapshot" not in page.locator("#expanded-handle").evaluate(
+        "e => getComputedStyle(e, '::before').content"
+    )
     page.click("#expanded-exit")
     page.reload()
     page.wait_for_function("window.PLOTSRV && PLOTSRV.state.initialViewLoadComplete")

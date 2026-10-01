@@ -22,6 +22,18 @@
   display: flex;
   gap: 4px;
 }
+body.ps-expanded.ps-is-history .ps-expanded-handle::before {
+  content: "Historical snapshot";
+  align-self: center;
+  padding: 0.45rem 0.6rem;
+  border: 1px solid #8b72b8;
+  border-radius: 8px;
+  background: var(--ps-surface-raised, #fff);
+  color: color-mix(in srgb, var(--ps-text, #333) 75%, #8b72b8);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 #expanded-handle[hidden], #expanded-controls[hidden], #site-header[hidden], .ps-bottom-dock[hidden] { display: none !important; }
 .ps-expanded-controls {
   position: fixed;

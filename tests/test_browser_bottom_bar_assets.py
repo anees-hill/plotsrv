@@ -239,12 +239,15 @@ def test_normal_bottom_bar_is_shorter_and_gives_snapshots_the_removed_control_sp
     assert "pinned:" not in bar_source
 
 
-def test_snapshot_mode_banner_stays_in_flow_and_can_be_hidden_per_snapshot() -> None:
+def test_snapshot_mode_banner_attaches_to_dock_and_can_be_hidden_per_snapshot() -> None:
+    rendered = _render("table")
     status = (STATIC / "css" / "status.css").read_text(encoding="utf-8")
     history = (STATIC / "js" / "core" / "history.js").read_text(encoding="utf-8")
     banner = status.split(".ps-snapshot-mode-banner {", 1)[1].split("}", 1)[0]
 
+    assert rendered.index('class="ps-bottom-dock"') < rendered.index('id="snapshot-mode-banner"') < rendered.index('class="ps-bottom-bar"')
     assert "position: relative" in banner
+    assert "width: 100%" in banner
     assert "position: fixed" not in banner
     assert "position: absolute" not in banner
     assert "banner.hidden = !snapshot || bannerDismissed" in history

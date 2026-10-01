@@ -17,8 +17,7 @@ def mount(page, kind="artifact"):
     page.evaluate(
         """markup => {
       const doc = new DOMParser().parseFromString(markup, 'text/html');
-      document.body.innerHTML = doc.querySelector('#snapshot-mode-banner').outerHTML +
-        '<main id="view-content"><div id="artifact-root">Coherent initial content</div></main>' +
+      document.body.innerHTML = '<main id="view-content"><div id="artifact-root">Coherent initial content</div></main>' +
         doc.querySelector('.ps-bottom-dock').outerHTML;
       PLOTSRV.state.currentSnapshot = null;
       PLOTSRV.config.kind = 'text';
@@ -153,22 +152,33 @@ def test_bounded_pages_pin_selection_and_never_load_unselected_bodies(page):
     assert page.locator("#snapshot-older").is_disabled()
 
 
-def test_snapshot_reminder_reserves_space_and_resets_for_each_selection(page):
+def test_snapshot_reminder_attaches_to_dock_without_moving_content(page):
     mount(page)
+    initial_top = page.locator("#view-content").bounding_box()["y"]
     page.select_option("#history-select", "__older_page__")
     page.wait_for_function("PLOTSRV.state.historyItems.length === 31")
     page.select_option("#history-select", "2")
     settled(page)
     banner = page.locator("#snapshot-mode-banner")
     assert banner.is_visible()
-    assert "Viewing stored snapshot" in banner.inner_text()
+    assert "Historical snapshot" in banner.inner_text()
     assert "2026" in page.locator("#snapshot-mode-banner-time").inner_text()
-    assert banner.evaluate("e => getComputedStyle(e).position") == "relative"
+    assert banner.evaluate("e => e.parentElement.classList.contains('ps-bottom-dock')")
+    assert page.locator("#view-content").bounding_box()["y"] == initial_top
+    banner_box = banner.bounding_box()
+    bar_box = page.locator(".ps-bottom-bar").bounding_box()
+    assert abs(banner_box["y"] + banner_box["height"] - bar_box["y"]) < 2
+    assert abs(banner_box["x"] - bar_box["x"]) < 2
+    assert abs(banner_box["width"] - bar_box["width"]) < 2
     page.click("#snapshot-mode-dismiss")
     assert banner.is_hidden()
     page.select_option("#history-select", "80")
     settled(page)
     assert banner.is_visible()
+    page.set_viewport_size({"width": 375, "height": 800})
+    banner_box = banner.bounding_box()
+    assert banner_box["x"] >= 0
+    assert banner_box["x"] + banner_box["width"] <= 375
     page.click("#snapshot-mode-return-latest")
     settled(page)
     assert banner.is_hidden()
