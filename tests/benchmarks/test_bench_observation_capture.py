@@ -69,6 +69,8 @@ def test_capture_memory_report(case):
     engine = CaptureEngine()
     if case == "skipped":
         engine.close()
+        # Warm this path too: coverage's first-call setup is not capture memory.
+        assert engine.submit("warmup", source) == "closed"
     else:
         assert engine.submit("warmup", source) == "accepted"
         _drain(engine)
