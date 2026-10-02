@@ -1,91 +1,47 @@
-<style>
-.md-typeset h1:first-of-type {
-  display: none;
-}
-</style>
-
 # plotsrv
 
-<div class="plotsrv-hero-logo">
-  <img src="assets/images/brand/plotsrv_icon_logo.png" alt="plotsrv">
-</div>
+Got a Python object you’d like to see in a browser?
 
-<div class="plotsrv-title-logo">
-  <img src="assets/images/brand/plotsrv_title_logo.png" alt="plotsrv">
-</div>
-plotsrv turns Python objects into live browser views with minimal code.
+Try this in a Python REPL or notebook:
 
-Tables, plots, JSON, HTML, logs, images, tracebacks, and files can be surfaced through a browser UI designed for scripts, pipelines, experiments, batch jobs, and long-running processes.
+```python
+import plotsrv as ps
 
-> **Live demo:** https://demo.plotsrv.com  
-> See a deployed example showing real sensor data.
+ps.publish_view(
+    {"status": "ok", "rows": 123},
+    label="status",
+    launch_server=True,
+)
+```
 
-![plotsrv overview diagram](assets/images/ui/ui-example-temperature-1.png){ width="900" }
+Open **<http://127.0.0.1:8000>**. Keep the Python session running while you look around.
 
-Wrap a content-producing function with `@ps.view(...)`, or publish an object directly with `ps.publish_view(...)`.
+That’s the basic idea. Publish a DataFrame to get a table, a Matplotlib figure to
+see a plot, or a dictionary to inspect its contents. You can also show Markdown,
+images, HTML reports, and text.
 
-Your code continues to run normally, while plotsrv publishes the returned objects into a browser UI. Labels and sections organise related outputs into a connected interface, giving scripts and pipelines lightweight observability with historical snapshots, freshness indicators, rich renderers, and more.
+[Install and try it →](get-started/quick-start.md)
 
-## Who is it for?
+## Already have a file?
 
-plotsrv is for Python users who want more visibility into scripts, pipelines, experiments, and batch processes without building dashboards or manually producing lots of on-disk artifacts.
+```bash
+plotsrv watch ./logs/job.log --tail
+```
 
-It is useful when outputs are currently hidden in terminal logs, scattered across files, or difficult to inspect visually. For example:
+Open the same address. The view updates when the file changes.
+You can [watch a directory](get-started/watch-files.md#watch-a-directory) too.
 
-- checking pipeline outputs while a job runs
-- surfacing validation summaries, plots, tables, and status objects
-- going beyond a text log file buried on disk
-- inspecting data visually from a headless or remote server
-- creating a lightweight observability surface for internal scripts and jobs
+## Put it in a job
 
-plotsrv is not intended to replace heavier observability or experiment-tracking platforms such as Grafana, Prometheus, MLflow, or Weights & Biases.
+Give a function a view, run your job normally, and inspect the result while it
+runs. The server can stay up between runs, keep previous versions, and show
+when an expected update is late.
 
-Its strength is that it can directly render a wide range of ordinary Python objects with very little setup, making it useful in the space between `print()` statements, log files, notebooks, dashboards, and full observability stacks.
+[Use plotsrv in a project →](guides/cli.md#what-plotsrv-run-does)
 
-## More than a viewer
+plotsrv is an open-source project, developed primarily by one developer. It is
+for looking at useful outputs without building a dashboard around them.
 
-Beyond simply rendering outputs, it can:
-
-- organise related views into sections
-- track freshness and staleness
-- watch files on disk
-- retain historical snapshots
-- compare current and previous outputs
-- restore persisted views after restart
-- provide rich renderers for tables, plots, HTML, JSON, tracebacks, and more
-
-## Where to start
-
-### New to plotsrv?
-
-- **[Quick Start](get-started/quick-start.md)** — publish a first view
-- **[What is plotsrv?](get-started/what-is-plotsrv.md)** — A brief overview of plotsrv and it's features.
-
-### Exploring features
-
-- **[Renderers](guides/renderers.md)** — tables, plots, JSON, HTML, markdown, images, tracebacks, and files
-- **[My views](guides/my-views.md)** — save table and plot presentations on this browser
-- **[Storage & History](guides/storage-and-history.md)** — snapshots and historical browsing
-- **[Freshness](guides/freshness.md)** — monitor when outputs become stale
-- **[Configuration](get-started/configuration-basics.md)** — control plotsrv behaviour
-
-For existing access/application logs, see [HTTP log streams](guides/http-log-streams.md).
-
-## Is it reliable?
-
-plotsrv is developed with automated testing as a core part of the project.
-
-Coverage includes:
-
-- unit and integration testing
-- end-to-end tests
-- benchmark tests
-- automated example pipelines using a dedicated [examples repository](https://github.com/anees-hill/plotsrv-examples)
-
-!!! note
-
-    More information is available on the **[Testing & Benchmarks](about/testing-and-benchmarks.md)** page.
-
-## Next step
-
-Continue to **[Quick Start](get-started/quick-start.md)**.
+[Try the live demo](https://demo.plotsrv.com) ·
+[Browse an ETL example](examples/etl-pipeline.md) ·
+[Contribute](about/contributing.md)

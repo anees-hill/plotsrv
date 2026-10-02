@@ -670,3 +670,6 @@ and complete-source capabilities.
 
 Implementation reference: [Pygments API](https://pygments.org/docs/api/) and
 [security considerations](https://pygments.org/docs/security/).
+
+For saved table and plot settings, see [My views](my-views.md).
+For structured live logs, see [HTTP log streams](http-log-streams.md).

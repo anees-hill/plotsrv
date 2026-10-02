@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <strong>Developer friendly, lightweight observability for Python processes.</strong>
+  <strong>See Python objects, tables, plots, and logs in your browser.</strong>
 </p>
 
 <p align="center">
@@ -50,54 +50,34 @@
   <a href="https://docs.plotsrv.com/examples/"><strong>Examples</strong></a>
 </p>
 
-Turn Python objects into live browser views with minimal code.
-
-It is designed for scripts, pipelines, experiments, batch jobs, and long-running processes where useful outputs are otherwise hidden in terminal logs, temporary objects, generated files, or ad hoc plots.
-
-`plotsrv` can render tables, plots, JSON, HTML, logs, images, tracebacks, files, and ordinary Python objects in a single browser UI.
-
-> **Live demo:** https://demo.plotsrv.com  
-> See a deployed example showing real sensor data.
-
-## Install
+Got a Python object you’d like to see in a browser?
 
 ```bash
-pip install plotsrv
+python -m pip install plotsrv
 ```
 
-or:
-
-```bash
-uv add plotsrv
-```
-
-## Quick example
+In a Python REPL or notebook:
 
 ```python
 import plotsrv as ps
 
-summary = {
-    "status": "ok",
-    "rows_processed": 123,
-    "checks": {
-        "schema_valid": True,
-        "duplicates": 2,
-    },
-}
-
-ps.publish_view(
-    summary,
-    label="summary",
-    section="demo",
-    launch_server=True,
-)
+ps.publish_view({"status": "ok", "rows": 123}, label="status", launch_server=True)
 ```
 
-Open:
+Open **http://127.0.0.1:8000**. Keep the Python session running while you look around.
+Publish a DataFrame to get a table, or a Matplotlib figure to see a plot.
 
-```text
-http://127.0.0.1:8000
+Already have a log?
+
+```bash
+plotsrv watch ./logs/job.log --tail
 ```
+
+[Quick start](https://docs.plotsrv.com/get-started/quick-start/) ·
+[Live demo](https://demo.plotsrv.com)
+
+Python 3.11 or newer is required. In a uv project, use `uv add plotsrv` and
+`uv run python`.
 
 ## Server workflow
 
