@@ -100,8 +100,9 @@ def test_multiline_tokens_remain_balanced_and_preserve_source():
 
 
 def test_education_pipeline_is_highlighted_within_preview_limits():
+    # Keep the regression sample in Git; demos are checkout-local material.
     source = (
-        Path(__file__).parents[1] / "demos" / "education" / "pipeline.py"
+        Path(__file__).parent / "fixtures" / "syntax" / "education_pipeline.py.txt"
     ).read_text(encoding="utf-8")
 
     result = syntax.highlight(source, "python")

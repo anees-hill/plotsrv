@@ -1,0 +1,255 @@
+"""Alder Learning's term-end reporting job, with plotsrv added at the boundary.
+
+All data are synthetic. One row represents a course cohort, not a person.
+Run with --once to generate reports without a server; otherwise publish and
+keep a small simulated portal workload running for the live log demonstration.
+"""
+from pathlib import Path
+import argparse
+from datetime import date, timedelta
+import signal
+import os
+import random
+import subprocess
+import sys
+import time
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from matplotlib.ticker import PercentFormatter
+import numpy as np
+import pandas as pd
+import requests
+import plotsrv as ps
+
+ROOT = Path(__file__).resolve().parent
+OUTPUT = ROOT / "output"
+TEAL, GOLD, INK = "#247b80", "#bc7926", "#173e48"
+
+
+def load_term_data():
+    """Replace this reproducible fixture with the usual warehouse extract."""
+    rng = np.random.default_rng(42)
+    courses = {"Data analysis": 0.02, "Business administration": 0.01,
+               "Early years practice": 0.03, "Health and wellbeing": 0.00,
+               "Digital design": -0.02, "English for work": -0.01}
+    cohorts, weeks = [], []
+    for campus in ["Riverside", "Meadow", "Oakfield", "Online"]:
+        for course, effect in courses.items():
+            for schedule in ["Daytime", "Evening"]:
+                cohort = f"AL-{len(cohorts) + 1:03}"
+                enrolled = int(rng.integers(22, 49))
+                capacity = int(np.ceil(enrolled / rng.uniform(.76, .97)))
+                base = .89 + effect - .04 * (schedule == "Evening")
+                base -= .025 * (campus == "Online")
+                base += rng.normal(0, .014)
+                for week in range(1, 13):
+                    # A mid-term dip, then partial recovery; evenings dip further.
+                    dip = -.065 * np.exp(-((week - 7) / 1.5) ** 2)
+                    rate = np.clip(base + dip + .013 * (week > 9) + rng.normal(0, .014), .68, .98)
+                    scheduled = enrolled * 2
+                    attended = int(round(scheduled * rate))
+                    weeks.append(dict(cohort_id=cohort, campus=campus, course=course,
+                                      schedule=schedule, week=week,
+                                      week_start=(date(2026, 1, 12) + timedelta(weeks=week-1)).isoformat(),
+                                      scheduled_sessions=scheduled, attended_sessions=attended,
+                                      attendance_pct=round(100 * attended / scheduled, 1)))
+                attendance = sum(w["attended_sessions"] for w in weeks[-12:]) / (enrolled * 24)
+                completed = int(rng.binomial(enrolled, np.clip(.89 + .5*(attendance-.85), .75, .98)))
+                passed = int(rng.binomial(completed, np.clip(.86 + effect + .6*(attendance-.85), .7, .98)))
+                fee = {"Online": 460, "Riverside": 590, "Meadow": 540, "Oakfield": 560}[campus]
+                income = enrolled * fee
+                cost = int(7400 + enrolled * 105 + (950 if schedule == "Evening" else 0) + rng.integers(-450, 451))
+                cohorts.append(dict(cohort_id=cohort, campus=campus, course=course, schedule=schedule,
+                                    enrolled=enrolled, capacity=capacity, completed=completed, passed=passed,
+                                    attendance_pct=round(attendance*100, 1),
+                                    completion_pct=round(completed/enrolled*100, 1),
+                                    achievement_pct=round(passed/enrolled*100, 1),
+                                    income_gbp=income, delivery_cost_gbp=cost,
+                                    contribution_gbp=income-cost))
+    return pd.DataFrame(cohorts), pd.DataFrame(weeks)
+
+
+def make_figure(cohorts, weekly):
+    plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10,
+                         "axes.spines.top": False, "axes.spines.right": False,
+                         "axes.labelcolor": INK, "text.color": INK})
+    fig = plt.figure(figsize=(14, 8), facecolor="#fbfcfa", layout="constrained")
+    grid = fig.add_gridspec(2, 2, height_ratios=[1, 1.12])
+    trend, outcomes, economics = fig.add_subplot(grid[0, :]), fig.add_subplot(grid[1, 0]), fig.add_subplot(grid[1, 1])
+    fig.suptitle("ALDER LEARNING  /  Spring term 2026\nParticipation, outcomes & delivery", fontsize=19, fontweight="bold", x=.04, ha="left")
+    for schedule, color in [("Daytime", TEAL), ("Evening", GOLD)]:
+        totals = weekly[weekly.schedule == schedule].groupby("week")[["attended_sessions", "scheduled_sessions"]].sum()
+        trend.plot(totals.index, totals.attended_sessions / totals.scheduled_sessions * 100,
+                   marker="o", markersize=4, lw=2.3, color=color, label=schedule)
+    trend.axhline(90, color="#7a8587", ls="--", lw=1, label="Planning target · 90%")
+    trend.axvspan(6, 8, color=GOLD, alpha=.09)
+    trend.set(title="01  Attendance softened mid-term, then recovered", xlabel="Teaching week", ylabel="Sessions attended", ylim=(65, 100), xticks=range(1, 13))
+    trend.yaxis.set_major_formatter(PercentFormatter())
+    trend.legend(loc="lower left", ncols=3, frameon=False)
+    totals = cohorts.groupby("course")[["passed", "completed", "enrolled"]].sum()
+    totals = totals.loc[(totals.passed / totals.enrolled).sort_values().index]
+    y = np.arange(len(totals))
+    outcomes.barh(y+.17, 100*totals.completed/totals.enrolled, .3, label="Completed", color="#a5ccc9")
+    outcomes.barh(y-.17, 100*totals.passed/totals.enrolled, .3, label="Achieved", color=TEAL)
+    outcomes.set(yticks=y, yticklabels=totals.index, xlim=(0, 100), xlabel="Share of enrolled learners", title="02  Completion is not the final outcome")
+    outcomes.xaxis.set_major_formatter(PercentFormatter())
+    outcomes.set_ylim(-1.3, len(totals)-.4)
+    outcomes.legend(loc="lower right", ncols=2, frameon=False)
+    for schedule, color in [("Daytime", TEAL), ("Evening", GOLD)]:
+        frame = cohorts[cohorts.schedule == schedule]
+        economics.scatter(frame.enrolled, frame.contribution_gbp/1000, c=color, label=schedule,
+                          s=48, alpha=.8, edgecolors="white", linewidth=.6)
+    economics.axhline(0, color="#7a8587", lw=1, ls="--")
+    economics.set(title="03  Smaller cohorts face tighter economics", xlabel="Enrolled learners per cohort", ylabel="Direct contribution (£000)")
+    economics.legend(frameon=False)
+    for ax in [trend, outcomes, economics]:
+        ax.set_facecolor("#fbfcfa")
+        ax.grid(axis="y" if ax != outcomes else "x", alpha=.15)
+        ax.set_axisbelow(True)
+    fig.supxlabel("Synthetic demonstration data • 48 cohorts • 12 teaching weeks • Contribution excludes central overheads", fontsize=9)
+    return fig
+
+
+def write_report(cohorts, weekly):
+    enrolled, completed, passed = cohorts[["enrolled", "completed", "passed"]].sum()
+    attendance = 100 * weekly.attended_sessions.sum() / weekly.scheduled_sessions.sum()
+    by_schedule = weekly.groupby("schedule")[["attended_sessions", "scheduled_sessions"]].sum()
+    rates = 100 * by_schedule.attended_sessions / by_schedule.scheduled_sessions
+    losses = int((cohorts.contribution_gbp < 0).sum())
+    report = f"""# Spring term review
+**Alder Learning · Management information · 12 January–5 April 2026**
+
+> Fictional provider and synthetic data. This is a reproducible demonstration, not sector benchmarking.
+
+## At a glance
+| Measure | Term result |
+|---|---:|
+| Enrolments across 48 cohorts | {enrolled:,} |
+| Attendance (learner-session weighted) | {attendance:.1f}% |
+| Completed / enrolled | {completed/enrolled:.1%} |
+| Achieved / enrolled | {passed/enrolled:.1%} |
+| Direct delivery contribution | £{cohorts.contribution_gbp.sum():,} |
+
+## What needs attention
+**Evening participation warrants a closer look.** Daytime attendance was {rates['Daytime']:.1f}%
+compared with {rates['Evening']:.1f}% in evening provision: a {rates['Daytime']-rates['Evening']:.1f}
+percentage-point gap. The weekly table exposes the mid-term dip and subsequent recovery.
+Contact evening tutors before week six next term to understand timetable and support needs.
+
+**Track achievement separately from completion.** {completed-passed:,} completers did not achieve
+the course outcome. Review assessment support by course before changing delivery plans.
+These aggregate results do not establish why a learner did not achieve.
+
+**Review smaller cohorts before scheduling the next intake.** {losses} cohorts had negative direct
+contribution. Compare schedule and campus alongside cohort size; merging groups could affect
+accessibility. Contribution is income less direct delivery cost, not operating profit.
+
+## Explore the evidence
+- **Course cohorts:** scatter `enrolled` against `contribution_gbp`, grouped by `schedule`;
+  compare `attendance_pct` with `achievement_pct` to inspect the association.
+- **Weekly attendance:** filter a campus or course, then compare `attendance_pct` by `week`.
+  For overall rates use summed attended / scheduled sessions, not an unweighted mean of percentages.
+- **Portal access:** open Suggested views → Errors or Busiest endpoints. Responses are genuine
+  Uvicorn logs from scripted local traffic; 401 and 503 cases are deliberately generated.
+
+## Definitions and limitations
+One cohort is one course × campus × schedule. Enrolments are course registrations, not unique
+people. Completed includes achieved; achievement uses all enrolled learners as its denominator.
+Each enrolment has two scheduled sessions each week. There are no individual records or real
+provider data. Random seed 42 fixes the extract; attendance patterns and outcome relationships
+are modelling assumptions, not evidence of causation. Portal traffic is a separate demonstration
+and does not explain the term results. HTTP suggestions describe retained events, not service uptime.
+"""
+    (OUTPUT / "analysis.md").write_text(report)
+    return report
+
+
+def run_portal(destination):
+    """Follow the log before starting the producer: stream_view starts at EOF."""
+    log = OUTPUT / "portal.log"
+    log.write_text("")
+    handle = ps.stream_view(source=log, format="uvicorn", label="Portal access", section="Operations", destination=destination)
+    port = int(os.environ.get("PORTAL_PORT", "8011"))
+    process = None
+    try:
+        with log.open("a") as output:
+            process = subprocess.Popen([sys.executable, "portal.py", str(port)], cwd=ROOT, stdout=output, stderr=output)
+            wait_for_server(f"http://127.0.0.1:{port}/health", process)
+            rng = random.Random(7)
+            paths = ["/api/courses"]*8 + ["/api/timetable"]*5 + ["/api/attendance"]*4 + ["/api/session/expired", "/api/reports/export", "/missing"]
+            n = 0
+            while process.poll() is None:
+                path = rng.choice(paths)
+                requests.request("POST" if path == "/api/attendance" else "GET", f"http://127.0.0.1:{port}{path}", timeout=3)
+                n += 1
+                # Seed a useful screenshot window promptly, then keep modest live traffic.
+                time.sleep(.08 if n < 160 else 1.5)
+                if log.stat().st_size > 2_000_000:
+                    log.replace(OUTPUT / "portal.previous.log")
+                    # Uvicorn holds the descriptor; restart to open the new bounded file.
+                    break
+    finally:
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        handle.stop()
+
+
+def wait_for_server(url, process=None):
+    for _ in range(100):
+        if process is not None and process.poll() is not None:
+            raise RuntimeError(f"Server exited; inspect {OUTPUT / 'portal.log'}")
+        try:
+            if requests.get(url, timeout=.5).ok:
+                return
+        except requests.RequestException:
+            pass
+        time.sleep(.2)
+    raise RuntimeError(f"Server did not become ready: {url}")
+
+
+def main():
+    def stop(signum, frame):
+        # The launcher can send TERM after a terminal INT. Do not interrupt
+        # the Python/plotsrv exit cleanup a second time.
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop)
+    signal.signal(signal.SIGINT, stop)
+    try:
+        parser = argparse.ArgumentParser(description=__doc__)
+        parser.add_argument("--once", action="store_true", help="Only write CSV, PNG and Markdown outputs")
+        args = parser.parse_args()
+        OUTPUT.mkdir(exist_ok=True)
+        cohorts, weekly = load_term_data()
+        cohorts.to_csv(OUTPUT / "cohorts.csv", index=False)
+        weekly.to_csv(OUTPUT / "weekly.csv", index=False)
+        figure = make_figure(cohorts, weekly)
+        figure.savefig(OUTPUT / "term-performance.png", dpi=160)
+        report = write_report(cohorts, weekly)
+        if args.once:
+            plt.close(figure)
+            return
+        destination = f"http://127.0.0.1:{os.environ.get('PLOTSRV_PORT', '8000')}"
+        wait_for_server(destination + "/status")
+        # The business job above produces ordinary files; these calls add live views.
+        ps.publish_view(figure, label="Term performance", section="Review", destination=destination)
+        plt.close(figure)
+        ps.publish_view(report, artifact_kind="markdown", label="Analysis report", section="Review", destination=destination)
+        ps.publish_view(cohorts, label="Course cohorts", section="Explore", destination=destination)
+        ps.publish_view(weekly, label="Weekly attendance", section="Explore", destination=destination)
+        while True:
+            run_portal(destination)
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()
