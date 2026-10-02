@@ -4292,8 +4292,25 @@ def test_stream_summary_endpoint_exposes_derived_windows_separate_from_raw_rows(
 
 
 @pytest.mark.integration
-def test_stream_view_delivers_appended_records_to_the_live_server(tmp_path: Path) -> None:
+@pytest.mark.parametrize("fail_first_handshake", [False, True])
+def test_stream_view_delivers_appended_records_to_the_live_server(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fail_first_handshake: bool
+) -> None:
     """Exercise the public source worker and dedicated HTTP path together."""
+    from plotsrv.publishing import transport
+
+    exchange = transport._exchange
+    handshake_attempts = 0
+
+    def exchange_with_transient_failure(target, path, payload, timeout):
+        nonlocal handshake_attempts
+        if path == "/capabilities":
+            handshake_attempts += 1
+            if fail_first_handshake and handshake_attempts == 1:
+                raise transport.TransportError("server_unavailable")
+        return exchange(target, path, payload, timeout)
+
+    monkeypatch.setattr(transport, "_exchange", exchange_with_transient_failure)
     port = _unused_local_port()
     base_url = f"http://127.0.0.1:{port}"
     source = tmp_path / "worker.jsonl"
@@ -4317,9 +4334,20 @@ def test_stream_view_delivers_appended_records_to_the_live_server(tmp_path: Path
             output.write('{"sequence": 2, "new_field": "later"}\n')
 
         data_url = f"{base_url}/stream/data?{urlencode({'view': handle.view_id})}"
-        _wait_until(
-            lambda: _stream_has_records(data_url, expected_count=2), timeout_s=3.0
-        )
+        # A transient handshake failure incurs the transport's five-second
+        # cooldown plus the stream client's retry backoff. This is a delivery
+        # integration check, not a three-second latency requirement.
+        try:
+            _wait_until(
+                lambda: _stream_has_records(data_url, expected_count=2), timeout_s=15.0
+            )
+        except AssertionError as error:
+            raise AssertionError(
+                f"Stream did not deliver both records: {handle.health}"
+            ) from error
+        if fail_first_handshake:
+            assert handshake_attempts >= 2
+            assert handle.health["delivery"]["registration_failures"] >= 1
         payload = _read_json(data_url)
         records = payload["records"]
         assert isinstance(records, list)
