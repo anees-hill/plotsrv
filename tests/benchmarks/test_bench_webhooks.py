@@ -42,8 +42,10 @@ def test_webhook_path_latency(benchmark, case):
     dispatcher = engine.notifications
     if dispatcher:
         dispatcher._sender = sender
-        dispatcher.submit(rules[0], event())
-        assert entered.wait(1)
+        # Setup must admit the seed event even while the new worker starts.
+        with dispatcher._condition:
+            dispatcher.submit(rules[0], event())
+        assert entered.wait(5)
     records = [({"duration": 20}, {"source_revision": 1})]
     item = event(2)
 
@@ -85,11 +87,13 @@ def test_webhook_queue_memory_and_idle_report():
 
     r = rule()
     d = WebhookDispatcher(configuration(), [r], sender=sender)
-    d.submit(r, event())
-    assert entered.wait(1)
-    gc.collect()
-    tracemalloc.start()
     try:
+        # Production drops on lock contention; exclude that race from setup.
+        with d._condition:
+            d.submit(r, event())
+        assert entered.wait(5)
+        gc.collect()
+        tracemalloc.start()
         for n in range(2, 1002):
             d.submit(r, event(n))
         retained, peak = tracemalloc.get_traced_memory()
