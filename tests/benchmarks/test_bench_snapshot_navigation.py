@@ -7,12 +7,17 @@ import tracemalloc
 
 import pytest
 
+from plotsrv.storage import navigation
 from plotsrv.storage.navigation import navigation_page, _view_dir
 
 
 @pytest.mark.benchmark
 @pytest.mark.parametrize("count", [50, 1000])
-def test_metadata_navigation_memory_and_cpu(tmp_path, count):
+def test_metadata_navigation_memory_and_cpu(tmp_path, count, monkeypatch):
+    # Measure the complete scan even when coverage/tracemalloc or a busy runner
+    # make it exceed the interactive deadline. Deadline enforcement is covered
+    # separately in test_snapshot_navigation.py; the memory/size limits remain.
+    monkeypatch.setattr(navigation, "MAX_SCAN_SECONDS", float("inf"))
     directory = _view_dir(tmp_path, "bench")
     directory.mkdir()
     for index in range(count):
@@ -36,15 +41,17 @@ def test_metadata_navigation_memory_and_cpu(tmp_path, count):
     untraced_cpu = time.thread_time() - start_cpu
     gc.collect()
     tracemalloc.start()
-    cpu = time.thread_time()
-    wall = time.monotonic()
-    page = navigation_page(
-        root_dir=tmp_path, view_id="bench", limit=50, selected="000000"
-    )
-    elapsed = time.monotonic() - wall
-    cpu = time.thread_time() - cpu
-    current, peak = tracemalloc.get_traced_memory()
-    tracemalloc.stop()
+    try:
+        cpu = time.thread_time()
+        wall = time.monotonic()
+        page = navigation_page(
+            root_dir=tmp_path, view_id="bench", limit=50, selected="000000"
+        )
+        elapsed = time.monotonic() - wall
+        cpu = time.thread_time() - cpu
+        current, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
     encoded = len(json.dumps(page).encode())
     print(
         json.dumps(
