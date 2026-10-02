@@ -137,6 +137,13 @@ def mount(page, view="tables:main", plot_size=(640, 1200)):
     page.route("http://plotsrv.test/**", route_handler)
     page.goto("http://plotsrv.test/?view=" + view)
     page.wait_for_function("window.PLOTSRV && PLOTSRV.state.initialViewLoadComplete")
+    # Content readiness deliberately precedes the startup status/catalogue
+    # requests. Finish both before recording a no-extra-requests baseline.
+    page.wait_for_function("""() => {
+      const state = PLOTSRV.state;
+      return state.latestStatusPayload &&
+        !state.statusRefreshPromise && !state.viewMenuRefreshPromise;
+    }""")
     if view.startswith(("tables:", "streams:")):
         page.wait_for_function(
             "PLOTSRV.state.tabulatorInstance && PLOTSRV.state.tabulatorInstance.initialized"
@@ -283,8 +290,31 @@ def test_source_change_reload_session_scope_and_snapshot_intention(page, width):
     assert not page.evaluate("PLOTSRV.state.expandedView.active")
 
 
-@pytest.mark.parametrize("kind", ["text", "json", "html", "image"])
-def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(page, kind, tmp_path):
+@pytest.mark.parametrize(
+    "kind,metadata_delay_ms",
+    [
+        ("text", 0),
+        ("json", 0),
+        ("html", 0),
+        ("image", 0),
+        pytest.param("json", 500, id="json-delayed-metadata"),
+    ],
+)
+def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(
+    page, kind, metadata_delay_ms, tmp_path
+):
+    if metadata_delay_ms:
+        page.add_init_script("""(() => {
+          const fetch = window.fetch.bind(window);
+          window.fetch = async (...args) => {
+            const response = await fetch(...args);
+            const path = new URL(args[0], location.href).pathname;
+            if (path === '/status' || path === '/views') {
+              await new Promise(resolve => setTimeout(resolve, %d));
+            }
+            return response;
+          };
+        })();""" % metadata_delay_ms)
     reads = mount(page, "artifacts:" + kind)
     page.evaluate(
         "window.originalRoot=document.getElementById('artifact-root'); window.originalContent=originalRoot.firstElementChild; window.originalFrame=originalRoot.querySelector('iframe')"
@@ -294,6 +324,7 @@ def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(page, kind
             "Preserved note"
         )
     before = list(reads)
+    assert "/status" in before and "/views" in before
     expand(page)
     assert page.locator("#artifact-root").is_visible()
     if kind == "image":
