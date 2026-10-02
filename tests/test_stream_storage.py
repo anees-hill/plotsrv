@@ -1887,7 +1887,10 @@ def test_rejected_persistence_markers_coalesce_behind_storage_lock(
         backend = FileStreamStorageBackend(root_dir=root)
         with backend._lock:
             entered.set()
-            assert release.wait(timeout=2.0)
+            # Keep the queue blocked for the entire rejection burst, even
+            # when coverage or runner load makes the requests take longer.
+            # The finally block below releases this worker after assertions.
+            release.wait()
 
     monkeypatch.setattr(worker, "_process_task", hold_backend_lock)
     monkeypatch.setattr(http_streams, "get_stream_storage_worker", lambda: worker)
