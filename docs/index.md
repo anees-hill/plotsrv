@@ -37,7 +37,7 @@ Give a function a view, run your job normally, and inspect the result while it
 runs. The server can stay up between runs, keep previous versions, and show
 when an expected update is late.
 
-[Use plotsrv in a project →](guides/cli.md#what-plotsrv-run-does)
+[Use plotsrv in a project →](get-started/use-in-a-project.md)
 
 plotsrv is an open-source project, developed primarily by one developer. It is
 for looking at useful outputs without building a dashboard around them.

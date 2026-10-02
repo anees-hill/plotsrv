@@ -67,7 +67,7 @@ ps.stop_server(join=True)
 
 ## Next
 
-- [Use plotsrv in a project](../guides/cli.md#what-plotsrv-run-does) to keep a server running between jobs.
+- [Use plotsrv in a project](use-in-a-project.md) to keep a server running between jobs.
 - [Watch files](watch-files.md) if your program already writes the output you need.
 - [See supported outputs](../guides/renderers.md) for plots, reports, images, and other types.
 
