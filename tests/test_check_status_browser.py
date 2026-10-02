@@ -93,10 +93,10 @@ def opened(page):
     )
 
 
-def test_read_keeps_failure_keyboard_focus_and_screenshots(page):
+def test_read_keeps_failure_keyboard_focus_and_screenshots(page, tmp_path):
     mount(page)
     assert page.locator("#header-check-attention").is_visible()
-    page.screenshot(path="/tmp/plotsrv-13-header.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-13-header.png"))
     page.set_viewport_size({"width": 1100, "height": 1400})
     page.locator("#header-status-button").focus()
     page.keyboard.press("Enter")
@@ -112,7 +112,7 @@ def test_read_keeps_failure_keyboard_focus_and_screenshots(page):
     assert "Observed: 12481" in page.locator("#status-checks-current").inner_text()
     assert page.locator("#status-modal-activity-dots").is_visible()
     assert page.locator(".ps-arrival-chart__dot").count() == 1
-    page.screenshot(path="/tmp/plotsrv-13-modal.png", full_page=True)
+    page.screenshot(path=str(tmp_path / "plotsrv-13-modal.png"), full_page=True)
     page.keyboard.press("Escape")
     assert page.locator("#header-status-button").evaluate(
         "e => e === document.activeElement"
@@ -361,7 +361,7 @@ def test_saved_attention_survives_reload_and_denied_storage_reads(page):
     assert page.locator("#header-check-attention").is_hidden()
 
 
-def test_dark_theme_marker_contrast_and_closed_details_keyboard(page):
+def test_dark_theme_marker_contrast_and_closed_details_keyboard(page, tmp_path):
     mount(page)
     page.evaluate("document.documentElement.dataset.theme='dark'")
     colours = page.locator("#header-check-attention").evaluate(
@@ -373,7 +373,7 @@ def test_dark_theme_marker_contrast_and_closed_details_keyboard(page):
     first.focus()
     page.keyboard.press("Enter")
     assert page.locator("#status-checks-current details").first.evaluate("e=>e.open")
-    page.screenshot(path="/tmp/plotsrv-13-modal-dark.png", full_page=True)
+    page.screenshot(path=str(tmp_path / "plotsrv-13-modal-dark.png"), full_page=True)
     page.keyboard.press("Escape")
     assert page.locator("#header-status-button").evaluate(
         "e=>e===document.activeElement"

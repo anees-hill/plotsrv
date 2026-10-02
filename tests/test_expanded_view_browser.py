@@ -156,6 +156,7 @@ def reveal(page):
 
 def test_table_layout_preserves_controller_filters_plot_and_scroll_without_requests(
     page,
+    tmp_path,
 ):
     reads = mount(page)
     page.fill("#table-search-input", "A")
@@ -178,7 +179,7 @@ def test_table_layout_preserves_controller_filters_plot_and_scroll_without_reque
     reveal(page)
     assert page.locator("#history-select").is_visible()
     assert page.locator("#table-mode-plot-btn").is_visible()
-    page.screenshot(path="/tmp/plotsrv-16-table-desktop.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-16-table-desktop.png"))
     assert page.evaluate(
         "document.querySelector('.ps-table-mode-switch') === originalMode"
     )
@@ -195,7 +196,7 @@ def test_table_layout_preserves_controller_filters_plot_and_scroll_without_reque
     )
     page.set_viewport_size({"width": 375, "height": 800})
     reveal(page)
-    page.screenshot(path="/tmp/plotsrv-16-table-plot-mobile.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-16-table-plot-mobile.png"))
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.click("#expanded-exit")
     assert page.locator("#expand-view").evaluate("e => e === document.activeElement")
@@ -283,7 +284,7 @@ def test_source_change_reload_session_scope_and_snapshot_intention(page, width):
 
 
 @pytest.mark.parametrize("kind", ["text", "json", "html", "image"])
-def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(page, kind):
+def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(page, kind, tmp_path):
     reads = mount(page, "artifacts:" + kind)
     page.evaluate(
         "window.originalRoot=document.getElementById('artifact-root'); window.originalContent=originalRoot.firstElementChild; window.originalFrame=originalRoot.querySelector('iframe')"
@@ -300,7 +301,7 @@ def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(page, kind
             "document.querySelector('#artifact-root img').naturalHeight===1200"
         )
         assert page.locator("#artifact-root img").bounding_box()["height"] < 850
-    page.screenshot(path="/tmp/plotsrv-16-" + kind + ".png")
+    page.screenshot(path=str(tmp_path / ("plotsrv-16-" + kind + ".png")))
     reveal(page)
     assert (
         page.locator("#table-mode-plot-btn").count() == 0
@@ -312,7 +313,7 @@ def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(page, kind
     page.wait_for_timeout(100)
     assert page.locator("#expanded-exit").is_visible()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
-    page.screenshot(path="/tmp/plotsrv-16-" + kind + "-mobile.png")
+    page.screenshot(path=str(tmp_path / ("plotsrv-16-" + kind + "-mobile.png")))
     page.click("#expanded-exit")
     assert page.evaluate(
         "document.getElementById('artifact-root')===originalRoot && originalRoot.firstElementChild===originalContent && originalRoot.querySelector('iframe')===originalFrame"
@@ -328,7 +329,7 @@ def test_artifacts_retain_dom_and_html_frame_across_layout_and_themes(page, kind
     assert reads == before
 
 
-def test_stream_controls_stay_separate_and_controller_continues(page):
+def test_stream_controls_stay_separate_and_controller_continues(page, tmp_path):
     reads = mount(page, "streams:events")
     page.evaluate(
         "window.streamTable=PLOTSRV.state.streamTabulatorInstance; window.session=PLOTSRV.state.streamSessionId"
@@ -338,11 +339,11 @@ def test_stream_controls_stay_separate_and_controller_continues(page):
     reveal(page)
     assert page.locator("#snapshots-control").count() == 0
     assert page.locator("#stream-history-session-select").is_visible()
-    page.screenshot(path="/tmp/plotsrv-16-stream-table-desktop.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-16-stream-table-desktop.png"))
     page.click("#table-mode-plot-btn")
     page.wait_for_selector(".ps-table-plot__svg")
     page.set_viewport_size({"width": 375, "height": 800})
-    page.screenshot(path="/tmp/plotsrv-16-stream-plot-mobile.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-16-stream-plot-mobile.png"))
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.click("#expanded-reveal")
     page.click("#expanded-exit")

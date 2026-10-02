@@ -96,7 +96,7 @@ def test_keyboard_preview_upload_theme_and_save(page, editor, tmp_path):
     expect(page.locator("#notice")).to_contain_text("Image staged")
     assert not draft.images.root.exists()
     page.frame_locator("#preview").locator(".header-logo").evaluate("el => el.decode()")
-    page.screenshot(path="/tmp/plotsrv-22-customiser-dark.png", full_page=True)
+    page.screenshot(path=str(tmp_path / "customiser-dark.png"), full_page=True)
     page.locator("#review").focus()
     page.keyboard.press("Enter")
     page.locator("#review-dialog").wait_for(state="visible")
@@ -120,7 +120,7 @@ def test_keyboard_preview_upload_theme_and_save(page, editor, tmp_path):
     assert not errors
 
 
-def test_small_screen_cancel_and_no_polling(page, editor):
+def test_small_screen_cancel_and_no_polling(page, editor, tmp_path):
     draft, origin, token = editor
     page.set_viewport_size({"width": 390, "height": 844})
     unlock(page, origin, token)
@@ -130,7 +130,7 @@ def test_small_screen_cancel_and_no_polling(page, editor):
     page.on("request", lambda r: requests.append(r.url))
     page.wait_for_timeout(400)
     assert not [url for url in requests if "/api/" in url]
-    page.screenshot(path="/tmp/plotsrv-22-customiser-mobile.png", full_page=True)
+    page.screenshot(path=str(tmp_path / "customiser-mobile.png"), full_page=True)
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     page.locator("#cancel").focus()
     page.keyboard.press("Enter")

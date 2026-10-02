@@ -309,14 +309,14 @@ def test_table_stale_response_does_not_replace_selected_rows(page):
     assert page.evaluate("bodyReads") == ["3", "2"]
 
 
-def test_real_bar_fits_desktop_and_mobile_without_idle_requests(page):
+def test_real_bar_fits_desktop_and_mobile_without_idle_requests(page, tmp_path):
     mount(page)
     select_box = page.locator("#history-select").bounding_box()
     older_box = page.locator("#snapshot-older").bounding_box()
     newer_box = page.locator("#snapshot-newer").bounding_box()
     assert select_box["x"] + select_box["width"] <= older_box["x"]
     assert older_box["x"] + older_box["width"] <= newer_box["x"]
-    page.screenshot(path="/tmp/plotsrv-15-desktop.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-15-desktop.png"))
     page.set_viewport_size({"width": 375, "height": 800})
     assert page.locator("#snapshot-older").is_visible()
     bounds = page.locator(".ps-bottom-bar").bounding_box()
@@ -329,7 +329,7 @@ def test_real_bar_fits_desktop_and_mobile_without_idle_requests(page):
     ):
         box = page.locator(selector).bounding_box()
         assert box["x"] >= 0 and box["x"] + box["width"] <= 375
-    page.screenshot(path="/tmp/plotsrv-15-mobile.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-15-mobile.png"))
     reads = page.evaluate("metaReads.length + bodyReads.length")
     page.wait_for_timeout(150)
     assert page.evaluate("metaReads.length + bodyReads.length") == reads

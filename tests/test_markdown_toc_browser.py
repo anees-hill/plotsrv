@@ -23,7 +23,7 @@ def install(page, text, *, unsafe=False):
 
 
 @pytest.mark.parametrize("theme", ["light", "dark"])
-def test_depth_click_duplicate_headings_keyboard_and_theme(page, theme):
+def test_depth_click_duplicate_headings_keyboard_and_theme(page, theme, tmp_path):
     mount(page, "artifacts:text")
     page.evaluate("theme => document.documentElement.dataset.theme=theme", theme)
     install(
@@ -45,7 +45,7 @@ def test_depth_click_duplicate_headings_keyboard_and_theme(page, theme):
     select.select_option("6")
     assert links.all_text_contents()[-2:] == ["Deep", "Deepest"]
     assert len(set(links.evaluate_all("nodes=>nodes.map(n=>n.hash)"))) == 6
-    page.screenshot(path=f"/tmp/plotsrv-markdown-toc-{theme}.png")
+    page.screenshot(path=str(tmp_path / f"plotsrv-markdown-toc-{theme}.png"))
     original_url = page.url
     history_length = page.evaluate("history.length")
     links.nth(2).click()
@@ -92,7 +92,7 @@ def test_refresh_and_view_switch_rebuild_without_duplicate_controls(page):
     assert page.get_by_label("Heading depth", exact=True).input_value() == "3"
 
 
-def test_mobile_empty_deep_only_and_sandbox(page):
+def test_mobile_empty_deep_only_and_sandbox(page, tmp_path):
     mount(page, "artifacts:text")
     page.set_viewport_size({"width": 390, "height": 844})
     install(page, "Text without headings")
@@ -104,7 +104,7 @@ def test_mobile_empty_deep_only_and_sandbox(page):
     )
     page.get_by_label("Heading depth", exact=True).select_option("5")
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
-    page.screenshot(path="/tmp/plotsrv-markdown-toc-mobile.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-markdown-toc-mobile.png"))
     page.locator(".ps-markdown-toc nav a").click()
     assert page.locator(".ps-markdown-toc").is_hidden()
     assert page.locator("h5").evaluate("el=>el===document.activeElement")
@@ -137,7 +137,7 @@ def test_heading_scan_and_labels_are_bounded_and_safe(page):
 
 
 @pytest.mark.parametrize("theme,width", [("light", 1366), ("dark", 390)])
-def test_code_copy_preserves_whitespace_and_supports_keyboard(page, theme, width):
+def test_code_copy_preserves_whitespace_and_supports_keyboard(page, theme, width, tmp_path):
     mount(page, "artifacts:text")
     page.set_viewport_size({"width": width, "height": 900})
     page.evaluate("theme=>document.documentElement.dataset.theme=theme", theme)
@@ -163,7 +163,7 @@ def test_code_copy_preserves_whitespace_and_supports_keyboard(page, theme, width
     assert page.evaluate("window.copied") == source
     assert page.locator(".plotsrv-markdown pre").first.text_content() == source
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
-    page.screenshot(path=f"/tmp/plotsrv-markdown-copy-{theme}.png")
+    page.screenshot(path=str(tmp_path / f"plotsrv-markdown-copy-{theme}.png"))
     page.get_by_role("button", name="Copy code", exact=True).last.click()
     assert page.evaluate("window.copied") == "second block\n"
     # The controls sit outside <pre>, so the existing export remains source-only.

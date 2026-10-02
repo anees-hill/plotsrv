@@ -70,7 +70,7 @@ def enter(page):
     )
 
 
-def test_normal_timeline_collapse_restore_and_exit_preserve_controller(page):
+def test_normal_timeline_collapse_restore_and_exit_preserve_controller(page, tmp_path):
     reads = mount(page)
     page.evaluate("window.table=PLOTSRV.state.tabulatorInstance")
     page.click("#bottom-collapse")
@@ -95,7 +95,7 @@ def test_normal_timeline_collapse_restore_and_exit_preserve_controller(page):
     assert page.locator("#bottom-pin").count() == 0
     assert page.evaluate("PLOTSRV.state.tabulatorInstance===table")
     assert "/compare/latest" not in reads
-    page.screenshot(path="/tmp/plotsrv-17-timeline.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-17-timeline.png"))
     page.click("#compare-exit")
     assert page.locator("#history-select").is_visible()
     assert page.locator("#export-control").evaluate(
@@ -291,7 +291,7 @@ def test_empty_history_day_keeps_timeline_message_and_footer_visible(page, width
 
 
 @pytest.mark.parametrize("viewport", [375, 1366])
-def test_keyboard_mobile_theme_layout_and_no_idle_metadata_work(page, viewport):
+def test_keyboard_mobile_theme_layout_and_no_idle_metadata_work(page, viewport, tmp_path):
     reads = mount(page)
     page.set_viewport_size({"width": viewport, "height": 900})
     page.emulate_media(color_scheme="dark", reduced_motion="reduce")
@@ -308,7 +308,7 @@ def test_keyboard_mobile_theme_layout_and_no_idle_metadata_work(page, viewport):
     before = list(reads)
     page.wait_for_timeout(300)
     assert reads == before
-    page.screenshot(path=f"/tmp/plotsrv-17-dark-{viewport}.png")
+    page.screenshot(path=str(tmp_path / f"plotsrv-17-dark-{viewport}.png"))
     header = page.locator(".ps-history-panel__header").bounding_box()
     close = page.locator("#compare-exit").bounding_box()
     assert close["x"] + close["width"] == pytest.approx(
@@ -426,7 +426,7 @@ def test_normal_clearance_and_compare_clearance_leave_last_table_rows_reachable(
     )
 
 
-def test_empty_month_and_calendar_open_close_are_bounded(page):
+def test_empty_month_and_calendar_open_close_are_bounded(page, tmp_path):
     reads = mount(page)
     enter(page)
     page.evaluate("PLOTSRV.core.compare.setDay('2026-09-09')")
@@ -437,7 +437,7 @@ def test_empty_month_and_calendar_open_close_are_bounded(page):
     assert page.locator("#compare-calendar-days .has-snapshots").count() == 0
     assert page.locator("#compare-calendar-days button").count() == 31
     assert page.locator("#compare-day").inner_text() == "9 Sep 2026"
-    page.screenshot(path="/tmp/plotsrv-17-calendar.png")
+    page.screenshot(path=str(tmp_path / "plotsrv-17-calendar.png"))
     before = list(reads)
     for _ in range(5):
         page.click("#compare-calendar-toggle")
