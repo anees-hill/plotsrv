@@ -803,13 +803,15 @@
     }
 
     function clampMenuToViewport() {
+      const fixed = window.getComputedStyle(menu).position === "fixed";
       menu.style.left = "";
-      menu.style.right = "0";
+      menu.style.right = fixed ? "" : "0";
       const rect = menu.getBoundingClientRect();
       const pad = 8;
       const desiredLeft = Math.max(pad, Math.min(rect.left, window.innerWidth - pad - rect.width));
       menu.style.right = "auto";
-      menu.style.left = (desiredLeft - wrap.getBoundingClientRect().left) + "px";
+      const origin = fixed ? 0 : wrap.getBoundingClientRect().left;
+      menu.style.left = (desiredLeft - origin) + "px";
     }
 
     function openMenu() {

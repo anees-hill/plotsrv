@@ -62,6 +62,10 @@
     frame = window.requestAnimationFrame(function () {
       frame = null;
       const panel = document.getElementById("expanded-controls");
+      const handle = document.getElementById("expanded-handle");
+      if (layout.active && handle) {
+        document.body.style.setProperty("--ps-expanded-handle-width", Math.ceil(handle.getBoundingClientRect().width) + "px");
+      }
       const top = layout.active && layout.revealed && panel ? Math.ceil(panel.getBoundingClientRect().bottom) + 8 : 52;
       document.body.style.setProperty("--ps-expanded-top", top + "px");
       // CSS sizes plots without rebuilding SVG/zoom state. Tabulator only
@@ -139,6 +143,7 @@
       if (typeof ResizeObserver === "function") {
         resizeObserver = new ResizeObserver(scheduleGeometry);
         resizeObserver.observe(panel);
+        resizeObserver.observe(handle);
       }
       window.addEventListener("resize", scheduleGeometry);
     } else {
@@ -187,7 +192,10 @@
     });
     window.addEventListener("pageshow", function () {
       if (layout.active) {
-        if (resizeObserver) resizeObserver.observe(document.getElementById("expanded-controls"));
+        if (resizeObserver) {
+          resizeObserver.observe(document.getElementById("expanded-controls"));
+          resizeObserver.observe(document.getElementById("expanded-handle"));
+        }
         scheduleGeometry();
       }
     });

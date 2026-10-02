@@ -40,7 +40,7 @@ body.ps-expanded.ps-is-history .ps-expanded-handle::before {
   z-index: 43;
   top: max(6px, env(safe-area-inset-top));
   left: max(8px, env(safe-area-inset-left));
-  right: 100px;
+  right: calc(var(--ps-expanded-handle-width, 84px) + 16px);
   display: flex;
   flex-wrap: wrap;
   align-items: center;

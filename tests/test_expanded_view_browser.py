@@ -238,7 +238,9 @@ def test_keyboard_reveal_selector_status_escape_layers_and_hidden_tab_order(page
     assert page.locator("#expand-view").evaluate("e => e === document.activeElement")
 
 
-def test_source_change_reload_session_scope_and_snapshot_intention(page):
+@pytest.mark.parametrize("width", [1366, 900, 390])
+def test_source_change_reload_session_scope_and_snapshot_intention(page, width):
+    page.set_viewport_size({"width": width, "height": 900})
     mount(page)
     page.evaluate("PLOTSRV.core.snapshotNavigation.select('2')")
     page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
@@ -250,6 +252,11 @@ def test_source_change_reload_session_scope_and_snapshot_intention(page):
     )
     reveal(page)
     assert page.locator("#history-select").input_value() == "2"
+    page.wait_for_function("""() => {
+      const controls = document.getElementById('expanded-controls').getBoundingClientRect();
+      const handle = document.getElementById('expanded-handle').getBoundingClientRect();
+      return controls.right <= handle.left || controls.top >= handle.bottom;
+    }""")
     page.click("#snapshot-older")
     page.wait_for_function("!PLOTSRV.state.snapshotNavigation.pending")
     assert "snapshot=1" in page.url
@@ -360,7 +367,9 @@ def test_denied_storage_and_compare_boundary_do_not_change_data(page):
     page.click("#expanded-exit")
 
 
-def test_my_view_selection_keeps_expanded_and_saved_filters(page):
+@pytest.mark.parametrize("width", [1366, 900, 390])
+def test_my_view_selection_keeps_expanded_and_saved_filters(page, width):
+    page.set_viewport_size({"width": width, "height": 900})
     mount(page)
     page.fill("#table-search-input", "A")
     page.click("#table-save-view-btn")
@@ -370,6 +379,10 @@ def test_my_view_selection_keeps_expanded_and_saved_filters(page):
     expand(page)
     reveal(page)
     page.click(".ps-viewselect__btn")
+    page.wait_for_function("""() => {
+      const menu = document.getElementById('view-selector-menu').getBoundingClientRect();
+      return menu.left >= 0 && menu.right <= innerWidth;
+    }""")
     page.click('[data-view-mode="my"]')
     page.click("[data-personal-view]")
     page.wait_for_function(
