@@ -68,8 +68,8 @@ storage-settings:
 ## Find and compare a version
 
 Use the older/newer controls for nearby snapshots. Open the history timeline to
-pick a day or find a more distant version. Pin a version while comparing it with
-another. Historical mode stays labelled until you explicitly return to Live.
+pick a day or find a more distant version. Step between versions to compare them.
+Historical mode stays labelled until you explicitly return to Live.
 
 Table presentation settings are separate from history. Saving **My views** keeps
 filters and plot settings, not the selected snapshot.

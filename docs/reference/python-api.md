@@ -32,7 +32,7 @@ ps.publish_view(...)
 or:
 
 ```python
-@ps.view(...)
+@ps.view(label="result")
 def my_function():
     ...
 ```
@@ -424,7 +424,8 @@ Common values:
 | `publish` | publish the traceback and suppress the exception |
 | `publish_and_raise` | publish the traceback, then raise the exception |
 
-Traceback rendering must be enabled in config:
+Enable traceback publishing in the producer's config and traceback rendering in
+the server's config (they can use the same file):
 
 ```yaml title="plotsrv.yaml"
 security-settings:
@@ -613,11 +614,18 @@ security-settings:
 
 ## Attached traceback example
 
+In a REPL, start the server with that config. The helper itself does not start
+one. This example suppresses the demonstration exception so the session stays
+available; the default is `reraise=True`.
+
 ```python
+import plotsrv as ps
+
+ps.start_server(config="plotsrv.yaml")
 with ps.capture_exceptions(
     label="job error",
     section="errors",
-    launch_server=True,
+    reraise=False,
 ):
     raise RuntimeError("Example failure")
 ```
@@ -663,7 +671,7 @@ ps.publish_view(...)
 or:
 
 ```python
-@ps.view(...)
+@ps.view(label="result")
 def my_view():
     ...
 ```

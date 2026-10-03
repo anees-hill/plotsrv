@@ -63,13 +63,16 @@ renderers and source descriptions; they do not need observation to be useful.
 
 ## Observation views and recent changes
 
-The default Fields / structure table shows supplied metrics, inspected and
-uninspected counts, missingness and available observed ranges/means. The overview
-distinguishes cheap whole-source shape from sample findings. An all-null sample is
-useful missingness evidence; an unsupported/uninspected field has no missingness
-denominator. Neither creates a collection of empty charts.
+The default **Overview** shows findings, a dataset summary, and a field snapshot.
+**Fields** lists missing values, observed ranges, representative values, inspected
+counts, and evidence labels. **Changes** compares with the latest compatible
+earlier observation. **Evidence** opens the shared table/plot explorer.
 
-Choose **Suggested views** for field overview, observed missingness, up to three
+The overview distinguishes cheap whole-source shape from sample findings. An
+all-null sample is useful missingness evidence; an unsupported/uninspected field
+has no missingness denominator. Neither creates a collection of empty charts.
+
+In **Evidence**, choose **Suggested views** for field overview, observed missingness, up to three
 observed distributions, or up to three compatible scalar histories when available.
 These are ordinary transient ViewSpecs: change filters/columns/plot settings, then
 **Save view** to keep that presentation in **My views** on this browser. Saving does

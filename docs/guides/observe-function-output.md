@@ -27,18 +27,20 @@ check `finished` if you need to know whether the wait completed.
 
 ## Read the summary
 
-Start with **Fields / structure**. The page distinguishes whole-source metadata,
-such as a known row count, from findings about inspected samples.
+Start with **Overview** for findings and a quick field summary. Open **Fields**
+for missing values and observed ranges, or **Changes** to compare with an earlier
+compatible observation. The page distinguishes whole-source metadata, such as a
+known row count, from findings about inspected samples.
 
 A missing value count from a sample is not a count for the whole DataFrame.
 Unsupported or uninspected fields are labelled; they are not silently treated as
 complete or empty. Ordinary Polars tables can be published, but observation of
 Polars storage is currently unsupported.
 
-Where available, **Suggested views** offers observed missingness, distributions,
-or compatible recent scalar changes. Adjust a presentation and **Save view** if
-you want to return to it. These comparisons are descriptive, not statistical
-drift tests.
+Open **Evidence** to filter, group, or plot the inspected values. Where available,
+**Suggested views** offers observed missingness, distributions, or compatible
+recent scalar changes. Adjust a presentation and **Save view** if you want to
+return to it. These comparisons are descriptive, not statistical drift tests.
 
 ## Choose what to inspect
 

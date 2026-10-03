@@ -27,7 +27,7 @@ Read the row/coverage notice when the source is truncated.
 
 ## Plot the rows you are looking at
 
-Switch from **Table** to **Plot**, choose the fields, and pick the supported plot
+Switch from **Table** to **Plot + data**, choose the fields, and pick the supported plot
 type you need. Use the supporting-data control to see the table beside the plot.
 Searches and filters affect the plotted table data too.
 
@@ -73,8 +73,8 @@ expired. See [Follow logs and streams](follow-logs-and-streams.md).
 
 When storage is enabled, use the bottom history selector and older/newer controls.
 Historical mode is labelled. Return to **Live** to see current output again.
-The history timeline helps find a stored version from another time; pin a version
-when comparing outputs. See [Keep history](keep-history.md).
+The history timeline helps find a stored version from another time. Step between
+versions to compare their outputs. See [Keep history](keep-history.md).
 
 Saving a table presentation and keeping a historical version are separate things.
 

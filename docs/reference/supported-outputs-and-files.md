@@ -412,15 +412,18 @@ security-settings:
   tracebacks_enabled: true
 ```
 
-Then use `capture_exceptions()`:
+In a REPL, start the attached server and capture an exception. Keep the session
+running to inspect it. For a separate server, enable tracebacks in both the
+producer's and server's config and pass `port=8000` to the helper.
 
 ```python title="traceback_example.py"
 import plotsrv as ps
 
+ps.start_server(config="plotsrv.yaml")
 with ps.capture_exceptions(
     label="job error",
     section="renderers",
-    launch_server=True,
+    reraise=False,
 ):
     raise RuntimeError("Example failure")
 ```

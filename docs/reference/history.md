@@ -447,73 +447,50 @@ share selection errors, latest-wins loading and pending-update protection.
 
 ## Compare stored versions
 
-**Compare** beside the snapshot arrows opens a compact Timeline/List dock for
-one source. It displays one version at a time using the same renderer and
-snapshot navigator as the normal bar. Streams keep their separate Run history.
-The button becomes available when snapshot storage is admitted and versions
-exist; source-backed file views retain their existing separate capability.
+**History** beside the snapshot arrows opens a timeline for the current source.
+It shows one version at a time using the normal renderer and snapshot navigator.
+Streams have their own **Run** selector. History becomes available when snapshot
+storage is permitted and stored versions exist; source-backed files have separate
+snapshot restrictions.
 
-Previous selects the immediately older stored version. Next moves toward newer
-versions and eventually **Latest**, the current server state. Exact timestamps
-and stable snapshot IDs distinguish versions, including timestamp ties. Leaving
-Compare retains the selected historical version. Changing source exits Compare.
-Filters, grouping, plot presentation, Export scope and My view context remain
-with the existing renderer where compatible with the selected data.
+Use the previous/next snapshot arrows to move between versions. **Latest** returns
+to the live view. Closing History keeps the selected historical version; changing
+source closes History. Filters, grouping, plot settings, export scope, and saved
+presentation settings remain where compatible with the selected data.
 
-Use the date field, previous/next day, or calendar to browse stored metadata.
-The calendar marks dates with snapshots using dots. Its arrow keys move between
-days; List and previous/next snapshot controls provide precise keyboard access.
-Changing the displayed day does not change the viewed version. Empty dates,
-unavailable metadata and a selection outside the displayed day are explicit.
-The calendar can be tucked away to keep the dock low.
+Use the previous/next day buttons or calendar to browse dates. Calendar dots mark
+dates with snapshots; arrow keys move focus between days. Changing the displayed
+date does not select another version. Click a point or use the snapshot arrows to
+select one. Exact UTC timestamps appear on hover and in the selected-version
+control. Use the arrows for snapshots too close together to distinguish visually.
 
-All Compare dates and exact timestamps use **UTC (+00:00)**, independent of the
-browser timezone. Day boundaries are UTC midnight to the next calendar midnight.
-UTC has no daylight-saving transition: Europe/London's 23-hour/25-hour local days
-are deliberately not the displayed day. Repeated local times with different
-offsets become distinct UTC times. The existing live status modal can still show
-local source times; it is separate from the Compare date axis.
+History uses **UTC**, independent of the browser timezone. Each timeline runs from
+UTC midnight to the next UTC midnight. The status modal can still display local
+times; it is separate from the history date axis.
 
-Timeline plots the current metadata page within that fixed UTC day. List shows
-the exact timestamp, snapshot ID and kind for every item on the page. **Older on
-this day** replaces the current page; **First page** reloads its newest metadata.
-Pages contain at most 100 items, with the total count and displayed count shown.
-Dense coincident points remain distinct in List. These are stored snapshots,
-not a claim that every published update was saved. Metadata browsing never loads
-payloads; a body is read only when selected. Retention can remove one between
-those reads. A failed selection leaves the previous content where possible,
-keeps the requested selection, disables Export, and asks for an explicit choice.
+**Older on this day** replaces the current metadata page. **First page** reloads
+its newest metadata. Each page has at most 100 snapshots, with total and displayed
+counts shown. These are stored versions, not every published update. Browsing
+metadata does not load snapshot bodies; selecting a version does. Retention can
+remove a version between those reads. A failed selection keeps historical mode,
+disables Export, and asks for an explicit choice.
 
-### Floating, pinned and collapsed bars
+### Collapse the controls
 
-The normal bar, Timeline and List share the same pin and collapse controls.
-**Pin bar to bottom** docks it to the viewport edge; **Unpin bar** returns the
-centred floating treatment. **Collapse bar** releases its reserved layout space
-and leaves a small bottom-centre restore handle. Restore keeps the current
-presentation, date, selection and pin state. Pin/collapse preferences use one
-small dashboard/path-scoped `sessionStorage` entry; denied storage still permits
-page-local operation. Compare selection itself is not persisted as a server
-session. Expanded view and Compare are mutually exclusive; handoff preserves
-the underlying selection and presentation.
+Collapse the ordinary bottom bar to leave a small restore button. Its preference
+uses a small dashboard/path-scoped `sessionStorage` entry; denied storage still
+permits page-local operation. Opening History expands the controls. History and
+expanded view are mutually exclusive and preserve the underlying selection when
+switching. The current UI has no separate List mode, pin control, or captured-Latest
+mode: choosing Latest returns to live data.
 
-### Captured Latest and resource limits
+### Bounded latest-response endpoint
 
-Inside Compare, **Latest** explicitly captures one coherent published
-representation. Later publications may show **New data available**, but cannot
-replace it, even through a forced browser update. Choose Latest again to capture
-current data. Exiting Compare keeps that captured representation protected;
-**Return to latest** in the normal bar releases it. Reloading the page starts
-normal navigation again. The header says **Latest captured** rather than claiming
-that this is a stored snapshot. Live source status and checks remain separately
-labelled and are never evaluated or advanced by Compare reads.
-
-The browser holds the bounded representation. There is no server pin cache,
-background capture, new persistent snapshot, timer-driven refresh or publication
-hook. Captured HTML fixes the served source; its own scripts and external assets
-retain their existing sandbox behavior. One candidate and the previous rendered representation may coexist while
-loading; superseded choices coalesce. Export uses the captured plot/artifact or
-table preview, not a later live source download. A table's captured Export option
-is labelled **Captured table preview**; filtered Export retains its existing scope.
+The server still exposes `/compare/latest` for a bounded, coherent response of the
+current published content. The browser's History controls do not use it. This
+endpoint neither stores a snapshot nor pins a view on the server. A client must
+keep the response itself if it wants a fixed representation. Source status and
+checks remain live and are not evaluated or advanced by this read.
 
 `GET /compare/latest?view=<id>` returns a version-1 envelope containing the source,
 render revision, the artifact's content timestamp/status, scope and rendered data.
