@@ -19,7 +19,7 @@ Log and text files use tail mode by default; `--tail` makes the choice explicit.
 Use `--head` to inspect the beginning instead.
 
 This is a changing text preview. To follow structured records, pause live updates,
-or inspect stream sessions, see [Follow logs and streams](../guides/http-log-streams.md).
+or inspect stream sessions, see [Follow logs and streams](../guides/follow-logs-and-streams.md).
 
 ## Watch a directory
 

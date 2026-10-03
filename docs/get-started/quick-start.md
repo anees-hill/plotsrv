@@ -65,6 +65,8 @@ That’s enough to try it. When finished:
 ps.stop_server(join=True)
 ```
 
+[Explore tables, plots, and saved views](../guides/explore-in-browser.md) once you have some data.
+
 ## Next
 
 - [Use plotsrv in a project](use-in-a-project.md) to keep a server running between jobs.
