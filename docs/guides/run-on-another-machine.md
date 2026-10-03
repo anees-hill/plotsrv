@@ -81,7 +81,7 @@ a shared filesystem. A failed remote publish never starts a local fallback.
 **The publisher key does not protect browser reads.** Protect private dashboards
 at the proxy too. Keep management routes such as `/shutdown` off public routing,
 use a dedicated origin, and publish only data and HTML you trust. See
-[Remote publishing and security](publisher-ingestion.md) before exposing a server.
+[Remote publishing and security](../reference/remote-publishing-and-security.md) before exposing a server.
 
 ## Watch a file beside the application
 
@@ -101,7 +101,7 @@ plotsrv watch ./logs/job.log --tail \
 The watch runs where the file lives. The receiver never opens that file path.
 For configured sets of files and declarations, `plotsrv publish --config plotsrv.yml`
 provides an optional foreground helper. It does not execute your application.
-See [CLI reference](cli.md) for its options.
+See [CLI reference](../reference/cli.md) for its options.
 
 ## Keep the server running
 
@@ -135,4 +135,4 @@ sudo systemctl enable --now plotsrv
 
 Keep the storage directory on persistent disk if you [keep history](keep-history.md).
 For Caddy route restrictions, public demo isolation, TLS, and deployment checks,
-see the [security reference](public-demo-security.md).
+see the [security reference](../reference/remote-publishing-and-security.md#public-deployments).

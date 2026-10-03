@@ -2,7 +2,7 @@
 icon: lucide/panels-top-left
 ---
 
-# Renderers
+# Supported outputs and files
 
 plotsrv chooses a renderer based on the object or file that is published.
 
@@ -562,8 +562,8 @@ Table limits control how much table data plotsrv accepts and displays.
 
 - [Quick start](../get-started/quick-start.md)
 - [Watch files](../get-started/watch-files.md)
-- [Configuration basics](../get-started/configuration-basics.md)
-- [Storage and history](storage-and-history.md)
+- [Configuration basics](../guides/configure-plotsrv.md)
+- [Storage and history](history.md)
 
 ## Expand a view
 
@@ -601,7 +601,7 @@ data, snapshot IDs or presentation settings.
 Expansion uses the existing renderer and controls. It adds no polling, payload
 requests or publisher work. Resize handling coalesces into one animation frame;
 its size observer is active only while expanded. Expanded view and
-[Compare](storage-and-history.md#compare-stored-versions) remain mutually
+[Compare](history.md#compare-stored-versions) remain mutually
 exclusive: opening Compare exits expansion, and Expand view exits Compare
 while preserving the inspected version.
 
@@ -671,5 +671,62 @@ and complete-source capabilities.
 Implementation reference: [Pygments API](https://pygments.org/docs/api/) and
 [security considerations](https://pygments.org/docs/security/).
 
-For saved table and plot settings, see [My views](my-views.md).
-For structured live logs, see [HTTP log streams](http-log-streams.md).
+For saved table and plot settings, see [My views](supported-outputs-and-files.md#saved-presentations).
+For structured live logs, see [HTTP log streams](streams.md).
+
+## Saved presentations
+
+For normal use, see [Explore in the browser](../guides/explore-in-browser.md#save-a-useful-setup).
+
+### Changing data and historical browsing
+
+Saved settings apply to the source's **latest data**. Saving while browsing a
+snapshot or stream session saves the presentation only; the dialog explains
+this. Opening that saved entry starts at the latest source. Snapshot/session
+selection remains a separate browsing choice, not part of the saved settings.
+
+Extra columns are compatible. Missing grouping/sort/column settings can be
+omitted with an explanation. Missing filters, changed filter types and invalid
+plot fields pause the presentation rather than silently showing more rows or
+a different plot under its saved name. **Repair presentation** asks you to
+acknowledge the possible removal of filters. It applies compatible settings as
+an ordinary working presentation; review the filters and plot before saving a
+new view. The original saved configuration is preserved. Reset or reopen it
+when the source is compatible again.
+
+Compatibility checks use field names, lightweight inferred types and source
+capabilities. They cannot detect changed units or meaning behind otherwise
+identical fields; review presentations when the source semantics change.
+
+A plot sourced from derived stream summaries retains that source requirement;
+it cannot silently become a plot of retained raw rows. Existing plot limits and
+coverage notices still apply. A saved presentation does not increase the source's
+retention, query or plotting limits.
+
+### Storage and compatibility
+
+Settings are scoped to the browser origin, dashboard base path and configured
+instance name, plus the exact logical source ID. Server restart generations are
+not part of the storage key. Another browser profile, origin, base path or
+instance name has a separate collection.
+
+The collection is limited to 64 entries and 262,144 JSON characters; one ViewSpec
+is limited to 16,384 characters, 128 fields/columns, 10 filters and 8 sort keys.
+Names are at most 80 characters and captions 256. Storage is checked before JSON
+parsing. Only supported presentation settings and lightweight field/type/source
+requirements are accepted; datasets, paths, executable predicates, credentials,
+DOM state and stream cursors are excluded.
+
+Storage failures are visible in the dialog or selector. Disabled/full storage,
+corrupt documents and unsupported versions do not silently replace existing
+saves. This is the first ViewSpec format (version 1); unknown versions remain
+untouched and need a compatible browser bundle. Other tabs receive change
+notifications without replacing your working presentation. Updating a stale
+copy is refused. Where Web Locks are available, saves across tabs are serialized
+without waiting behind a busy tab; elsewhere the browser's normal last-write
+behavior still applies to truly simultaneous writes.
+
+These settings are browser preferences, not authenticated privacy or durable
+backup. Filter values and captions may be sensitive; other users of this browser
+profile can see them. Clearing site storage removes them. There is no cross-device
+sync, server save/delete request, sharing or historical data binding.

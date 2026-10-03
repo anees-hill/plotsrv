@@ -1,83 +1,14 @@
-# Publisher and server contracts
+# Publisher/server internals
 
-Ordinary `publish_view()` accepts a destination URL or the configured
-`publisher-settings.destination`. HTTP(S), IPv6, and reverse-proxy prefixes
-are supported. For example:
-
-```python
-from plotsrv import publish_view
-
-publish_view({"rows": 12}, destination="https://dashboard.example/team/",
-             view_id="imports:订单:daily", label="Daily orders")
-```
-
-This posts to `/team/publish`. Failed publication never starts a local fallback.
-Normal publication remains best effort; `PLOTSRV_DEBUG=1` makes setup/delivery
-errors raise. Setup tools can call `plotsrv.config.resolve_publish_target()`
-to validate before running application code.
-
-## Configuration and precedence
-
-File selection is unchanged: runtime/API/CLI config path, an existing file named
-by `PLOTSRV_CONFIG`, then `./plotsrv.yml`, then `./plotsrv.yaml`. Instance selection
-uses the runtime name before `PLOTSRV_NAME`. Each new namespace supports the
-existing `default` and recursively merged `instances` (or `instance`) layout.
-Existing render, storage, freshness, limits and UI sections retain their owners
-and defaults; they do not move into these namespaces.
-
-A publisher-only file can contain:
-
-```yaml
-publisher-settings:
-  destination:
-    url: https://dashboard.example/team/
-    bearer_token_env: PLOTSRV_PUBLISH_KEY
-    request_timeout_s: 2.0
-    stream_request_timeout_s: 1.0
-  discovery:
-    target: ./src
-    selection: ["imports:订单:daily"]
-  watch:
-    - path: ./results/orders.csv
-      view_id: "imports:订单:daily"
-      label: Daily orders
-      section: Imports
-      read_mode: tail
-      materialization: auto
-```
-
-Only `destination` is wired into ordinary publication in this implementation.
-`get_publisher_sources()` validates discovery/watch settings and returns
-`PublisherSources(discovery_target, selection, watch)` using the existing
-`WatchSpec` extended with `view_id`. It does not scan, import application code,
-start watchers or contact a server. Config watch paths and explicit filesystem
-discovery expressions (`./src`, `./app.py`) resolve beside the config; module
-expressions remain module expressions. The CLI's source selection/override
-wiring comes separately. CLI paths still use the CLI working directory.
-
-| Choice | Resolution |
-| --- | --- |
-| Explicit `destination` URL or resolved `PublishTarget` | Replaces configured destination, including its credential and timeouts |
-| Explicit URL together with explicit `host`/`port` | Error, even if apparently equivalent |
-| Explicit URL with local launch intent | Error; legacy explicit `launch_server=False` still overrides `mode="local"` |
-| Explicit legacy `host`/`port` | Replaces configured destination and credential; auto means remote |
-| Explicit `launch_server=True`, or `mode="local"` without a launch override | Local bind; ignores configured remote destination |
-| No explicit target/local intent, configured URL | Remote, including `launch_server=False` and `mode="remote"` |
-| No configured URL | Legacy launch override, then mode; auto launches locally only when host/port were omitted |
-
-Built-in legacy address remains `127.0.0.1:8000`. Passing these exact values
-explicitly still counts as a remote choice in auto mode. CLI parsers retain
-those defaults and expose `host_supplied`/`port_supplied` for later resolution.
-There is no new destination-URL environment variable: environment values supply
-the existing file/instance selectors and the named credential only.
+For user-facing authentication and routing rules, see [Remote publishing and security](../reference/remote-publishing-and-security.md).
 
 ## Server setup contract
 
 A server-only file can configure ingestion authentication and admission. See
-[Publisher ingestion](../guides/publisher-ingestion.md) for the enforced endpoint
+[Publisher ingestion](../reference/remote-publishing-and-security.md) for the enforced endpoint
 matrix, explicit bootstrap transaction and proxy requirements. `plotsrv serve`
 uses the bind fields; explicit CLI host/port override them. See
-[Direct remote publishers](../guides/remote-publishers.md) for working examples.
+[Direct remote publishers](../reference/remote-publishing-and-security.md) for working examples.
 
 ```yaml
 server-settings:
@@ -198,10 +129,112 @@ hard wall-clock cancellation of arbitrary parsing, rendering or slow trickles.
 
 Ordinary and stream publishers now share bounded transport and capability
 negotiation. Configured source selection and static discovery are covered by
-[Configured sources](../guides/configured-sources.md). Optional foreground
+[Configured sources](../reference/cli.md#configured-sources). Optional foreground
 catalogue registration and remote watch transport are covered by
-[Publisher agent](../guides/publisher-agent.md). Full description presentation
+[Publisher agent](../reference/cli.md#publisher-helper). Full description presentation
 remains subsequent work. Server wire
 admission and authentication are now enforced by the ingestion boundary. No
 discovery, wizard imports or network activity occurs on ordinary package import or
 parser startup.
+
+## Bootstrap transaction
+
+A locked server without `allowed_ids` starts awaiting bootstrap. Publication,
+individual registration, heartbeats, and elapsed time cannot seal it. Send one
+complete manifest to `/catalogue/bootstrap`, using `Authorization: Bearer …`:
+
+```json
+{
+  "protocol_version": 1,
+  "views": [
+    {"view_id": "etl:orders", "label": "Orders", "section": "ETL"},
+    {"view_id": "logs:requests", "label": "Requests", "section": "Logs"}
+  ]
+}
+```
+
+Descriptors use the [bounded metadata contract](publisher-server-internals.md).
+The same body shape applies to `/catalogue/register`. Registration creates empty
+placeholders without fabricating data arrivals. Source basename/type/scope and
+optional descriptions remain metadata; they cannot enable storage, alter
+checks, select a server path, or disable authentication.
+
+Bootstrap validates the entire manifest before any writes. Under the shared
+store lock it registers all entries and seals the exact ID set for this process
+generation. Competing different bootstraps yield one winner and a conflict.
+An identical canonical manifest is idempotent regardless of descriptor order;
+conflicting retries return 409 without mutation. Identical retries do not
+rewrite metadata or emit new catalogue updates. Missing default descriptor
+fields and their explicit default values are equivalent.
+
+A configured allowlist starts sealed. It may receive one matching complete
+metadata bootstrap; a different ID set is refused. `allowed_ids: []` is an
+explicit empty sealed set, distinct from omitting `allowed_ids`.
+
+Include the complete union of expected AST, watch, and explicitly named dynamic
+IDs. All key holders are trusted to perform bootstrap. For multiple projects,
+coordinate that union or configure the allowlist; the first project's partial
+manifest is not expanded automatically by later publishers. There is no unlock
+endpoint. Restart the process to change the sealed set.
+
+After sealing, admitted IDs continue accepting new data, schema and ordinary
+view-kind changes. A stream and an ordinary view cannot concurrently own the
+same ID. Descriptors are placeholders until actual data establishes the store
+kind; catalogue locking freezes source IDs, not data schemas or rendering.
+Direct in-process publication, watch metadata registration, error artifacts,
+stream methods and storage restoration obey the same ID policy. Restored
+unadmitted views are skipped; they cannot authorise fresh writes or seed an
+unexpected stream history entry.
+
+The handshake's server generation is process state, separate from stable
+browser preference scope. Stream responses retain the existing protocol 4
+receiver/session generation and acknowledgement semantics. This change does
+not alter stream v4 semantics or add a browser poller. Direct publisher
+negotiation and restart handling are described in the remote-publisher guide.
+
+## Shared engine and reviewable manifests
+
+Terminal presentation is separate from the source engine, so other callers can
+supply their own progress and cancellation handling:
+
+```python
+from threading import Event
+from plotsrv.discovery import scan_sources
+from plotsrv.source_setup import resolve_source_setup, build_manifest
+
+stop = Event()
+setup = resolve_source_setup()
+result = scan_sources(
+    setup.scan_root(default_target="."),
+    include_pruned=setup.include_pruned,
+    on_progress=lambda event: print(event.phase, event.processed, event.total),
+    cancelled=stop,
+)
+
+# Inspect result.views and result.issues before deciding the complete union.
+manifest = build_manifest(
+    result,
+    selection=setup.selection,
+    watches=setup.watches,
+    added_ids=["runtime:explicitly-reviewed-id"],
+)
+```
+
+`DiscoveryProgress` carries phase, processed count, optional total, files found,
+skipped count and elapsed time. `scan_sources` returns bounded views/issues and
+completion/cancellation/limit state. `on_issue` is an optional issue callback.
+`discover_views` remains the compatible list-returning API; it raises on cancelled
+or limited scans so partial results cannot silently become registrations.
+
+`build_manifest` produces the protocol-1 `views` body accepted by the
+[catalogue bootstrap endpoint](../reference/remote-publishing-and-security.md). It includes selected
+known declarations, configured watches and caller-supplied reviewed dynamic IDs.
+Duplicate/conflicting IDs fail before registration or config writes. Cancelled
+or resource-limited scans cannot produce a manifest. Completed scans with
+unresolved declarations or skipped files require explicit `reviewed=True` after
+inspection; that flag does not resolve duplicate IDs or remove structural limits.
+
+Building or reviewing a manifest does not send it, register it remotely or seal a
+catalogue. The caller must deliberately submit the complete union when that is
+appropriate. The [publisher agent](../reference/cli.md#publisher-helper) uses this engine for
+explicit catalogue registration/sealing and configured remote watches.

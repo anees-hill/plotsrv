@@ -1,6 +1,6 @@
 [project]
 site_name = "plotsrv"
-site_description = "Lightweight observability for Python processes."
+site_description = "See Python objects, tables, plots, and logs in your browser."
 site_author = "Anees Hill"
 site_url = "https://docs.plotsrv.com"
 
@@ -16,40 +16,34 @@ extra_css = ["stylesheets/extra.css"]
 
 nav = [
   { "Home" = "index.md" },
-
-  { "Getting started" = [
-    { "What is plotsrv?" = "get-started/what-is-plotsrv.md" },
-    { "Installation" = "get-started/installation.md" },
+  { "Start here" = [
     { "Quick start" = "get-started/quick-start.md" },
+    { "Use plotsrv in a project" = "get-started/use-in-a-project.md" },
     { "Watch files" = "get-started/watch-files.md" },
-    { "Configuration basics" = "get-started/configuration-basics.md" },
   ] },
-
   { "Guides" = [
-    { "CLI reference" = "guides/cli.md" },
-    { "Python API" = "guides/python-api.md" },
-    { "Renderers" = "guides/renderers.md" },
-    { "View descriptions" = "guides/view-descriptions.md" },
-    { "Configuration Reference" = "guides/configuration-reference.md" },
-    { "Storage and history" = "guides/storage-and-history.md" },
-    { "Freshness" = "guides/freshness.md" },
-    { "Tracebacks" = "guides/tracebacks.md" },
-    { "UI customisation" = "guides/ui-customisation.md" },
-    { "Deployment patterns" = "guides/deployment-patterns.md" },
+    { "Publish from Python" = "guides/publish-from-python.md" },
+    { "Explore in the browser" = "guides/explore-in-browser.md" },
+    { "Follow logs and streams" = "guides/follow-logs-and-streams.md" },
+    { "Keep history" = "guides/keep-history.md" },
+    { "Observe function output" = "guides/observe-function-output.md" },
+    { "Keep an eye on a job" = "guides/keep-an-eye-on-a-job.md" },
+    { "Run plotsrv on another machine" = "guides/run-on-another-machine.md" },
+    { "Configure plotsrv" = "guides/configure-plotsrv.md" },
   ] },
-
+  { "Reference" = [
+    { "Python API" = "reference/python-api.md" },
+    { "CLI" = "reference/cli.md" },
+    { "Configuration" = "reference/configuration.md" },
+    { "Supported outputs and files" = "reference/supported-outputs-and-files.md" },
+    { "Observation" = "reference/observation.md" },
+    { "Remote publishing and security" = "reference/remote-publishing-and-security.md" },
+  ] },
   { "Examples" = [
-    { "Overview" = "examples/index.md" },
     { "ETL pipeline" = "examples/etl-pipeline.md" },
-    { "EDA on a server" = "examples/eda-on-a-server.md" },
+    { "EDA over SSH" = "examples/eda-on-a-server.md" },
   ] },
-
-  { "About" = [
-    { "Philosophy" = "about/philosophy.md" },
-    { "Contributing" = "about/contributing.md" },
-    { "UI development" = "about/ui-development.md" },
-    { "Testing and benchmarks" = "about/testing-and-benchmarks.md" },
-  ] },
+  { "Development" = [{ "Contributing" = "development/contributing.md" }] },
   { "Release notes" = "release-notes.md" },
 ]
 

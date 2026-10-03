@@ -1,4 +1,6 @@
-# Follow HTTP logs as a stream
+# Streams and log formats
+
+For the normal setup, start with the [guide](../guides/follow-logs-and-streams.md).
 
 `stream_view` can follow mixed Uvicorn access/application output beside the
 logfile and send structured events to a local or remote plotsrv server. It does
@@ -22,7 +24,7 @@ handle.stop()
 
 Destination configuration, bearer-key environment references, TLS verification,
 server admission and retries are the same as for other
-[remote publishers](remote-publishers.md). Saving an event requires admission of
+[remote publishers](remote-publishing-and-security.md). Saving an event requires admission of
 its source view ID. Authentication/admission failures retain one bounded pending
 batch and follow the existing retry policy; they do not start a local fallback
 server. No text-specific server endpoint or protocol is needed.

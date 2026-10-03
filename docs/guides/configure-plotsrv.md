@@ -82,6 +82,6 @@ before saving. Use the CLI reference for replacement and noninteractive options.
 
 ## Look up an exact setting
 
-The [Configuration reference](configuration-reference.md) covers defaults,
+The [Configuration reference](../reference/configuration.md) covers defaults,
 per-view overrides, named instances, limits, and source-specific behaviour.
-[CLI reference](cli.md) lists all configuration commands.
+[CLI reference](../reference/cli.md) lists all configuration commands.

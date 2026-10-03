@@ -71,7 +71,7 @@ ps.stop_server(join=True)
 
 - [Use plotsrv in a project](use-in-a-project.md) to keep a server running between jobs.
 - [Watch files](watch-files.md) if your program already writes the output you need.
-- [See supported outputs](../guides/renderers.md) for plots, reports, images, and other types.
+- [See supported outputs](../reference/supported-outputs-and-files.md) for plots, reports, images, and other types.
 
 The [ETL example](../examples/etl-pipeline.md) shows a complete script. Unlike the
 interactive example above, it publishes to a separate server so the browser

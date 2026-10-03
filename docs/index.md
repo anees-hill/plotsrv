@@ -44,4 +44,4 @@ for looking at useful outputs without building a dashboard around them.
 
 [Try the live demo](https://demo.plotsrv.com) ·
 [Browse an ETL example](examples/etl-pipeline.md) ·
-[Contribute](about/contributing.md)
+[Contribute](development/contributing.md)

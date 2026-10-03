@@ -37,39 +37,13 @@ def my_function():
     ...
 ```
 
-## Bounded observation of pipeline results
-
-```python
-@ps.view(observe=True, view_id="etl:orders", label="Orders")
-def transform_orders(frame):
-    return frame.assign(net=frame["gross"] - frame["discount"])
-
-ps.publish_view(metrics, observe=True, view_id="etl:metrics")
-```
-
-`observe=True` captures bounded detached evidence in the caller and prepares and
-publishes summaries asynchronously. The decorator returns the same result object,
-including for async functions, and preserves the original exception/cancellation.
-It does not profile whole inputs. `async_=False` with observation is a setup error;
-the ordinary global async default cannot make observation synchronous.
-
-Use `ps.ObservationOptions(fields=("rows", "seconds"), path=("import",))` in place
-of `True` to narrow capture. Examples are off by default, but supplied scalar
-metrics, field names and bounded category prefixes are still exported. Unsupported
-storage types produce omission reasons, including Polars at present.
-
-`ps.flush_views(timeout=0.5)` provides a bounded best-effort drain;
-`ps.get_observation_stats()` reports drops/failures and queue state. See
-[bounded observations](observation-capture.md) for setup costs, sample meaning,
-privacy, destination rules, supported storage and resource limits.
-
 ## Core publishing API
 
 ## `publish_view()`
 
 Publish an object as a plotsrv browser view. An explicit
 `destination="https://dashboard.example/team/"` preserves a proxy prefix and
-targets an existing server. See [destination precedence and configuration](../about/publisher-contracts.md).
+targets an existing server. See [destination precedence and configuration](../development/publisher-server-internals.md).
 
 ```python
 ps.publish_view(
@@ -95,7 +69,7 @@ plotsrv chooses an appropriate renderer where possible.
 
 Use `description="Short purpose and scope"` to attach bounded plain-text source
 metadata. Decorated functions can use their first docstring paragraph instead;
-see [View descriptions](view-descriptions.md) for config precedence and privacy opt-outs.
+see [View descriptions](configuration.md#view-descriptions) for config precedence and privacy opt-outs.
 
 ## Attached server
 
@@ -773,42 +747,82 @@ ps.publish_view(obj, host="127.0.0.1", port=8000)
 
 for publishing to an existing server.
 
-## Recommended starting points
-
-For quick interactive use:
+## Streams
 
 ```python
-ps.publish_view(obj, label="result", launch_server=True)
-```
-
-For scripts and jobs:
-
-```python
-ps.publish_view(
-    obj,
-    label="result",
-    section="demo",
-    host="127.0.0.1",
-    port=8000,
+ps.stream_view(
+    source="events.jsonl",
+    format="jsonl",  # jsonl, text, uvicorn, or auto
+    label=None, section=None, view_id=None,
+    host=None, port=None, destination=None,
+    client_id=None, session_id=None,
 )
 ```
 
-For functions that already return useful objects:
+`source` is required and keyword-only. `stream_view` requires an existing receiver;
+it does not implicitly launch a local server. It returns a `StreamHandle` and
+starts a local daemon follower. Existing files begin at registration EOF; a missing
+file starts at byte zero once created. `destination` follows the same routing and
+credential precedence as ordinary publication.
+
+A `StreamHandle` exposes `source`, `label`, `section`, `view_id`, `client_id`,
+`session_id`, `observation_started_at`, `source_existed_at_start`, and
+`initial_offset`. Inspect `is_observing`, `health`, `acknowledged_source_offset`,
+`candidate_source_offset`, and `accounted_source_offset` for source/delivery state.
+`session_id` can change after a receiver restart. These are observer properties,
+not proof of application health.
+
+Call `handle.stop(timeout=2)` to stop the follower, attempt a bounded final drain,
+and report an ended or incomplete session. Omitting `timeout` uses stream config;
+an explicit timeout must be finite and positive. Stop is idempotent. See
+[Streams and log formats](streams.md) for record and continuity rules.
+
+## Observation options and diagnostics
+
+`ObservationOptions(fields=(), path=(), include_examples=False)` is a public
+configuration object. `fields` and `path` are tuples of supported literal names or
+indexes, not expressions. Pass it as `observe=options` to `publish_view` or `view`.
+
+`get_observation_stats()` returns process-wide capture, queue, and delivery
+counters. `flush_views(timeout=None)` returns whether ordinary async publication
+and observation work drained within the available timeout. A false result is not
+a delivery acknowledgement. See [Observation reference](observation.md).
+
+## Bounded observation of pipeline results
 
 ```python
-@ps.view(
-    label="result",
-    section="demo",
-    host="127.0.0.1",
-    port=8000,
-)
-def build_result():
-    return {"status": "ok"}
+@ps.view(observe=True, view_id="etl:orders", label="Orders")
+def transform_orders(frame):
+    return frame.assign(net=frame["gross"] - frame["discount"])
+
+ps.publish_view(metrics, observe=True, view_id="etl:metrics")
 ```
 
-## Next steps
+`observe=True` captures bounded detached evidence in the caller and prepares and
+publishes summaries asynchronously. The decorator returns the same result object,
+including for async functions, and preserves the original exception/cancellation.
+It does not profile whole inputs. `async_=False` with observation is a setup error;
+the ordinary global async default cannot make observation synchronous.
 
-- [CLI reference](cli.md)
-- [Renderers](renderers.md)
-- [Tracebacks](tracebacks.md)
-- [Deployment Patterns](deployment-patterns.md)
+Use `ps.ObservationOptions(fields=("rows", "seconds"), path=("import",))` in place
+of `True` to narrow capture. Examples are off by default, but supplied scalar
+metrics, field names and bounded category prefixes are still exported. Unsupported
+storage types produce omission reasons, including Polars at present.
+
+`ps.flush_views(timeout=0.5)` provides a bounded best-effort drain;
+`ps.get_observation_stats()` reports drops/failures and queue state. See
+[bounded observations](observation.md) for setup costs, sample meaning,
+privacy, destination rules, supported storage and resource limits.
+
+
+## Traceback options
+
+`TracebackPublishOptions(context_lines=2, max_frames=50)` controls source context
+and frame count for `publish_traceback(..., options=...)`. Enable traceback
+publishing on the producer and permit traceback rendering on the receiver where
+appropriate. Tracebacks can contain private source, paths, and exception text.
+No locals are captured by the traceback formatter.
+
+All documented public names are exported from `plotsrv`; connection objects such
+as `PublishTarget` live in their explicit submodule and are not top-level exports.
+For an introduction, see [Publish from Python](../guides/publish-from-python.md).

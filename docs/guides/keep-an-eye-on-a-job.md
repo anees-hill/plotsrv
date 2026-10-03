@@ -18,7 +18,7 @@ times and current status.
 
 These thresholds apply to ordinary published views. Watched files need an explicit
 per-view freshness entry: a static file is not necessarily late. See
-[freshness settings](freshness.md#source-aware-freshness).
+[freshness settings](../reference/configuration.md#freshness-settings).
 
 ## Check a value
 
@@ -89,5 +89,5 @@ implicitly aggregates your full table or parses arbitrary text into business
 metrics. Start with a small supplied dictionary when you need an exact count.
 
 For operators, supported inputs, event/baseline behaviour, and delivery rules,
-see [Checks](checks.md), [Webhooks](webhooks.md), and
-[Configuration reference](configuration-reference.md).
+see [Checks](../reference/checks.md), [Webhooks](../reference/webhooks.md), and
+[Configuration reference](../reference/configuration.md).

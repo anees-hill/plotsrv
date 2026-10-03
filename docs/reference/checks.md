@@ -1,4 +1,6 @@
-# Server-side checks
+# Checks reference
+
+For the normal setup, start with the [guide](../guides/keep-an-eye-on-a-job.md).
 
 Checks evaluate bounded, already-published scalar evidence on the plotsrv server.
 They work without a browser or snapshot storage and add no decorator arguments.

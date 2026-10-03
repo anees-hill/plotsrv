@@ -43,11 +43,11 @@
   &middot;
   <a href="https://docs.plotsrv.com/get-started/quick-start/"><strong>Quick start</strong></a>
   &middot;
-  <a href="https://docs.plotsrv.com/guides/python-api/"><strong>Python API</strong></a>
+  <a href="https://docs.plotsrv.com/reference/python-api/"><strong>Python API</strong></a>
   &middot;
-  <a href="https://docs.plotsrv.com/guides/cli/"><strong>CLI</strong></a>
+  <a href="https://docs.plotsrv.com/reference/cli/"><strong>CLI</strong></a>
   &middot;
-  <a href="https://docs.plotsrv.com/examples/"><strong>Examples</strong></a>
+  <a href="https://docs.plotsrv.com/examples/etl-pipeline/"><strong>Examples</strong></a>
 </p>
 
 Got a Python object you’d like to see in a browser?
@@ -124,13 +124,13 @@ It is useful when you want more visibility into a script or pipeline without bui
 
 ## Learn more
 
-- [What is plotsrv?](https://docs.plotsrv.com/get-started/what-is-plotsrv/)
+- [What is plotsrv?](https://docs.plotsrv.com//)
 - [Quick start](https://docs.plotsrv.com/get-started/quick-start/)
-- [Python API](https://docs.plotsrv.com/guides/python-api/)
-- [CLI reference](https://docs.plotsrv.com/guides/cli/)
-- [Renderers](https://docs.plotsrv.com/guides/renderers/)
-- [Storage and history](https://docs.plotsrv.com/guides/storage-and-history/)
-- [Deployment patterns](https://docs.plotsrv.com/guides/deployment-patterns/)
+- [Python API](https://docs.plotsrv.com/reference/python-api/)
+- [CLI reference](https://docs.plotsrv.com/reference/cli/)
+- [Renderers](https://docs.plotsrv.com/reference/supported-outputs-and-files/)
+- [Storage and history](https://docs.plotsrv.com/reference/history/)
+- [Deployment patterns](https://docs.plotsrv.com/guides/run-on-another-machine/)
 - [Live demo](https://demo.plotsrv.com)
 
 ## License

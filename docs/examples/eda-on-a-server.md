@@ -1,171 +1,68 @@
----
-icon: lucide/chart-scatter
----
+# EDA over SSH
 
-# EDA on a server
+Inspect a DataFrame and plot from a VM without opening a public dashboard port.
+Run both Python and plotsrv on the VM; open the browser on your laptop.
 
-This example shows how to inspect data and plots when working on a server or terminal-based environment.
-
-The example publishes:
-
-- a DataFrame
-- a summary object
-- a matplotlib plot
-
-## Install dependencies
+## Start plotsrv on the VM
 
 ```bash
-pip install plotsrv polars matplotlib
+python -m pip install plotsrv
+plotsrv serve --host 127.0.0.1 --port 8000
 ```
 
-or:
+Keep that terminal running. In another VM terminal, save this as `eda.py`:
 
-```bash
-uv add plotsrv polars matplotlib
-```
-
-## Create the script
-
-Create `eda_example.py`:
-
-```python title="eda_example.py"
+```python
+import pandas as pd
 import matplotlib.pyplot as plt
-import polars as pl
 import plotsrv as ps
 
+sales = pd.DataFrame({
+    "region": ["North", "South", "West", "East"],
+    "orders": [12, 18, 9, 15],
+    "revenue": [240, 540, 180, 375],
+})
+ps.publish_view(sales, label="sales", section="eda", port=8000)
+ps.publish_view(sales.describe().to_dict(), label="summary", section="eda", port=8000)
 
-HOST = "127.0.0.1"
-PORT = 8000
-
-
-def main() -> None:
-    df = pl.DataFrame(
-        {
-            "month": ["Jan", "Feb", "Mar", "Apr", "May", "Jun"],
-            "bookings": [120, 150, 170, 160, 210, 240],
-            "returns": [115, 148, 165, 155, 205, 235],
-        }
-    )
-
-    summary = {
-        "rows": df.height,
-        "total_bookings": df["bookings"].sum(),
-        "total_returns": df["returns"].sum(),
-        "max_bookings": df["bookings"].max(),
-        "max_returns": df["returns"].max(),
-    }
-
-    fig, ax = plt.subplots()
-    ax.plot(df["month"], df["bookings"], marker="o", label="bookings")
-    ax.plot(df["month"], df["returns"], marker="o", label="returns")
-    ax.set_title("Bookings and returns")
-    ax.set_xlabel("Month")
-    ax.set_ylabel("Count")
-    ax.legend()
-
-    ps.publish_view(
-        df,
-        label="monthly data",
-        section="eda",
-        host=HOST,
-        port=PORT,
-    )
-
-    ps.publish_view(
-        summary,
-        label="summary",
-        section="eda",
-        host=HOST,
-        port=PORT,
-    )
-
-    ps.publish_view(
-        fig,
-        label="plot",
-        section="eda",
-        host=HOST,
-        port=PORT,
-    )
-
-
-if __name__ == "__main__":
-    main()
+fig, ax = plt.subplots()
+ax.bar(sales["region"], sales["revenue"])
+ax.set_ylabel("Revenue")
+ps.publish_view(fig, label="revenue", section="eda", port=8000)
+plt.close(fig)
 ```
 
-## Start plotsrv
-
-In one terminal:
+Run it:
 
 ```bash
-plotsrv run eda_example.py --host 127.0.0.1 --port 8000
+python eda.py
 ```
 
-Open:
-
-```text
-http://127.0.0.1:8000
-```
-
-## Run the script
-
-In another terminal:
+## Forward the port from your laptop
 
 ```bash
-python eda_example.py
+ssh -N -L 8000:127.0.0.1:8000 user@your-vm
 ```
 
-The UI should show:
+Open **<http://127.0.0.1:8000>** on your laptop. Choose **sales**, filter or group
+the table, and try a browser plot. **revenue** is the image rendered by Matplotlib.
+The script can finish without closing the separate server.
 
-- the source data as a table
-- summary values as JSON
-- the matplotlib plot as an image view
-
-## SSH workflow
-
-For remote server work, use port forwarding from the local machine:
+If port 8000 is already used on your laptop, forward another local port:
 
 ```bash
-ssh -L 8000:127.0.0.1:8000 user@server
+ssh -N -L 8001:127.0.0.1:8000 user@your-vm
 ```
 
-Then run plotsrv on the server:
+Then open `http://127.0.0.1:8001`. This does not change the port Python uses on the VM.
 
-```bash
-plotsrv run eda_example.py --host 127.0.0.1 --port 8000
-```
+## Return to a useful table setup
 
-Open locally:
+Choose columns, filters, and a plot, then **Save view**. That presentation stays in
+this browser’s **My views**. Keep the same local URL when reconnecting: browser
+preferences are scoped to the origin and dashboard path. They do not save the
+underlying data.
 
-```text
-http://127.0.0.1:8000
-```
-
-This avoids exposing plotsrv directly to the network.
-
-## Attached version
-
-For a quick local check, use `launch_server=True` instead of `host` and `port`:
-
-```python
-ps.publish_view(
-    df,
-    label="monthly data",
-    section="eda",
-    launch_server=True,
-)
-```
-
-Keep the process open at the end of the script:
-
-```python
-input("Open http://127.0.0.1:8000, then press Enter to stop...")
-```
-
-## What this example shows
-
-plotsrv is useful when a script produces objects that are better inspected visually than printed:
-
-- tables are easier to scan in a browser
-- JSON summaries are easier to expand and inspect
-- plots can be viewed on a headless server
-- repeated script runs update the same UI
+See [Explore in the browser](../guides/explore-in-browser.md) and
+[Run plotsrv on another machine](../guides/run-on-another-machine.md) for history,
+persistent services, and HTTPS access without a tunnel.

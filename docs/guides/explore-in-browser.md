@@ -55,7 +55,7 @@ active. If fields change, plotsrv can ask you to repair the presentation instead
 of silently removing a filter. Review the result before saving it again.
 
 Anyone using the same browser profile can see its saved names, captions, and
-filters. Clearing site storage removes them. See [saved-view limits](my-views.md)
+filters. Clearing site storage removes them. See [saved-view limits](../reference/supported-outputs-and-files.md#saved-presentations)
 for compatibility and storage details.
 
 ## Read without chasing updates

@@ -86,7 +86,7 @@ not all traffic your application has ever seen.
 
 Paths and messages can contain sensitive data. The adapter removes supported URL
 query/fragment details, but this is not general-purpose log redaction. Review the
-[format and privacy rules](http-log-streams.md) before publishing private logs.
+[format and privacy rules](../reference/streams.md) before publishing private logs.
 
 ## Pause to inspect a record
 
@@ -114,4 +114,4 @@ print(stream.health)
 
 For remote destinations, see [Run plotsrv on another machine](run-on-another-machine.md).
 For exact formats, continuity, retention, and limits, see
-[Streams and log formats](http-log-streams.md).
+[Streams and log formats](../reference/streams.md).

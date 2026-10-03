@@ -59,8 +59,8 @@ and `stream_view(...)` declarations. It cannot determine every ID constructed at
 runtime. Normal dynamic publishing still works unless you explicitly restrict
 which view IDs the server accepts.
 
-Keep imports and IDs straightforward. See [CLI reference](../guides/cli.md) and
-[discovery details](../guides/configured-sources.md) for selection and scan rules.
+Keep imports and IDs straightforward. See [CLI reference](../reference/cli.md) and
+[discovery details](../reference/cli.md#configured-sources) for selection and scan rules.
 
 ## Let plotsrv call a function
 

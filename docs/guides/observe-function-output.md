@@ -58,7 +58,7 @@ finished = ps.flush_views(timeout=2)
 This selects the nested branch and fields before capture. Examples are disabled
 by default. That does not make observations anonymous: supplied scalars, field
 names, and bounded category text can still be sent. Review the
-[privacy and selection rules](observation-capture.md) for sensitive data.
+[privacy and selection rules](../reference/observation.md) for sensitive data.
 
 ## Keep the function’s behaviour
 
@@ -80,6 +80,6 @@ print(ps.get_observation_stats())
 For an exact business metric, compute and publish it explicitly. Observation is
 for a quick look at a result, not a replacement for your validation logic.
 
-See [Observation reference](observation-capture.md) for supported types, sample
+See [Observation reference](../reference/observation.md) for supported types, sample
 meaning, limits, and historical comparisons, or [Keep history](keep-history.md)
 to store exported summaries.

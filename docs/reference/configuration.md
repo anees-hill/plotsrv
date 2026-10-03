@@ -7,21 +7,21 @@ icon: lucide/sliders-horizontal
 This page describes the main `plotsrv.yml` / `plotsrv.yaml` settings.
 
 For publisher destinations, role-owned setup contracts, precedence and metadata
-bounds, see [Publisher and server contracts](../about/publisher-contracts.md).
+bounds, see [Publisher and server contracts](../development/publisher-server-internals.md).
 The enforced key policy, catalogue bootstrap transaction and HTTP limits are
-documented in [Publisher ingestion](publisher-ingestion.md). For `plotsrv serve`
-and directly publishing applications, see [Remote publishers](remote-publishers.md).
+documented in [Publisher ingestion](remote-publishing-and-security.md). For `plotsrv serve`
+and directly publishing applications, see [Remote publishers](remote-publishing-and-security.md).
 For configured targets, watches, selection and scan bounds, see
-[Configured sources](configured-sources.md).
+[Configured sources](cli.md#configured-sources).
 For foreground catalogue registration and remote watch lifecycle, see
-[Publisher agent](publisher-agent.md).
+[Publisher agent](cli.md#publisher-helper).
 For bounded server-side scalar and accepted-event rules under `checks-settings`,
 see [Server-side checks](checks.md). Checks are separate from freshness and snapshot
 storage, and are not configured through decorator arguments. Optional named destinations
 under `webhook-settings` are documented in [Generic webhooks](webhooks.md).
 
 Short source explanations and publisher docstring opt-outs use
-`description-settings`; see [View descriptions](view-descriptions.md) for precedence,
+`description-settings`; see [View descriptions](configuration.md#view-descriptions) for precedence,
 privacy and examples.
 
 Create a starter config with:
@@ -165,7 +165,7 @@ limits:
 The default 500 MiB local read cap matches v0.5.0. It bounds preview bytes,
 not the size of a file that can be watched. Remote publisher watches also have
 a fixed 256 KiB capture cap, independent of this setting; see
-[remote watched-file limits](publisher-agent.md#resource-and-ordering-limits).
+[remote watched-file limits](cli.md#publisher-helper).
 
 The equivalent CLI option is:
 
@@ -638,5 +638,293 @@ New documentation and generated configs use the newer layout.
 
 
 `code-settings` controls source-language and initial styling overrides. See
-[Watched source code and raw config text](renderers.md#watched-source-code-and-raw-config-text)
+[Watched source code and raw config text](supported-outputs-and-files.md#watched-source-code-and-raw-config-text)
 for supported suffixes, browser precedence and fixed highlighting limits.
+
+## Publisher and server settings
+
+For `publisher-settings.destination`, `server-settings.bind`, ingestion keys and allowed-view policy, see [Remote publishing and security](remote-publishing-and-security.md).
+
+```yaml
+publisher-settings:
+  discovery:
+    target: ./src
+    selection: ["etl:orders", "Status"]
+    include_pruned: false
+  watch:
+    - path: ./logs/application.log
+      view_id: logs:application
+      label: Application log
+      section: Logs
+      read_mode: tail
+      materialization: memory
+```
+
+Select that file using the existing cwd/environment rules or an explicit path:
+
+```sh
+plotsrv run --config /project/config/plotsrv.yml
+```
+
+Configured filesystem targets and watch paths resolve beside the selected
+config, not beside the shell's current directory. In this example `./src` means
+`/project/config/src`. Module/package names are also supported, including a
+`module:callable` target whose module supplies the scan scope. Discovery never
+executes the callable.
+
+## Overrides and selection
+
+| Invocation | Discovery source | Watches |
+| --- | --- | --- |
+| `plotsrv run` | Configured target, otherwise existing project-root default | Configured set |
+| `plotsrv run ./other` | Explicit path relative to shell cwd | Configured set |
+| `plotsrv run --watch ./status.log` | Configured target/default | Explicit CLI set replaces configured set |
+| `plotsrv run --no-watch` | Configured target/default | Disabled for this invocation |
+
+An override prints a concise information message; `--quiet` suppresses progress
+and information. `--watch` and `--no-watch` cannot be combined. An empty configured
+`watch: []` is valid. Default argparse values do not erase configured labels,
+sections, head/tail mode or materialisation. An explicit
+`--watch-materialization` still overrides materialisation for the chosen watches.
+Existing watch read limits, encoding, cadence and head/tail controls retain their
+existing behaviour. CLI watch paths remain relative to the CLI working directory.
+
+Configured `discovery.selection` uses the existing exact label, section or view
+ID matching. Explicit `--include` replaces that selection; `--exclude` applies
+afterwards and wins. Discovery selection does not filter the watch set. Explicit
+view IDs survive registration and `config populate`, even when labels differ.
+Config population retains its existing merge/replace behaviour and respects the
+configuration's discovery selection.
+
+The sequential configuration wizard writes `discovery.exact_selection` when saving
+its chosen IDs. When present, this list matches only logical IDs; an empty list
+skips discovery entirely. It takes precedence over legacy `selection`, whose
+empty list continues to mean all views. An explicit CLI `--include` replaces
+either configured selection. Optional `discovery.additional_ids` supplies reviewed
+manual/dynamic IDs for local registration, publishing and config population.
+These are logical identities, not filesystem paths. For example:
+
+Run `plotsrv config init --source src/static` to scan a particular path. The
+wizard shows scan progress and file/line diagnostics for declarations whose
+identity or metadata could not be resolved. Its view list contains every
+resolved declaration; it has no 12-view display limit.
+
+```yaml
+publisher-settings:
+  discovery:
+    target: ./src
+    exact_selection: ["etl:orders"]
+    additional_ids: ["etl:runtime-only"]
+```
+
+Saving or loading these settings never seals a remote catalogue. A publisher
+still needs explicit `--seal-catalogue` after reviewing the complete union when
+initialising a locked receiver.
+
+Selection controls discovery, registration and config population. It does not
+stop application functions from executing, or prevent an active producer from
+publishing another ID to a dynamic server. Use explicit server catalogue
+admission when write admission must be restricted. When the wizard hides views
+in combined mode, it configures locked server admission for the selected,
+watched and manually added IDs. The receiving API then rejects hidden IDs, even
+when a separate producer sends them. Review unresolved declarations before
+hiding views: their unknown IDs are not in the allowed set. Publisher-only
+configurations still require admission rules on their receiving server.
+
+Existing `run --mode callable` remains an explicit execution choice. Discovery
+resolves its module scope statically first. When a configured module target comes
+from a different directory, the explicitly requested child process uses the
+config directory (and its conventional `src` layout) for module lookup. Discovery
+itself does not change the process directory or import the application.
+
+## Description settings {#view-descriptions}
+
+### Precedence and privacy
+
+On each machine, `description-settings.views` supplies explicit source metadata.
+The receiving server's explicit description wins over publisher metadata. On the
+publisher, its explicit config wins over `publish_view(description=...)` or the
+first paragraph of an actual decorated function's docstring. An explicit empty
+string suppresses the source explanation.
+
+```yaml
+# On the publisher, disable automatic extraction globally if docs are private.
+description-settings:
+  extract_docstrings: false
+  views:
+    "orders:regional":
+      description: Fulfilled orders and net revenue grouped by region.
+    "ops:latency":
+      extract_docstrings: true
+    "internal:debug":
+      description: ""
+```
+
+`extract_docstrings` defaults to `true`; per-view values override it. This setting
+controls automatic extraction on the publisher/discovery machine. A receiving
+server cannot undo text a publisher has already transmitted: disable extraction
+where the application runs if its docstrings must remain private.
+
+Extraction occurs during decoration or AST discovery, not on every function call.
+Only the bounded first paragraph is cleaned. It does not unwrap decorators, inherit
+class documentation, read README/Markdown files or import application modules to
+obtain documentation. Dynamic functions without a docstring simply have no fallback.
+Changing extraction/config policy requires recreating the decorated producer or
+restarting discovery; it is not a live configuration watcher.
+
+Descriptions use at most 512 characters. Cleaning/extraction examines at most the
+first 4,096 characters before splitting/normalising; the wire descriptor's existing
+2,048-byte limit remains enforced. Plain text is escaped, never rendered as HTML.
+Ordinary and observation publication carry the bounded text with existing work;
+there is no extra description worker, queue, polling or HTTP request per result.
+Configured stream/watch descriptions travel with registration. Watch registration
+uses the advertised `view-descriptions-v1` capability, so older watch receivers
+can continue receiving data without that optional metadata.
+
+Descriptions are **current catalogue/presentation metadata**, not snapshot facts.
+About this view labels that distinction while inspecting a stored snapshot, stream
+run or captured Latest. Existing stored payloads are not rewritten. In particular,
+a source's current explanation is not evidence of what an earlier snapshot meant.
+
+## UI settings
+
+For the interactive editor, use `plotsrv config ui`. These values belong to the server config.
+
+### Basic UI settings
+
+A simple UI settings section might look like this:
+
+```yaml title="plotsrv.yaml"
+ui-settings:
+  page_title: "plotsrv"
+  header_text: "plotsrv"
+```
+
+The page title appears in the browser tab.
+
+The header text appears in the plotsrv UI header.
+
+### Logo and favicon
+
+A logo and favicon can be configured with local file paths.
+
+```yaml title="plotsrv.yaml"
+ui-settings:
+  logo: "assets/logo.png"
+  icon_url: "https://example.com/operations"
+  favicon: "assets/favicon.png"
+```
+
+Logo and favicon paths are resolved relative to the config file.
+
+`icon_url` makes the header logo a link to the configured HTTP(S) URL or a path
+on the same server, such as `/operations`. Leave it unset to keep the logo
+non-clickable, including when using the built-in plotsrv logo. The favicon is
+still only the browser tab icon.
+
+For example:
+
+```text
+project/
+  plotsrv.yaml
+  assets/
+    logo.png
+    favicon.png
+```
+
+### Header colour
+
+The header colour can be customised:
+
+```yaml title="plotsrv.yaml"
+ui-settings:
+  header_fill_colour: "#ffffff"
+```
+
+Use this to make the plotsrv UI fit a project, internal tool, or demo environment.
+
+### A small branded config
+
+```yaml title="plotsrv.yaml"
+ui-settings:
+  page_title: "Operations monitor"
+  header_text: "Operations monitor"
+  logo: "assets/logo.png"
+  icon_url: "https://example.com/operations"
+  favicon: "assets/favicon.png"
+  header_fill_colour: "#ffffff"
+```
+
+Start plotsrv:
+
+```bash
+plotsrv run --config plotsrv.yaml
+```
+
+### Featured views
+
+The header's view browser provides Grouped and A–Z modes. You can promote a
+small set of existing views into a Featured area at the top of Grouped mode:
+
+```yaml title="plotsrv.yaml"
+ui-settings:
+  featured_views:
+    - view: "reports:daily"
+      title: "Daily overview"
+      caption: "The latest reporting summary"
+      thumbnail: "assets/daily-overview.png"
+    - view: "operations:health"
+```
+
+`view` must be the ID of an existing plotsrv view. `title`, `caption`, and
+`thumbnail` are optional; without them, plotsrv uses the view's normal label and
+type icon. Thumbnail paths are resolved relative to `plotsrv.yaml`, just like
+logo and favicon paths. `/static/`, `/assets/`, and HTTP(S) image URLs are also
+accepted.
+
+Missing or malformed references are ignored. When no configured references
+match an available view, the Featured area is omitted. Featured views only
+change presentation in the selector; they do not create or copy views.
+
+Use **Show as list** beside the Featured heading to display those views as
+ordinary entries instead of large cards. **Show cards** restores the expanded
+presentation. This choice is saved in the browser and does not change the
+configured featured views.
+
+Anyone using the page can also pin views from the selector. Pinned view IDs are
+kept in that browser's local storage and appear in a **Pinned views** section in
+Grouped mode. Pins do not change server configuration, are not sent with HTTP
+requests, and are automatically reconciled when views are added or removed.
+
+### Compact views
+
+Supplementary views can remain available without taking the full height of a
+normal selector entry:
+
+```yaml title="plotsrv.yaml"
+ui-settings:
+  compact_views:
+    - "operations:resources"
+    - view: "logs:detail"
+      title: "Supporting logs"
+```
+
+A compact entry shows its title and renderer type without the normal icon. It
+remains searchable, pinnable, and keyboard accessible, and selecting it has the
+same effect as selecting a normal entry. `title` is optional. Missing and
+malformed references are ignored. If a view is configured as both featured and
+compact, its featured presentation takes precedence.
+
+### Browser colour theme
+
+Open **Settings** from the cog beside the live-data status to choose Light,
+Dark, or System appearance. The choice is kept in that browser's local storage;
+it is not a server setting and is not sent with requests.
+
+Themes apply to plotsrv's controls and readable text surfaces, including tables,
+JSON, source code, plain text, Markdown, and tracebacks. Rendered plot images and
+sandboxed HTML or Markdown documents retain their own colours.
+
+## Checks and webhook settings
+
+`checks-settings` and `webhook-settings` use the schemas in [Checks](checks.md) and [Webhooks](webhooks.md). Configure both on the server and restart it after changes.

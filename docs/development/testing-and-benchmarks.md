@@ -158,7 +158,7 @@ substitute for plotsrv's own runtime limits.
 
 ## Detached capture measurements
 
-The [internal observation capture foundation](../guides/observation-capture.md)
+The [internal observation capture foundation](../reference/observation.md)
 has reproducible admission/capture microbenchmarks:
 
 ```bash
@@ -318,7 +318,7 @@ summaries, pending/in-flight captures remain reserved, and decoded evidence is
 released without depending on cyclic GC (verified with GC disabled). No original
 pipeline object crosses the capture boundary.
 
-## Observation presentation and recent history (Prompt 11)
+## Observation presentation and recent history
 
 Run `python -m pytest -q -s tests/benchmarks/test_bench_observation_presentation.py
 --benchmark-columns=min,median,max`. The source is constructed and captured before
@@ -366,7 +366,7 @@ median 3.035 µs for closed-engine rejection, 55.713 µs for a small metrics dic
 the frame. These are measured captures/rejections with setup outside timing,
 not public cold-start costs or hard cancellation deadlines.
 
-## Server-side checks (Prompt 12)
+## Server-side checks
 
 Run `python -m pytest -q -s tests/benchmarks/test_bench_checks.py
 --benchmark-columns=min,median,max`. Inputs/configuration are prepared outside the
@@ -472,7 +472,7 @@ aggregate cap is 256 KiB, including in-flight data, and individual payloads cap 
 attempts. A drained worker's 100 ms idle interval used about 0.059 ms of process CPU
 in this run; indefinite condition waits and absence of an unreferenced worker are
 also tested. Native DNS is not hard-cancellable, as documented in
-[Generic webhooks](../guides/webhooks.md).
+[Generic webhooks](../reference/webhooks.md).
 
 ## Browser loading and connection lifecycle
 

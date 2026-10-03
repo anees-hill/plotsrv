@@ -2,7 +2,9 @@
 icon: lucide/database
 ---
 
-# Storage and history
+# Storage and history reference
+
+For the normal setup, start with the [guide](../guides/keep-history.md).
 
 plotsrv keeps live views in memory by default.
 
@@ -230,7 +232,7 @@ Use conservative values at first. Storage is meant to be useful, not to become a
 
 ## Per-view storage settings
 
-Global storage settings apply to all views by default.
+Ordinary published views inherit global storage settings. Watched files require explicit storage opt-in. Stream retention has its own settings.
 
 For projects with several views, per-view settings can be generated with:
 
@@ -379,8 +381,8 @@ For local project use, `.plotsrv/` is usually a good candidate for `.gitignore`.
 ## Next steps
 
 - [CLI reference](cli.md)
-- [Freshness](freshness.md)
-- [Configuration basics](../get-started/configuration-basics.md)
+- [Freshness](configuration.md#freshness-settings)
+- [Configuration basics](../guides/configure-plotsrv.md)
 
 ## Quick snapshot navigation
 

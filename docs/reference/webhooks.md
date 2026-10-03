@@ -1,4 +1,6 @@
-# Generic webhook notifications
+# Webhooks reference
+
+For the normal setup, start with the [guide](../guides/keep-an-eye-on-a-job.md).
 
 Configured checks can POST compact JSON to an operator-owned HTTP(S) endpoint.
 Configure this on the **plotsrv server**, independently of publisher connection

@@ -39,7 +39,7 @@ storage-settings:
 
 A server restricted to an explicit catalogue still enforces that restriction.
 Restore never makes old data fresh: the original update time remains visible.
-See [restoration rules](storage-and-history.md#latest-restore) for the exact scope.
+See [restoration rules](../reference/history.md#latest-restore) for the exact scope.
 
 ## Avoid storing every update
 
@@ -93,7 +93,7 @@ have additional restrictions; see [Files and watching](../reference/files-and-wa
 Streams keep compact session history by default when storage is enabled. Use the
 **Run** selector to open a retained session. Raw log records remain opt-in, so an
 old run can have useful insights with no saved table rows. See
-[stream retention](storage-and-history.md#stream-session-history) before treating
+[stream retention](../reference/history.md#stream-session-history) before treating
 this as a log archive.
 
 ## Inspect the store
@@ -108,4 +108,4 @@ location. Keep this directory on persistent storage if the server runs in a
 container or disposable working directory.
 
 For deletion commands, retention ceilings, and failure behaviour, see
-[Storage and history reference](storage-and-history.md).
+[Storage and history reference](../reference/history.md).

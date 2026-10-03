@@ -43,7 +43,7 @@ ps.publish_view(
 Readers can open **About this view** to see the description. It is plain text;
 do not include secrets. Decorated functions can supply a description through
 their docstring. Exact precedence and opt-outs are in the
-[description settings](view-descriptions.md).
+[description settings](../reference/configuration.md#view-descriptions).
 
 ## Show a table or plot
 
@@ -61,7 +61,7 @@ plt.close(fig)
 ```
 
 DataFrames open as tables. Matplotlib figures become images. The browser can
-also make plots directly from table data; see [supported outputs](renderers.md).
+also make plots directly from table data; see [supported outputs](../reference/supported-outputs-and-files.md).
 
 ## Publish a file
 
@@ -76,7 +76,7 @@ To keep following changes, [watch the file](../get-started/watch-files.md).
 
 HTML reports can run scripts under the default rendering settings. Only publish
 HTML you trust. Tracebacks are disabled by default because they can expose source
-and paths; see the [security settings](configuration-reference.md#security-settings).
+and paths; see the [security settings](../reference/configuration.md#security-settings).
 
 ## Publish a function’s return value
 
@@ -109,4 +109,4 @@ while ordinary asynchronous publishing is still using it. `flush_views` is a
 bounded best-effort wait; check its result when finishing a short script.
 
 For routing to another machine, see [remote publishing](run-on-another-machine.md).
-For exact arguments, error behaviour, and limits, see [Python API](python-api.md).
+For exact arguments, error behaviour, and limits, see [Python API](../reference/python-api.md).
