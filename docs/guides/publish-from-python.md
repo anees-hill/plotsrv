@@ -108,5 +108,5 @@ be replaced or dropped; this is not a durable event queue. Do not mutate an obje
 while ordinary asynchronous publishing is still using it. `flush_views` is a
 bounded best-effort wait; check its result when finishing a short script.
 
-For routing to another machine, see [remote publishing](remote-publishers.md).
+For routing to another machine, see [remote publishing](run-on-another-machine.md).
 For exact arguments, error behaviour, and limits, see [Python API](python-api.md).

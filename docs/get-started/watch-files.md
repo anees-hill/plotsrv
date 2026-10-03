@@ -70,7 +70,7 @@ plotsrv watch ./logs/job.log --tail --destination http://127.0.0.1:8000/
 ```
 
 The watch process reads the file; the receiving server does not open that path.
-See [remote publishing](../guides/remote-publishers.md) for another machine.
+See [remote publishing](../guides/run-on-another-machine.md) for another machine.
 
 Need matching rules, scan depth, byte limits, or large-file behaviour? See
 [Files and watching reference](../reference/files-and-watching.md).

@@ -84,4 +84,4 @@ Use **Expand view** to hide the surrounding controls. Reveal them when you need
 to switch sources or change the presentation, then exit expanded mode to return.
 Choose a light or dark theme in browser settings. These preferences belong to
 this browser; changing the dashboard’s shared title or logo uses the
-[configuration tools](ui-customisation.md).
+[configuration tools](configure-plotsrv.md).

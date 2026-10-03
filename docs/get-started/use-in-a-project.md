@@ -88,8 +88,8 @@ plotsrv config init
 ```
 
 The wizard can discover your declared views and help configure the server and
-publisher. See [configuration](configuration-basics.md) for file selection and
-[remote publishing](../guides/remote-publishers.md) when the server lives elsewhere.
+publisher. See [configuration](../guides/configure-plotsrv.md) for file selection and
+[remote publishing](../guides/run-on-another-machine.md) when the server lives elsewhere.
 
 Next: [Publish from Python](../guides/publish-from-python.md), or try the complete
 [ETL example](../examples/etl-pipeline.md).

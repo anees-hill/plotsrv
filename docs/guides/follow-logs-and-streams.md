@@ -112,6 +112,6 @@ If delivery seems stuck, inspect the local observer:
 print(stream.health)
 ```
 
-For remote destinations, see [Run plotsrv on another machine](remote-publishers.md).
+For remote destinations, see [Run plotsrv on another machine](run-on-another-machine.md).
 For exact formats, continuity, retention, and limits, see
 [Streams and log formats](http-log-streams.md).
