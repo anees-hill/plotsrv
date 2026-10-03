@@ -20,6 +20,15 @@ That’s the basic idea. Publish a DataFrame to get a table, a Matplotlib figure
 see a plot, or a dictionary to inspect its contents. You can also show Markdown,
 images, HTML reports, and text.
 
+<figure class="plotsrv-screenshot" markdown="1">
+
+[![The published status dictionary in plotsrv, showing status ok and 123 rows.](assets/images/screenshots/status-light.png){ loading="lazy" width="1280" height="480" }](assets/images/screenshots/status-light.png){ .plotsrv-shot-light }
+
+[![The published status dictionary in plotsrv, showing status ok and 123 rows.](assets/images/screenshots/status-dark.png){ loading="lazy" width="1280" height="480" }](assets/images/screenshots/status-dark.png){ .plotsrv-shot-dark }
+
+<figcaption>A dictionary, shown as a tree. Click the image to enlarge it.</figcaption>
+</figure>
+
 [Install and try it →](get-started/quick-start.md)
 
 ## Already have a file?

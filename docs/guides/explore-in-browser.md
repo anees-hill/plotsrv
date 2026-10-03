@@ -58,6 +58,15 @@ Anyone using the same browser profile can see its saved names, captions, and
 filters. Clearing site storage removes them. See [saved-view limits](../reference/supported-outputs-and-files.md#saved-presentations)
 for compatibility and storage details.
 
+<figure class="plotsrv-screenshot" markdown="1">
+
+[![Orders plotted by region with the supporting table and a saved presentation named Orders by region.](../assets/images/screenshots/table-light.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/table-light.png){ .plotsrv-shot-light }
+
+[![Orders plotted by region with the supporting table and a saved presentation named Orders by region.](../assets/images/screenshots/table-dark.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/table-dark.png){ .plotsrv-shot-dark }
+
+<figcaption>A bar plot and its supporting rows, saved as “Orders by region”. Click to enlarge.</figcaption>
+</figure>
+
 ## Read without chasing updates
 
 The normal view can update as new data arrives. When you filter or inspect a plot,

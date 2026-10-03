@@ -4,6 +4,9 @@ icon: lucide/blocks
 
 # UI development
 
+For real light/dark documentation captures, see
+[Refresh screenshots](documentation.md#refresh-screenshots).
+
 The browser UI has no runtime CDN dependency. Tabulator 5.5.0 is vendored under
 `src/plotsrv/static/vendor/` with its licence, and plotsrv's readable CSS and
 JavaScript sources remain under `static/css/` and `static/js/`.

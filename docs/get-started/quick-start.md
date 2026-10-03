@@ -35,6 +35,15 @@ ps.publish_view(
 Open **<http://127.0.0.1:8000>**. Expand the dictionary to inspect its values.
 The server runs in this Python process; leave the session open.
 
+<figure class="plotsrv-screenshot" markdown="1">
+
+[![The quick-start dictionary in plotsrv, with status ok and 123 rows.](../assets/images/screenshots/status-light.png){ loading="lazy" width="1280" height="480" }](../assets/images/screenshots/status-light.png){ .plotsrv-shot-light }
+
+[![The quick-start dictionary in plotsrv, with status ok and 123 rows.](../assets/images/screenshots/status-dark.png){ loading="lazy" width="1280" height="480" }](../assets/images/screenshots/status-dark.png){ .plotsrv-shot-dark }
+
+<figcaption>The result of the first example. Click to enlarge.</figcaption>
+</figure>
+
 Publish again with the same label to replace that view:
 
 ```python

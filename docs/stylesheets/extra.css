@@ -74,48 +74,40 @@
   fill: none;
 }
 
-/* Hide the homepage H1 visually while keeping it in the document structure */
-.md-typeset h1.page-title-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
+/* Real UI captures follow the documentation theme; each opens at full size. */
+.md-typeset .plotsrv-screenshot {
+  display: block;
+  margin: 1.5rem 0;
+  max-width: 100%;
 }
 
-/* Homepage hero logo */
-.plotsrv-hero-logo {
-  display: flex;
-  justify-content: center;
-  margin: 1rem auto 1rem;
+.md-typeset .plotsrv-screenshot p {
+  margin: 0;
 }
 
-.plotsrv-hero-logo img {
-  width: min(150px, 70%);
+.md-typeset .plotsrv-screenshot img {
+  display: block;
+  width: 100%;
   height: auto;
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 0.3rem;
 }
 
-
-/* Homepage title logo */
-.plotsrv-title-logo {
-  display: flex;
-  justify-content: center;
-  margin: 1rem auto 1rem;
+.plotsrv-shot-light {
+  display: block;
 }
 
-.plotsrv-title-logo img {
-  width: min(180px, 70%);
-  height: auto;
+.plotsrv-shot-dark,
+[data-md-color-scheme="slate"] .plotsrv-shot-light {
+  display: none;
 }
 
-/* Homepage tagline */
-.plotsrv-tagline {
-  text-align: center;
-  font-size: 1.25rem;
-  font-weight: 700;
-  margin: 0 0 1.5rem;
+[data-md-color-scheme="slate"] .plotsrv-shot-dark {
+  display: block;
+}
+
+.md-typeset .plotsrv-screenshot figcaption {
+  margin-top: 0.5rem;
+  color: var(--md-default-fg-color--light);
+  font-size: 0.75rem;
 }

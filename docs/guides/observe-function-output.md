@@ -42,6 +42,15 @@ Open **Evidence** to filter, group, or plot the inspected values. Where availabl
 recent scalar changes. Adjust a presentation and **Save view** if you want to
 return to it. These comparisons are descriptive, not statistical drift tests.
 
+<figure class="plotsrv-screenshot" markdown="1">
+
+[![The observation overview for a synthetic orders DataFrame, highlighting two missing revenue values in twelve inspected rows.](../assets/images/screenshots/observation-light.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/observation-light.png){ .plotsrv-shot-light }
+
+[![The observation overview for a synthetic orders DataFrame, highlighting two missing revenue values in twelve inspected rows.](../assets/images/screenshots/observation-dark.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/observation-dark.png){ .plotsrv-shot-dark }
+
+<figcaption>A bounded summary of a larger synthetic orders table. Click to enlarge.</figcaption>
+</figure>
+
 ## Choose what to inspect
 
 Use options in place of `True`:

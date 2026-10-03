@@ -55,6 +55,15 @@ browser’s attention marker; it does not resolve an active failure. The first
 accepted value establishes the baseline, so an initially failing check is visible
 but does not manufacture a transition notification.
 
+<figure class="plotsrv-screenshot" markdown="1">
+
+[![The status panel showing up-to-date data and an active Import errors check with an observed value of three.](../assets/images/screenshots/checks-light.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/checks-light.png){ .plotsrv-shot-light }
+
+[![The status panel showing up-to-date data and an active Import errors check with an observed value of three.](../assets/images/screenshots/checks-dark.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/checks-dark.png){ .plotsrv-shot-dark }
+
+<figcaption>Fresh data can still fail a check. This job reported three errors. Click to enlarge.</figcaption>
+</figure>
+
 ## Send a webhook
 
 Add a destination to the server config:

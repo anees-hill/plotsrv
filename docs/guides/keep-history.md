@@ -74,6 +74,15 @@ Historical mode stays labelled until you explicitly return to Live.
 Table presentation settings are separate from history. Saving **My views** keeps
 filters and plot settings, not the selected snapshot.
 
+<figure class="plotsrv-screenshot" markdown="1">
+
+[![An earlier orders table with a historical snapshot label and the History timeline open.](../assets/images/screenshots/history-light.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/history-light.png){ .plotsrv-shot-light }
+
+[![An earlier orders table with a historical snapshot label and the History timeline open.](../assets/images/screenshots/history-dark.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/history-dark.png){ .plotsrv-shot-dark }
+
+<figcaption>An earlier stored version. The timeline uses UTC. Click to enlarge.</figcaption>
+</figure>
+
 ## Keep watched files or stream runs
 
 Watched-file storage is off by default even when ordinary storage is enabled.

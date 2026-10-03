@@ -98,6 +98,15 @@ it cannot recover records that have already expired.
 when the session is compatible. **Noteworthy** brings selected events to the front.
 Neither is a complete error log or a promise that every event was retained.
 
+<figure class="plotsrv-screenshot" markdown="1">
+
+[![A synthetic job log beside the Noteworthy panel, showing a validation warning and an export error.](../assets/images/screenshots/stream-light.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/stream-light.png){ .plotsrv-shot-light }
+
+[![A synthetic job log beside the Noteworthy panel, showing a validation warning and an export error.](../assets/images/screenshots/stream-dark.png){ loading="lazy" width="1440" height="1080" }](../assets/images/screenshots/stream-dark.png){ .plotsrv-shot-dark }
+
+<figcaption>New log records, with retained warnings and errors in Noteworthy. Click to enlarge.</figcaption>
+</figure>
+
 ## Return to an earlier run
 
 Each stream registration has a session. The browser can show retained previous

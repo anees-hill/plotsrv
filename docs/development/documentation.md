@@ -48,4 +48,31 @@ Home, Quick start, Watch files, and both examples were rewritten in place. Relea
 
 Open a guide with a command, working example, or concrete problem. Keep the normal case and one or two variations; link to reference for the exact rules. Check examples against the code before publishing. Test shell/Python examples in temporary directories, never against a production server. Preserve security and data-loss limitations beside the relevant example.
 
-See [UI development](ui-development.md) for screenshot capture and [Contributing](contributing.md) for the test environment.
+## Refresh screenshots
+
+Install Chromium once, then capture all six scenes in both themes:
+
+```bash
+uv run --locked --group test playwright install chromium
+uv run --locked --group test python scripts/capture_docs.py
+```
+
+The script starts a loopback server on an unused port, with temporary config and
+storage. It publishes synthetic orders, log records, observations, and check
+values through the Python API. It then operates the real browser controls. No
+server responses or page content are mocked. The server and stream stop on exit.
+
+Images go in `docs/assets/images/screenshots/`. Use `--output /tmp/plotsrv-shots`
+to review a capture before replacing the committed images. Each light/dark pair
+uses the same data and layout; timestamps reflect the actual capture. The status
+scene uses a 1280 × 480 viewport; the other scenes use 1440 × 1080. Chromium uses
+UTC, English labels, reduced motion, and a device scale factor of one.
+
+Review both images in each pair. Wait for loaded content and settled metadata,
+not a fixed sleep. Keep useful controls visible, add descriptive alt text and a
+short caption, and link images to their full resolution. The documentation CSS
+selects the screenshot matching the reader's theme. Keep screenshots beside the
+task they explain, rather than collecting a gallery in the navigation.
+
+See [UI development](ui-development.md) for browser assets and
+[Contributing](contributing.md) for the test environment.
