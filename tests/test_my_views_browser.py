@@ -1,7 +1,15 @@
 """Exercise personal settings through the existing real table/plot controllers."""
 
 import pytest
-from tests.test_plot_controls_browser import page, STATIC
+from tests.test_plot_controls_browser import page, STATIC, playwright
+
+expect = playwright.expect
+
+
+def wait_for_save(page):
+    # Storage is written before the async save finishes updating the active view.
+    expect(page.get_by_role("dialog")).to_have_count(0)
+    expect(page.locator("#table-save-view-btn")).to_be_disabled()
 
 
 @pytest.fixture
@@ -18,7 +26,8 @@ def save(page, name="My grouped table"):
     page.get_by_label("Name", exact=True).fill(name)
     page.get_by_label("Caption", exact=True).fill("A <safe> caption")
     page.get_by_role("dialog").get_by_role("button", name="Save view", exact=True).click()
-    page.wait_for_function("PLOTSRV.core.viewSpec.read().items.length > 0")
+    wait_for_save(page)
+    assert page.evaluate("PLOTSRV.core.viewSpec.read().items.length") > 0
 
 
 def test_dirty_create_cancel_update_save_as_and_round_trip(personal):
@@ -44,6 +53,7 @@ def test_dirty_create_cancel_update_save_as_and_round_trip(personal):
     page.select_option("#table-group-by-select", "")
     page.click("#table-save-view-btn")
     page.get_by_role("button", name="Update", exact=True).click()
+    wait_for_save(page)
     assert (
         page.evaluate("PLOTSRV.core.viewSpec.read().items[0].spec.presentation.group")
         == ""
@@ -52,6 +62,7 @@ def test_dirty_create_cancel_update_save_as_and_round_trip(personal):
     page.click("#table-save-view-btn")
     page.get_by_label("Name", exact=True).fill("Second")
     page.get_by_role("button", name="Save as new", exact=True).click()
+    wait_for_save(page)
     assert page.evaluate("PLOTSRV.core.viewSpec.read().items.length") == 2
 
 
@@ -114,6 +125,7 @@ def test_schema_drift_pauses_filter_until_explicit_repair(personal):
     before = page.evaluate("PLOTSRV.core.viewSpec.read().items[0]")
     page.once("dialog", lambda dialog: dialog.accept())
     page.get_by_role("button", name="Repair presentation").click()
+    expect(page.locator("#my-view-notice")).to_contain_text("Compatible settings applied.")
     assert (
         page.evaluate("PLOTSRV.state.tabulatorInstance.getData('active').length") == 2
     )
@@ -137,7 +149,7 @@ def test_storage_bounds_corruption_quota_and_base_path(personal):
     page.click("#table-save-view-btn")
     page.get_by_label("Name", exact=True).fill("Cannot save")
     page.get_by_role("dialog").get_by_role("button", name="Save view", exact=True).click()
-    assert "disabled or full" in page.get_by_role("alert").inner_text()
+    expect(page.get_by_role("alert")).to_contain_text("disabled or full")
     assert page.locator("dialog").is_visible()
 
 
@@ -188,9 +200,7 @@ def test_selector_exact_tabs_empty_state_delete_cancel_and_focus(personal, width
     page.keyboard.press("Enter")
     page.wait_for_function("PLOTSRV.core.viewSpec.read().items.length === 0")
     assert "view=" not in page.url or page.url.split("?")[0] == before.split("?")[0]
-    assert page.locator(".ps-viewselect__search").evaluate(
-        "e => e === document.activeElement"
-    )
+    expect(page.locator(".ps-viewselect__search")).to_be_focused()
     assert page.evaluate(
         "document.documentElement.scrollWidth <= innerWidth"
     ), page.evaluate(
@@ -222,7 +232,7 @@ def test_missing_source_and_cross_tab_conflict_preserve_settings(personal):
     page.select_option("#table-group-by-select", "")
     page.click("#table-save-view-btn")
     page.get_by_role("button", name="Update", exact=True).click()
-    assert "another tab" in page.get_by_role("alert").inner_text()
+    expect(page.get_by_role("alert")).to_contain_text("another tab")
     page.get_by_role("button", name="Cancel", exact=True).click()
     add_selector(page)
     page.evaluate("PLOTSRV.core.updateViewSelectorCatalogue([])")
@@ -277,6 +287,7 @@ def test_reset_saved_changes_and_historical_save_tracks_latest(personal):
         in page.locator("dialog").inner_text()
     )
     page.get_by_role("button", name="Save as new", exact=True).click()
+    wait_for_save(page)
     saved = page.evaluate("PLOTSRV.core.viewSpec.read().items.at(-1)")
     assert "secret-cursor" not in str(saved)
     url = page.evaluate("item => PLOTSRV.core.personalViewUrl(item)", saved)
