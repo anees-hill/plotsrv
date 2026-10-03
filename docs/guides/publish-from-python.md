@@ -92,7 +92,7 @@ The function returns its result as usual. See [Use plotsrv in a project](../get-
 for discovery, calling conventions, and keeping the server running.
 
 If you want a small summary of a large result instead, use
-[Observe function output](observation-capture.md).
+[Observe function output](observe-function-output.md).
 
 ## Keep publishing out of the way
 

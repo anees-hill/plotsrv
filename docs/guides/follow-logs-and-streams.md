@@ -101,7 +101,7 @@ Neither is a complete error log or a promise that every event was retained.
 ## Return to an earlier run
 
 Each stream registration has a session. The browser can show retained previous
-sessions, and [storage](storage-and-history.md) can preserve compact session history
+sessions, and [storage](keep-history.md) can preserve compact session history
 across a server restart. Raw records are not stored on disk by default.
 
 A live heartbeat says the observer is connected; it does not prove that the job

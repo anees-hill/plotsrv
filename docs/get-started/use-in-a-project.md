@@ -79,6 +79,8 @@ use a metadata-only decorator for a function you intend the runner to publish.
 For an application with its own scheduler, keep calling it normally and use the
 two-terminal pattern above.
 
+[Keep history](../guides/keep-history.md) or [keep an eye on a job](../guides/keep-an-eye-on-a-job.md) once you have regular updates.
+
 ## Add config when you need it
 
 ```bash

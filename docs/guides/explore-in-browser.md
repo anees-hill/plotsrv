@@ -74,7 +74,7 @@ expired. See [Follow logs and streams](follow-logs-and-streams.md).
 When storage is enabled, use the bottom history selector and older/newer controls.
 Historical mode is labelled. Return to **Live** to see current output again.
 The history timeline helps find a stored version from another time; pin a version
-when comparing outputs. See [Keep history](storage-and-history.md).
+when comparing outputs. See [Keep history](keep-history.md).
 
 Saving a table presentation and keeping a historical version are separate things.
 
