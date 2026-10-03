@@ -39,6 +39,9 @@ This publishes a dictionary-like object, so plotsrv displays it with the JSON re
 
 DataFrames are rendered as tables.
 
+This example uses Polars, an optional dependency. Install it with
+`python -m pip install polars`, or use the pandas example below.
+
 ```python title="table_example.py"
 import polars as pl
 import plotsrv as ps
