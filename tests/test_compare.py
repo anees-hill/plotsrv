@@ -384,37 +384,43 @@ def test_two_near_limit_captures_leave_publication_independent(client, monkeypat
     import tracemalloc
     from concurrent.futures import ThreadPoolExecutor
 
-    for vid in ("capture:a", "capture:b"):
+    view_ids = ("capture:a", "capture:b")
+    for vid in view_ids:
         store.set_artifact(obj="x" * compare.MAX_STRING, kind="text", view_id=vid)
-    entered = threading.Barrier(3)
-    resume = threading.Event()
+    entered = {vid: threading.Event() for vid in view_ids}
+    resume = {vid: threading.Event() for vid in view_ids}
     render = app_mod._render_artifact_response
 
     def paused(**kwargs):
-        entered.wait(timeout=5)
-        assert resume.wait(5)
+        vid = kwargs["view_id"]
+        entered[vid].set()
+        assert resume[vid].wait(10)
         return render(**kwargs)
 
     monkeypatch.setattr(app_mod, "_render_artifact_response", paused)
     with ThreadPoolExecutor(max_workers=3) as workers:
         tracemalloc.start()
         try:
-            captures = [
-                workers.submit(compare.capture_latest, vid)
-                for vid in ("capture:a", "capture:b")
-            ]
-            entered.wait(timeout=5)
+            # Both renders stay active, but their nonblocking store-lock checks
+            # must not race: this test measures publication independence.
+            captures = []
+            for vid in view_ids:
+                captures.append(workers.submit(compare.capture_latest, vid))
+                assert entered[vid].wait(10)
             start = time.perf_counter()
-            workers.submit(publish, "independent publication").result(timeout=1)
+            workers.submit(publish, "independent publication").result(timeout=10)
             publication_time = time.perf_counter() - start
             with pytest.raises(Exception) as busy:
                 compare.capture_latest("capture:a")
             assert busy.value.status_code == 503
-            resume.set()
-            responses = [future.result(timeout=5) for future in captures]
+            responses = []
+            for vid, future in zip(view_ids, captures):
+                resume[vid].set()
+                responses.append(future.result(timeout=10))
             _, peak = tracemalloc.get_traced_memory()
         finally:
-            resume.set()
+            for event in resume.values():
+                event.set()
             tracemalloc.stop()
     assert all(
         response.status_code == 200 and len(response.body) <= compare.MAX_BYTES
@@ -428,6 +434,42 @@ def test_two_near_limit_captures_leave_publication_independent(client, monkeypat
             "wire_bytes": [len(r.body) for r in responses],
         },
     )
+
+
+def test_capture_final_lock_contention_rejects_and_releases_reader(client, monkeypatch):
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+    from fastapi import HTTPException
+
+    publish()
+    revision = store.get_render_revision(view_id="ops:log")
+    rendered = threading.Event()
+    resume = threading.Event()
+    render = app_mod._render_artifact_response
+
+    def paused(**kwargs):
+        result = render(**kwargs)
+        rendered.set()
+        assert resume.wait(10)
+        return result
+
+    # One slot makes the successful follow-up prove that rejection released it.
+    monkeypatch.setattr(compare, "_READERS", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(app_mod, "_render_artifact_response", paused)
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        future = workers.submit(compare.capture_latest, "ops:log")
+        try:
+            assert rendered.wait(10)
+            with store._STORE_LOCK:
+                resume.set()
+                with pytest.raises(HTTPException) as rejected:
+                    future.result(timeout=10)
+                assert rejected.value.status_code == 409
+        finally:
+            resume.set()
+    assert store.get_render_revision(view_id="ops:log") == revision
+    monkeypatch.setattr(app_mod, "_render_artifact_response", render)
+    assert compare.capture_latest("ops:log").status_code == 200
 
 
 def test_capture_type_admission_never_executes_custom_metaclass_hooks(client):
