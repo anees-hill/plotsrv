@@ -28,7 +28,7 @@ class Page(HTMLParser):
         attrs = dict(attrs)
         if attrs.get("id"):
             self.ids.add(attrs["id"])
-        if tag == "a" and attrs.get("href"):
+        if tag in {"a", "link"} and attrs.get("href"):
             self.links.append(attrs["href"])
         if tag in {"img", "script", "iframe"} and attrs.get("src"):
             self.links.append(attrs["src"])
@@ -44,31 +44,43 @@ def output_path(markdown: str) -> Path:
 
 def redirects() -> None:
     mapping = json.loads((ROOT / "scripts/docs_redirects.json").read_text())
-    for source, destination in mapping.items():
-        target, _, anchor = destination.partition("#")
-        dest = output_path(target)
-        if not dest.is_file():
-            raise ValueError(f"Missing redirect destination: {destination}")
+    for source, entry in mapping.items():
         old = output_path(source)
         if (ROOT / "docs" / source).exists():
             raise ValueError(f"Redirect shadows a source page: {source}")
-        relative = Path(os.path.relpath(dest.parent, old.parent)).as_posix() + "/"
-        ids = Page(dest.read_text()).ids
-        if anchor and anchor not in ids:
-            raise ValueError(f"Missing redirect anchor: {destination}")
+
+        def resolve(destination):
+            target, _, fragment = destination.partition("#")
+            dest = output_path(target)
+            if not dest.is_file():
+                raise ValueError(f"Missing redirect destination: {destination}")
+            ids = Page(dest.read_text()).ids
+            if fragment and fragment not in ids:
+                raise ValueError(f"Missing redirect anchor: {destination}")
+            relative = Path(os.path.relpath(dest.parent, old.parent)).as_posix() + "/"
+            return {"path": relative, "anchor": fragment}, ids
+
+        destination = entry if isinstance(entry, str) else entry["to"]
+        target, ids = resolve(destination)
+        relative, anchor = target["path"], target["anchor"]
+        fragments = {key: resolve(value)[0] for key, value in
+                     (entry.get("anchors", {}) if isinstance(entry, dict) else {}).items()}
         fallback = relative + ("#" + anchor if anchor else "")
         old.parent.mkdir(parents=True, exist_ok=True)
-        # Preserve fragments only when they still exist on the destination.
-        # A split page's explicit destination anchor takes precedence.
+        # Explicit mappings preserve links into pages that were split. Otherwise
+        # retain an existing destination heading, or use the page's fallback.
         old.write_text(
             '<!doctype html><html lang="en"><meta charset="utf-8">'
+            '<meta name="robots" content="noindex">'
             '<title>Page moved · plotsrv</title>'
             f'<link rel="canonical" href="{html.escape(fallback, quote=True)}">'
             '<script>const base=' + json.dumps(relative) + ';const anchor='
-            + json.dumps(anchor) + ';const ids=' + json.dumps(sorted(ids)) + ';'
-            'const requested=decodeURIComponent(location.hash.slice(1));'
-            'const fragment=anchor||(ids.includes(requested)?requested:"");'
-            'location.replace(base+location.search+(fragment?"#"+encodeURIComponent(fragment):""));'
+            + json.dumps(anchor) + ';const ids=' + json.dumps(sorted(ids))
+            + ';const moved=' + json.dumps(fragments) + ';'
+            'let requested="";try{requested=decodeURIComponent(location.hash.slice(1));}catch{}'
+            'const target=Object.hasOwn(moved,requested)?moved[requested]:null;'
+            'const fragment=target?target.anchor:(ids.includes(requested)?requested:anchor);'
+            'location.replace((target?target.path:base)+location.search+(fragment?"#"+encodeURIComponent(fragment):""));'
             '</script><p>This page has moved. '
             f'<a href="{html.escape(fallback, quote=True)}">Open the current documentation</a>.</p></html>'
         )
@@ -114,6 +126,8 @@ def check_links() -> None:
 
 
 def main():
+    subprocess.run([sys.executable, str(ROOT / "scripts/check_docs_examples.py")],
+                   cwd=ROOT, check=True)
     subprocess.run([sys.executable, "-m", "zensical", "build", "--clean", "--strict"],
                    cwd=ROOT, check=True)
     redirects()

@@ -6,7 +6,13 @@ Build and check the site with:
 uv run --locked --group docs python scripts/build_docs.py
 ```
 
-The build validates internal links, anchors, images, and article reachability. The redirect map preserves retired URLs without duplicate articles. Do not add a subsystem to the main sidebar merely because it exists.
+The build checks Python syntax and public API arguments, parses CLI examples with
+the real parser, and reviews YAML through the configuration wizard's validators.
+It then validates internal links, anchors, images, and article reachability.
+These checks do not execute jobs or contact remote services; run the complete
+examples when changing their behaviour. The redirect map preserves retired URLs
+without duplicate articles. Do not add a subsystem to the main sidebar merely
+because it exists.
 
 ## Migration inventory
 
@@ -44,6 +50,10 @@ The build validates internal links, anchors, images, and article reachability. T
 
 Home, Quick start, Watch files, and both examples were rewritten in place. Release notes retain their historical claims. New task guides link to exact reference rules. Ordinary developer concepts do not need tutorial introductions.
 
+The redirect map also preserves selected old section links when their content
+moved to another page, including Caddy setup and observation internals. Existing
+headings keep their fragments; missing headings fall back to the current article.
+
 ## Writing and verification
 
 Open a guide with a command, working example, or concrete problem. Keep the normal case and one or two variations; link to reference for the exact rules. Check examples against the code before publishing. Test shell/Python examples in temporary directories, never against a production server. Preserve security and data-loss limitations beside the relevant example.
@@ -76,3 +86,15 @@ task they explain, rather than collecting a gallery in the navigation.
 
 See [UI development](ui-development.md) for browser assets and
 [Contributing](contributing.md) for the test environment.
+
+## Product follow-ups found during the rewrite
+
+These are existing behaviours to review separately from documentation changes:
+
+- `watch_capture.py` describes complete remote HTML as “Isolated HTML”, although
+  a trusted publisher's report can run without a sandbox under the defaults.
+  The security reference states the actual trust rules.
+- Local `capture_exceptions` / `publish_traceback` calls do not apply `label` and
+  `section` to the view catalogue as ordinary `publish_view` calls do. The attached
+  traceback examples use an explicit `view_id`; the API reference explains this
+  difference.

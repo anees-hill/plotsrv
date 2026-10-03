@@ -1,22 +1,32 @@
-name: Deploy docs
+name: Build and deploy docs
 
 on:
   push:
     branches: [main]
     paths:
       - "docs/**"
+      - "README.md"
       - "zensical.toml"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "scripts/*docs*"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "README.md"
+      - "zensical.toml"
+      - "pyproject.toml"
+      - "uv.lock"
       - "scripts/*docs*"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
-  group: "pages"
+  group: "docs-${{ github.ref }}"
   cancel-in-progress: false
 
 jobs:
@@ -42,11 +52,16 @@ jobs:
         run: uv run --locked --group docs python scripts/build_docs.py
 
       - name: Upload GitHub Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
 
   deploy:
+    if: github.event_name != 'pull_request'
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
