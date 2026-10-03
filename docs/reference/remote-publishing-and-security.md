@@ -75,50 +75,13 @@ already-resolved work to fail closed until resolved again. No credential cache
 or persistent identity database is created. Remote error diagnostics omit
 server response bodies and exception details that could echo a credential.
 
-`ViewDescriptor` is a strict JSON-safe metadata object with:
+Explicit view IDs stay independent of labels and source paths. A descriptor can
+advertise a basename and source type; it never grants the receiver access to a
+publisher path. Keep IDs stable across restarts and include their exact values
+when restricting the server's catalogue.
 
-- `metadata_version: 1`, exact `view_id`, `label`, optional `section`;
-- `kind`: `unknown`, `plot`, `table`, `artifact`, or `stream`;
-- optional plain-text `description`, and a bounded list of capability names;
-- optional `SourceMetadata(basename, source_type, scope)`, where scope is
-  `publisher`, `server`, or `unknown` provenance.
-
-IDs/labels/sections are bounded to 512 Unicode code points, descriptions to
-2,048, basename to 255, source type to 64, and capabilities to 32 names of 64
-code points each. Text must be well-formed Unicode without control characters.
-The complete descriptor is capped at 16 KiB of UTF-8 JSON; `from_json()` checks
-that bound before decoding. A catalogue holds at most 1,024 validated descriptors
-and rejects duplicate IDs (including conflicting declarations). Source metadata
-has no path field, and basename rejects path separators. Provenance never grants
-filesystem access, changes admission, or enables storage/checks.
-
-```python
-from plotsrv.contracts import SourceMetadata, ViewDescriptor
-
-metadata = ViewDescriptor(
-    view_id="imports:订单:daily", label="Daily orders", section="Imports",
-    source=SourceMetadata(basename="orders.py", source_type="python"),
-)
-assert ViewDescriptor.from_json(metadata.to_json()) == metadata
-```
-
-Discovery's `DiscoveredView.descriptor()` produces this shape with exact IDs.
-When kind is not statically declared it uses `unknown` with no capability
-guarantees; an explicit supported publication kind is preserved. Passive registration preserves
-those IDs while waiting for runtime data. `@view(view_id=...)` and
-`WatchConfig(view_id=...)` also preserve explicit identities. Paths and displayed
-labels are independent of explicit IDs. Existing legacy paths that do not use
-the descriptor are not retroactively subjected to its new metadata bounds.
-
-`ProtocolCapabilities` defines `protocol_version: 1`, `stream_protocol_version:
-4`, a capability list, `server_generation`, and `dashboard_scope`. Capability
-names default to empty; no future route is advertised. This is the response
-shape returned by the authenticated `/capabilities` handshake.
-Stream protocol 4 and its session/sequence/acknowledgement rules stay unchanged.
-Stable error category strings are `incompatible_protocol`,
-`unauthorised_publisher`, `inadmissible_view`, `oversize_data`, `invalid_request`,
-and `ingestion_busy`.
-
+For descriptor fields, wire versions, and metadata bounds, see
+[Publisher/server internals](../development/publisher-server-internals.md#destination-and-metadata-shapes).
 
 Publisher mutations have a dedicated authentication and admission boundary.
 They do not require disabling `security-settings.control_local_only`. A single
@@ -242,25 +205,34 @@ validation errors may still produce the established error artifact.
 
 ## Remote content and compatibility
 
-HTTP content is untrusted even when a request originates on loopback or carries
-a valid publisher key. HTML/Markdown safety applies to the actual selected
-renderer, including fallback selection. Publisher `unsafe`, `unsafe_html`,
-`sandbox`, and `interactive` flags cannot opt out. Server-supplied provenance
-markers persist with the payload, so history uses the same safe rendering.
-Remote SVG image artifacts are rejected. Table HTML is regenerated from bounded
-data with escaping; client-supplied inline HTML is ignored. Trusted in-process
-HTML/Markdown retains its existing explicit rendering options.
+After authentication, the server treats explicitly declared HTML from a valid publisher key or a
+direct loopback publisher without forwarding headers as trusted. With the default
+`html_sanitize: false` and empty `html_sandbox`, those reports can run scripts with
+the dashboard origin's privileges. Local file selection also trusts HTML. The
+publisher key therefore grants permission to publish active reports, not just
+passive data.
 
-HTTP `publish_source="watch"` no longer bypasses ordinary artifact hard limits;
-HTML/Markdown dictionary text is checked too. Local file-backed reads keep their
-existing source limits. The upcoming remote-watch representation will define its
-own validated source-specific bounds, rather than trusting a publisher flag.
+Anonymous remote ingestion, if explicitly enabled, does not grant that trust.
+Its HTML remains sanitized, as does all HTTP-published Markdown. Publisher
+`unsafe`, `unsafe_html`, `sandbox`, and `interactive` flags cannot override the
+server's decision. Server-owned provenance travels with stored payloads so
+history retains the same rendering restrictions. Optional server sanitization
+and sandbox settings can restrict trusted reports too.
+
+Remote SVG image artifacts are rejected. Table HTML is regenerated from bounded
+data with escaping; client-supplied inline table HTML is ignored. Remote watched
+previews use validated source-specific representations, with their own bounds,
+and never cause the receiver to open a publisher path. Setting
+`publish_source="watch"` on an ordinary HTTP publication does not bypass ordinary
+artifact limits. See [Files and watching](files-and-watching.md) and the
+[publisher helper](cli.md#publisher-helper) for preview and export restrictions.
 
 Ordinary publication and persistence remain best effort. These changes do not
 promise durable or exactly-once delivery. Authentication and admission failures
 stay failures; publishers must not fall back to an unprotected route or start a
 local server. Run one serving process per instance: catalogue state, locks,
 budgets and event notifications are process-local.
+
 ## Negotiation, failures and restart
 
 All ordinary HTTP publications (including traceback and shared runtime helpers)
@@ -694,4 +666,3 @@ For public demos, prefer:
 - allowing only read-only UI routes
 - blocking everything else by default
 - publishing only non-sensitive demo data
-

@@ -4,16 +4,9 @@ icon: lucide/code
 
 # Python API
 
-This page covers the main Python functions exposed by `plotsrv`.
-
-The core plotsrv functions are:
-
-- `publish_view()`
-- `@view`
-
-These two functions enable content to be pushed to the plotsrv server (and launch the server itself, if desired).
-
-The remaining functions are useful for controlling the server, managing sessions, publishing tracebacks, or working with advanced metadata.
+Import the public API as `import plotsrv as ps`. For working examples, start with
+[Publish from Python](../guides/publish-from-python.md). This page covers arguments,
+routing, background delivery, server controls, and error handling.
 
 ## Import convention
 
@@ -43,7 +36,7 @@ def my_function():
 
 Publish an object as a plotsrv browser view. An explicit
 `destination="https://dashboard.example/team/"` preserves a proxy prefix and
-targets an existing server. See [destination precedence and configuration](../development/publisher-server-internals.md).
+targets an existing server. See [destination precedence and configuration](remote-publishing-and-security.md#configuration-and-precedence).
 
 ```python
 ps.publish_view(
@@ -155,8 +148,9 @@ process, use the optional configuration below; `async_=False` always keeps one
 call synchronous.
 
 For `@view`, the config default changes delivery mode only when the decorator
-is already active through `host`, `port`, or `launch_server`. Metadata-only
-decorators remain metadata-only.
+is already active through `host`, `port`, `launch_server`, or a configured remote
+destination. Explicit `async_=True` also activates ordinary publishing. A config
+default for asynchronous delivery alone does not activate a metadata-only decorator.
 
 At the end of a short script or batch job, give accepted updates a bounded
 opportunity to finish:
@@ -238,6 +232,14 @@ Generated plotsrv error artifacts use internal text-like artifact kinds such as 
 | `artifact_kind` | force artifact renderer, such as `markdown`, `html`, `json`, or `text`; `watch_error` and `publish_error` are internal error artifact kinds |
 | `update_limit_s` | limit how often a view should update |
 | `force` | force an update even when an update limit applies |
+| `destination` | remote HTTP(S) URL or `PublishTarget`; conflicts with explicit host/port or local launch |
+| `async_` | `None` follows config; `True` uses bounded background delivery; `False` is synchronous |
+| `observe` | `False` by default; `True` or `ObservationOptions` captures a bounded summary in the background |
+| `description` | bounded plain-text explanation of the source |
+| `mode` | legacy `auto`, `local`, or `remote` routing; prefer explicit launch or destination options |
+
+Only `obj` is positional. `publish_view` returns `None`, including when an update
+is skipped or fails under normal best-effort error handling.
 
 ## Forcing a renderer
 
@@ -443,6 +445,12 @@ security-settings:
 | `launch_server` | start/use an attached in-process server |
 | `update_limit_s` | limit how often the view should update |
 | `on_error` | error handling behaviour |
+| `view_id` | stable identity independent of the label |
+| `async_` | explicit `True` activates ordinary publishing in the background; `None` follows config once active |
+| `observe` | `True` or `ObservationOptions` observes a function's return value; always background delivery |
+
+All decorator arguments are keyword-only. `view` has no `destination` argument;
+use publisher config or `host`/`port` for a remote server.
 
 ## Choosing `publish_view()` or `@view`
 
@@ -547,7 +555,7 @@ ps.start_server(
             path="logs/job.log",
             label="job log",
             section="files",
-            tail=True,
+            read_mode="tail",
         )
     ],
     announce=True,
@@ -622,13 +630,14 @@ available; the default is `reraise=True`.
 import plotsrv as ps
 
 ps.start_server(config="plotsrv.yaml")
-with ps.capture_exceptions(
-    label="job error",
-    section="errors",
-    reraise=False,
-):
+with ps.capture_exceptions(view_id="job error", reraise=False):
     raise RuntimeError("Example failure")
 ```
+
+Open **job error**. Without host/port or a configured destination, the traceback
+helpers write to the selected `view_id` in the current process, or to the active
+view if the ID is omitted. In that path, `label` and `section` do not create a
+named catalogue entry; use an explicit `view_id` to select the output.
 
 ## `publish_traceback()`
 
@@ -719,7 +728,7 @@ ps.start_server(
             path="logs/job.log",
             label="job log",
             section="files",
-            tail=True,
+            read_mode="tail",
         )
     ]
 )

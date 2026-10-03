@@ -629,7 +629,7 @@ limited scans cannot be used, even with that flag. See
 ### One file, locally or remotely
 
 ```sh
-plotsrv watch ./application.log                       # existing local server/watch
+plotsrv watch ./application.log                       # start a local server and watch
 plotsrv watch ./application.log --materialization file
 plotsrv watch ./application.log --destination http://127.0.0.1:8000 --tail
 plotsrv watch ./report.csv --destination https://dashboard.example.org/plotsrv/ \
@@ -675,8 +675,10 @@ file watch represents latest state and can coalesce intermediate versions.
 Complete PNG/JPEG/GIF/WebP/BMP files are accepted only after format checks, with
 at most four million pixels and one frame. Truncated images, SVG and unsupported
 binary data are rejected; the watcher reports a status and retains last good
-content. Complete HTML uses the existing isolated remote renderer. Relative
-assets are not collected or fetched. Incomplete HTML/Markdown stays plain text.
+content. Complete HTML follows the publisher's trust and the server's rendering
+settings; authenticated publishers can send active HTML. See
+[HTML trust](remote-publishing-and-security.md#remote-content-and-compatibility).
+Relative assets are not collected or fetched. Incomplete HTML/Markdown stays plain text.
 
 Full-source download is advertised only for an entire bounded object held by
 the receiver. Otherwise the UI says “Preview available; original file is not

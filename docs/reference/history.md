@@ -391,7 +391,8 @@ newest stored snapshot, Newer returns to **Live (latest)**: the current server
 state. Live is a separate choice even when a stored version looks identical.
 Existing metadata cannot prove that a snapshot has the same content as Live;
 creation timestamps never establish equivalence. Ordering uses creation time
-in UTC, then snapshot ID to break ties. Labels include precise UTC timestamps.
+in UTC, then snapshot ID to break ties. Selector labels use the browser's local
+time; hover for a precise UTC timestamp. The History timeline uses UTC throughout.
 
 The selector keeps one page of 50 metadata entries, with **Older snapshots…**
 and **Newest snapshots…** choices to change pages without loading bodies. The

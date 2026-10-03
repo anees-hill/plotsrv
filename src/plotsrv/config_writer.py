@@ -20,7 +20,7 @@ DEFAULT_CONFIG_TEXT = """# plotsrv.yml
 # Change the settings below when you need to tune persistence, watched files,
 # publishing, or the safety limits used for browser output.
 # More options are available in the configuration reference:
-# https://docs.plotsrv.com/guides/configuration-reference
+# https://docs.plotsrv.com/reference/configuration/
 
 # Storage is off by default. Enable it to keep the latest views and history
 # on disk between runs.

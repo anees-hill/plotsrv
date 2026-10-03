@@ -87,6 +87,13 @@ versions to compare their outputs. See [Keep history](keep-history.md).
 
 Saving a table presentation and keeping a historical version are separate things.
 
+## Export what you found
+
+Use **Export** in the bottom bar to download table rows as CSV or a browser plot
+as SVG or PNG. Read the scope in the menu: filtered rows, a retained stream window,
+and a complete published table can contain different data. A remote file preview
+does not give the browser access to the publisher's original file.
+
 ## Make room
 
 Use **Expand view** to hide the surrounding controls. Reveal them when you need

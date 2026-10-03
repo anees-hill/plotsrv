@@ -783,7 +783,7 @@ can continue receiving data without that optional metadata.
 
 Descriptions are **current catalogue/presentation metadata**, not snapshot facts.
 About this view labels that distinction while inspecting a stored snapshot, stream
-run or captured Latest. Existing stored payloads are not rewritten. In particular,
+run. Existing stored payloads are not rewritten. In particular,
 a source's current explanation is not evidence of what an earlier snapshot meant.
 
 ## UI settings

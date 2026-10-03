@@ -420,15 +420,11 @@ producer's and server's config and pass `port=8000` to the helper.
 import plotsrv as ps
 
 ps.start_server(config="plotsrv.yaml")
-with ps.capture_exceptions(
-    label="job error",
-    section="renderers",
-    reraise=False,
-):
+with ps.capture_exceptions(view_id="job error", reraise=False):
     raise RuntimeError("Example failure")
 ```
 
-The traceback renderer shows:
+Open **job error**. The traceback renderer shows:
 
 - exception type
 - exception message
@@ -604,17 +600,17 @@ data, snapshot IDs or presentation settings.
 Expansion uses the existing renderer and controls. It adds no polling, payload
 requests or publisher work. Resize handling coalesces into one animation frame;
 its size observer is active only while expanded. Expanded view and
-[Compare](history.md#compare-stored-versions) remain mutually
-exclusive: opening Compare exits expansion, and Expand view exits Compare
+[History](history.md#compare-stored-versions) remain mutually
+exclusive: opening History exits expansion, and Expand view exits History
 while preserving the inspected version.
 
 
 ## Watched source code and raw config text
 
-With automatic routing, `.py` and `.pyi` files use the Python/code viewer. R
-(`.R` or `.r`), SQL, shell, JavaScript/TypeScript, CSS, C/C++, Go and Rust stay in
-Text, with **Styling → Auto** selecting syntax colour from the suffix. Known code
-suffixes default to a head preview; an explicit head/tail choice takes precedence.
+With automatic routing, Python, R, SQL, shell, JavaScript/TypeScript, CSS, C/C++,
+Go and Rust files use the Code viewer. The suffix chooses syntax highlighting
+and the language badge. Extensions are case-insensitive, including `.R` and `.r`.
+Known code suffixes default to a head preview; an explicit head/tail choice takes precedence.
 Unknown suffixes remain plain text unless an existing log style is recognised.
 `--kind text` keeps the Text viewer even for Python; its Styling menu still lets
 you choose Auto, Source code, None/Plain or the existing log styles.

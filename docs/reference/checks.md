@@ -155,7 +155,7 @@ source time. Observation capture time is also separate from server receive time.
 
 Evaluation occurs after stream retry deduplication. Raw stream retention can evict
 records immediately without losing already-detached check evidence. Retried batches,
-heartbeats, historical restoration and snapshot/Compare browsing do not evaluate
+heartbeats, historical restoration and snapshot/history browsing do not evaluate
 live rules or manufacture recovery. Restart creates a new check generation with
 unknown states and no startup events; the next live state establishes a new baseline.
 Checks leave freshness, stream lifecycle and snapshot policy unchanged.
