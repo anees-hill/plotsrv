@@ -1,6 +1,3 @@
----
-icon: lucide/gauge
----
 
 # Testing and benchmarks
 

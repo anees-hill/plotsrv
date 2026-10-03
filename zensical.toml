@@ -49,6 +49,8 @@ nav = [
 
 
 [project.theme]
+custom_dir = "docs-theme"
+font = false
 language = "en"
 logo = "assets/images/brand/plotsrv_icon_logo.png"
 favicon = "assets/images/brand/plotsrv_icon_logo.png"
@@ -70,11 +72,15 @@ features = [
 
 [[project.theme.palette]]
 scheme = "default"
+primary = "custom"
+accent = "custom"
 toggle.icon = "lucide/sun"
 toggle.name = "Switch to dark mode"
 
 [[project.theme.palette]]
 scheme = "slate"
+primary = "custom"
+accent = "custom"
 toggle.icon = "lucide/moon"
 toggle.name = "Switch to light mode"
 

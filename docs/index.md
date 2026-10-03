@@ -1,4 +1,13 @@
-# plotsrv
+---
+title: plotsrv
+---
+
+<div class="plotsrv-docs-intro" markdown="1">
+
+<div class="plotsrv-docs-brand">
+<h1 id="plotsrv" class="plotsrv-docs-brand-title"><img class="plotsrv-docs-brand-icon" src="assets/images/brand/plotsrv_icon_logo.png" alt="" width="52" height="52"><img class="plotsrv-brand-wordmark" src="assets/images/brand/plotsrv_wordmark.png" alt="plotsrv" width="150"></h1>
+<p class="plotsrv-eyebrow">Documentation</p>
+</div>
 
 Got a Python object you’d like to see in a browser?
 
@@ -29,7 +38,9 @@ images, HTML reports, and text.
 <figcaption>A dictionary, shown as a tree. Click the image to enlarge it.</figcaption>
 </figure>
 
-[Install and try it →](get-started/quick-start.md)
+[Install and try it →](get-started/quick-start.md){ .md-button .md-button--primary }
+
+</div>
 
 ## Already have a file?
 

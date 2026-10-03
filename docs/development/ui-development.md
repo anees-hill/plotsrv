@@ -1,6 +1,3 @@
----
-icon: lucide/blocks
----
 
 # UI development
 

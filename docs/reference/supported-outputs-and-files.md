@@ -1,6 +1,3 @@
----
-icon: lucide/panels-top-left
----
 
 # Supported outputs and files
 

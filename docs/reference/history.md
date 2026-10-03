@@ -1,6 +1,3 @@
----
-icon: lucide/database
----
 
 # Storage and history reference
 

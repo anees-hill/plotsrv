@@ -1,6 +1,3 @@
----
-icon: lucide/sliders-horizontal
----
 
 # Configuration reference
 

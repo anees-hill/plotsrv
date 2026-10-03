@@ -1,6 +1,3 @@
----
-icon: lucide/code
----
 
 # Python API
 

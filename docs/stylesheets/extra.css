@@ -1,77 +1,129 @@
+/* Brand values mirror plotsrv-homepage/shared.css. Keep this theme self-contained. */
 :root {
-  --plotsrv-red: #b83232;
-  --plotsrv-red-soft: #e29a9a;
-  --plotsrv-red-hover: #fff1f1;
-
-  --plotsrv-active-bg: #f1f1f1;
-  --plotsrv-active-bg-dark: rgba(255, 255, 255, 0.08);
-
-  --md-primary-fg-color: #b83232;
-  --md-primary-fg-color--light: #d96b6b;
-  --md-primary-fg-color--dark: #8f2626;
-  --md-accent-fg-color: #b83232;
-  --md-accent-fg-color--transparent: rgba(184, 50, 50, 0.12);
+  --md-text-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --md-code-font: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
-
+[data-md-color-scheme="default"] {
+  --plotsrv-paper: #fcfafb;
+  --plotsrv-surface: #fff;
+  --plotsrv-ink: #172331;
+  --plotsrv-muted: #626a79;
+  --plotsrv-pink: #e8255c;
+  --plotsrv-link: #b81748;
+  --plotsrv-line: #e9e4e7;
+  --plotsrv-soft: #f8edf2;
+  --plotsrv-header: #fcfafbf2;
+  --md-default-bg-color: var(--plotsrv-paper);
+  --md-default-fg-color: var(--plotsrv-ink);
+  --md-default-fg-color--light: var(--plotsrv-muted);
+  --md-default-fg-color--lighter: #7b7180;
+  --md-default-fg-color--lightest: var(--plotsrv-line);
+  --md-code-bg-color: #f5f0f4;
+  --md-code-fg-color: #343040;
+}
 [data-md-color-scheme="slate"] {
-  --plotsrv-red: #ff7777;
-  --plotsrv-red-soft: #ff9a9a;
-  --plotsrv-red-hover: rgba(255, 119, 119, 0.10);
-
-  --plotsrv-active-bg: var(--plotsrv-active-bg-dark);
-
-  --md-primary-fg-color: #b83232;
-  --md-accent-fg-color: #ff7777;
-  --md-accent-fg-color--transparent: rgba(255, 119, 119, 0.16);
+  --plotsrv-paper: #1c1b23;
+  --plotsrv-surface: #25232e;
+  --plotsrv-ink: #ede9f0;
+  --plotsrv-muted: #b7afc1;
+  --plotsrv-pink: #ff8bae;
+  --plotsrv-link: #ff9ab8;
+  --plotsrv-line: #3b3545;
+  --plotsrv-soft: #342632;
+  --plotsrv-header: #1c1b23f2;
+  --md-default-bg-color: var(--plotsrv-paper);
+  --md-default-fg-color: var(--plotsrv-ink);
+  --md-default-fg-color--light: var(--plotsrv-muted);
+  --md-default-fg-color--lighter: #a69caf;
+  --md-default-fg-color--lightest: var(--plotsrv-line);
+  --md-code-bg-color: #27232f;
+  --md-code-fg-color: #e9e0ef;
 }
-
-.md-header__title {
-  font-weight: 700;
+[data-md-color-scheme] {
+  --md-primary-fg-color: var(--plotsrv-paper);
+  --md-primary-fg-color--light: var(--plotsrv-soft);
+  --md-primary-fg-color--dark: var(--plotsrv-surface);
+  --md-primary-bg-color: var(--plotsrv-ink);
+  --md-primary-bg-color--light: var(--plotsrv-muted);
+  --md-accent-fg-color: var(--plotsrv-link);
+  --md-accent-fg-color--transparent: var(--plotsrv-soft);
+  --md-typeset-a-color: var(--plotsrv-link);
+  --md-footer-bg-color: var(--plotsrv-soft);
+  --md-footer-bg-color--dark: var(--plotsrv-paper);
+  --md-footer-fg-color: var(--plotsrv-ink);
+  --md-footer-fg-color--light: var(--plotsrv-muted);
+  --md-footer-fg-color--lighter: var(--plotsrv-muted);
 }
-
-.md-typeset h1 {
-  font-weight: 700;
-}
-
-.md-typeset code {
-  border-radius: 0.25rem;
-}
-
-/* Header bottom border */
 .md-header {
-  border-bottom: 1.5px solid var(--plotsrv-red-soft);
+  color: var(--plotsrv-ink);
+  background: var(--plotsrv-header);
+  border-bottom: 1px solid var(--plotsrv-line);
+  box-shadow: none;
+  backdrop-filter: blur(16px);
 }
-
-/* Sidebar hover state */
+.md-header__inner { min-height: 3.8rem; }
+.md-header__title { font-size: .85rem; font-weight: 600; margin-left: .65rem; }
+.md-header .md-logo, .md-nav .md-logo { align-items: center; gap: .55rem; }
+.md-header .md-logo { display: inline-flex; margin-right: 0; }
+.md-header .md-logo img.plotsrv-brand-icon,
+.md-nav .md-logo img.plotsrv-brand-icon { width: 2rem; height: 2rem; }
+.md-header .md-logo img.plotsrv-brand-wordmark,
+.md-nav .md-logo img.plotsrv-brand-wordmark { width: 5.6rem; height: auto; }
+[data-md-color-scheme="slate"] .plotsrv-brand-wordmark { filter: brightness(1.7); }
+.md-header__source { width: auto; margin-left: .7rem; }
+.plotsrv-site-links { display: flex; align-items: center; gap: 1rem; font-size: .65rem; font-weight: 600; white-space: nowrap; }
+.plotsrv-site-links a { color: var(--plotsrv-ink); }
+.plotsrv-site-links a:hover { color: var(--plotsrv-link); }
+.md-nav__source { background: var(--plotsrv-soft); color: var(--plotsrv-ink); }
+.md-nav__source .plotsrv-site-links { padding: .8rem; justify-content: space-between; }
+.md-nav--primary .md-nav__title { color: var(--plotsrv-ink); background: var(--plotsrv-paper); }
+.md-sidebar .md-nav__link { border-radius: .3rem; }
 .md-sidebar .md-nav__link:hover,
-.md-sidebar .md-nav__link:focus {
-  color: var(--plotsrv-red) !important;
-  background-color: var(--plotsrv-red-hover) !important;
-  border-radius: 0.35rem;
+.md-sidebar .md-nav__link:focus-visible,
+.md-sidebar .md-nav__link--active { color: var(--plotsrv-link); background: var(--plotsrv-soft); }
+.md-typeset { line-height: 1.7; }
+.md-typeset h1, .md-typeset h2, .md-typeset h3 { color: var(--plotsrv-ink); letter-spacing: -.025em; font-weight: 600; }
+/* Leave room for the branded sticky header when following heading anchors. */
+.md-typeset :is(h1, h2, h3, h4, h5, h6)[id] { scroll-margin-top: 5rem; }
+.md-typeset h1 { font-size: 2rem; line-height: 1.2; }
+.md-typeset a:not(.md-button):hover { text-decoration: underline; text-underline-offset: .15em; }
+.md-typeset code { border-radius: .2rem; }
+.md-code__button { color: var(--plotsrv-muted); }
+.md-typeset pre > code { border: 1px solid var(--plotsrv-line); border-radius: .45rem; }
+.md-typeset table:not([class]) { border-color: var(--plotsrv-line); border-radius: .45rem; background: var(--plotsrv-surface); }
+.md-typeset table:not([class]) th { background: var(--plotsrv-soft); }
+.md-typeset .admonition, .md-typeset details { border-radius: .4rem; }
+.md-typeset .md-button { border-radius: .35rem; font-weight: 600; }
+.md-typeset .md-button--primary { background: var(--plotsrv-link); border-color: var(--plotsrv-link); color: var(--plotsrv-paper); }
+.md-typeset .md-button--primary:hover { background: var(--plotsrv-ink); border-color: var(--plotsrv-ink); color: var(--plotsrv-paper); }
+.md-footer { border-top: 1px solid var(--plotsrv-line); }
+.plotsrv-docs-intro { position: relative; isolation: isolate; }
+.plotsrv-docs-intro::before {
+  content: ""; position: absolute; z-index: -1; pointer-events: none;
+  top: -.6rem; right: 0; width: 12rem; height: 15rem;
+  background: var(--plotsrv-pink); opacity: .055;
+  clip-path: polygon(26% 20%,100% 0,78% 46%,9% 76%,19% 100%,100% 65%,100% 47%,55% 66%,35% 91%,0 100%,0 82%);
 }
-
-/* Sidebar active/current page state */
-.md-sidebar .md-nav__link--active,
-.md-sidebar .md-nav__link[aria-current="page"],
-.md-sidebar .md-nav__item--active > .md-nav__link {
-  color: var(--plotsrv-red) !important;
-  background-color: var(--plotsrv-active-bg) !important;
-  border-radius: 0.35rem;
+.md-typeset .plotsrv-eyebrow { margin: .25rem 0 0; color: var(--plotsrv-link); font: 600 .6rem/1.5 var(--md-code-font); letter-spacing: .15em; text-transform: uppercase; }
+.plotsrv-docs-brand { margin-bottom: 1.4rem; }
+.md-typeset .plotsrv-docs-brand-title { display: flex; align-items: center; gap: 12px; margin: 0; line-height: 1; }
+.plotsrv-docs-brand-title .headerlink { display: none; }
+.plotsrv-docs-brand-title img { display: block; flex-shrink: 0; }
+.plotsrv-docs-brand-title .plotsrv-docs-brand-icon { width: 52px; height: 52px; }
+.plotsrv-docs-brand-title .plotsrv-brand-wordmark { width: 150px; height: auto; }
+.plotsrv-docs-brand .plotsrv-eyebrow { margin-left: 64px; }
+:where(a, button, label[tabindex]):focus-visible { outline: 2px solid var(--plotsrv-link); outline-offset: 3px; }
+@media (max-width: 76.234375em) {
+  .md-header .md-logo { display: none; }
+  .md-nav .md-logo { display: inline-flex; }
 }
-
-/* Some Zensical/Material variants apply active colour through links inside active items */
-.md-sidebar .md-nav__item--active > .md-nav__link,
-.md-sidebar .md-nav__item--active > .md-nav__link:visited {
-  color: var(--plotsrv-red) !important;
-}
-
-/* Sidebar icons */
-.md-sidebar .md-nav__link svg,
-.md-sidebar .md-nav__link:hover svg,
-.md-sidebar .md-nav__link--active svg,
-.md-sidebar .md-nav__link[aria-current="page"] svg {
-  color: var(--plotsrv-red) !important;
-  fill: none;
+@media (max-width: 44.984375em) {
+  .md-header__inner { min-height: 3rem; }
+  .md-header__title { margin-left: .2rem; }
+  .md-typeset h1 { font-size: 1.7rem; }
+  .plotsrv-docs-brand-title .plotsrv-docs-brand-icon { width: 44px; height: 44px; }
+  .plotsrv-docs-brand-title .plotsrv-brand-wordmark { width: 138px; }
+  .plotsrv-docs-brand .plotsrv-eyebrow { margin-left: 56px; }
 }
 
 /* Real UI captures follow the documentation theme; each opens at full size. */
@@ -90,7 +142,7 @@
   width: 100%;
   height: auto;
   border: 1px solid var(--md-default-fg-color--lightest);
-  border-radius: 0.3rem;
+  border-radius: 0.5rem;
 }
 
 .plotsrv-shot-light {
