@@ -261,8 +261,12 @@ def test_reset_saved_changes_and_historical_save_tracks_latest(personal):
     save(page)
     page.select_option("#table-group-by-select", "")
     page.click("#table-reset-btn")
-    page.wait_for_function("PLOTSRV.state.tableUiState.groupBy === 'pot'")
-    assert page.locator("#table-save-view-btn").is_disabled()
+    # Reset applies table settings asynchronously, then refreshes the Save button
+    # on an animation frame. The group value can change before that frame runs.
+    page.wait_for_function(
+        "PLOTSRV.state.tableUiState.groupBy === 'pot' && "
+        "document.querySelector('#table-save-view-btn').disabled"
+    )
     page.evaluate(
         "history.replaceState(null,'','/?view=test:layout&snapshot=old&session=secret-cursor')"
     )
