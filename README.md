@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <strong>Developer friendly, lightweight observability for Python processes.</strong>
+  <strong>See Python objects, tables, plots, and logs in your browser.</strong>
 </p>
 
 <p align="center">
@@ -43,71 +43,45 @@
   &middot;
   <a href="https://docs.plotsrv.com/get-started/quick-start/"><strong>Quick start</strong></a>
   &middot;
-  <a href="https://docs.plotsrv.com/guides/python-api/"><strong>Python API</strong></a>
+  <a href="https://docs.plotsrv.com/reference/python-api/"><strong>Python API</strong></a>
   &middot;
-  <a href="https://docs.plotsrv.com/guides/cli/"><strong>CLI</strong></a>
+  <a href="https://docs.plotsrv.com/reference/cli/"><strong>CLI</strong></a>
   &middot;
-  <a href="https://docs.plotsrv.com/examples/"><strong>Examples</strong></a>
+  <a href="https://docs.plotsrv.com/examples/etl-pipeline/"><strong>Examples</strong></a>
 </p>
 
-Turn Python objects into live browser views with minimal code.
-
-It is designed for scripts, pipelines, experiments, batch jobs, and long-running processes where useful outputs are otherwise hidden in terminal logs, temporary objects, generated files, or ad hoc plots.
-
-`plotsrv` can render tables, plots, JSON, HTML, logs, images, tracebacks, files, and ordinary Python objects in a single browser UI.
-
-> **Live demo:** https://demo.plotsrv.com  
-> See a deployed example showing real sensor data.
-
-## Install
+Got a Python object you’d like to see in a browser?
 
 ```bash
-pip install plotsrv
+python -m pip install plotsrv
 ```
 
-or:
-
-```bash
-uv add plotsrv
-```
-
-## Quick example
+In a Python REPL or notebook:
 
 ```python
 import plotsrv as ps
 
-summary = {
-    "status": "ok",
-    "rows_processed": 123,
-    "checks": {
-        "schema_valid": True,
-        "duplicates": 2,
-    },
-}
-
-ps.publish_view(
-    summary,
-    label="summary",
-    section="demo",
-    launch_server=True,
-)
+ps.publish_view({"status": "ok", "rows": 123}, label="status", launch_server=True)
 ```
 
-Open:
+Open **http://127.0.0.1:8000**. Keep the Python session running while you look around.
+Publish a DataFrame to get a table, or a Matplotlib figure to see a plot.
 
-```text
-http://127.0.0.1:8000
-```
-
-## Server workflow
-
-For scripts, jobs, and pipelines, start plotsrv separately:
+Already have a log?
 
 ```bash
-plotsrv run demo_pipeline.py --host 127.0.0.1 --port 8000
+plotsrv watch ./logs/job.log --tail
 ```
 
-Then publish to it from Python:
+[Quick start](https://docs.plotsrv.com/get-started/quick-start/) ·
+[Live demo](https://demo.plotsrv.com)
+
+Python 3.11 or newer is required. In a uv project, use `uv add plotsrv` and
+`uv run python`.
+
+## Put it in a job
+
+For a script that exits, keep plotsrv in a separate process. Save this as `job.py`:
 
 ```python
 import plotsrv as ps
@@ -123,7 +97,12 @@ def daily_import_status():
 daily_import_status()
 ```
 
-The function still returns normally, while plotsrv publishes the returned object into the browser UI.
+Start `plotsrv run job.py` in one terminal, then `python job.py` in another.
+The server discovers the declared view before the job runs. Calling the function
+publishes its result and still returns it to your code.
+
+[Use plotsrv in a project](https://docs.plotsrv.com/get-started/use-in-a-project/)
+explains discovery, publishing, and configuration.
 
 ## What can plotsrv show?
 
@@ -133,24 +112,25 @@ plotsrv automatically chooses renderers for common outputs, including:
 - matplotlib and plotnine plots
 - dictionaries, lists, and JSON-like objects
 - text, logs, markdown, HTML, and images
-- Python objects and tracebacks
+- Python objects, plus tracebacks when explicitly enabled
 - files on disk, including CSV, JSON, YAML, TOML, markdown, HTML, text, and images
 
-## Why use it?
-
-plotsrv provides cheap observability for Python processes.
-
-It is useful when you want more visibility into a script or pipeline without building a dashboard, adopting a full observability stack, or manually opening generated files on disk.
+HTML reports can run scripts with the dashboard's browser-origin privileges.
+Only publish HTML you trust. See the
+[security reference](https://docs.plotsrv.com/reference/remote-publishing-and-security/)
+before exposing a server publicly.
 
 ## Learn more
 
-- [What is plotsrv?](https://docs.plotsrv.com/get-started/what-is-plotsrv/)
 - [Quick start](https://docs.plotsrv.com/get-started/quick-start/)
-- [Python API](https://docs.plotsrv.com/guides/python-api/)
-- [CLI reference](https://docs.plotsrv.com/guides/cli/)
-- [Renderers](https://docs.plotsrv.com/guides/renderers/)
-- [Storage and history](https://docs.plotsrv.com/guides/storage-and-history/)
-- [Deployment patterns](https://docs.plotsrv.com/guides/deployment-patterns/)
+- [Explore in the browser](https://docs.plotsrv.com/guides/explore-in-browser/)
+- [Follow logs and streams](https://docs.plotsrv.com/guides/follow-logs-and-streams/)
+- [Keep history](https://docs.plotsrv.com/guides/keep-history/)
+- [Keep an eye on a job](https://docs.plotsrv.com/guides/keep-an-eye-on-a-job/)
+- [Python API](https://docs.plotsrv.com/reference/python-api/)
+- [CLI reference](https://docs.plotsrv.com/reference/cli/)
+- [Supported outputs and files](https://docs.plotsrv.com/reference/supported-outputs-and-files/)
+- [Run plotsrv on another machine](https://docs.plotsrv.com/guides/run-on-another-machine/)
 - [Live demo](https://demo.plotsrv.com)
 
 ## License

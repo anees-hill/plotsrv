@@ -1,407 +1,76 @@
----
-icon: lucide/file-search
----
-
 # Watch files
-
-plotsrv can expose files on disk in the same browser UI as Python objects.
-
-This is useful when a process already writes useful files, such as:
-
-- logs
-- CSV files
-- JSON, YAML, INI, TOML files
-- markdown reports
-- HTML reports
-- generated images
-
-## Watch a log file
-
-To simply "watch" a log file, you can use the `plotsrv watch` command:
 
 ```bash
 plotsrv watch ./logs/job.log
 ```
 
-Open:
+Open **<http://127.0.0.1:8000>**. The view updates as the existing file changes.
+Leave the command running; Ctrl+C stops the local server and watch.
 
-```text
-http://127.0.0.1:8000
-```
+## Watch a log file
 
-The file appears in the plotsrv UI and updates when the file changes.
-
-For log-like files, plotsrv is usually most useful in tail mode, showing the newest content from the end of the file.
+For logs, use the end of the file:
 
 ```bash
 plotsrv watch ./logs/job.log --tail
 ```
+
+Log and text files use tail mode by default; `--tail` makes the choice explicit.
+Use `--head` to inspect the beginning instead.
+
+This is a changing text preview. To follow structured records, pause live updates,
+or inspect stream sessions, see [Follow logs and streams](../guides/follow-logs-and-streams.md).
 
 ## Watch a directory
 
-Give the same command a directory to create a view for each supported file:
+```bash
+plotsrv watch ./reports
+```
+
+Each supported file found at startup becomes a view. Subfolders become sections.
+CSV opens as a table; JSON, YAML, and TOML can be explored as structured data;
+Markdown and HTML open as reports. Code files are displayed, never executed.
+Only open HTML reports you trust: scripts are allowed by default.
+
+The scan runs once. Changes to selected files keep appearing, but restart the
+command to pick up newly added files. By default, the scan includes two subfolder
+levels and allows 32 views. Hidden files, symlinks, and unknown formats are skipped.
+
+To narrow the selection:
 
 ```bash
-plotsrv watch docs/
+plotsrv watch ./reports --include '*.csv'
+plotsrv watch ./reports --max-depth 0
 ```
 
-Files directly in `docs/` appear in the `docs` section. Subfolders become sections:
-`reference/setup.md` appears under `reference`, and `reference/api/v1.md` under
-`reference/api`. Sections remain a flat list; the slash shows the folder context.
-View labels are filenames, including their extensions.
+Quote patterns so your shell does not expand them. If the directory is too large,
+plotsrv asks you to narrow the selection rather than choosing an arbitrary subset.
 
-Discovery runs **once at startup**. Selected files keep updating, including when
-they are replaced or recreated. Restart the command to discover newly added files.
-There is no recurring directory scan.
-
-By default, discovery includes two subfolder levels and allows up to 32 views:
+## Watch a table or report
 
 ```bash
-plotsrv watch docs/ --max-depth 0              # Root files only
-plotsrv watch docs/ --include '*.md'           # Markdown at every included depth
-plotsrv watch docs/ --include 'reference/*.md' # Match a relative path
-plotsrv watch docs/ --max-depth 3 --max-views 64
-plotsrv watch docs/ --section Reports         # Reports, Reports/reference, etc.
+plotsrv watch ./reports/orders.csv
+plotsrv watch ./reports/summary.json
+plotsrv watch ./reports/notes.md
 ```
 
-Quote patterns so your shell does not expand them. Repeat `--include` to match
-any of several patterns. A pattern without `/` matches filenames; a pattern with
-`/` matches the complete relative path (`*` can span folders).
+These formats normally read from the beginning. Large-file previews have limits;
+the view does not promise to show every row or byte.
 
-Supported formats are Markdown, HTML, CSV, JSON, YAML, TOML, INI/CFG,
-the supported image formats, and `.txt`, `.text`, and `.log` files.
-Code files (`.py`, `.pyi`, `.r`, `.sql`, `.sh`, `.bash`, `.zsh`, `.js`, `.ts`,
-`.css`, `.c`, `.h`, `.cpp`, `.go`, `.rs`) open in the Code renderer with bounded
-syntax highlighting, copy, wrapping and line-number controls. Extensions are
-case-insensitive, so `.R` works too. Code is displayed, never executed. The view
-selector shows a code icon with a language badge, such as PY, R or SQL. Existing
-Python artifacts and snapshots remain supported. Specialised formats such as
-HTML, Markdown, CSV and JSON keep their existing renderers.
-
-Hidden files and folders, symlinks, special files, and unknown extensions are skipped.
-An include pattern narrows these formats; it does not enable arbitrary files.
-
-Depth is configurable from 0 to 16, and the view limit from 1 to 64. Discovery
-also stops after 10,000 directory entries, including skipped entries. Exceeding
-either the entry or view limit stops startup with an explanation; plotsrv does
-not silently choose a partial collection. Choose a narrower directory, lower the
-depth, or filter the files. An unreadable directory or ambiguous duplicate view
-identity also stops startup. If a root file and a file in a same-named subfolder
-collide, `--section Reports` gives the whole collection an unambiguous prefix.
-
-These are ordinary watches: existing head/tail, byte limits, materialisation,
-and config settings apply to each file. Local preparation runs sequentially in
-one watch worker, without a queue of file contents. Memory-backed documents
-still occupy memory individually; use fewer views or the existing
-`--materialization file` option when that matters. `--label` and `--view-id` apply
-only to single-file commands; directory-only options require a directory.
-
-Remote watching uses the same discovery and the existing bounded publisher:
+## Add a file beside your Python views
 
 ```bash
-plotsrv watch docs/ --destination https://plots.example.org --include '*.md'
+plotsrv run ./src --watch ./logs/job.log --watch-tail
 ```
 
-All files are read on the machine running this command. The receiver needs no
-shared filesystem, and remote transfer limits still apply. A configured publisher
-destination also works; an explicit local `--host` or `--port` retains its existing
-local-launch behaviour. No config files are generated by directory discovery.
-
-## Watch files while running plotsrv as a server
-
-For scripts, jobs, and pipelines, watched files can be declared when starting the server. In this example, the plotsrv UI will include 2 on-disk files in the plotsrv UI dropdown menu:
+Or send a local file to an existing server:
 
 ```bash
-plotsrv run . --host 127.0.0.1 --port 8000 \
-  --watch logs/uvicorn.log --watch-label "job log" --watch-section "files" --watch-tail \
-  --watch reports/daily_report.html --watch-label "daily" --watch-section "reports"
+plotsrv watch ./logs/job.log --tail --destination http://127.0.0.1:8000/
 ```
 
-This starts the plotsrv UI and adds the watched file as a view.
-
-## Watch a CSV file
-
-CSV files are rendered as tables.
-
-```bash
-plotsrv watch ./outputs/results.csv
-```
-
-The table renderer provides search, filters, pagination, and column controls.
-
-CSV watching is useful when a process writes result tables to disk, but changing the Python code to call `publish_view()` is not convenient.
-
-## Watch a JSON file
-
-JSON files are rendered with the JSON renderer.
-
-```bash
-plotsrv watch ./outputs/status.json
-```
-
-For example:
-
-```json title="status.json"
-{
-  "job": "daily-import",
-  "status": "ok",
-  "rows_processed": 123,
-  "warnings": 2
-}
-```
-
-This appears as an expandable JSON view in the browser.
-
-## Choose head or tail mode
-
-Head mode reads from the start of the file.
-
-```bash
-plotsrv watch ./outputs/results.csv --head
-```
-
-Tail mode reads from the end of the file.
-
-```bash
-plotsrv watch ./logs/job.log --tail
-```
-
-plotsrv also chooses sensible defaults based on the file type.
-
-## Limit large files
-
-Large watched files can be limited in megabytes with `--max-mb`.
-For local watches, the default is 500 MiB (500 × 1,048,576 bytes), as in
-v0.5.0. This is a cap on bytes read for a preview, not a maximum file size:
-larger text and CSV files can still provide a bounded head or tail preview.
-Display limits may shorten the result further.
-
-```bash
-plotsrv watch ./logs/job.log --max-mb 25
-```
-
-To read the full file:
-
-```bash
-plotsrv watch ./logs/job.log --max-mb off
-```
-
-`--max-bytes` is still available as a legacy/advanced option when byte-level precision is needed:
-
-```bash
-plotsrv watch ./logs/job.log --max-bytes 5000000
-```
-
-For large logs, keeping a read limit is usually better. It keeps the UI responsive and avoids reading too much from disk.
-
-The equivalent config key is:
-
-```yaml title="plotsrv.yaml"
-limits:
-  watched_files:
-    max_mb: 500
-```
-
-Remote watches selected with `--destination` or a configured publisher
-destination use a separate transport. Each capture reads at most 256 KiB,
-even when `--max-mb` is higher or `off`; larger text and CSV files provide
-bounded previews. This fixed cap limits the bytes sent to the receiver.
-Complete formats such as images must fit the remote capture bound. See
-[remote watched-file limits](../guides/publisher-agent.md#resource-and-ordering-limits).
-
-Watched CSV files also use table preparation limits:
-
-```yaml title="plotsrv.yaml"
-limits:
-  truncate_after:
-    table_rows: 100000
-    table_columns: 200
-```
-
-## Memory-backed and file-backed watched files
-
-Watched files can be represented in two ways.
-
-| Mode | Meaning | Best for |
-|---|---|---|
-| `memory` | plotsrv reads the watched file content and publishes a normal in-memory view | small files, simple local workflows |
-| `file` | plotsrv keeps file metadata in memory and reads bounded previews from disk only when the browser asks for them | large logs, large CSV files, long-running servers |
-| `auto` | plotsrv chooses based on file size and config | most workflows |
-
-The default is `auto`.
-
-Memory-backed watched files also pass through the hard
-`limits.published_objects` checks. The default text artifact limit is 6,000,000
-characters; an explicit lower value in your config can reject a watched HTML,
-Markdown, or text file even when the read and truncation limits allow it.
-
-In `auto` mode, small watched files behave like normal published objects. Larger files become file-backed views, so plotsrv does not keep the full file content in server memory.
-The configured automatic threshold is 10 MiB by default. It was 20 MiB in
-v0.5.0; later performance tuning moved it earlier to reduce memory held by
-local watches. Automatic mode switches no later than the 8 MiB publish request
-cap, avoiding a gap where a file could be read but not sent. This does not
-lower the 500 MiB preview read cap. File-backed views load previews on demand
-and can briefly return a busy response when
-their concurrent load slots are occupied.
-
-Force file-backed mode:
-
-```bash
-plotsrv watch ./logs/job.log --materialization file
-```
-
-Force memory-backed mode:
-
-```bash
-plotsrv watch ./logs/job.log --materialization memory
-```
-
-For files attached to `plotsrv run`:
-
-```bash
-plotsrv run . \
-  --watch ./logs/job.log \
-  --watch-materialization file
-```
-
-The equivalent config is:
-
-```yaml title="plotsrv.yaml"
-watch-settings:
-  materialization: auto
-  file_threshold_mb: 10
-```
-
-Use `file` for large watched files when you want predictable memory use.
-
-## File-backed behaviour
-
-File-backed watched files are designed to protect the plotsrv server from large in-memory payloads.
-
-For file-backed text, markdown, HTML, JSON-like, and log files:
-
-- the view is registered immediately
-- plotsrv stores metadata such as path, file type, size, and read mode
-- `/artifact` reads a bounded preview from disk when the browser requests it
-- preview errors are shown in the UI as `watch_error` messages
-
-For file-backed CSV files:
-
-- the view appears as a table
-- `/table/data` incrementally parses only the configured table rows and columns when the browser requests it
-- the server does not keep the raw CSV window or a full-file row count in memory
-- the UI reports loaded rows and says when the full row count is unknown, rather than scanning the full file just to display a total
-- export downloads the original live CSV source
-
-The current source is streamed only from registered watched-file metadata, so a
-browser never supplies a filesystem path. Historical snapshots remain
-snapshot-based; they never fall through to the current source file.
-
-## Concurrent file-backed requests
-
-File-backed previews use the same table limits as memory-backed tables. To
-prevent several browser clients materialising a large preview at once, plotsrv
-also bounds active disk loads:
-
-```yaml title="plotsrv.yaml"
-watch-settings:
-  active_loads:
-    max_concurrent: 2
-    wait_timeout_s: 1.0
-```
-
-The default allows two active loads. A short-lived busy response is retried by
-the browser; it is visible rather than silently building an unbounded queue.
-This setting controls concurrency only. `limits.truncate_after.table_rows` and
-`limits.truncate_after.table_columns` remain the controls for the data shown.
-
-If you explicitly set either table truncation limit to `off`, plotsrv honours
-that choice, but a file-backed request may then need to retain a very large
-table before it can return it to the browser.
-
-If a file-backed watched file cannot be read, plotsrv shows a visible error view instead of hiding the failure behind a server error.
-
-## File types
-
-plotsrv infers common file types from the extension.
-
-| File type | Rendered as |
-|---|---|
-| `.log`, `.txt`, unknown text | Text |
-| `.csv` | Table |
-| `.json` | JSON |
-| `.yaml`, `.yml` | JSON-like structured view |
-| `.toml` | JSON-like structured view |
-| `.ini`, `.cfg` | JSON-like structured view |
-| `.md`, `.markdown` | Markdown |
-| `.html`, `.htm` | HTML |
-| `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.bmp`, `.svg` | Image |
-
-## Watch files or publish from Python?
-
-Watching files is best when the useful output already exists on disk.
-
-Publishing from Python is better when the useful object already exists in memory.
-
-For example, this is usually better than writing a temporary CSV just for plotsrv:
-
-```python
-ps.publish_view(
-    df,
-    label="results",
-    section="demo",
-    host="127.0.0.1",
-    port=8000,
-)
-```
-
-But if a process already writes `results.csv`, watching that file is a simple way to expose it.
-
-## Freshness and storage defaults for watched files
-
-Watched files are source-aware.
-
-Global freshness settings do not mark watched-file views stale by default. A watched file might be static for a long time and still be valid.
-
-To apply freshness to a watched file, opt that specific view in:
-
-```yaml title="plotsrv.yaml"
-freshness-settings:
-  enabled: true
-  views:
-    "files:job log":
-      enabled: true
-      expected_every: 5m
-      warn_after: 10m
-      overdue_after: 30m
-```
-
-Storage is source-aware too.
-
-Memory-backed watched-file publishes can be snapshotted only if watched storage is enabled with `storage-settings.watch_enabled` or a per-view `watch_enabled` override.
-
-File-backed watched files are not stored as latest-state payloads or historical snapshots. Their data already lives on disk and is previewed from the source file.
-
-```yaml title="plotsrv.yaml"
-storage-settings:
-  enabled: true
-  watch_enabled: false
-```
-
-## Local delivery and idle resource use
-
-Local watches retry temporary publication failures automatically, including startup
-congestion and server unavailability. Retries use capped backoff (up to 30 seconds)
-and publish the latest file contents, without queuing previous versions. A successful
-error notice does not count as delivery of the source content.
-
-Only one local watch prepares and uploads at a time. Connection negotiation and
-cooldown checks happen before reading or parsing. After successful delivery, an
-unchanged memory-backed watch only checks file metadata once per second: it does
-not reread, parse or republish the file. File-backed watches retain lazy previews.
-Stopping the server interrupts local polling and retry waits; an already-running
-OS read or HTTP operation can finish within its existing limits.
-
-## Next step
-
-Continue to [Configuration basics](configuration-basics.md).
+The watch process reads the file; the receiving server does not open that path.
+See [remote publishing](../guides/run-on-another-machine.md) for another machine.
+
+Need matching rules, scan depth, byte limits, or large-file behaviour? See
+[Files and watching reference](../reference/files-and-watching.md).

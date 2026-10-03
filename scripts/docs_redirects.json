@@ -1,0 +1,52 @@
+{
+  "get-started/what-is-plotsrv.md": "index.md",
+  "get-started/installation.md": "get-started/quick-start.md#install",
+  "get-started/configuration-basics.md": "guides/configure-plotsrv.md",
+  "guides/python-api.md": "reference/python-api.md",
+  "guides/cli.md": "reference/cli.md",
+  "guides/configuration-reference.md": "reference/configuration.md",
+  "guides/renderers.md": "reference/supported-outputs-and-files.md",
+  "guides/view-descriptions.md": "reference/configuration.md#view-descriptions",
+  "guides/my-views.md": "reference/supported-outputs-and-files.md#saved-presentations",
+  "guides/ui-customisation.md": "reference/configuration.md#ui-settings",
+  "guides/http-log-streams.md": "reference/streams.md",
+  "guides/storage-and-history.md": "reference/history.md",
+  "guides/observation-capture.md": {
+    "to": "reference/observation.md",
+    "anchors": {
+      "admission-and-ownership": "development/observation-internals.md#admission-and-ownership",
+      "reproducing-the-checks": "development/observation-internals.md#reproducing-the-checks"
+    }
+  },
+  "guides/freshness.md": "reference/configuration.md#freshness-settings",
+  "guides/checks.md": "reference/checks.md",
+  "guides/webhooks.md": "reference/webhooks.md",
+  "guides/tracebacks.md": "reference/python-api.md#exception-helpers",
+  "guides/remote-publishers.md": "reference/remote-publishing-and-security.md",
+  "guides/publisher-agent.md": "reference/cli.md#publisher-helper",
+  "guides/publisher-ingestion.md": "reference/remote-publishing-and-security.md",
+  "guides/configured-sources.md": "reference/cli.md#configured-sources",
+  "guides/deployment-patterns.md": {
+    "to": "guides/run-on-another-machine.md",
+    "anchors": {
+      "running-with-systemd": "guides/run-on-another-machine.md#keep-the-server-running",
+      "reverse-proxy-with-caddy": "reference/remote-publishing-and-security.md#read-only-caddy-example",
+      "use-a-strict-read-only-caddyfile": "reference/remote-publishing-and-security.md#use-a-strict-read-only-caddyfile",
+      "validate-and-reload-caddy": "reference/remote-publishing-and-security.md#validate-and-reload-caddy",
+      "test-the-deployment": "reference/remote-publishing-and-security.md#test-the-deployment",
+      "security-considerations": "reference/remote-publishing-and-security.md#security-considerations"
+    }
+  },
+  "guides/public-demo-security.md": "reference/remote-publishing-and-security.md#public-deployments",
+  "about/philosophy.md": "index.md",
+  "about/publisher-contracts.md": {
+    "to": "development/publisher-server-internals.md",
+    "anchors": {
+      "configuration-and-precedence": "reference/remote-publishing-and-security.md#configuration-and-precedence"
+    }
+  },
+  "about/contributing.md": "development/contributing.md",
+  "about/ui-development.md": "development/ui-development.md",
+  "about/testing-and-benchmarks.md": "development/testing-and-benchmarks.md",
+  "examples/index.md": "examples/etl-pipeline.md"
+}
