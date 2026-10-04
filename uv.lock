@@ -1247,6 +1247,7 @@ dependencies = [
 
 [package.dev-dependencies]
 benchmark = [
+    { name = "httpx" },
     { name = "psutil" },
 ]
 dev = [
@@ -1283,7 +1284,10 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
-benchmark = [{ name = "psutil", specifier = ">=5.9,<8" }]
+benchmark = [
+    { name = "httpx", specifier = ">=0.28,<1" },
+    { name = "psutil", specifier = ">=5.9,<8" },
+]
 dev = [
     { name = "debugpy" },
     { name = "ipython" },

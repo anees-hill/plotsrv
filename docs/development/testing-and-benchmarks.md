@@ -85,8 +85,8 @@ machine identity:
 ptop compare 41 52 --require-comparable
 ```
 
-The local `ptop.toml`, release manifest, `.ptop/` database, and manifest
-outputs are ignored by git.
+The recipes and manifests are versioned. The `.ptop/` database and manifest
+outputs are local generated state.
 
 ## Core scenarios
 
@@ -501,3 +501,264 @@ HTTP/1 origin can still exhaust the browser connection pool. Keep that case
 separate from the foreground/background regression test when measuring many
 dashboards. It remains a transport limitation, not a guarantee covered by these
 tests.
+
+## Concurrent browsing rehearsal (0.8.0+)
+
+Start with this command from the plotsrv checkout (installed **ptop 0.5.0**):
+
+```bash
+ptop --db .ptop/conference.sqlite3 recipe run server-browser-concurrent --no-tui
+```
+
+It starts a fresh loopback receiver and six simulated visitors. Each holds an
+`/updates` stream while concurrent first reads and repeated reads exercise one
+published table and JSON artifact. Independent probes request the page, status,
+and a published PNG. A publication overlaps reads, followed by checks that every
+table row and the artifact contain the new revision and every visitor receives a
+new update notice. The default 22-second settling period permits an idle SSE
+heartbeat. The generated table has 1,680 rows, 12 data columns and a revision
+column; it approximates the retail table's size, not its exact contents.
+
+Other useful commands:
+
+```bash
+# One visitor, twenty visitors, and six visitors reading a 15,000-row table:
+ptop --db .ptop/conference.sqlite3 recipe run server-browser-single --no-tui
+ptop --db .ptop/conference.sqlite3 recipe run server-browser-burst --no-tui
+ptop --db .ptop/conference.sqlite3 recipe run server-browser-large --no-tui
+
+# Set a latency goal only after choosing it for the intended machine:
+ptop recipe run server-browser-concurrent --set cheap_p95_ms=250 --no-tui
+
+# Preview then run three repetitions per workload against PyPI 0.8.0 and local source:
+ptop manifest plan plotsrv-conference.toml
+PLOTSRV_MANIFEST_FILE="$PWD/plotsrv-conference.toml" scripts/run_plotsrv_manifest.sh
+
+# The harness also works without ptop:
+uv run --group benchmark python -m benchmarks.browser_profile \
+  --clients 6 --output benchmark-results/my-browser-run
+```
+
+`plotsrv-release.toml` now compares PyPI 0.8.0 with the local checkout and retains
+the CLI, watched-file overload/settling and asynchronous publishing checks. Its
+obsolete artifact case is replaced by the browsing rehearsal. Conference load
+levels have separate recipe names because ptop 0.5.0 groups report medians by
+recipe and target, regardless of settings. Use the same settings for comparisons.
+The complete conference manifest is 24 attempts, each with a 22-second settling
+period, plus setup and traffic. Avoid running other benchmarks simultaneously.
+
+Read the output directory's `run.json` for **per-phase, per-route** p50/p95/p99,
+sample counts, response bytes, status counts (including 429/503) and errors.
+`requests.json` retains individual HTTP observations; `samples.csv` contains
+receiver CPU/RSS/USS samples; `server.log` captures receiver diagnostics.
+`streams` in `run.json` records heartbeat counts, message gaps (including the final
+quiet interval), publication-notice times and stream failures. An SSE notice
+latency starts before the publishing request, so includes publication processing.
+The ptop `ptop-result.json` and database contain resource history for the complete
+process tree; ptop's manifest report does **not** summarize HTTP latency itself.
+Small phase sample counts make p95/p99 effectively maxima, not reliable tail
+estimates. Latency excludes client JSON validation, but client generation/parsing
+still competes for this host's CPU. Requests use HTTP clients with connection
+reuse; they do not execute browser JS or download static assets.
+
+A nonzero exit records HTTP/content/SSE failures, receiver exit, the sampled
+512 MiB receiver RSS watchdog, or the 180-second workload deadline. ptop adds a
+1,500 MiB process-tree watchdog. Set `max_server_rss_mb=320` to rehearse the demo's
+nominal memory allowance, but a sampled RSS limit is **not equivalent** to cgroup
+`MemoryMax=320M`; brief peaks and charged filesystem memory differ. The harness
+bounds generated table payload estimates to 24 MiB. No latency threshold is
+imposed unless `cheap_p95_ms` is set. Keepalive counts and gaps are observations,
+not an automatic liveness deadline. This is a bounded burst test with closed-loop
+request waves, not a sustained arrival-rate or maximum-throughput test.
+
+### What the current receiver rebuilds
+
+In 0.8.0, current table reads call `DataFrame.to_dict(orient="records")` and
+framework JSON encoding on every request. Tables are not protected by the
+watched-file admission budget. Current artifacts cache rendered dictionaries by
+revision, but misses do not coordinate concurrent renders and responses still
+need JSON encoding. Published PNG reads reuse bytes. Index requests rebuild the
+HTML page, but do not rerun publishers or data generators. Synchronous handlers
+can overlap in threads; CPU-heavy Python conversion/rendering still competes for
+the interpreter. Multiple Uvicorn workers cannot safely share the current
+process-local views and update subscriptions without further architecture work.
+
+The most useful prospective optimization is a bounded cache of **encoded current
+table responses**, with one build per revision/parameter combination, publication
+consistency and invalidation tests. Establish these measurements before changing
+that path. File-backed views, snapshots, exports, streams and remote-watch status
+have distinct semantics and need their own coverage.
+
+### Deployment follow-up
+
+The rehearsal uses one receiver, memory-only publications and one loopback source
+IP with the demo's 96-total/64-per-client SSE limits. It does not reproduce the
+three populated demos, retained history, stream ingestion, scan report publishing,
+Caddy/Cloudflare, conference NAT, cgroup pressure, or browser rendering. Rehearse
+those on an isolated copy of the deployed VM: start with six visitors, then
+bursts of 5/10/20 distributed across the demos, while live ingestion and a scan
+publication continue. Measure cgroup memory and OOM/restarts alongside HTTP
+latency, SSE gaps, and proxy rejection counts. Agree the ordinary-navigation p95
+target for that machine before treating the run as a capacity acceptance test.
+
+The ptop checkout at `~/Projects/ptools/projects/ptop` currently declares **0.2.0**
+and lacks recipe/manifest commands; the installed 0.5.0 wheel has them. Resolve
+that source/version mismatch before working on ptop's interface. Future useful
+ptop improvements include grouping comparisons by workload settings, surfacing
+HTTP/SSE results alongside process metrics, and a single concise rehearsal report.
+
+### Local observations, 3 October 2026
+
+Single sequential attempts on the development machine with the local 0.8.0
+checkout, five repeated-read waves, and ptop recording the process tree:
+
+| Visitors | Table rows | Repeated table p95 | Cold artifact p95 | Receiver peak RSS |
+| --- | --- | --- | --- | --- |
+| 1 | 1,680 | 27 ms | 94 ms | 209 MiB |
+| 6 | 1,680 | 187 ms | 507 ms | 228 MiB |
+| 20 | 1,680 | 529 ms | 1,210 ms | 251 MiB |
+| 6 | 15,000 | 1,433 ms | 507 ms | 378 MiB |
+
+All four admitted workloads completed without HTTP errors or unexpected SSE
+closure; every connection received a keepalive. During publication in the
+20-visitor case, cheap-route observed p95 reached about 695 ms. The large-table
+case exceeded the deployed receiver's **320 MiB** nominal memory allowance even
+on this development host. It was run under the rehearsal's 512 MiB RSS watchdog,
+not the deployed cgroup. This supports measuring per-demo headroom before relying
+on that deployment ceiling; it does not show that the retail demo needs 378 MiB.
+
+The original 20,000-row/12-column string fixture was rejected with 413 during
+setup: its JSON structure exceeds the receiver's 500,000-token ingestion bound.
+The checked-in large recipe uses 15,000 rows to reach the read path within that
+bound. Run directories are `benchmark-results/conference-1`, `conference-6`,
+`conference-20`, and `conference-large-admitted` (generated files are local).
+These are exploratory single attempts with small tail samples, not conference VM
+capacity measurements or a completed repeated manifest comparison.
+
+Validation: both manifests resolved with `ptop manifest plan`. A separate
+single-attempt ptop manifest installed **PyPI plotsrv 0.8.0** into an isolated
+environment and passed the six-visitor case, including publication notices and
+six keepalives. Its repeated table p95 was 180 ms. The focused harness tests passed
+**24 tests**, including real receiver/SSE traffic, timeout failure reporting and
+receiver cleanup. The full 24-attempt conference matrix has not been run.
+
+## Table response cache acceptance campaign
+
+The candidate caches final JSON bytes only for ordinary current tables decoded
+by HTTP publication. Local caller-owned DataFrames, watches (including their
+changing metadata), restored tables, historical snapshots and exports keep their
+existing read paths. Readers overlapping a publication may receive their coherent
+captured revision. A completed older build cannot enter the cache after the view
+is replaced or reset. Retained bytes are limited to 16 MiB, 32 entries and 8 MiB
+per entry. Concurrent readers share a build without occupying worker threads;
+coordination is capped at 32 keys and 128 readers, with uncached fallback instead
+of a new HTTP rejection. These are cache bounds, not total receiver memory limits.
+
+Prepare a reproducible baseline **before changing receiver source**, using the
+checkout's benchmark environment. The baseline source is archived under `.ptop`
+so pytest does not collect its duplicate test tree. The preparation command
+preserves an existing baseline and refuses to overwrite different dependency
+constraints:
+
+```bash
+uv sync --group test --group benchmark
+.venv/bin/python scripts/prepare_table_cache_campaign.py --baseline-ref BASELINE_GIT_REVISION
+ptop manifest plan plotsrv-table-cache.toml
+ptop --db .ptop/table-cache.sqlite3 manifest run plotsrv-table-cache.toml
+.venv/bin/python -m benchmarks.table_cache_report ptop-manifest-results/MANIFEST_DIRECTORY
+```
+
+Run from the checkout root. Both manifest targets use Python 3.13.7 and the same
+saved dependency constraints; change both Python selections together if preparing
+on a different interpreter. The source baseline for this change is
+`537d4731a21ec4fec191fc2768a0167e0a07bdaf`. Each receiver records its installed
+source hash and path. The harness records its hash, settings, Python, and package
+versions so comparisons can reject mismatched inputs.
+
+The manifest makes **70 sequential attempts**: five per target for each of seven
+workloads. Those are table-only browsing with 1/6/20 visitors, six visitors reading
+15,000 rows, mixed browsing, ten publications overlapping readers, and a ten-minute
+soak. Each attempt has 50 warm-read waves. Table-only cases omit artifact traffic
+and cheap-route probes for clear CPU-per-table measurements; the mixed case keeps
+independent page/status/plot probes. The soak cycles forty views and request limits
+and republishes periodically to exercise eviction. SSE streams reconnect at their
+configured 600-second lifetime; earlier closes or a changed receiver instance are
+failures. A short-lifetime regression test validates reconnection separately.
+
+`phase_metrics` records receiver CPU time and memory at workload boundaries;
+`cpu_per_table_s` divides phase CPU by successful table reads. Soak memory is
+sampled in repeated windows, and `cache_samples` records private cache accounting.
+The report writes `table-cache-comparison.json` and `.md`, retaining each attempt's
+measurements alongside medians. Gates require at least 50% lower warm CPU/read and
+30% lower warm table p95 for six visitors. Cheap-route/publication p95 increases
+exceeding both 10% and 5 ms require repeating the affected comparison; a persistent
+regression blocks acceptance. Peak RSS increases beyond the 16 MiB cache allowance
+and continuing soak USS growth require investigation. Cache accounting violations
+and functional failures always fail the campaign.
+
+These local measurements do not authorize deployment or establish cgroup/VM
+capacity. Repeat the populated-demo/proxy rehearsal on the intended isolated VM
+before rollout. In particular, tables restored from disk remain uncached in this
+first change; republishing through HTTP enables caching for their new revision.
+
+For the shorter campaign agreed during implementation, use
+`plotsrv-table-cache-focused.toml` and pass `--focused` to the comparison report.
+It has 18 attempts: three per target for six-visitor table-only and mixed browsing,
+then one per target for twenty visitors, the large table, and a two-minute soak.
+Ordinary attempts settle for one second; the soak checks sustained connections
+during activity. Separate lifecycle tests cover idle keepalives, and the
+short-lifetime regression test covers connection-lifetime reconnection.
+The same CPU/latency improvement gates apply. Stress/soak findings are single
+attempts and do not replace the longer campaign's repeated endurance evidence.
+
+```bash
+ptop --db .ptop/table-cache.sqlite3 manifest run plotsrv-table-cache-focused.toml
+.venv/bin/python -m benchmarks.table_cache_report --focused ptop-manifest-results/MANIFEST_DIRECTORY
+```
+
+### Local implementation results (2026-10-04)
+
+Both targets report plotsrv **0.8.0**: the baseline is the frozen source above,
+and the candidate is that source plus the table cache. This comparison does not
+use older plotsrv releases. The focused campaign completed all 18 attempts in
+`ptop-manifest-results/2026-10-04T184830.837+0000-2`, with no functional failures.
+Its generated `table-cache-comparison.json` retains the individual measurements.
+
+| Workload | Warm CPU/read before → after | Warm table p95 before → after |
+| --- | --- | --- |
+| Six visitors (median of three) | 21.50 → 1.47 ms | 177.86 → 53.25 ms |
+| Mixed browsing (median of three) | 27.83 → 6.17 ms | 229.84 → 64.49 ms |
+| Twenty visitors (one attempt) | 20.95 → 1.70 ms | 551.78 → 203.66 ms |
+| Large table (one attempt) | 156.83 → 3.50 ms | 1413.71 → 487.40 ms |
+
+The primary improvement gates passed (93% lower CPU/read and 70% lower p95).
+No cheap-route or publication latency crossed the regression investigation
+threshold. The first soak did flag peak RSS: 216.94 → 235.54 MiB, an 18.60 MiB
+increase against the 16 MiB investigation threshold. Cache accounting remained
+bounded (32 entries, peak 12.85 MiB of encoded bytes), and post-warmup USS fell
+by 1.20 MiB by the final checkpoint. The report therefore retains its
+`investigate` status rather than treating the performance gains as full acceptance.
+
+A separate two-attempt soak repeat is preserved under
+`ptop-manifest-results/2026-10-04T185712.165+0000-3`, including
+`table-cache-soak-comparison.json`. It again completed without functional failures,
+but peak RSS increased by 19.97 MiB (230.43 → 250.41 MiB). Candidate USS rose
+2.68 MiB between the second and final checkpoints; baseline rose 1.50 MiB.
+Soak publication p95 also crossed the investigation threshold on this repeat
+(118.7 → 133.9 ms); that latency flag was absent from the initial comparison.
+Encoded cache bytes remained bounded at the same 12.85 MiB peak. The short
+observations cannot distinguish allocator retention from continuing growth.
+Memory overhead is therefore a repeated finding, and rollout acceptance remains
+open. The implementation has not been deployed. A smaller retained-byte budget
+and a focused memory follow-up are the next candidates for investigation; the
+existing thresholds have not been relaxed to make these results pass.
+
+Validation included exact response bytes, invalidation races, concurrent readers,
+failure/cancellation cleanup, mutable/watch/history bypasses and browser lifecycle
+coverage. The broad pytest run with `--benchmark-disable` recorded 2,577 passes
+and eight failures in benchmark tests whose assertions require repeated calls.
+Rerunning their entire module with benchmarking enabled passed all 22 tests.
+The browser lifecycle/refresh group passed 28 tests; the cache/report/profile
+group passed 27, with the subsequently added SSE reconnection test and all four
+final report tests also passing. `git diff --check` passed. The long campaign
+and deployment VM/proxy rehearsal remain unrun.
