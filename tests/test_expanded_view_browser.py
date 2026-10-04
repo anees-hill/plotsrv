@@ -25,7 +25,7 @@ for kind in ("text", "json", "html", "image"):
     VIEWS.append(ViewMeta("artifacts:" + kind, "artifact", kind.title(), "Artifacts"))
 
 
-def mount(page, view="tables:main", plot_size=(640, 1200)):
+def mount(page, view="tables:main", plot_size=(640, 1200), stream_data=None):
     page.set_default_timeout(7000)
     register_default_renderers()
     png = io.BytesIO()
@@ -116,7 +116,7 @@ def mount(page, view="tables:main", plot_size=(640, 1200)):
         elif path == "/stream/history":
             payload = {"sessions": [], "capability": {"enabled": True}}
         elif path == "/stream/data":
-            payload = {
+            payload = stream_data if stream_data is not None else {
                 "columns": data["columns"],
                 "records": [
                     {"browser_sequence": i + 1, "data": row}

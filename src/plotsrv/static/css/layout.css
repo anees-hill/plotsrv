@@ -320,6 +320,50 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
     padding: 0.5rem 0.75rem;
   }
 
+  /* Share the branding row without moving the controls used by expanded view. */
+  #site-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.5rem;
+  }
+
+  #site-header .header-left,
+  #site-header .ps-header__right--controls {
+    display: contents;
+  }
+
+  #site-header .header-left > :first-child {
+    grid-column: 1;
+    grid-row: 1;
+    min-width: 0;
+  }
+
+  #site-header .header-logo {
+    object-fit: contain;
+    object-position: left center;
+  }
+
+  #site-header .header-title {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    max-width: 100%;
+  }
+
+  #site-header .header-title:empty { display: none; }
+
+  #site-header .ps-header-actions {
+    grid-column: 2;
+    grid-row: 1;
+    margin: 0;
+  }
+
+  #site-header .ps-header-status,
+  #site-header .ps-viewselect {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+
   .ps-header__right--controls {
     flex-wrap: wrap;
   }
@@ -341,6 +385,17 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
   body[data-kind="artifact"] .page:has(.ps-json-shell) {
     padding-bottom: calc(var(--ps-bottom-dock-height, 9.5rem) + 1rem);
   }
+}
+
+@media (min-width: 480px) and (max-width: 640px) {
+  #site-header { grid-template-columns: auto minmax(0, 1fr) auto; }
+
+  #site-header .header-title {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  #site-header .ps-header-actions { grid-column: 3; }
 }
 
 @media (max-width: 420px) {

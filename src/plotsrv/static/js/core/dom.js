@@ -10,6 +10,40 @@
 
   const core = window.PLOTSRV.core;
 
+  // Fixed mobile panels must follow the visible area when browser chrome or
+  // the on-screen keyboard changes it. Callers subscribe only while open.
+  core.trackMobileViewport = function (element) {
+    const viewport = window.visualViewport;
+    const properties = ["top", "left", "width", "height"];
+    function update() {
+      const mobile = window.matchMedia("(max-width: 640px)").matches;
+      const values = viewport
+        ? [viewport.offsetTop, viewport.offsetLeft, viewport.width, viewport.height]
+        : [0, 0, window.innerWidth, window.innerHeight];
+      properties.forEach(function (name, index) {
+        const property = "--ps-mobile-viewport-" + name;
+        if (mobile) element.style.setProperty(property, values[index] + "px");
+        else element.style.removeProperty(property);
+      });
+    }
+    window.addEventListener("resize", update);
+    if (viewport) {
+      viewport.addEventListener("resize", update);
+      viewport.addEventListener("scroll", update);
+    }
+    update();
+    return function () {
+      window.removeEventListener("resize", update);
+      if (viewport) {
+        viewport.removeEventListener("resize", update);
+        viewport.removeEventListener("scroll", update);
+      }
+      properties.forEach(function (name) {
+        element.style.removeProperty("--ps-mobile-viewport-" + name);
+      });
+    };
+  };
+
   core.uiImageUrl = function (url) {
     const images = (window.PLOTSRV_CONFIG || {}).ui_image_urls || {};
     return images[url] || url;
