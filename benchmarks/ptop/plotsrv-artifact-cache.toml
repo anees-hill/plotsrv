@@ -2,19 +2,19 @@
 # --campaign artifact-cache --baseline-ref 75d92b8, from the checkout root.
 schema_version = 1
 name = "Non-table renderer response cache comparison"
-output_root = "ptop-manifest-results"
+output_root = "../../ptop-manifest-results"
 baseline_target = "baseline"
 continue_on_error = true
 
 [targets.baseline]
-source = ".ptop/artifact-cache-baseline/source"
-harness = "."
+source = "../../.ptop/artifact-cache-baseline/source"
+harness = "../.."
 python = "3.13.7"
 packages = ["--constraint", ".ptop/artifact-cache-constraints.txt", "psutil", "httpx"]
 
 [targets.candidate]
-source = "."
-harness = "."
+source = "../.."
+harness = "../.."
 python = "3.13.7"
 packages = ["--constraint", ".ptop/artifact-cache-constraints.txt", "psutil", "httpx"]
 

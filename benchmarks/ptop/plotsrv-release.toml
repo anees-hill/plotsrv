@@ -5,19 +5,19 @@
 #
 schema_version = 1
 name = "plotsrv 0.8.0 vs local checkout performance comparison"
-output_root = "ptop-manifest-results"
+output_root = "../../ptop-manifest-results"
 baseline_target = "plotsrv_0_8_0"
 continue_on_error = true
 
 [targets.plotsrv_0_8_0]
 package = "plotsrv==0.8.0"
-harness = "."
+harness = "../.."
 packages = ["psutil>=5.9", "httpx>=0.28,<1"]
 
 [targets.plotsrv_local]
-source = "."
+source = "../.."
 label = "plotsrv local checkout (development)"
-harness = "."
+harness = "../.."
 packages = ["psutil>=5.9", "httpx>=0.28,<1"]
 
 # Three independent ptop attempts per target are intentional.  Compare the

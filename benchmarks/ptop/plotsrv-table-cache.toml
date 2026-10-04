@@ -2,19 +2,19 @@
 # See the benchmark guide. Run from this checkout's root directory.
 schema_version = 1
 name = "Table response cache baseline versus candidate"
-output_root = "ptop-manifest-results"
+output_root = "../../ptop-manifest-results"
 baseline_target = "baseline"
 continue_on_error = true
 
 [targets.baseline]
-source = ".ptop/table-cache-baseline/source"
-harness = "."
+source = "../../.ptop/table-cache-baseline/source"
+harness = "../.."
 python = "3.13.7"
 packages = ["--constraint", ".ptop/table-cache-constraints.txt", "psutil", "httpx"]
 
 [targets.candidate]
-source = "."
-harness = "."
+source = "../.."
+harness = "../.."
 python = "3.13.7"
 packages = ["--constraint", ".ptop/table-cache-constraints.txt", "psutil", "httpx"]
 

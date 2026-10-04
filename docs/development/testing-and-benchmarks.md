@@ -85,8 +85,10 @@ machine identity:
 ptop compare 41 52 --require-comparable
 ```
 
-The recipes and manifests are versioned. The `.ptop/` database and manifest
-outputs are local generated state.
+The recipes and manifests are versioned. Campaign manifests live in
+`benchmarks/ptop/`; `ptop.toml` stays at the checkout root so ptop can discover
+recipes without `--file`. Run the commands below from the checkout root.
+The `.ptop/` database and `ptop-manifest-results/` outputs are local generated state.
 
 ## Core scenarios
 
@@ -531,15 +533,15 @@ ptop --db .ptop/conference.sqlite3 recipe run server-browser-large --no-tui
 ptop recipe run server-browser-concurrent --set cheap_p95_ms=250 --no-tui
 
 # Preview then run three repetitions per workload against PyPI 0.8.0 and local source:
-ptop manifest plan plotsrv-conference.toml
-PLOTSRV_MANIFEST_FILE="$PWD/plotsrv-conference.toml" scripts/run_plotsrv_manifest.sh
+ptop manifest plan benchmarks/ptop/plotsrv-conference.toml
+PLOTSRV_MANIFEST_FILE="$PWD/benchmarks/ptop/plotsrv-conference.toml" scripts/run_plotsrv_manifest.sh
 
 # The harness also works without ptop:
 uv run --group benchmark python -m benchmarks.browser_profile \
   --clients 6 --output benchmark-results/my-browser-run
 ```
 
-`plotsrv-release.toml` now compares PyPI 0.8.0 with the local checkout and retains
+`benchmarks/ptop/plotsrv-release.toml` now compares PyPI 0.8.0 with the local checkout and retains
 the CLI, watched-file overload/settling and asynchronous publishing checks. Its
 obsolete artifact case is replaced by the browsing rehearsal. Conference load
 levels have separate recipe names because ptop 0.5.0 groups report medians by
@@ -663,8 +665,8 @@ constraints:
 ```bash
 uv sync --group test --group benchmark
 .venv/bin/python scripts/prepare_table_cache_campaign.py --baseline-ref BASELINE_GIT_REVISION
-ptop manifest plan plotsrv-table-cache.toml
-ptop --db .ptop/table-cache.sqlite3 manifest run plotsrv-table-cache.toml
+ptop manifest plan benchmarks/ptop/plotsrv-table-cache.toml
+ptop --db .ptop/table-cache.sqlite3 manifest run benchmarks/ptop/plotsrv-table-cache.toml
 .venv/bin/python -m benchmarks.table_cache_report ptop-manifest-results/MANIFEST_DIRECTORY
 ```
 
@@ -702,7 +704,7 @@ before rollout. In particular, tables restored from disk remain uncached in this
 first change; republishing through HTTP enables caching for their new revision.
 
 For the shorter campaign agreed during implementation, use
-`plotsrv-table-cache-focused.toml` and pass `--focused` to the comparison report.
+`benchmarks/ptop/plotsrv-table-cache-focused.toml` and pass `--focused` to the comparison report.
 It has 18 attempts: three per target for six-visitor table-only and mixed browsing,
 then one per target for twenty visitors, the large table, and a two-minute soak.
 Ordinary attempts settle for one second; the soak checks sustained connections
@@ -712,7 +714,7 @@ The same CPU/latency improvement gates apply. Stress/soak findings are single
 attempts and do not replace the longer campaign's repeated endurance evidence.
 
 ```bash
-ptop --db .ptop/table-cache.sqlite3 manifest run plotsrv-table-cache-focused.toml
+ptop --db .ptop/table-cache.sqlite3 manifest run benchmarks/ptop/plotsrv-table-cache-focused.toml
 .venv/bin/python -m benchmarks.table_cache_report --focused ptop-manifest-results/MANIFEST_DIRECTORY
 ```
 
@@ -795,8 +797,8 @@ and a 1,500 MiB ptop process-tree watchdog bound each run.
 
 ```bash
 .venv/bin/python scripts/prepare_table_cache_campaign.py --campaign artifact-cache --baseline-ref 75d92b8
-ptop manifest plan plotsrv-artifact-cache.toml
-ptop --db .ptop/artifact-cache.sqlite3 manifest run plotsrv-artifact-cache.toml
+ptop manifest plan benchmarks/ptop/plotsrv-artifact-cache.toml
+ptop --db .ptop/artifact-cache.sqlite3 manifest run benchmarks/ptop/plotsrv-artifact-cache.toml
 ```
 
 The manifest compares three attempts per target using matching dependency

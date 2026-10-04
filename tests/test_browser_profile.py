@@ -50,7 +50,7 @@ def test_timeout_writes_failed_result_and_reaps_receiver(tmp_path):
 
 def test_manifest_load_levels_have_distinct_recipes():
     # ptop 0.5 groups report medians by recipe, not by settings.
-    manifest = tomllib.loads((ROOT / "plotsrv-conference.toml").read_text())
+    manifest = tomllib.loads((ROOT / "benchmarks/ptop/plotsrv-conference.toml").read_text())
     recipes = tomllib.loads((ROOT / "ptop.toml").read_text())["recipes"]
     names = [run["recipe"] for run in manifest["runs"]]
     assert len(set(names)) == len(names)
