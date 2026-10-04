@@ -992,8 +992,10 @@
       saveScrollTop();
       window.location.href = window.location.pathname + "?view=" + encodeURIComponent(viewId);
     });
-    menu.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") {
+    // Escape can arrive while focus is still on the trigger, before the
+    // opening animation frame moves it into the menu. Handle both locations.
+    wrap.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !menu.hidden) {
         event.preventDefault();
         closeMenu(true);
       }

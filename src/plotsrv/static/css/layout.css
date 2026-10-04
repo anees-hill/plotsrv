@@ -320,45 +320,46 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
     padding: 0.5rem 0.75rem;
   }
 
-  /* Share the branding row without moving the controls used by expanded view. */
-  #site-header {
+  /* Only the dashboard flattens these wrappers; customiser preview regions
+     need their layout boxes for pointer and keyboard interaction. */
+  #site-header:has(> .ps-header__right--controls) {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.5rem;
   }
 
-  #site-header .header-left,
-  #site-header .ps-header__right--controls {
+  #site-header:has(> .ps-header__right--controls) .header-left,
+  #site-header:has(> .ps-header__right--controls) .ps-header__right--controls {
     display: contents;
   }
 
-  #site-header .header-left > :first-child {
+  #site-header:has(> .ps-header__right--controls) .header-left > :first-child {
     grid-column: 1;
     grid-row: 1;
     min-width: 0;
   }
 
-  #site-header .header-logo {
+  #site-header:has(> .ps-header__right--controls) .header-logo {
     object-fit: contain;
     object-position: left center;
   }
 
-  #site-header .header-title {
+  #site-header:has(> .ps-header__right--controls) .header-title {
     grid-column: 1 / -1;
     grid-row: 2;
     max-width: 100%;
   }
 
-  #site-header .header-title:empty { display: none; }
+  #site-header:has(> .ps-header__right--controls) .header-title:empty { display: none; }
 
-  #site-header .ps-header-actions {
+  #site-header:has(> .ps-header__right--controls) .ps-header-actions {
     grid-column: 2;
     grid-row: 1;
     margin: 0;
   }
 
-  #site-header .ps-header-status,
-  #site-header .ps-viewselect {
+  #site-header:has(> .ps-header__right--controls) .ps-header-status,
+  #site-header:has(> .ps-header__right--controls) .ps-viewselect {
     grid-column: 1 / -1;
     width: 100%;
     min-width: 0;
@@ -388,14 +389,14 @@ body[data-kind="artifact"] .plot-frame--artifact:has(.ps-json-shell) {
 }
 
 @media (min-width: 480px) and (max-width: 640px) {
-  #site-header { grid-template-columns: auto minmax(0, 1fr) auto; }
+  #site-header:has(> .ps-header__right--controls) { grid-template-columns: auto minmax(0, 1fr) auto; }
 
-  #site-header .header-title {
+  #site-header:has(> .ps-header__right--controls) .header-title {
     grid-column: 2;
     grid-row: 1;
   }
 
-  #site-header .ps-header-actions { grid-column: 3; }
+  #site-header:has(> .ps-header__right--controls) .ps-header-actions { grid-column: 3; }
 }
 
 @media (max-width: 420px) {
