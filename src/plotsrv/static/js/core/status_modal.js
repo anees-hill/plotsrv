@@ -548,6 +548,8 @@
     });
   }
 
+  let stopTrackingViewport = null;
+
   function openStatusModal() {
     const backdrop = document.getElementById("status-modal-backdrop");
     const close = document.getElementById("status-modal-close-icon");
@@ -557,6 +559,8 @@
     state.statusModalOpen = true;
     window.addEventListener("resize", renderStatusModal);
     backdrop.hidden = false;
+    if (stopTrackingViewport) stopTrackingViewport();
+    if (core.trackMobileViewport) stopTrackingViewport = core.trackMobileViewport(backdrop);
     if (document.body) document.body.classList.add("ps-status-modal-open");
     if (button) button.setAttribute("aria-expanded", "true");
     renderStatusModal();
@@ -566,7 +570,7 @@
         typeof core.refreshStatus === "function") {
       core.refreshStatus();
     }
-    if (close) close.focus();
+    if (close) close.focus({ preventScroll: true });
   }
 
   function closeStatusModal(options) {
@@ -574,6 +578,8 @@
     const button = document.getElementById("header-status-button");
     if (!backdrop || backdrop.hidden) return;
     backdrop.hidden = true;
+    if (stopTrackingViewport) stopTrackingViewport();
+    stopTrackingViewport = null;
     state.statusModalOpen = false;
     window.removeEventListener("resize", renderStatusModal);
     if (typeof core.closeCheckStatus === "function") core.closeCheckStatus();

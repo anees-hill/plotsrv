@@ -1,0 +1,49 @@
+# Prepare .ptop/table-cache-baseline/source and constraints before running.
+# See the benchmark guide. Run from this checkout's root directory.
+schema_version = 1
+name = "Focused table cache baseline versus candidate"
+output_root = "../../ptop-manifest-results"
+baseline_target = "baseline"
+continue_on_error = true
+
+[targets.baseline]
+source = "../../.ptop/table-cache-baseline/source"
+harness = "../.."
+python = "3.13.7"
+packages = ["--constraint", ".ptop/table-cache-constraints.txt", "psutil", "httpx"]
+
+[targets.candidate]
+source = "../.."
+harness = "../.."
+python = "3.13.7"
+packages = ["--constraint", ".ptop/table-cache-constraints.txt", "psutil", "httpx"]
+
+[[runs]]
+recipe = "table-cache-six"
+targets = ["baseline", "candidate"]
+repeats = 3
+set = { rounds = "50", publish_cycles = "3", soak_seconds = "0", settle = "1" }
+
+[[runs]]
+recipe = "table-cache-mixed"
+targets = ["baseline", "candidate"]
+repeats = 3
+set = { rounds = "10", publish_cycles = "3", soak_seconds = "0", settle = "1" }
+
+[[runs]]
+recipe = "table-cache-twenty"
+targets = ["baseline", "candidate"]
+repeats = 1
+set = { rounds = "10", publish_cycles = "1", soak_seconds = "0", settle = "1" }
+
+[[runs]]
+recipe = "table-cache-large"
+targets = ["baseline", "candidate"]
+repeats = 1
+set = { rounds = "10", publish_cycles = "1", soak_seconds = "0", settle = "1" }
+
+[[runs]]
+recipe = "table-cache-soak"
+targets = ["baseline", "candidate"]
+repeats = 1
+set = { rounds = "5", publish_cycles = "1", soak_seconds = "120", settle = "1" }

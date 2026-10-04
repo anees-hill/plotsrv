@@ -124,6 +124,14 @@ def test_small_screen_cancel_and_no_polling(page, editor, tmp_path):
     draft, origin, token = editor
     page.set_viewport_size({"width": 390, "height": 844})
     unlock(page, origin, token)
+    branding = page.frame_locator("#preview").locator("#preview-branding")
+    page.locator('[data-region="controls"]').click()
+    branding.click()
+    expect(page.locator('[data-region="branding"]')).to_have_attribute("aria-pressed", "true")
+    page.locator('[data-region="controls"]').click()
+    branding.focus()
+    page.keyboard.press("Enter")
+    expect(page.locator('[data-region="branding"]')).to_have_attribute("aria-pressed", "true")
     page.locator("#field-header_text").fill("Discard this")
     expect(page.locator("#notice")).to_contain_text("Preview updated")
     requests = []

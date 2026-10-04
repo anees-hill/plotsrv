@@ -34,6 +34,7 @@ class ViewState:
     icon_key: IconKey = "unknown"
     plot_png: bytes | None = None
     table_df: pd.DataFrame | None = None
+    table_receiver_owned: bool = False
     table_html_simple: str | None = None
     status: dict[str, Any] = None  # populated in __post_init__
     table_total_rows: int | None = None
@@ -544,6 +545,7 @@ def set_table(
     returned_rows: int | None = None,
     publish_source: str | None = None,
     record_arrival: bool = True,
+    receiver_owned: bool = False,
 ) -> None:
     vid = view_id or _ACTIVE_VIEW_ID
     _require_ordinary_publishable_view(vid)
@@ -558,6 +560,7 @@ def set_table(
 
     st.kind = "table"
     st.table_df = df
+    st.table_receiver_owned = receiver_owned
     st.table_html_simple = html_simple
 
     st.table_total_rows = total_rows
@@ -1097,6 +1100,12 @@ def _synchronise_store_api(func: Callable[..., Any]) -> Callable[..., Any]:
                 require_admitted(vid)
                 _ensure_view(vid)
             result = func(*args, **kwargs)
+            if func.__name__ in ("set_table", "set_plot", "set_artifact",
+                                 "set_watched_file_meta", "clear_watched_file_meta", "reset"):
+                from .table_cache import TABLE_RESPONSES
+                TABLE_RESPONSES.invalidate(None if func.__name__ == "reset" else vid)
+                from .render_cache import invalidate_rendered_artifact
+                invalidate_rendered_artifact(None if func.__name__ == "reset" else vid)
             if func.__name__ in ("set_plot", "set_table", "set_artifact") and values.get("record_arrival", True):
                 from .checks import accept_state
                 st = get_view_state(vid)

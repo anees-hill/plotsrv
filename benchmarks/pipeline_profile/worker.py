@@ -82,9 +82,37 @@ def run_server(args: argparse.Namespace) -> int:
             restore_latest=False,
         )
         _wait_for_http(args.port)
-        write_json(Path(args.ready_file), {"pid": __import__("os").getpid(), "port": args.port})
+        import plotsrv
+        import importlib.metadata
+        import hashlib
+        source_hash = hashlib.sha256()
+        for source in sorted(Path(plotsrv.__file__).parent.rglob("*.py")):
+            source_hash.update(str(source.relative_to(Path(plotsrv.__file__).parent)).encode())
+            source_hash.update(source.read_bytes())
+        write_json(Path(args.ready_file), {"pid": __import__("os").getpid(), "port": args.port,
+                                          "plotsrv_file": plotsrv.__file__,
+                                          "plotsrv_version": importlib.metadata.version("plotsrv"),
+                                          "source_sha256": source_hash.hexdigest()})
         event("server_ready", {"port": args.port}, None)
+        next_cache_sample = 0.0
         while not stopping:
+            if args.cache_metrics and time.monotonic() >= next_cache_sample:
+                import sys
+                module = sys.modules.get("plotsrv.table_cache")
+                stats = module.TABLE_RESPONSES.stats() if module else {"supported": False}
+                renderer = sys.modules.get("plotsrv.render_cache")
+                if renderer is not None:
+                    with renderer._CACHE._lock:
+                        stats["artifact"] = {
+                            "entries": len(renderer._CACHE._entries),
+                            "bytes": renderer._CACHE._total_bytes,
+                        }
+                    builds = getattr(renderer, "_HTTP_BUILDS", None)
+                    if builds is not None:
+                        stats["artifact"].update(builds=builds.stats()["builds"],
+                                                 waiters=builds.stats()["waiters"])
+                write_json_line(Path(args.cache_metrics), {"at_s": time.monotonic(), **stats})
+                next_cache_sample = time.monotonic() + 1
             time.sleep(0.1)
         return 0
     finally:
@@ -221,6 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     server.add_argument("--ready-file", required=True)
     server.add_argument("--events", required=True)
     server.add_argument("--config", required=True)
+    server.add_argument("--cache-metrics")
     server.add_argument("--watch-csv")
     server.add_argument("--watch-materialization", choices=["memory", "file"], default="file")
     server.add_argument("--watch-max-bytes", type=int)

@@ -2,6 +2,8 @@
 
 import re
 
+import pytest
+
 from plotsrv.html import render_index
 from plotsrv.store import ViewMeta
 from tests.test_browser_settings_assets import _ui
@@ -156,3 +158,32 @@ def test_view_catalogue_refresh_stops_after_access_denied(page):
       await PLOTSRV.core.refreshViewIcons(2);
     }""")
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("width", [390, 1280])
+def test_escape_closes_picker_before_deferred_focus(page, width):
+    page.set_viewport_size({"width": width, "height": 850})
+    open_dashboard(page)
+    result = page.evaluate("""() => {
+      const trigger = document.querySelector('.ps-viewselect__btn');
+      const menu = document.querySelector('.ps-viewselect__menu');
+      const requestFrame = window.requestAnimationFrame;
+      const pending = [];
+      window.requestAnimationFrame = callback => { pending.push(callback); return pending.length; };
+      try {
+        trigger.focus();
+        trigger.click();
+        const opened = !menu.hidden;
+        trigger.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));
+        const closedBeforeFrame = menu.hidden;
+        pending.forEach(callback => callback(performance.now()));
+        return {opened, closedBeforeFrame, closedAfterFrame: menu.hidden,
+                focusRestored: document.activeElement === trigger};
+      } finally {
+        window.requestAnimationFrame = requestFrame;
+      }
+    }""")
+    assert result == {
+        "opened": True, "closedBeforeFrame": True,
+        "closedAfterFrame": True, "focusRestored": True,
+    }

@@ -539,6 +539,7 @@ def test_publish_table_non_string_html_simple_is_regenerated(
         total_rows=None,
         returned_rows=None,
         publish_source=None,
+        receiver_owned=False,
     ):
         captured.append(
             {
@@ -555,6 +556,7 @@ def test_publish_table_non_string_html_simple_is_regenerated(
             view_id=view_id,
             total_rows=total_rows,
             returned_rows=returned_rows,
+            receiver_owned=receiver_owned,
         )
 
     monkeypatch.setattr(app_mod.store, "set_table", fake_set_table)

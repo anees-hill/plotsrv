@@ -346,11 +346,14 @@ def _render_current_artifact_response(
         meta=meta,
         observation_context=observation_context,
     )
-    return cache_rendered_artifact(
-        view_id=view_id,
-        revision=revision,
-        response=rendered,
-    )
+    with store._STORE_LOCK:
+        st = store._VIEWS.get(view_id)
+        if (st is not None and st.render_revision == revision
+                and st.artifact is not None and st.artifact.obj is obj):
+            return cache_rendered_artifact(
+                view_id=view_id, revision=revision, response=rendered,
+            )
+    return rendered
 
 
 def _watched_file_raw_url(*, view_id: str, download: bool = False) -> str:
@@ -1106,8 +1109,13 @@ def _table_data_response_from_df(
     returned_rows: int | None = None,
     meta: dict[str, Any] | None = None,
     snapshot_id: str | None = None,
+    effective_limits: tuple[int | None, int | None] | None = None,
 ) -> dict[str, Any]:
-    rows_df = _table_response_df(df, limit=limit)
+    if effective_limits is None:
+        rows_df = _table_response_df(df, limit=limit)
+    else:
+        row_limit, col_limit = effective_limits
+        rows_df = df.iloc[:row_limit, :col_limit]
     columns = list(rows_df.columns)
     rows = rows_df.to_dict(orient="records")
 
@@ -1321,8 +1329,68 @@ def _stream_file_backed_table_json(
         release()
 
 
-@app.get("/table/data", dependencies=[Depends(require_snapshot_read)])
-def get_table_data(
+@app.get("/table/data", dependencies=[Depends(require_snapshot_read)], response_model=dict[str, Any])
+async def get_table_data(
+    limit: int | None = Query(default=None, ge=1),
+    view: str | None = None,
+    snapshot: str | None = None,
+) -> Any:
+    from starlette.concurrency import run_in_threadpool
+    from .table_cache import TABLE_RESPONSES, TableResponseKey
+
+    def prepare():
+        from .remote_watch import public_meta
+        with store._STORE_LOCK:
+            vid = view or store.get_active_view_id()
+            st = store.get_view_state(vid)
+            eligible = (not snapshot and st.kind == "table" and st.table_df is not None
+                        and st.table_receiver_owned and st.watched_file is None
+                        and public_meta(vid) is None)
+            if eligible:
+                limits = _table_response_limits(limit)
+                key = TableResponseKey(vid, st.render_revision, *limits)
+                return key, st.table_df, st.table_total_rows, st.table_returned_rows
+        return _get_table_data_uncached(limit=limit, view=view, snapshot=snapshot)
+
+    captured = await run_in_threadpool(prepare)
+    if not isinstance(captured, tuple):
+        return captured
+    key, df, total_rows, returned_rows = captured
+
+    def build() -> bytes:
+        # Match the route's existing FastAPI/Pydantic validation and JSON bytes,
+        # including its handling of dates, non-finite values and encoding errors.
+        from fastapi.exceptions import ResponseValidationError
+        payload = _table_data_response_from_df(
+            df, limit=limit, total_rows=total_rows, returned_rows=returned_rows,
+            effective_limits=(key.rows, key.columns),
+        )
+        value, errors = _TABLE_RESPONSE_FIELD.validate(payload, {}, loc=("response",))
+        if errors:
+            raise ResponseValidationError(errors=errors, body=payload)
+        body = _TABLE_RESPONSE_FIELD.serialize_json(value)
+        # Lock ordering is always store -> cache. Re-publication/reset can occur
+        # during preparation; serve that coherent snapshot but never retain it.
+        with store._STORE_LOCK:
+            st = store._VIEWS.get(key.view_id)
+            if (st is not None and st.kind == "table" and st.render_revision == key.revision
+                    and st.table_df is df and st.table_receiver_owned
+                    and st.watched_file is None):
+                from .remote_watch import public_meta
+                if public_meta(key.view_id) is None:
+                    TABLE_RESPONSES.put(key, body)
+        return body
+
+    return Response(await TABLE_RESPONSES.get_or_build(key, build), media_type="application/json")
+
+
+# Reuse the field FastAPI constructed for this route, so changing the response
+# contract changes validation and encoding in both paths together.
+_TABLE_RESPONSE_FIELD = next(route.response_field for route in app.routes
+                             if getattr(route, "path", None) == "/table/data")
+
+
+def _get_table_data_uncached(
     limit: int | None = Query(default=None, ge=1),
     view: str | None = None,
     snapshot: str | None = None,
@@ -1792,6 +1860,7 @@ def publish(request: Request, payload: dict[str, Any], *, _commit=None) -> dict[
                 total_rows=total_rows,
                 returned_rows=returned_rows,
                 publish_source=publish_source,
+                receiver_owned=True,
             )
             store.mark_success(
                 duration_s=None,
@@ -1881,7 +1950,59 @@ def index(request: Request, view: str | None = None) -> HTMLResponse:
     return HTMLResponse(content=html_str)
 
 
-@app.get("/artifact", dependencies=[Depends(require_snapshot_read)])
+@app.get("/artifact", dependencies=[Depends(require_snapshot_read)], response_model=dict[str, Any])
+async def get_artifact_http(
+    view: str | None = None,
+    snapshot: str | None = None,
+) -> Any:
+    from starlette.concurrency import run_in_threadpool
+    from . import render_cache
+    from .remote_watch import public_meta
+
+    def prepare():
+        with store._STORE_LOCK:
+            vid = view or store.get_active_view_id()
+            st = store.get_view_state(vid)
+            art = st.artifact
+            observation = (art is not None and art.kind == "json" and type(art.obj) is dict
+                           and art.obj.get("type") == "plotsrv_observation")
+            if (not snapshot and art is not None and art.kind not in ("plot", "table")
+                    and not observation and st.watched_file is None and public_meta(vid) is None):
+                return vid, st.render_revision, art
+        return get_artifact(view=view, snapshot=snapshot)
+
+    captured = await run_in_threadpool(prepare)
+    if not isinstance(captured, tuple):
+        return captured
+    vid, revision, art = captured
+
+    def build() -> bytes:
+        from fastapi.exceptions import ResponseValidationError
+        rendered = _render_artifact_response(
+            view_id=vid, obj=art.obj, kind_hint=art.kind,
+            meta={"source_info": art.source_info} if art.source_info else {},
+        )
+        value, errors = _ARTIFACT_RESPONSE_FIELD.validate(rendered, {}, loc=("response",))
+        if errors:
+            raise ResponseValidationError(errors=errors, body=rendered)
+        body = _ARTIFACT_RESPONSE_FIELD.serialize_json(value)
+        # A reader may finish its captured revision after publication, but an
+        # older build must never repopulate the cache or evict the newer result.
+        with store._STORE_LOCK:
+            st = store._VIEWS.get(vid)
+            if (st is not None and st.render_revision == revision and st.artifact is art
+                    and st.watched_file is None and public_meta(vid) is None):
+                render_cache._CACHE.put_bytes(view_id=vid, revision=revision, body=body)
+        return body
+
+    body = await render_cache.get_encoded_artifact(view_id=vid, revision=revision, build=build)
+    return Response(body, media_type="application/json")
+
+
+_ARTIFACT_RESPONSE_FIELD = next(route.response_field for route in app.routes
+                              if getattr(route, "path", None) == "/artifact")
+
+
 def get_artifact(
     view: str | None = None,
     snapshot: str | None = None,

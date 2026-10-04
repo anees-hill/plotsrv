@@ -37,7 +37,7 @@ class _RenderCacheKey:
 
 @dataclass(slots=True)
 class _RenderCacheEntry:
-    response: dict[str, Any]
+    response: dict[str, Any] | bytes
     size_bytes: int
 
 
@@ -62,12 +62,39 @@ class _RenderedArtifactCache:
             entry = self._entries.get(key)
             if entry is None:
                 return None
+            if isinstance(entry.response, bytes):
+                # Internal Python callers retain their dictionary contract. A
+                # direct call may replace the HTTP entry, within the same budget.
+                return None
 
             self._entries.move_to_end(key)
             # Route callers should not be able to mutate a cached response for
             # another request. Strings (the potentially large HTML body) are
             # immutable, so deepcopy does not duplicate their contents.
             return deepcopy(entry.response)
+
+    def get_bytes(self, *, view_id: str, revision: int) -> bytes | None:
+        key = _RenderCacheKey(view_id, revision)
+        with self._lock:
+            entry = self._entries.get(key)
+            if entry is None or not isinstance(entry.response, bytes):
+                return None
+            self._entries.move_to_end(key)
+            return entry.response
+
+    def put_bytes(self, *, view_id: str, revision: int, body: bytes) -> None:
+        size_bytes = sys.getsizeof(body)
+        if size_bytes > self._max_entry_bytes:
+            return
+        with self._lock:
+            self._discard_view_entries(view_id=view_id)
+            self._entries[_RenderCacheKey(view_id, revision)] = _RenderCacheEntry(body, size_bytes)
+            self._total_bytes += size_bytes
+            self._trim()
+
+    def invalidate(self, view_id: str) -> None:
+        with self._lock:
+            self._discard_view_entries(view_id=view_id)
 
     def put(
         self,
@@ -145,3 +172,26 @@ def cache_rendered_artifact(
 def clear_rendered_artifact_cache() -> None:
     """Clear the process-local cache. Primarily useful in tests."""
     _CACHE.clear()
+
+
+# Reuse the tested cross-loop build coordination without allocating another
+# response cache. Both dictionary and encoded entries share _CACHE's old budget.
+from .table_cache import TableResponseCache, TableResponseKey
+
+_HTTP_BUILDS = TableResponseCache(max_entries=0, max_bytes=0)
+
+
+async def get_encoded_artifact(*, view_id: str, revision: int, build) -> bytes:
+    body = _CACHE.get_bytes(view_id=view_id, revision=revision)
+    if body is not None:
+        return body
+    return await _HTTP_BUILDS.get_or_build(
+        TableResponseKey(view_id, revision, None, None), build,
+    )
+
+
+def invalidate_rendered_artifact(view_id: str | None = None) -> None:
+    if view_id is None:
+        _CACHE.clear()
+    else:
+        _CACHE.invalidate(view_id)

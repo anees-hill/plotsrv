@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-MANIFEST_FILE="${PLOTSRV_MANIFEST_FILE:-$PROJECT_ROOT/plotsrv-release.toml}"
+MANIFEST_FILE="${PLOTSRV_MANIFEST_FILE:-$PROJECT_ROOT/benchmarks/ptop/plotsrv-release.toml}"
 PTOP_DB_PATH="${PTOP_DB:-$PROJECT_ROOT/.ptop/plotsrv.sqlite3}"
 
 die() {

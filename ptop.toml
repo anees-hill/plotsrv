@@ -1,6 +1,20 @@
 # Optional ptop helpers.  plotsrv's benchmark runner remains independently
 # usable; these recipes only add durable process-resource history and comparison.
 
+[recipes.artifact-readers]
+description = "Concurrent JSON, Markdown, HTML, text, code, image and traceback reads"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.artifact_profile",
+  "--clients", "{clients}", "--cycles", "{cycles}", "--rounds", "{rounds}",
+  "--output", "{output}",
+]
+defaults = { clients = "6", cycles = "3", rounds = "10", output = "benchmark-results/{timestamp}-artifact-readers" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "artifact-readers" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.artifact_profile' }
+
 [recipes.watch-file-large-cycles]
 description = "Large file-backed CSV visits with post-idle server memory checkpoints"
 command = [
@@ -201,18 +215,186 @@ result_json = "{output}/ptop-result.json"
 tags = { case = "cli.version.cold-start", mode = "version" }
 components = { cli = 'benchmarks\.cli_profile' }
 
-[recipes.server-artifact-repeated-clients]
-description = "Repeated JSON artifact requests with server RSS/USS and warm-request latency"
+# Receiver browsing: first reads, repeated reads, publication overlap, SSE,
+# and independent page/status/plot probes. This always starts a local receiver.
+[recipes.server-browser-concurrent]
+description = "Concurrent visitors with table/artifact bursts, cheap probes and live updates"
 command = [
-  "uv", "run", "--group", "benchmark", "python", "-m",
-  "benchmarks.pipeline_profile", "case", "run",
-  "server.artifact.repeated-clients", "--profile", "{profile}",
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--clients", "{clients}", "--rows", "{rows}", "--columns", "{columns}",
+  "--string-chars", "{string_chars}", "--artifact-items", "{artifact_items}",
+  "--rounds", "{rounds}", "--settle", "{settle}",
+  "--max-server-rss-mb", "{max_server_rss_mb}", "--cheap-p95-ms", "{cheap_p95_ms}",
   "--output", "{output}",
 ]
-defaults = { profile = "standard", output = "benchmark-results/{timestamp}-server-artifact" }
-interval = 0.25
+defaults = { clients = "6", rows = "1680", columns = "12", string_chars = "8", artifact_items = "500", rounds = "5", settle = "22", max_server_rss_mb = "512", cheap_p95_ms = "0", output = "benchmark-results/{timestamp}-browser-{clients}-{rows}" }
+interval = 0.1
 max_tree_rss_mb = 1500
 result_json = "{output}/ptop-result.json"
-tags = { case = "server.artifact.repeated-clients", profile = "{profile}" }
-components = { server = 'pipeline_profile\.worker server', pipeline = 'pipeline_profile\.worker pipeline', client = 'pipeline_profile\.worker client' }
+tags = { case = "server.browser.concurrent", clients = "{clients}", rows = "{rows}", columns = "{columns}", string_chars = "{string_chars}", artifact_items = "{artifact_items}", rounds = "{rounds}", settle = "{settle}" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
 
+[recipes.server-browser-single]
+description = "Concurrent visitors with table/artifact bursts, cheap probes and live updates"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--clients", "{clients}", "--rows", "{rows}", "--columns", "{columns}",
+  "--string-chars", "{string_chars}", "--artifact-items", "{artifact_items}",
+  "--rounds", "{rounds}", "--settle", "{settle}",
+  "--max-server-rss-mb", "{max_server_rss_mb}", "--cheap-p95-ms", "{cheap_p95_ms}",
+  "--output", "{output}",
+]
+defaults = { clients = "1", rows = "1680", columns = "12", string_chars = "8", artifact_items = "500", rounds = "5", settle = "22", max_server_rss_mb = "512", cheap_p95_ms = "0", output = "benchmark-results/{timestamp}-browser-{clients}-{rows}" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "server.browser.concurrent", clients = "{clients}", rows = "{rows}", columns = "{columns}", string_chars = "{string_chars}", artifact_items = "{artifact_items}", rounds = "{rounds}", settle = "{settle}" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+[recipes.server-browser-burst]
+description = "Concurrent visitors with table/artifact bursts, cheap probes and live updates"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--clients", "{clients}", "--rows", "{rows}", "--columns", "{columns}",
+  "--string-chars", "{string_chars}", "--artifact-items", "{artifact_items}",
+  "--rounds", "{rounds}", "--settle", "{settle}",
+  "--max-server-rss-mb", "{max_server_rss_mb}", "--cheap-p95-ms", "{cheap_p95_ms}",
+  "--output", "{output}",
+]
+defaults = { clients = "20", rows = "1680", columns = "12", string_chars = "8", artifact_items = "500", rounds = "5", settle = "22", max_server_rss_mb = "512", cheap_p95_ms = "0", output = "benchmark-results/{timestamp}-browser-{clients}-{rows}" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "server.browser.concurrent", clients = "{clients}", rows = "{rows}", columns = "{columns}", string_chars = "{string_chars}", artifact_items = "{artifact_items}", rounds = "{rounds}", settle = "{settle}" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+[recipes.server-browser-large]
+description = "Concurrent visitors with table/artifact bursts, cheap probes and live updates"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--clients", "{clients}", "--rows", "{rows}", "--columns", "{columns}",
+  "--string-chars", "{string_chars}", "--artifact-items", "{artifact_items}",
+  "--rounds", "{rounds}", "--settle", "{settle}",
+  "--max-server-rss-mb", "{max_server_rss_mb}", "--cheap-p95-ms", "{cheap_p95_ms}",
+  "--output", "{output}",
+]
+defaults = { clients = "6", rows = "15000", columns = "12", string_chars = "8", artifact_items = "500", rounds = "5", settle = "22", max_server_rss_mb = "512", cheap_p95_ms = "0", output = "benchmark-results/{timestamp}-browser-{clients}-{rows}" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "server.browser.concurrent", clients = "{clients}", rows = "{rows}", columns = "{columns}", string_chars = "{string_chars}", artifact_items = "{artifact_items}", rounds = "{rounds}", settle = "{settle}" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+# Table response cache acceptance campaign (five attempts per target).
+
+[recipes.table-cache-single]
+description = "Table cache acceptance: single"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--mode", "table", "--clients", "1", "--rows", "1680",
+  "--rounds", "{rounds}", "--publish-cycles", "{publish_cycles}",
+  "--soak-seconds", "{soak_seconds}", "--settle", "{settle}", "--max-seconds", "1200",
+  "--output", "{output}",
+]
+defaults = { rounds = "50", publish_cycles = "1", soak_seconds = "0", settle = "22", output = "benchmark-results/{timestamp}-table-cache-single" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "table-cache-single" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+[recipes.table-cache-six]
+description = "Table cache acceptance: six"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--mode", "table", "--clients", "6", "--rows", "1680",
+  "--rounds", "{rounds}", "--publish-cycles", "{publish_cycles}",
+  "--soak-seconds", "{soak_seconds}", "--settle", "{settle}", "--max-seconds", "1200",
+  "--output", "{output}",
+]
+defaults = { rounds = "50", publish_cycles = "1", soak_seconds = "0", settle = "22", output = "benchmark-results/{timestamp}-table-cache-six" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "table-cache-six" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+[recipes.table-cache-twenty]
+description = "Table cache acceptance: twenty"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--mode", "table", "--clients", "20", "--rows", "1680",
+  "--rounds", "{rounds}", "--publish-cycles", "{publish_cycles}",
+  "--soak-seconds", "{soak_seconds}", "--settle", "{settle}", "--max-seconds", "1200",
+  "--output", "{output}",
+]
+defaults = { rounds = "50", publish_cycles = "1", soak_seconds = "0", settle = "22", output = "benchmark-results/{timestamp}-table-cache-twenty" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "table-cache-twenty" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+[recipes.table-cache-large]
+description = "Table cache acceptance: large"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--mode", "table", "--clients", "6", "--rows", "15000",
+  "--rounds", "{rounds}", "--publish-cycles", "{publish_cycles}",
+  "--soak-seconds", "{soak_seconds}", "--settle", "{settle}", "--max-seconds", "1200",
+  "--output", "{output}",
+]
+defaults = { rounds = "50", publish_cycles = "1", soak_seconds = "0", settle = "22", output = "benchmark-results/{timestamp}-table-cache-large" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "table-cache-large" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+[recipes.table-cache-mixed]
+description = "Table cache acceptance: mixed"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--mode", "mixed", "--clients", "6", "--rows", "1680",
+  "--rounds", "{rounds}", "--publish-cycles", "{publish_cycles}",
+  "--soak-seconds", "{soak_seconds}", "--settle", "{settle}", "--max-seconds", "1200",
+  "--output", "{output}",
+]
+defaults = { rounds = "50", publish_cycles = "1", soak_seconds = "0", settle = "22", output = "benchmark-results/{timestamp}-table-cache-mixed" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "table-cache-mixed" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+[recipes.table-cache-republish]
+description = "Table cache acceptance: republish"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--mode", "table", "--clients", "6", "--rows", "1680",
+  "--rounds", "{rounds}", "--publish-cycles", "{publish_cycles}",
+  "--soak-seconds", "{soak_seconds}", "--settle", "{settle}", "--max-seconds", "1200",
+  "--output", "{output}",
+]
+defaults = { rounds = "50", publish_cycles = "10", soak_seconds = "0", settle = "22", output = "benchmark-results/{timestamp}-table-cache-republish" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "table-cache-republish" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }
+
+[recipes.table-cache-soak]
+description = "Table cache acceptance: soak"
+command = [
+  "uv", "run", "--group", "benchmark", "python", "-m", "benchmarks.browser_profile",
+  "--mode", "table", "--clients", "6", "--rows", "1680",
+  "--rounds", "{rounds}", "--publish-cycles", "{publish_cycles}",
+  "--soak-seconds", "{soak_seconds}", "--settle", "{settle}", "--max-seconds", "1200",
+  "--output", "{output}",
+]
+defaults = { rounds = "50", publish_cycles = "1", soak_seconds = "600", settle = "22", output = "benchmark-results/{timestamp}-table-cache-soak" }
+interval = 0.1
+max_tree_rss_mb = 1500
+result_json = "{output}/ptop-result.json"
+tags = { case = "table-cache-soak" }
+components = { server = 'pipeline_profile\.worker server', client = 'benchmarks\.browser_profile' }

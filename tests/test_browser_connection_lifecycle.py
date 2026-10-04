@@ -7,7 +7,7 @@ import socket
 import subprocess
 import sys
 import time
-from urllib.request import urlopen
+from urllib.request import Request as URLRequest, urlopen
 
 import pytest
 
@@ -19,7 +19,8 @@ import pandas as pd
 from PIL import Image
 import uvicorn
 from plotsrv import config, server, settings, store
-from plotsrv.app import app
+from plotsrv.app import app, publish as receive_publish
+from fastapi import Request
 from plotsrv.browser_updates import browser_update_hub
 
 settings.set_runtime_context(config_path=sys.argv[1])
@@ -39,17 +40,21 @@ def state():
     return {'subscribers': browser_update_hub.subscriber_count()}
 
 @app.post('/_test/publish')
-def publish():
-    store.set_table(pd.DataFrame({'value': [9999], 'station': ['Stafford']}),
-        None, view_id='Test:Table')
+def publish(request: Request):
+    if sys.argv[3] == 'http':
+        receive_publish(request, {'view_id': 'Test:Table', 'kind': 'table', 'force': True,
+            'table': {'columns': ['value', 'station'], 'rows': [{'value': 9999, 'station': 'Stafford'}]}})
+    else:
+        store.set_table(pd.DataFrame({'value': [9999], 'station': ['Stafford']}),
+            None, view_id='Test:Table')
     return {'revision': browser_update_hub.current_revision('Test:Table')}
 
 uvicorn.run(app, fd=int(sys.argv[2]), log_level='error')
 """
 
 
-@pytest.fixture(scope="module")
-def live_server(tmp_path_factory):
+@pytest.fixture(scope="module", params=["local", "http"])
+def live_server(tmp_path_factory, request):
     if os.name == "nt":
         pytest.skip("isolated server fixture passes a listening socket to its child")
     tmp = tmp_path_factory.mktemp("browser-connections")
@@ -60,7 +65,7 @@ def live_server(tmp_path_factory):
         sock.listen(32)
         origin = f"http://127.0.0.1:{sock.getsockname()[1]}"
         proc = subprocess.Popen(
-            [sys.executable, "-u", "-c", SERVER, str(config), str(sock.fileno())],
+            [sys.executable, "-u", "-c", SERVER, str(config), str(sock.fileno()), request.param],
             pass_fds=(sock.fileno(),), stdout=log, stderr=log,
             env={**os.environ, "PYTHONPATH": str(Path(__file__).parents[1] / "src")},
             cwd=tmp,
@@ -76,6 +81,13 @@ def live_server(tmp_path_factory):
             else:
                 log.seek(0)
                 pytest.fail("Test server did not start: " + log.read())
+            if request.param == "http":
+                payload = {"view_id": "Test:Table", "kind": "table", "force": True,
+                           "table": {"columns": ["value", "station"], "rows": [
+                               {"value": i, "station": "Stafford"} for i in range(336)]}}
+                with urlopen(URLRequest(origin + "/publish", data=json.dumps(payload).encode(),
+                                        headers={"Content-Type": "application/json"}), timeout=5) as response:
+                    assert response.status == 200
             yield origin
         finally:
             proc.terminate()

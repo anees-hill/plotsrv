@@ -1,0 +1,42 @@
+# Local synthetic receiver rehearsal. No external target or public traffic.
+# ptop manifest plan benchmarks/ptop/plotsrv-conference.toml
+# ptop manifest run benchmarks/ptop/plotsrv-conference.toml
+schema_version = 1
+name = "plotsrv 0.8.0 concurrent browsing rehearsal"
+output_root = "../../ptop-manifest-results"
+baseline_target = "plotsrv_0_8_0"
+continue_on_error = true
+
+[targets.plotsrv_0_8_0]
+package = "plotsrv==0.8.0"
+harness = "../.."
+packages = ["psutil>=5.9", "httpx>=0.28,<1"]
+
+[targets.plotsrv_local]
+source = "../.."
+harness = "../.."
+packages = ["psutil>=5.9", "httpx>=0.28,<1"]
+
+[[runs]]
+recipe = "server-browser-single"
+targets = ["plotsrv_0_8_0", "plotsrv_local"]
+repeats = 3
+set = { clients = "1", rows = "1680" }
+
+[[runs]]
+recipe = "server-browser-concurrent"
+targets = ["plotsrv_0_8_0", "plotsrv_local"]
+repeats = 3
+set = { clients = "6", rows = "1680" }
+
+[[runs]]
+recipe = "server-browser-burst"
+targets = ["plotsrv_0_8_0", "plotsrv_local"]
+repeats = 3
+set = { clients = "20", rows = "1680" }
+
+[[runs]]
+recipe = "server-browser-large"
+targets = ["plotsrv_0_8_0", "plotsrv_local"]
+repeats = 3
+set = { clients = "6", rows = "15000" }

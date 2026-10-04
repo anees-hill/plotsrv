@@ -513,6 +513,15 @@
     const results = wrap.querySelector(".ps-viewselect__results");
     if (!trigger || !menu || !search || !tabs || !results) return null;
 
+    const mobileHeader = element("div", "ps-viewselect__mobile-header");
+    mobileHeader.appendChild(element("strong", "", "Views"));
+    const close = element("button", "ps-viewselect__close", "×");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close view picker");
+    mobileHeader.appendChild(close);
+    menu.prepend(mobileHeader);
+    let stopTrackingViewport = null;
+
     const controller = {
       catalogue: normalizeViewCatalogue(config.viewCatalogue),
       mode: "grouped",
@@ -803,6 +812,13 @@
     }
 
     function clampMenuToViewport() {
+      if (window.matchMedia("(max-width: 640px)").matches) {
+        // Mobile uses both viewport edges; a one-sided clamp can let the
+        // content's intrinsic width stretch the panel past the screen.
+        menu.style.left = "";
+        menu.style.right = "";
+        return;
+      }
       const fixed = window.getComputedStyle(menu).position === "fixed";
       menu.style.left = "";
       menu.style.right = fixed ? "" : "0";
@@ -816,25 +832,33 @@
 
     function openMenu() {
       menu.hidden = false;
+      if (stopTrackingViewport) stopTrackingViewport();
+      if (core.trackMobileViewport) stopTrackingViewport = core.trackMobileViewport(menu);
       trigger.setAttribute("aria-expanded", "true");
       render();
       requestAnimationFrame(function () {
+        if (menu.hidden) return;
         clampMenuToViewport();
-        search.focus();
+        if (window.matchMedia("(max-width: 640px)").matches) close.focus({ preventScroll: true });
+        else search.focus();
       });
     }
 
     function closeMenu(restoreFocus) {
       if (menu.hidden) return;
       menu.hidden = true;
+      if (stopTrackingViewport) stopTrackingViewport();
+      stopTrackingViewport = null;
       trigger.setAttribute("aria-expanded", "false");
       if (controller.query) {
         controller.query = "";
         search.value = "";
         render();
       }
-      if (restoreFocus) trigger.focus();
+      if (restoreFocus) trigger.focus({ preventScroll: true });
     }
+
+    close.addEventListener("click", function () { closeMenu(true); });
 
     controller.setCatalogue = function (views) {
       controller.catalogue = normalizeViewCatalogue(views);
@@ -968,8 +992,10 @@
       saveScrollTop();
       window.location.href = window.location.pathname + "?view=" + encodeURIComponent(viewId);
     });
-    menu.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") {
+    // Escape can arrive while focus is still on the trigger, before the
+    // opening animation frame moves it into the menu. Handle both locations.
+    wrap.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !menu.hidden) {
         event.preventDefault();
         closeMenu(true);
       }
