@@ -14,10 +14,11 @@ import tarfile
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-ref", required=True, help="Git revision preceding the receiver change")
+    parser.add_argument("--campaign", choices=("table-cache", "artifact-cache"), default="table-cache")
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     revision = subprocess.check_output(["git", "rev-parse", args.baseline_ref], cwd=root, text=True).strip()
-    destination = root / ".ptop" / "table-cache-baseline"
+    destination = root / ".ptop" / f"{args.campaign}-baseline"
     if destination.exists():
         saved = json.loads((destination / "provenance.json").read_text())
         if saved["revision"] != revision:
@@ -35,7 +36,7 @@ def main():
         f'{d.metadata["Name"]}=={d.version}' for d in distributions()
         if d.metadata["Name"].lower() != "plotsrv"
     )) + "\n"
-    path = root / ".ptop" / "table-cache-constraints.txt"
+    path = root / ".ptop" / f"{args.campaign}-constraints.txt"
     if path.exists() and path.read_text() != constraints:
         raise SystemExit("saved dependency constraints differ; do not overwrite an existing campaign")
     path.write_text(constraints)

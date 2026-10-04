@@ -300,7 +300,7 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def run(args: argparse.Namespace, *, exercise_fn=None, case_id="server.browser.concurrent",
-        cpu_route="table", harness_paths=()) -> int:
+        cpu_route="table", harness_paths=(), config_overrides=None) -> int:
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
     config = output / "plotsrv.yaml"
@@ -309,6 +309,7 @@ def run(args: argparse.Namespace, *, exercise_fn=None, case_id="server.browser.c
         "limits": {"truncate_after": {"table_rows": "off", "table_columns": "off"}},
         "browser-update-settings": {"max_connections": 96, "max_connections_per_client": 64,
                                     "max_connection_seconds": args.sse_lifetime},
+        **(config_overrides or {}),
     }))
     environment = {**os.environ, "PLOTSRV_CONFIG": str(config),
                    "MPLCONFIGDIR": str(output / "matplotlib"), "PYTHONUNBUFFERED": "1"}

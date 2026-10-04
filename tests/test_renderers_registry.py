@@ -11,6 +11,13 @@ from plotsrv.renderers.base import RenderResult
 from plotsrv.artifacts import Truncation
 
 
+@pytest.fixture(autouse=True)
+def restore_registry():
+    previous = list(reg._RENDERERS)
+    yield
+    reg._RENDERERS[:] = previous
+
+
 def _reset_registry() -> None:
     # registry is module-global; clear it between tests
     reg._RENDERERS.clear()

@@ -762,3 +762,93 @@ The browser lifecycle/refresh group passed 28 tests; the cache/report/profile
 group passed 27, with the subsequently added SSE reconnection test and all four
 final report tests also passing. `git diff --check` passed. The long campaign
 and deployment VM/proxy rehearsal remain unrun.
+
+## Non-table renderer response cache
+
+Ordinary current artifacts now reuse their final encoded HTTP response. JSON,
+Markdown, HTML, text, code/Python, images, tracebacks and error artifacts share
+this path. Simultaneous first readers share one render and encoding operation;
+waiting readers do not occupy worker threads. Publication, kind changes, watch
+metadata changes and reset invalidate retained responses. Completion checks
+prevent a late old render from replacing a newer cached revision.
+
+Encoded responses **replace** dictionary entries in the existing artifact cache.
+The existing limits remain 32 entries, 32 MiB total and 24 MiB per entry; no
+additional response-storage allowance is introduced. Encoded entries count their
+complete byte object size. Build coordination reuses the table cache's tested
+implementation with retention disabled, leaving the table cache itself unchanged.
+Coordination has the same 32-build/128-reader limits and uncached fallback.
+These are retained-cache bounds, not a ceiling on total process memory.
+
+Historical snapshots, watched artifacts, changing remote-watch notices and
+observation reports retain their existing paths. Direct internal Python calls
+still return dictionaries. Alternating internal dictionary calls with HTTP reads
+can replace the cached representation and cause a rebuild. `/plot` already serves
+published PNG bytes and was not changed; table rendering was also left unchanged.
+
+The short real-HTTP rehearsal publishes each of seven artifact types three times,
+with six simultaneous readers on each cold revision and ten subsequent warm
+waves. It checks current content, records full-response hashes and receiver CPU
+and memory, and probes `/status` during cold reads. It does not exercise browser
+JavaScript or replace the deferred long memory soak. A 512 MiB receiver watchdog
+and a 1,500 MiB ptop process-tree watchdog bound each run.
+
+```bash
+.venv/bin/python scripts/prepare_table_cache_campaign.py --campaign artifact-cache --baseline-ref 75d92b8
+ptop manifest plan plotsrv-artifact-cache.toml
+ptop --db .ptop/artifact-cache.sqlite3 manifest run plotsrv-artifact-cache.toml
+```
+
+The manifest compares three attempts per target using matching dependency
+constraints and Python 3.13.7. The baseline includes the committed table work;
+the candidate adds only the non-table renderer changes. The source hash and
+import path are recorded for each receiver. For a standalone current-code run:
+
+```bash
+.venv/bin/python -m benchmarks.artifact_profile --output benchmark-results/artifacts
+```
+
+### Local renderer results (2026-10-04)
+
+All six attempts completed in
+`ptop-manifest-results/2026-10-04T194146.062+0000-1`. Workload settings, dependency
+versions, host/Python information and harness hashes matched. The candidate
+source hash matched the working source. Every artifact response hash matched
+across all baseline/candidate attempts, including each republished revision.
+`artifact-comparison.json` and `.md` preserve the detailed local comparison.
+
+Medians of three independent runs, with six readers:
+
+| Renderer | Cold response p95 before → after | Warm response p95 before → after | Warm CPU/read before → after |
+| --- | --- | --- | --- |
+| JSON | 2,618.51 → 835.32 ms | 360.59 → 344.15 ms | 11.22 → 3.11 ms |
+| Markdown | 1,131.69 → 233.10 ms | 18.10 → 14.38 ms | 1.28 → 1.00 ms |
+| HTML | 16.73 → 15.31 ms | 17.95 → 13.38 ms | 1.22 → 0.89 ms |
+| Text | 17.58 → 22.51 ms | 16.30 → 15.28 ms | 1.17 → 0.94 ms |
+| Code | 20.16 → 18.55 ms | 18.62 → 15.15 ms | 1.44 → 1.00 ms |
+| Image | 18.19 → 20.08 ms | 15.70 → 14.04 ms | 1.11 → 0.94 ms |
+| Traceback | 22.85 → 18.58 ms | 17.21 → 17.05 ms | 1.28 → 0.94 ms |
+
+Median peak process RSS fell from 243.27 to 183.47 MiB; sampled peak retained
+artifact-cache size fell from 17.38 to 4.74 MiB. Accounting stayed within the
+existing cache limits. The largest benefits are shared first renders for JSON
+and Markdown and reduced JSON encoding CPU. Small-response timings do not all
+improve. These measurements do not establish long-running memory stability.
+
+The first comparison flagged cold `/status` p95 for JSON (91.2 → 119.0 ms) and
+text (14.1 → 22.1 ms). Each run had only three such samples; the JSON maximum
+always occurred on the first revision. A targeted twelve-publication repeat is
+recorded separately under `benchmark-results/artifact-status-repeat`.
+Both repeat runs completed with matching workloads, dependencies and source
+revisions. JSON status p95 improved from 51.37 to 25.45 ms; text changed from
+22.07 to 24.16 ms, below the investigation threshold. Publication p95 was
+57.22 → 27.66 ms for JSON and 8.76 → 9.80 ms for text. The initial status flags
+were therefore not reproduced as meaningful regressions. This is a short local
+follow-up, not a general guarantee of responsiveness under arbitrary load.
+
+Validation: **389 targeted tests passed**, covering the renderers, HTTP routes,
+snapshots, remote watches, observation reports, source syntax, checks and the
+table cache. This includes 21 new artifact-cache tests and a real-HTTP rehearsal
+test. The earlier browser lifecycle/refresh group also passed all 28 tests.
+Two renderer-registry test modules now restore their original registry after
+each test; previously their dummy renderers leaked into later route tests.

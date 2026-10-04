@@ -100,6 +100,17 @@ def run_server(args: argparse.Namespace) -> int:
                 import sys
                 module = sys.modules.get("plotsrv.table_cache")
                 stats = module.TABLE_RESPONSES.stats() if module else {"supported": False}
+                renderer = sys.modules.get("plotsrv.render_cache")
+                if renderer is not None:
+                    with renderer._CACHE._lock:
+                        stats["artifact"] = {
+                            "entries": len(renderer._CACHE._entries),
+                            "bytes": renderer._CACHE._total_bytes,
+                        }
+                    builds = getattr(renderer, "_HTTP_BUILDS", None)
+                    if builds is not None:
+                        stats["artifact"].update(builds=builds.stats()["builds"],
+                                                 waiters=builds.stats()["waiters"])
                 write_json_line(Path(args.cache_metrics), {"at_s": time.monotonic(), **stats})
                 next_cache_sample = time.monotonic() + 1
             time.sleep(0.1)

@@ -346,11 +346,14 @@ def _render_current_artifact_response(
         meta=meta,
         observation_context=observation_context,
     )
-    return cache_rendered_artifact(
-        view_id=view_id,
-        revision=revision,
-        response=rendered,
-    )
+    with store._STORE_LOCK:
+        st = store._VIEWS.get(view_id)
+        if (st is not None and st.render_revision == revision
+                and st.artifact is not None and st.artifact.obj is obj):
+            return cache_rendered_artifact(
+                view_id=view_id, revision=revision, response=rendered,
+            )
+    return rendered
 
 
 def _watched_file_raw_url(*, view_id: str, download: bool = False) -> str:
@@ -1947,7 +1950,59 @@ def index(request: Request, view: str | None = None) -> HTMLResponse:
     return HTMLResponse(content=html_str)
 
 
-@app.get("/artifact", dependencies=[Depends(require_snapshot_read)])
+@app.get("/artifact", dependencies=[Depends(require_snapshot_read)], response_model=dict[str, Any])
+async def get_artifact_http(
+    view: str | None = None,
+    snapshot: str | None = None,
+) -> Any:
+    from starlette.concurrency import run_in_threadpool
+    from . import render_cache
+    from .remote_watch import public_meta
+
+    def prepare():
+        with store._STORE_LOCK:
+            vid = view or store.get_active_view_id()
+            st = store.get_view_state(vid)
+            art = st.artifact
+            observation = (art is not None and art.kind == "json" and type(art.obj) is dict
+                           and art.obj.get("type") == "plotsrv_observation")
+            if (not snapshot and art is not None and art.kind not in ("plot", "table")
+                    and not observation and st.watched_file is None and public_meta(vid) is None):
+                return vid, st.render_revision, art
+        return get_artifact(view=view, snapshot=snapshot)
+
+    captured = await run_in_threadpool(prepare)
+    if not isinstance(captured, tuple):
+        return captured
+    vid, revision, art = captured
+
+    def build() -> bytes:
+        from fastapi.exceptions import ResponseValidationError
+        rendered = _render_artifact_response(
+            view_id=vid, obj=art.obj, kind_hint=art.kind,
+            meta={"source_info": art.source_info} if art.source_info else {},
+        )
+        value, errors = _ARTIFACT_RESPONSE_FIELD.validate(rendered, {}, loc=("response",))
+        if errors:
+            raise ResponseValidationError(errors=errors, body=rendered)
+        body = _ARTIFACT_RESPONSE_FIELD.serialize_json(value)
+        # A reader may finish its captured revision after publication, but an
+        # older build must never repopulate the cache or evict the newer result.
+        with store._STORE_LOCK:
+            st = store._VIEWS.get(vid)
+            if (st is not None and st.render_revision == revision and st.artifact is art
+                    and st.watched_file is None and public_meta(vid) is None):
+                render_cache._CACHE.put_bytes(view_id=vid, revision=revision, body=body)
+        return body
+
+    body = await render_cache.get_encoded_artifact(view_id=vid, revision=revision, build=build)
+    return Response(body, media_type="application/json")
+
+
+_ARTIFACT_RESPONSE_FIELD = next(route.response_field for route in app.routes
+                              if getattr(route, "path", None) == "/artifact")
+
+
 def get_artifact(
     view: str | None = None,
     snapshot: str | None = None,

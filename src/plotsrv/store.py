@@ -1104,6 +1104,8 @@ def _synchronise_store_api(func: Callable[..., Any]) -> Callable[..., Any]:
                                  "set_watched_file_meta", "clear_watched_file_meta", "reset"):
                 from .table_cache import TABLE_RESPONSES
                 TABLE_RESPONSES.invalidate(None if func.__name__ == "reset" else vid)
+                from .render_cache import invalidate_rendered_artifact
+                invalidate_rendered_artifact(None if func.__name__ == "reset" else vid)
             if func.__name__ in ("set_plot", "set_table", "set_artifact") and values.get("record_arrival", True):
                 from .checks import accept_state
                 st = get_view_state(vid)

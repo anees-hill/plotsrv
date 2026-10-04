@@ -3,9 +3,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
+
 import plotsrv.renderers.registry as reg
 from plotsrv.artifacts import Truncation
 from plotsrv.renderers.base import RenderResult
+
+
+@pytest.fixture(autouse=True)
+def restore_registry():
+    previous = list(reg._RENDERERS)
+    yield
+    reg._RENDERERS[:] = previous
 
 
 def _reset_registry() -> None:
