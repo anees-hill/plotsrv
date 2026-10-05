@@ -165,7 +165,7 @@ def _scan(root, view_id, selected, cursor, limit, start, end, days=False):
                 pass  # Selected metadata unreadable/missing is explicit in the response.
     heap = []
     older = newer = newest = None
-    count = eligible = 0
+    count = eligible = newer_count = 0
     available_days = {}
     def entries():
         for directory in directories:
@@ -214,6 +214,8 @@ def _scan(root, view_id, selected, cursor, limit, start, end, days=False):
                 newest = item
             if selected_item:
                 pivot = selected_item[0]
+                if key > pivot:
+                    newer_count += 1
                 if key < pivot and (older is None or key > older[0]):
                     older = item
                 if key > pivot and (newer is None or key < newer[0]):
@@ -231,6 +233,9 @@ def _scan(root, view_id, selected, cursor, limit, start, end, days=False):
                 heapq.heappush(heap, item)
             elif key > heap[0][0]:
                 heapq.heapreplace(heap, item)
+    # Retention may remove the selected file between its initial read and scan.
+    if selected and selected not in seen:
+        selected_item = older = newer = None
     page = sorted(heap, reverse=True)
     for key, row in page:
         row["is_latest"] = newest is not None and key == newest[0]
@@ -240,6 +245,7 @@ def _scan(root, view_id, selected, cursor, limit, start, end, days=False):
         count=count,
         next_cursor=encode_cursor(page[-1][0]) if eligible > limit and page else None,
         selected=selected_item[1] if selected_item else None,
+        selected_offset=(0 if not selected else newer_count + 1 if selected_item else None),
         selection_state=(
             "latest"
             if not selected
