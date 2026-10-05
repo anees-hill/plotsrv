@@ -610,7 +610,7 @@ def _set_artifact_for_refresh(
     elif kind == "markdown":
         obj = obj if isinstance(obj, dict) else str(obj)
 
-    elif kind == "python":
+    elif kind == "python" and not isinstance(obj, str):
         obj = repr(obj)
 
     store.set_artifact(
@@ -967,6 +967,19 @@ def start_server(
 
     if watches:
         client_host = _client_host_for_bind_host(host)
+        from .connection_config import get_server_connection_config
+        from .publishing.models import PublishTarget
+
+        # These watches belong to this receiver. Use its ingestion credential,
+        # never the independently configured outbound publisher destination.
+        token_env = get_server_connection_config().bearer_token_env
+        watch_connection = {}
+        if token_env:
+            authority = f"[{client_host}]" if ":" in client_host else client_host
+            watch_connection["destination"] = PublishTarget(
+                kind="remote", base_url=f"http://{authority}:{port}",
+                bearer_token_env=token_env,
+            )
 
         register_watch_views(watches, activate_first_if_none=True)
         _wait_for_server_ready(client_host, port, timeout_s=5.0)
@@ -976,6 +989,7 @@ def start_server(
             host=client_host,
             port=port,
             register_views=False,
+            **watch_connection,
         )
 
 

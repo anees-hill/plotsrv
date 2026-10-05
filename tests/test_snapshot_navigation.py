@@ -52,6 +52,7 @@ def test_order_time_then_id_latest_is_separate_and_no_body_reads(tmp_path, monke
     assert [s["snapshot_id"] for s in page["snapshots"]] == ["c", "b"]
     assert page["older"]["snapshot_id"] == "c"
     assert page["newer"] is None
+    assert page["selected_offset"] == 0
     assert not any(s["is_live_equivalent"] for s in page["snapshots"])
     assert all(s["equivalence"] == "unknown" for s in page["snapshots"])
     second = nav.navigation_page(
@@ -66,10 +67,16 @@ def test_order_time_then_id_latest_is_separate_and_no_body_reads(tmp_path, monke
     assert second["older"]["snapshot_id"] == "a"
     assert second["newer"]["snapshot_id"] == "c"
     assert second["selected"]["snapshot_id"] == "b"
+    assert second["selected_offset"] == 2
     newest = nav.navigation_page(root_dir=tmp_path, view_id="ops:log", selected="c")
     assert newest["newer"] is None and newest["can_return_latest"]
+    assert newest["selected_offset"] == 1
     oldest = nav.navigation_page(root_dir=tmp_path, view_id="ops:log", selected="z")
     assert oldest["older"] is None
+    assert oldest["selected_offset"] == 4
+    filtered = nav.navigation_page(root_dir=tmp_path, view_id="ops:log", selected="z",
+                                   start="2026-09-10", limit=1)
+    assert filtered["selected_offset"] == 4
     assert opened
 
 
@@ -107,6 +114,7 @@ def test_empty_missing_and_slug_collision(tmp_path):
     page = nav.navigation_page(root_dir=tmp_path, view_id="ops:log", selected="other")
     assert page["count"] == 0
     assert page["selection_state"] == "unavailable"
+    assert page["selected_offset"] is None
     assert page["can_return_latest"]
 
 

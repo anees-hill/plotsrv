@@ -154,9 +154,14 @@
     const meta = currentHistoryMeta();
     const time = document.getElementById("snapshot-mode-banner-time");
     if (time) {
-      time.textContent = meta && meta.created_at
+      const nav = navigation.viewId === config.activeViewId && navigation.metadata;
+      const offset = nav && nav.selected && nav.selected.snapshot_id === snapshot
+        ? nav.selected_offset : null;
+      const position = Number.isSafeInteger(offset) && offset > 0 ? "Live −" + offset + " · " : "";
+      time.textContent = position + (meta && meta.created_at
         ? snapshotLabel(meta.created_at)
-        : "Snapshot " + snapshot;
+        : "Snapshot " + snapshot);
+      time.title = position ? "Position among retained snapshots; Live −1 is the newest saved snapshot." : "";
     }
   }
 

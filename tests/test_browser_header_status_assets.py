@@ -147,7 +147,7 @@ def test_view_selector_and_status_share_base_treatment_with_distinct_layout() ->
         ".ps-header-status__button:focus-visible,\n.ps-viewselect__btn:focus-visible"
         in status_css
     )
-    assert "grid-template-columns: 340px 280px 130px" in layout_css
+    assert "grid-template-columns: 340px 420px 130px" in layout_css
     assert "grid-template-columns: 18px minmax(0, 1fr) 16px" in controls_css
     assert "text-overflow: ellipsis" in controls_css
     assert ".ps-viewselect__btn {\n  background: var(--ps-surface-muted);" in themes_css

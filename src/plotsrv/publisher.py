@@ -426,8 +426,12 @@ def _to_publish_payload(
         elif kind2 == "image":
             payload["artifact"] = _json_safe(obj)
 
+        elif kind2 == "python" and isinstance(obj, str):
+            # Source text is already the representation to display.
+            payload["artifact"] = obj
+
         else:
-            # "python" and any unknown explicit artifact kind use repr fallback.
+            # Python objects and unknown explicit artifact kinds use repr fallback.
             payload["artifact"] = repr(obj)
 
         return payload

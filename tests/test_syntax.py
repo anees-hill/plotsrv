@@ -406,3 +406,28 @@ def test_path_publish_preserves_source_hints(client, tmp_path, monkeypatch, loca
     assert artifact.source_info == source_info.for_file(source)
     if not local:
         assert str(tmp_path) not in str(captured)
+
+
+@pytest.mark.parametrize("local", [False, True])
+def test_published_python_source_preserves_text_through_receiver(client, monkeypatch, local):
+    from plotsrv import publisher, server
+    from plotsrv.publishing import transport
+
+    raw = 'def total(values):\n    """Revenue in GBP."""\n    return sum(values)\n'
+    monkeypatch.setattr(transport, "handshake", lambda *a, **kw: None)
+    monkeypatch.setattr(server, "start_server", lambda **kw: None)
+    monkeypatch.setattr(server, "_ensure_server_running", lambda *a, **kw: None)
+
+    def post_payload(**kwargs):
+        reply = client.post("/publish", json=kwargs["payload"])
+        assert reply.status_code == 200, reply.text
+        return True
+
+    monkeypatch.setattr(publisher, "_post_publish_payload", post_payload)
+    publisher.publish_view(raw, artifact_kind="python", launch_server=local,
+                           view_id="python-source", async_=False)
+    artifact = store.get_artifact(view_id="python-source")
+    assert artifact.kind == "python" and artifact.obj == raw
+    reply = client.get("/artifact", params={"view": "python-source"}).json()
+    assert "ps-code-token--keyword" in reply["html"]
+    assert "data-plotsrv-code-raw" in reply["html"]

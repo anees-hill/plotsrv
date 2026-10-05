@@ -632,6 +632,33 @@
     return streamRowsFromState();
   }
 
+  function streamTimestamp(value) {
+    // Full datetimes only: Date.parse also accepts IDs, years and ambiguous dates.
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/.test(value)) return null;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function displayStreamRows(fields) {
+    const rows = streamRowsFromState();
+    const lookup = fieldLookup(fields);
+    const candidates = [state.httpProfile && state.httpProfile.fields && state.httpProfile.fields.time,
+      ...["timestamp", "@timestamp", "time", "datetime", "event_time", "logged_at", "created_at"].map(name => lookup.get(name)),
+      fields[0]];
+    const field = candidates.find(candidate => candidate && fields.includes(candidate) &&
+      rows.some(row => streamTimestamp(row[candidate]) !== null));
+    // Only the retained browser window is ordered. Server cursors remain in arrival order.
+    return rows.sort((a, b) => {
+      if (field) {
+        const left = streamTimestamp(a[field]), right = streamTimestamp(b[field]);
+        if (left !== null && right === null) return -1;
+        if (left === null && right !== null) return 1;
+        if (left !== null && right !== null && left !== right) return right - left;
+      }
+      return STREAM_RECORD_META.get(b).sequence - STREAM_RECORD_META.get(a).sequence;
+    });
+  }
+
   function mergeStreamRows(records, firstAvailable) {
     const stored = state.streamRowsBySequence || Object.create(null);
     const additions = [];
@@ -781,13 +808,13 @@
     if (!rows.length) return;
     if (table && typeof table.addData === "function") {
       await queueStreamTableMutation(function () {
-        return Promise.resolve(table.addData(rows));
+        return Promise.resolve(table.addData(rows, true));
       });
       return;
     }
     // This only supports reduced test doubles and older Tabulator surfaces;
     // normal stream updates use addData and retain all table interaction.
-    await replaceTableData(table, streamRowsFromState());
+    await replaceTableData(table, displayStreamRows(state.tableFields || []));
   }
 
   function updateCursor(data, records, replacing) {
@@ -2773,7 +2800,8 @@
     }
 
     if (!state.streamTabulatorInstance) {
-      const rows = replaceStreamRows(records);
+      replaceStreamRows(records);
+      const rows = displayStreamRows(fields);
       state.streamTabulatorInstance = new Tabulator("#stream-grid", {
         data: rows,
         columns: buildColumns(fields),
@@ -2827,7 +2855,8 @@
 
     let rows;
     if (resetRequired) {
-      rows = replaceStreamRows(records);
+      replaceStreamRows(records);
+      rows = displayStreamRows(fields);
       // A reset is an explicit loss of continuity, so replacement is correct;
       // Tabulator retains active filters and explicit sorting across replaceData.
       await replaceTableData(table, rows);
@@ -2837,13 +2866,17 @@
       }
     } else {
       const merged = mergeStreamRows(records, firstAvailable);
-      rows = streamRowsFromState();
-      if (merged.evictedRows) {
+      rows = displayStreamRows(fields);
+      const additions = new Set(merged.additions);
+      const prefix = rows.slice(0, additions.size);
+      if (merged.evictedRows || !prefix.every(row => additions.has(row))) {
         // The retained raw window advanced. Rebuild from the browser's local
         // sequence-indexed rows, not a re-downloaded raw window.
         await replaceTableData(table, rows);
       } else {
-        await appendTableData(table, merged.additions);
+        // The usual case: new timestamps/arrivals precede the existing window.
+        // Keep existing row components and explicit user sorting intact.
+        await appendTableData(table, prefix);
       }
       if (!streamLoadIsCurrent(load)) {
         finishStreamLoad(load);

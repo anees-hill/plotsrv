@@ -33,6 +33,7 @@ def mount(page, kind="artifact"):
         return {capability:{enabled:true}, snapshots:rows.slice(before,before+50),
           next_cursor:before+50<count ? String(before+50) : null,
           selected:rows[index] || null,
+          selected_offset: selected ? (index >= 0 ? index+1 : null) : 0,
           older: selected ? rows[index+1] || null : rows[0] || null,
           newer: selected && index>0 ? rows[index-1] : null};
       };
@@ -162,6 +163,7 @@ def test_snapshot_reminder_attaches_to_dock_without_moving_content(page):
     banner = page.locator("#snapshot-mode-banner")
     assert banner.is_visible()
     assert "Historical snapshot" in banner.inner_text()
+    assert page.locator("#snapshot-mode-banner-time").inner_text().startswith("Live −80 · ")
     assert "2026" in page.locator("#snapshot-mode-banner-time").inner_text()
     assert banner.evaluate("e => e.parentElement.classList.contains('ps-bottom-dock')")
     assert page.locator("#view-content").bounding_box()["y"] == initial_top
@@ -175,6 +177,13 @@ def test_snapshot_reminder_attaches_to_dock_without_moving_content(page):
     page.select_option("#history-select", "80")
     settled(page)
     assert banner.is_visible()
+    assert page.locator("#snapshot-mode-banner-time").inner_text().startswith("Live −2 · ")
+    page.evaluate("""async () => {
+      const original = makeMeta;
+      makeMeta = url => {const data=original(url); delete data.selected_offset; return data;};
+      await PLOTSRV.core.loadHistory();
+    }""")
+    assert "Live −" not in page.locator("#snapshot-mode-banner-time").inner_text()
     page.set_viewport_size({"width": 375, "height": 800})
     banner_box = banner.bounding_box()
     assert banner_box["x"] >= 0

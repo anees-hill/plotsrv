@@ -217,7 +217,7 @@ def test_browser_policy_keeps_history_filters_and_stream_cursor_contract() -> No
     assert 'blockers.push("plot_mode")' in updates
     assert "state.pendingBrowserUpdate = payload" in updates
     assert 'url += "&after="' in stream
-    assert "await appendTableData(table, merged.additions)" in stream
+    assert "await appendTableData(table, prefix)" in stream
     assert "setInterval" not in stream
 
 

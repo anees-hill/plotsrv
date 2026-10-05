@@ -10,6 +10,8 @@ html[data-theme="system"] {
   --ps-surface: #ffffff;
   --ps-surface-raised: #ffffff;
   --ps-surface-soft: #f8f9fa;
+  --ps-filter-panel-bg: #eff6fc;
+  --ps-columns-panel-bg: #f4f1fa;
   --ps-surface-muted: #eef1f3;
   --ps-surface-hover: #f3f5f6;
   --ps-text: #22272b;
@@ -65,6 +67,8 @@ html[data-theme="dark"] {
   --ps-surface: #182027;
   --ps-surface-raised: #1e2831;
   --ps-surface-soft: #141b21;
+  --ps-filter-panel-bg: #202e3c;
+  --ps-columns-panel-bg: #2c2739;
   --ps-surface-muted: #26313a;
   --ps-surface-hover: #2a3640;
   --ps-text: #e8edf1;
@@ -107,6 +111,8 @@ html[data-theme="dark"] {
     --ps-surface: #182027;
     --ps-surface-raised: #1e2831;
     --ps-surface-soft: #141b21;
+    --ps-filter-panel-bg: #202e3c;
+    --ps-columns-panel-bg: #2c2739;
     --ps-surface-muted: #26313a;
     --ps-surface-hover: #2a3640;
     --ps-text: #e8edf1;
@@ -822,6 +828,14 @@ body.ps-settings-open {
 .ps-table-mode-switch {
   border-color: var(--ps-border);
   background: var(--ps-surface-soft);
+}
+
+.ps-table-filter-panel {
+  background: var(--ps-filter-panel-bg);
+}
+
+.ps-table-columns-panel {
+  background: var(--ps-columns-panel-bg);
 }
 
 .plot-frame--table {
