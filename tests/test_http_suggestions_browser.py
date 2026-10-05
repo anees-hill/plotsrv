@@ -398,7 +398,7 @@ def test_default_status_colours_labels_and_desktop_controls_fit(page):
     )
     assert page.locator(".ps-table-plot__point").evaluate_all(
         "els => els.map(e => e.getAttribute('fill'))"
-    ) == ["#15803d", "#b91c1c"]
+    ) == ["#b91c1c", "#15803d"]
     assert (
         "__plotsrv_http_"
         not in page.locator("#stream-grid .tabulator-header").inner_text()

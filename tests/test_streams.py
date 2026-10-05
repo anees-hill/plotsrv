@@ -1188,7 +1188,7 @@ def test_stream_renderer_keeps_valid_cursor_updates_incremental() -> None:
 
     assert "&after=" in stream_source
     assert "&session_id=" in stream_source
-    assert "await appendTableData(table, merged.additions)" in stream_source
+    assert "await appendTableData(table, prefix)" in stream_source
     assert "await replaceTableData(table, rows)" in stream_source
     assert "core.configureTableExplorer" in stream_source
     assert "movableColumns: true" in stream_source
@@ -1797,7 +1797,7 @@ context.window.PLOTSRV.core.loadStream().then(() => {
   }
   return context.window.PLOTSRV.core.loadStream();
 }).then(() => {
-  if (replacementCount !== 1 || !updatedRows || updatedRows.length !== 2 || updatedRows[0].sequence !== 30) {
+  if (replacementCount !== 1 || !updatedRows || updatedRows.length !== 2 || updatedRows[0].sequence !== 31) {
     throw new Error("an explicit reset did not replace the bounded local raw window");
   }
   if (!requestUrls[2].includes("after=26")) {
