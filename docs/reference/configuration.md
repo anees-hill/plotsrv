@@ -860,6 +860,12 @@ plotsrv run --config plotsrv.yaml
 
 ### Featured views
 
+Set `ui-settings.show_view_descriptions: false` to hide source descriptions and
+featured captions in the view dropdown while keeping **About this view** available.
+The default is `true`. If a featured entry should use its source description in
+About this view, omit its `caption`; a configured caption takes precedence.
+Captions on personal My views are unaffected.
+
 The header's view browser provides Grouped and A–Z modes. You can promote a
 small set of existing views into a Featured area at the top of Grouped mode:
 

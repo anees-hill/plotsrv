@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* allow dropdown descriptions to be hidden while retaining About this view explanations
+* keep both Browser preferences controls aligned together on desktop and mobile
+
 * preserve newlines and indentation when publishing Python source strings locally or to a receiver
 * show stream records newest first using a clear timestamp field, falling back to arrival order; manual sorting still takes precedence
 * show `Live −1`, `Live −2`, etc. beside snapshot timestamps, counting retained snapshots independently of picker pages

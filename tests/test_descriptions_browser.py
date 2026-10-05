@@ -1,7 +1,12 @@
 """Description precedence and accessible disclosure using the actual bundle."""
 
+from dataclasses import replace
+
 import pytest
-from tests.test_expanded_view_browser import page, mount as base_mount
+
+from plotsrv.ui_config import load_ui_settings
+from tests.test_expanded_view_browser import mount as base_mount
+from tests.test_expanded_view_browser import page
 from tests.test_my_views_browser import save
 
 
@@ -25,6 +30,7 @@ def test_description_disclosure_keyboard_escape_and_safe_text(page):
         page.locator("#view-about-text").inner_text()
         == '<img src=x onerror="window.injected=1"> & totals'
     )
+
     assert page.locator("#view-about-text img").count() == 0
     assert page.evaluate("window.injected") is None
     page.keyboard.press("Escape")
@@ -36,6 +42,25 @@ def test_description_disclosure_keyboard_escape_and_safe_text(page):
         .first.inner_text()
         .startswith("<img")
     )
+
+
+def test_hidden_dropdown_descriptions_remain_available_in_about(page, monkeypatch):
+    ui = replace(load_ui_settings(section={}), show_view_descriptions=False)
+    monkeypatch.setattr("plotsrv.html.get_ui_settings", lambda: ui)
+    mount(page, "Explain the financial totals to the trading team.")
+    page.click(".ps-viewselect__btn")
+    assert page.locator(".ps-viewselect__description:visible").count() == 0
+    page.keyboard.press("Escape")
+    page.evaluate("""() => {
+      PLOTSRV.config.featuredViews=[{view_id:'tables:main',title:'Orders'}];
+      PLOTSRV.core.updateViewSelectorCatalogue(PLOTSRV.config.viewCatalogue);
+    }""")
+    page.click(".ps-viewselect__btn")
+    assert page.locator(".ps-viewselect__feature-title").first.inner_text() == "Orders"
+    assert page.locator(".ps-viewselect__feature-caption:visible").count() == 0
+    page.keyboard.press("Escape")
+    page.locator("#view-about > summary").click()
+    assert page.locator("#view-about-text").inner_text() == "Explain the financial totals to the trading team."
 
 
 def test_saved_and_suggested_captions_override_source_and_empty_falls_back(page):

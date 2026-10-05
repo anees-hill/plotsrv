@@ -18,3 +18,9 @@
   .ps-view-about__panel button { min-width: 44px; min-height: 44px; }
 }
 .ps-view-about:not([open]) .ps-view-about__panel { display: none; }
+
+/* Keep source explanations available through About this view. */
+.ps-viewselect[data-show-descriptions="false"] .ps-viewselect__description,
+.ps-viewselect[data-show-descriptions="false"] .ps-viewselect__feature-caption {
+  display: none;
+}
