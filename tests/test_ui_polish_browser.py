@@ -157,5 +157,18 @@ def test_stream_toolbar_and_settings_header(page, width):
     assert page.locator(".ps-settings-about__identity").count() == 0
     assert page.locator(".ps-settings-about__powered").inner_text() == "plotsrv"
     assert page.locator(".ps-settings-about code").is_visible()
+    preferences = page.locator('section[aria-labelledby="settings-updates-title"]')
+    intro = preferences.locator(".ps-settings-section__intro").bounding_box()
+    for theme in ("light", "dark"):
+        page.evaluate("theme => document.documentElement.dataset.theme = theme", theme)
+        first, second = [item.bounding_box() for item in preferences.locator(".ps-settings-toggle").all()]
+        assert second["x"] == pytest.approx(first["x"], abs=1)
+        assert second["width"] == pytest.approx(first["width"], abs=1)
+        assert second["y"] >= first["y"] + first["height"]
+        if width > 900:
+            assert first["x"] >= intro["x"] + intro["width"]
+        else:
+            assert first["y"] >= intro["y"] + intro["height"]
+        assert first["x"] + first["width"] <= width
     page.keyboard.press("Escape")
     assert not page.locator("#settings-page").is_visible()

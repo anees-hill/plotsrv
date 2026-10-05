@@ -1168,20 +1168,22 @@ def render_index(
               <h2 id="settings-updates-title">Browser preferences</h2>
               <p>These settings apply to your experience in this browser. They do not affect other users or the server.</p>
             </div>
-            <label class="ps-settings-toggle">
-              <input id="settings-continuous-updates" type="checkbox">
-              <span>
-                <strong>Update continuously while interacting</strong>
-                <span>New data may replace the visible table or plot while you filter, sort, or use its controls. Leave off to keep updates pending until you choose Update now or clear those controls.</span>
-              </span>
-            </label>
-            <label class="ps-settings-toggle">
-              <input id="settings-view-navigation" type="checkbox" checked>
-              <span>
-                <strong>Show previous and next view buttons</strong>
-                <span>Step through views in the selected browse order.</span>
-              </span>
-            </label>
+            <div class="ps-settings-section__controls">
+              <label class="ps-settings-toggle">
+                <input id="settings-continuous-updates" type="checkbox">
+                <span>
+                  <strong>Update continuously while interacting</strong>
+                  <span>New data may replace the visible table or plot while you filter, sort, or use its controls. Leave off to keep updates pending until you choose Update now or clear those controls.</span>
+                </span>
+              </label>
+              <label class="ps-settings-toggle">
+                <input id="settings-view-navigation" type="checkbox" checked>
+                <span>
+                  <strong>Show previous and next view buttons</strong>
+                  <span>Step through views in the selected browse order.</span>
+                </span>
+              </label>
+            </div>
           </section>
 
           <section class="ps-settings-section" aria-labelledby="settings-about-title">
