@@ -195,7 +195,8 @@
       shell.classList.toggle("ps-markdown-shell--toc", open);
       toggle.setAttribute("aria-expanded", String(open));
       if (open) renderList();
-      if (focus) (open ? select : toggle).focus({ preventScroll: true });
+      // Focusing a native select can open its picker on mobile Safari.
+      if (focus) (open ? close : toggle).focus({ preventScroll: true });
     }
 
     function onToggle() { setOpen(!preference.open, true); }

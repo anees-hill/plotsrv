@@ -30,7 +30,14 @@ def test_python_multiline_copy_controls_and_snapshot_remount(page, theme, kind):
     base_mount(page, "artifacts:text")
     page.evaluate("theme=>document.documentElement.dataset.theme=theme", theme)
     raw = 'value = """first\n<script>still a string</script>\nlast"""\r\nprint(value)\n'
-    install(page, raw, kind)
+    # Exercise the wire representation, including real line breaks and indentation.
+    from plotsrv.publisher import _to_publish_payload
+
+    payload = _to_publish_payload(raw, kind="artifact", artifact_kind=kind,
+                                  label="Source", section=None,
+                                  update_limit_s=None, force=False)
+    assert payload["artifact"] == raw
+    install(page, payload["artifact"], payload["artifact_kind"])
     assert page.locator(".ps-code-line").count() == 4
     assert (
         page.locator(".ps-code-line").nth(1).locator(".ps-code-token--string").count()

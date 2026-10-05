@@ -1165,8 +1165,8 @@ def render_index(
 
           <section class="ps-settings-section" aria-labelledby="settings-updates-title">
             <div class="ps-settings-section__intro">
-              <h2 id="settings-updates-title">Live updates</h2>
-              <p>Choose when new data appears in this browser.</p>
+              <h2 id="settings-updates-title">Browser preferences</h2>
+              <p>These settings apply to your experience in this browser. They do not affect other users or the server.</p>
             </div>
             <label class="ps-settings-toggle">
               <input id="settings-continuous-updates" type="checkbox">
@@ -1175,13 +1175,6 @@ def render_index(
                 <span>New data may replace the visible table or plot while you filter, sort, or use its controls. Leave off to keep updates pending until you choose Update now or clear those controls.</span>
               </span>
             </label>
-          </section>
-
-          <section class="ps-settings-section" aria-labelledby="settings-navigation-title">
-            <div class="ps-settings-section__intro">
-              <h2 id="settings-navigation-title">View navigation</h2>
-              <p>Choose which controls appear beside the view selector in this browser.</p>
-            </div>
             <label class="ps-settings-toggle">
               <input id="settings-view-navigation" type="checkbox" checked>
               <span>
@@ -1193,7 +1186,7 @@ def render_index(
 
           <section class="ps-settings-section" aria-labelledby="settings-about-title">
             <div class="ps-settings-section__intro">
-              <h2 id="settings-about-title">About this dashboard</h2>
+              <h2 id="settings-about-title">About plotsrv</h2>
             </div>
             <div class="ps-settings-about">
               <div class="ps-settings-about__card ps-settings-about__product">

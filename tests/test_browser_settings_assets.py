@@ -145,7 +145,7 @@ def test_settings_page_shows_installed_version_and_documentation_link(
     monkeypatch.setattr(html_mod, "_plotsrv_version", lambda: "9.8.7")
     rendered = _render()
 
-    assert 'id="settings-about-title">About this dashboard</h2>' in rendered
+    assert 'id="settings-about-title">About plotsrv</h2>' in rendered
     assert "<strong>plotsrv</strong>" in rendered
     assert 'src="/static/ui-images/plotsrv_icon_logo.png"' in rendered
     assert "<code>9.8.7</code>" in rendered

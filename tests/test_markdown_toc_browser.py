@@ -39,7 +39,7 @@ def test_depth_click_duplicate_headings_keyboard_and_theme(page, theme, tmp_path
     toggle.focus()
     page.keyboard.press("Enter")
     select = page.get_by_label("Heading depth", exact=True)
-    assert select.evaluate("el => el===document.activeElement")
+    assert page.locator("[data-markdown-toc-close]").evaluate("el => el===document.activeElement")
     links = page.locator(".ps-markdown-toc nav a")
     assert links.all_text_contents() == ["Report", "Setup", "Setup", "Details"]
     select.select_option("6")

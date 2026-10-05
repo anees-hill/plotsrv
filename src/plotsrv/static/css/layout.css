@@ -59,7 +59,7 @@
 
 .ps-header__right--controls {
   display: grid;
-  grid-template-columns: 340px 280px 130px;
+  grid-template-columns: 340px 420px 130px;
   flex: 0 0 auto;
 }
 
@@ -68,7 +68,7 @@
 }
 
 .ps-header__right--controls.ps-header__right--no-status {
-  grid-template-columns: 280px 130px;
+  grid-template-columns: 420px 130px;
 }
 
 .ps-header__right--controls.ps-header__right--no-view.ps-header__right--no-status {

@@ -610,7 +610,7 @@ def _set_artifact_for_refresh(
     elif kind == "markdown":
         obj = obj if isinstance(obj, dict) else str(obj)
 
-    elif kind == "python":
+    elif kind == "python" and not isinstance(obj, str):
         obj = repr(obj)
 
     store.set_artifact(
