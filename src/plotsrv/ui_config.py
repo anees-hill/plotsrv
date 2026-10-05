@@ -73,6 +73,7 @@ class UISettings:
     featured_views: tuple[FeaturedView, ...] = ()
     compact_views: tuple[CompactView, ...] = ()
     asset_files: tuple[Path, ...] = ()
+    show_view_descriptions: bool = True
 
 
 def _as_bool(x: Any, default: bool) -> bool:
@@ -353,6 +354,7 @@ def load_ui_settings(
         assets_dir=assets_dir,
         featured_views=featured_views,
         compact_views=compact_views,
+        show_view_descriptions=_as_bool(ui.get("show_view_descriptions"), True),
         asset_files=tuple(dict.fromkeys(asset_files)),
     )
 

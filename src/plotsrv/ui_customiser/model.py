@@ -58,6 +58,11 @@ FIELDS = {
         "Show snapshot navigation when applicable.",
         "controls",
     ),
+    "show_view_descriptions": (
+        "View dropdown descriptions",
+        "Show source descriptions and featured captions in the dropdown. About this view remains available.",
+        "controls",
+    ),
     "show_freshness": (
         "Freshness indicator",
         "Show freshness in the shared status area.",

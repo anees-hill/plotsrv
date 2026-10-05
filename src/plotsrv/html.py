@@ -534,7 +534,7 @@ def render_index(
             )
 
         dropdown_html = f"""
-          <div class="ps-viewselect" data-plotsrv-viewselect="1">
+          <div class="ps-viewselect" data-plotsrv-viewselect="1" data-show-descriptions="{'true' if ui.show_view_descriptions else 'false'}">
             <div class="ps-viewselect__main">
               <button type="button"
                     class="ps-viewselect__btn"
