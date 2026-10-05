@@ -1525,6 +1525,8 @@ def publish_watch_payload(
     update_limit_s: int | None = None,
     force: bool = False,
     source_info: dict | None = None,
+    view_id: str | None = None,
+    destination=None,
 ) -> bool:
     payload: dict[str, Any] = {
         "kind": kind,
@@ -1534,6 +1536,8 @@ def publish_watch_payload(
         "force": force,
         "publish_source": "watch",
     }
+    if view_id is not None:
+        payload["view_id"] = view_id
 
     if kind == "artifact":
         payload["artifact"] = artifact
@@ -1566,7 +1570,8 @@ def publish_watch_payload(
     else:
         raise ValueError(f"Unsupported watch publish kind: {kind!r}")
 
-    return post_publish_payload(host=host, port=port, payload=payload)
+    connection = {"destination": destination} if destination is not None else {"host": host, "port": port}
+    return post_publish_payload(**connection, payload=payload)
 
 
 def get_watch_adjustment_keys(
@@ -1656,6 +1661,8 @@ def publish_prepared_watch_payload(
     path: str | Path | None = None,
     read_mode: WatchReadMode | None = None,
     report_errors: bool = True,
+    view_id: str | None = None,
+    destination=None,
 ) -> bool:
     try:
         ok = publish_watch_payload(
@@ -1670,6 +1677,8 @@ def publish_prepared_watch_payload(
             **({"source_info": payload.source_info} if payload.source_info else {}),
             update_limit_s=update_limit_s,
             force=force,
+            **({"view_id": view_id} if view_id is not None else {}),
+            **({"destination": destination} if destination is not None else {}),
         )
     except Exception as e:
         ok = False
@@ -1711,6 +1720,8 @@ def publish_prepared_watch_payload(
             artifact_kind="watch_error",
             update_limit_s=None,
             force=True,
+            **({"view_id": view_id} if view_id is not None else {}),
+            **({"destination": destination} if destination is not None else {}),
         )
     except Exception:
         pass
@@ -1733,11 +1744,12 @@ def stop_watch_threads() -> None:
         _LOCAL_WATCH_STOPS.clear()
 
 
-def _local_watch_ready(host: str, port: int) -> None:
+def _local_watch_ready(host: str, port: int, destination=None) -> None:
     from .connection_config import resolve_publish_target
     from .publishing.transport import handshake
 
-    target = resolve_publish_target(host=host, port=port, launch_server=False)
+    connection = {"destination": destination} if destination is not None else {"host": host, "port": port}
+    target = resolve_publish_target(**connection, launch_server=False)
     # Cached cooldown/handshake failure happens before file reads or parsing.
     handshake(target, feature="publish")
 
@@ -1755,6 +1767,7 @@ def start_watch_threads(
     register_views: bool = True,
     coalesce: bool = False,
     every: float = 1.0,
+    destination=None,
 ) -> list[threading.Thread]:
     # Coalesced launchers use the same per-file steps/backoff with one scheduler,
     # retaining only metadata between turns. Existing callers keep their threads.
@@ -1794,7 +1807,10 @@ def start_watch_threads(
             def attempt(sig) -> bool:
                 # This frame releases raw bytes/parsed data after each attempt;
                 # neither a sleeping worker nor a retry retains source payloads.
-                _local_watch_ready(host, port)
+                if destination is not None:
+                    _local_watch_ready(host, port, destination)
+                else:
+                    _local_watch_ready(host, port)
                 if stop.is_set():
                     return False
                 try:
@@ -1816,6 +1832,8 @@ def start_watch_threads(
                             artifact_kind="watch_error",
                             update_limit_s=watch_config.update_limit_s,
                             force=watch_config.force,
+                            view_id=registered_view.view_id,
+                            **({"destination": destination} if destination is not None else {}),
                         )
                     return False
                 if stop.is_set() or sig != _watch_signature(pth):
@@ -1844,6 +1862,8 @@ def start_watch_threads(
                     path=pth,
                     read_mode=registered_view.read_mode,
                     report_errors=False,
+                    view_id=registered_view.view_id,
+                    **({"destination": destination} if destination is not None else {}),
                 )
 
             while not stop.is_set():

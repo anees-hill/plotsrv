@@ -6,6 +6,7 @@
 * show stream records newest first using a clear timestamp field, falling back to arrival order; manual sorting still takes precedence
 * show `Live −1`, `Live −2`, etc. beside snapshot timestamps, counting retained snapshots independently of picker pages
 * avoid focusing the native heading-depth selector when opening a Markdown table of contents
+* preserve explicit view IDs and use the receiver's own ingestion credential for local watched files
 * widen the desktop view selector, combine browser preferences in Settings, and distinguish table filter/column panels in both themes
 
 ## v0.7.0
